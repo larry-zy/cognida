@@ -1,0 +1,361 @@
+// Package evaluation 提供评测领域实体定义
+package evaluation
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// ========================================
+// QAPair QA 对
+// ========================================
+
+// QAPair QA 对（用于评测输入）
+type QAPair struct {
+	Question        string   `json:"question"`
+	ReferenceAnswer string   `json:"reference_answer"`
+	RelevantPIDs    []string `json:"relevant_pids,omitempty"` // 相关文档ID（用于检索评测）
+	Context         string   `json:"context,omitempty"`       // 额外上下文
+}
+
+// ========================================
+// QAResult QA 评测结果（简化版，用于执行器）
+// ========================================
+
+// QAResult QA 评测结果（用于执行器返回）
+type QAResult struct {
+	Question         string   `json:"question"`
+	ReferenceAnswer  string   `json:"reference_answer"`
+	GeneratedAnswer  string   `json:"generated_answer"`
+	RetrievedChunks  []string `json:"retrieved_chunks,omitempty"`
+	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
+	Success          bool     `json:"success"`
+	Error            string   `json:"error,omitempty"`
+
+	// 检索指标
+	Precision *float64 `json:"precision,omitempty"`
+	Recall    *float64 `json:"recall,omitempty"`
+	NDCG      *float64 `json:"ndcg,omitempty"`
+	RR        *float64 `json:"rr,omitempty"`
+
+	// 生成指标
+	ROUGE1 *float64 `json:"rouge_1,omitempty"`
+	ROUGE2 *float64 `json:"rouge_2,omitempty"`
+	ROUGEL *float64 `json:"rouge_l,omitempty"`
+	BLEU1  *float64 `json:"bleu_1,omitempty"`
+	BLEU2  *float64 `json:"bleu_2,omitempty"`
+	BLEU4  *float64 `json:"bleu_4,omitempty"`
+
+	// LLM Judge
+	LLMScore     *float64 `json:"llm_score,omitempty"`
+	LLMReasoning string   `json:"llm_reasoning,omitempty"`
+
+	// 语义相似度
+	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+}
+
+// ========================================
+// EvaluationTaskConfig 评测任务配置
+// ========================================
+
+// EvaluationTaskConfig 评测任务配置
+type EvaluationTaskConfig struct {
+	DatasetID string                 `json:"dataset_id"`
+	Type      EvaluationType         `json:"type"`
+	KnowledgeBaseID string                 `json:"knowledge_base_id,omitempty"`
+	AgentID   string                 `json:"agent_id,omitempty"`
+	ModelID   string                 `json:"model_id,omitempty"`
+	Config    map[string]interface{} `json:"config,omitempty"`
+}
+
+// Validate 验证配置
+func (c *EvaluationTaskConfig) Validate() error {
+	if c.DatasetID == "" {
+		return ErrInvalidConfig
+	}
+	if !c.Type.IsValid() {
+		return ErrInvalidEvalType
+	}
+	return nil
+}
+
+// ========================================
+// EvaluationTask 实体
+// ========================================
+
+// EvaluationTask 评测任务实体
+type EvaluationTask struct {
+	ID           string          `json:"id"`
+	TenantID     int64           `json:"tenant_id"`
+	UserID       int64           `json:"user_id"`
+	DatasetID    string          `json:"dataset_id"`
+	Type         EvaluationType  `json:"type"`
+	KnowledgeBaseID string          `json:"knowledge_base_id,omitempty"`
+	AgentID      string          `json:"agent_id,omitempty"`
+	ModelID      string          `json:"model_id,omitempty"`
+	Config       json.RawMessage `json:"config,omitempty"`
+	Status       TaskStatus      `json:"status"`
+	ErrorMessage string          `json:"error_message,omitempty"`
+	TotalCount   int             `json:"total_count"`
+	SuccessCount int             `json:"success_count"`
+	FailureCount int             `json:"failure_count"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	DeletedAt    *time.Time      `json:"deleted_at,omitempty"`
+}
+
+// NewEvaluationTask 创建新的评测任务
+func NewEvaluationTask(id string, tenantID, userID int64, datasetID string, evalType EvaluationType, totalCount int) *EvaluationTask {
+	now := time.Now()
+	return &EvaluationTask{
+		ID:           id,
+		TenantID:     tenantID,
+		UserID:       userID,
+		DatasetID:    datasetID,
+		Type:         evalType,
+		Status:       TaskStatusPending,
+		TotalCount:   totalCount,
+		SuccessCount: 0,
+		FailureCount: 0,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
+// SetStatus 更新任务状态
+func (t *EvaluationTask) SetStatus(status TaskStatus) {
+	t.Status = status
+	t.UpdatedAt = time.Now()
+}
+
+// SetError 设置错误信息并将状态设为失败
+func (t *EvaluationTask) SetError(msg string) {
+	t.Status = TaskStatusFailed
+	t.ErrorMessage = msg
+	t.UpdatedAt = time.Now()
+}
+
+// IncrementProgress 增加成功计数
+func (t *EvaluationTask) IncrementProgress() {
+	t.SuccessCount++
+	t.UpdatedAt = time.Now()
+}
+
+// IncrementFailure 增加失败计数
+func (t *EvaluationTask) IncrementFailure() {
+	t.FailureCount++
+	t.UpdatedAt = time.Now()
+}
+
+// IsCompleted 检查任务是否完成
+func (t *EvaluationTask) IsCompleted() bool {
+	return t.Status == TaskStatusCompleted || t.Status == TaskStatusFailed
+}
+
+// ========================================
+// EvaluationResult 实体
+// ========================================
+
+// EvaluationResult 评测结果实体
+type EvaluationResult struct {
+	ID                 int64     `json:"id"`
+	TaskID             string    `json:"task_id"`
+	Question           string    `json:"question"`
+	ReferenceAnswer    string    `json:"reference_answer"`
+	GeneratedAnswer    string    `json:"generated_answer"`
+	RetrievedPIDs      []string  `json:"retrieved_pids,omitempty"`
+	RelevantPIDs       []string  `json:"relevant_pids,omitempty"`
+	Success            bool      `json:"success"`
+	Error              string    `json:"error,omitempty"`
+
+	// 检索指标
+	Precision *float64 `json:"precision,omitempty"`
+	Recall    *float64 `json:"recall,omitempty"`
+	NDCG      *float64 `json:"ndcg,omitempty"`
+	RR        *float64 `json:"rr,omitempty"`
+
+	// 生成指标
+	ROUGE1 *float64 `json:"rouge_1,omitempty"`
+	ROUGE2 *float64 `json:"rouge_2,omitempty"`
+	ROUGEL *float64 `json:"rouge_l,omitempty"`
+	BLEU1  *float64 `json:"bleu_1,omitempty"`
+	BLEU2  *float64 `json:"bleu_2,omitempty"`
+	BLEU4  *float64 `json:"bleu_4,omitempty"`
+
+	// LLM Judge
+	LLMScore     *float64 `json:"llm_score,omitempty"`
+	LLMReasoning string   `json:"llm_reasoning,omitempty"`
+
+	// 语义相似度
+	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NewEvaluationResult 创建新的评测结果
+func NewEvaluationResult(taskID string, index int) *EvaluationResult {
+	return &EvaluationResult{
+		TaskID:    taskID,
+		Success:   false,
+		CreatedAt: time.Now(),
+	}
+}
+
+// ========================================
+// Dataset 数据集实体
+// ========================================
+
+// Dataset 数据集实体
+type Dataset struct {
+	ID             int64     `json:"id"`
+	DatasetID      string    `json:"dataset_id"`
+	TenantID       int64     `json:"tenant_id"`
+	UserID         int64     `json:"user_id"`
+	Name           string    `json:"name"`
+	Description    string    `json:"description"`
+	Type           DatasetType `json:"type"`
+	EvaluationType EvaluationType `json:"evaluation_type"`
+	QACount        int       `json:"qa_count"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+
+	// 关联的样本数据（非持久化字段）
+	QAPairs []*QAPair `json:"qa_pairs,omitempty"`
+}
+
+// DatasetType 数据集类型
+type DatasetType string
+
+const (
+	// DatasetTypeFile 文件系统数据集
+	DatasetTypeFile DatasetType = "file"
+	// DatasetTypeDatabase 数据库数据集
+	DatasetTypeDatabase DatasetType = "database"
+)
+
+// NewDataset 创建新数据集
+func NewDataset(datasetID string, tenantID, userID int64, name string, evalType EvaluationType) *Dataset {
+	now := time.Now()
+	return &Dataset{
+		DatasetID:      datasetID,
+		TenantID:       tenantID,
+		UserID:         userID,
+		Name:           name,
+		Type:           DatasetTypeDatabase,
+		EvaluationType: evalType,
+		QACount:        0,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+// UpdateName 更新数据集名称
+func (d *Dataset) UpdateName(name string) {
+	d.Name = name
+	d.UpdatedAt = time.Now()
+}
+
+// UpdateDescription 更新数据集描述
+func (d *Dataset) UpdateDescription(description string) {
+	d.Description = description
+	d.UpdatedAt = time.Now()
+}
+
+// IncrementQACount 增加样本计数
+func (d *Dataset) IncrementQACount(count int) {
+	d.QACount += count
+	d.UpdatedAt = time.Now()
+}
+
+// DecrementQACount 减少样本计数
+func (d *Dataset) DecrementQACount(count int) {
+	if d.QACount >= count {
+		d.QACount -= count
+	}
+	d.UpdatedAt = time.Now()
+}
+
+// IsDeleted 检查是否已删除
+func (d *Dataset) IsDeleted() bool {
+	return d.DeletedAt != nil
+}
+
+// MarkDeleted 标记为已删除
+func (d *Dataset) MarkDeleted() {
+	now := time.Now()
+	d.DeletedAt = &now
+	d.UpdatedAt = now
+}
+
+// ========================================
+// DatasetRecord 数据集样本记录实体
+// ========================================
+
+// DatasetRecord 数据集样本记录实体
+type DatasetRecord struct {
+	ID              int64     `json:"id"`
+	DatasetID       string    `json:"dataset_id"`
+	TenantID        int64     `json:"tenant_id"`
+	Question        string    `json:"question"`
+	ReferenceAnswer string    `json:"reference_answer"`
+	RelevantPIDs    []string  `json:"relevant_pids,omitempty"`
+	Context         string    `json:"context,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// NewDatasetRecord 创建新的样本记录
+func NewDatasetRecord(datasetID string, tenantID int64, question, referenceAnswer string) *DatasetRecord {
+	return &DatasetRecord{
+		DatasetID:       datasetID,
+		TenantID:        tenantID,
+		Question:        question,
+		ReferenceAnswer: referenceAnswer,
+		CreatedAt:       time.Now(),
+	}
+}
+
+// SetRelevantPIDs 设置相关文档ID
+func (r *DatasetRecord) SetRelevantPIDs(pids []string) {
+	r.RelevantPIDs = pids
+}
+
+// SetContext 设置上下文
+func (r *DatasetRecord) SetContext(context string) {
+	r.Context = context
+}
+
+// SetMetrics 设置检索指标
+func (r *EvaluationResult) SetRetrievalMetrics(precision, recall, ndcg, rr float64) {
+	r.Precision = &precision
+	r.Recall = &recall
+	r.NDCG = &ndcg
+	r.RR = &rr
+}
+
+// SetGenerationMetrics 设置生成指标
+func (r *EvaluationResult) SetGenerationMetrics(rouge1, rouge2, rougeL, bleu1, bleu2, bleu4 float64) {
+	r.ROUGE1 = &rouge1
+	r.ROUGE2 = &rouge2
+	r.ROUGEL = &rougeL
+	r.BLEU1 = &bleu1
+	r.BLEU2 = &bleu2
+	r.BLEU4 = &bleu4
+}
+
+// SetLLMJudge 设置 LLM 裁判结果
+func (r *EvaluationResult) SetLLMJudge(score float64, reasoning string) {
+	r.LLMScore = &score
+	r.LLMReasoning = reasoning
+}
+
+// MarkSuccess 标记为成功
+func (r *EvaluationResult) MarkSuccess() {
+	r.Success = true
+}
+
+// MarkError 标记错误
+func (r *EvaluationResult) MarkError(err string) {
+	r.Success = false
+	r.Error = err
+}

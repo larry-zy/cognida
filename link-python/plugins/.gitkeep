@@ -1,0 +1,32 @@
+# 插件目录
+
+此目录用于放置外部插件文件。
+
+## 插件示例
+
+创建 `my_plugin.py`:
+
+```python
+from services.quality.dimensions.base import DimensionEvaluator
+from services.quality.registry import register_evaluator
+
+@register_evaluator("my_plugin_evaluator")
+class MyPluginEvaluator(DimensionEvaluator):
+    """插件评估器。"""
+
+    dimension_name = "my_plugin_evaluator"
+
+    def evaluate(self, data, rules=None, config=None):
+        # 实现评估逻辑
+        pass
+```
+
+## 加载插件
+
+```python
+from services.quality.plugin_loader import PluginLoader
+
+loader = PluginLoader()
+loaded = loader.load_from_directory("plugins/")
+print(loaded)
+```

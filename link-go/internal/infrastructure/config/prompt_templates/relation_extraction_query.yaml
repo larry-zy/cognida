@@ -1,0 +1,60 @@
+# 关系提取提示词模板（查询模式）
+templates:
+  - id: "relation_extraction_query"
+    name: "查询时关系提取"
+    description: "根据用户查询从文档中提取相关实体之间的关系"
+    content: |
+      # 任务说明
+      你是一个专业的知识图谱查询助手。请根据用户查询，从文档内容中提取与查询相关的实体之间的关系。
+
+      # 用户查询
+      {{query}}
+
+      # 已识别的实体列表
+      {{entities}}
+
+      # 文档内容
+      {{document}}
+
+      # 任务要求
+
+      与文档入库时的完整提取不同，这里只需要提取与用户查询直接相关的关系：
+
+      1. **相关性优先**: 只提取与用户查询相关的关系
+      2. **精确匹配**: 关系必须在文档中明确表达
+      3. **适度提取**: 避免过度提取，聚焦查询意图
+
+      # 关系类型定义（11种标准类型）
+
+      | 类型 | 说明 |
+      |------|------|
+      | CONTAINS | 包含 |
+      | RELATED_TO | 相关 |
+      | DEPENDS_ON | 依赖 |
+      | PART_OF | 组成 |
+      | SIMILAR_TO | 相似 |
+      | CAUSES | 导致 |
+      | LOCATED_IN | 位于 |
+      | BELONGS_TO | 属于 |
+      | CONNECTED_TO | 连接 |
+      | PRECEDES | 先于 |
+      | FOLLOWS | 后于 |
+
+      # 输出格式
+
+      {"relations":[{"id":"rel_1","source":"源实体","target":"目标实体","type":"关系类型","description":"描述","strength":8.0,"weight":7.5}]}
+
+      # 示例
+
+      查询："Neo4j和Go语言有什么关系？"
+      文档："Neo4j图数据库需要Go语言驱动才能在Go项目中使用。Go驱动提供了完整的API支持..."
+      实体：["Neo4j", "Go语言", "Go驱动"]
+      输出：{"relations":[
+        {"id":"rel_1","source":"Go语言","target":"Neo4j","type":"DEPENDS_ON","description":"Go语言使用Neo4j需要依赖","strength":7.0,"weight":6.5},
+        {"id":"rel_2","source":"Go驱动","target":"Go语言","type":"CONNECTED_TO","description":"Go驱动连接Go语言和Neo4j","strength":9.0,"weight":8.5}
+      ]}
+
+      # 注意事项
+      - 如果没有相关关系，返回：{"relations":[]}
+      - type必须是11种标准类型之一
+      - source和target必须来自实体列表

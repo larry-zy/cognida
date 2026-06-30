@@ -1,0 +1,10 @@
+{
+  "dataset_id": "sample_agent",
+  "name": "示例Agent评测数据集",
+  "description": "包含工具调用轨迹的Agent评测数据集",
+  "fields": ["question", "answer", "expected_tools", "expected_steps"],
+  "metadata": {
+    "version": "1.0",
+    "type": "agent"
+  }
+}

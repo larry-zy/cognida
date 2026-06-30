@@ -1,0 +1,202 @@
+syntax = "proto3";
+
+package evaluation;
+
+option go_package = "link/api/proto/evaluation";
+
+// 评测服务
+service EvaluationService {
+    // 执行评测任务，流式返回进度和结果
+    rpc ExecuteEvaluation(EvaluationRequest) returns (stream EvaluationResponse);
+
+    // 获取可用的评测器列表
+    rpc ListGraders(ListGradersRequest) returns (ListGradersResponse);
+
+    // 获取可用的数据集列表
+    rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+
+    // 获取数据集详情
+    rpc GetDatasetInfo(GetDatasetInfoRequest) returns (GetDatasetInfoResponse);
+}
+
+// ===== 评测请求相关 =====
+
+message EvaluationRequest {
+    string dataset_id = 1;           // 数据集 ID
+    string knowledge_base_id = 2;    // 知识库 ID（用于 RAG 检索）
+    string model_id = 3;             // 模型 ID
+    EvaluationConfig config = 4;
+}
+
+message EvaluationConfig {
+    // 检索配置
+    int32 top_k = 1;                 // 检索返回的文档数量
+    repeated string retrieval_metrics = 2;  // 检索指标：precision, recall, ndcg, mrr, map
+
+    // 生成配置
+    repeated string generation_metrics = 3;  // 生成指标：rouge-1, rouge-2, rouge-l, bleu-1, bleu-2, bleu-4
+
+    // 高级配置
+    bool enable_semantic = 4;        // 是否启用语义相似度
+    bool enable_llm_judge = 5;       // 是否启用 LLM 裁判
+    repeated string llm_judge_dimensions = 6;  // LLM 裁判维度：accuracy, completeness, relevance
+
+    // Grader 配置
+    repeated GraderConfig graders = 7;  // 自定义评测器配置
+    string strategy = 8;              // 评测策略：zero_shot, data_driven, ensemble, conditional
+
+    // 结果配置
+    bool include_qa_results = 9;     // 是否返回每个 QA 的详细结果
+    int32 max_concurrent = 10;       // 最大并发数
+}
+
+message GraderConfig {
+    string name = 1;                 // 评测器名称
+    map<string, string> params = 2;  // 评测器参数
+    double weight = 3;               // 权重（用于集成策略）
+}
+
+// ===== 评测响应相关 =====
+
+message EvaluationResponse {
+    oneof response {
+        Progress progress = 1;        // 进度更新
+        EvaluationResult result = 2;  // 最终结果
+        Error error = 3;              // 错误信息
+    }
+}
+
+message Progress {
+    string stage = 1;                // 阶段：init, retrieval, generation, evaluation, complete
+    int32 current = 2;               // 当前进度
+    int32 total = 3;                 // 总数
+    string message = 4;              // 进度消息
+    double percentage = 5;           // 百分比
+}
+
+message EvaluationResult {
+    string evaluation_id = 1;        // 评测 ID
+    int64 timestamp = 2;             // 时间戳
+
+    // 聚合指标
+    RetrievalMetrics retrieval = 3;
+    GenerationMetrics generation = 4;
+    SemanticMetrics semantic = 5;
+    LLMJudgeMetrics llm_judge = 6;
+
+    // 自定义评测器结果
+    map<string, double> custom_scores = 7;
+
+    // QA 详细结果（可选）
+    repeated QAResult qa_results = 8;
+
+    // 元数据
+    int32 total_count = 9;           // 总 QA 数
+    int32 success_count = 10;        // 成功数
+    int32 failed_count = 11;         // 失败数
+}
+
+message RetrievalMetrics {
+    double precision = 1;            // Precision@k
+    double recall = 2;               // Recall@k
+    double ndcg = 3;                 // NDCG@k
+    double mrr = 4;                  // Mean Reciprocal Rank
+    double map = 5;                  // Mean Average Precision
+}
+
+message GenerationMetrics {
+    double rouge_1 = 1;              // ROUGE-1 F1
+    double rouge_2 = 2;              // ROUGE-2 F1
+    double rouge_l = 3;              // ROUGE-L F1
+    double bleu_1 = 4;               // BLEU-1
+    double bleu_2 = 5;               // BLEU-2
+    double bleu_4 = 6;               // BLEU-4
+}
+
+message SemanticMetrics {
+    double similarity = 1;           // 平均语义相似度
+    double min_similarity = 2;       // 最小相似度
+    double max_similarity = 3;       // 最大相似度
+}
+
+message LLMJudgeMetrics {
+    double total_score = 1;          // 总分
+    map<string, double> dimension_scores = 2;  // 各维度分数
+}
+
+message QAResult {
+    string question = 1;
+    string reference_answer = 2;
+    string generated_answer = 3;
+    repeated string retrieved_chunks = 4;  // 检索到的文档块
+
+    RetrievalMetrics retrieval = 5;
+    GenerationMetrics generation = 6;
+    double semantic_similarity = 7;
+    map<string, double> llm_judge_scores = 8;
+    map<string, double> custom_scores = 9;
+
+    bool success = 10;
+    string error = 11;
+}
+
+message Error {
+    string code = 1;                 // 错误码
+    string message = 2;              // 错误消息
+    string details = 3;              // 详细信息
+}
+
+// ===== 评测器列表相关 =====
+
+message ListGradersRequest {
+    string type = 1;                 // 过滤类型：retrieval, generation, semantic, llm, custom（空表示全部）
+}
+
+message ListGradersResponse {
+    repeated GraderInfo graders = 1;
+}
+
+message GraderInfo {
+    string name = 1;                 // 评测器名称
+    string type = 2;                 // 类型：retrieval, generation, semantic, llm, custom
+    string description = 3;          // 描述
+    repeated GraderParam params = 4; // 参数定义
+    string return_type = 5;          // 返回类型
+}
+
+message GraderParam {
+    string name = 1;                 // 参数名
+    string type = 2;                 // 参数类型：int, float, string, bool, list
+    string default_value = 3;        // 默认值
+    string description = 4;          // 描述
+    bool required = 5;               // 是否必需
+}
+
+// ===== 数据集列表相关 =====
+
+message ListDatasetsRequest {
+    // 空请求
+}
+
+message ListDatasetsResponse {
+    repeated DatasetInfo datasets = 1;
+}
+
+message DatasetInfo {
+    string dataset_id = 1;           // 数据集 ID
+    string description = 2;          // 描述
+    int32 qa_count = 3;              // QA 对数量
+    int64 size = 4;                  // 大小（字节）
+    int64 modified_time = 5;         // 修改时间
+}
+
+message GetDatasetInfoRequest {
+    string dataset_id = 1;           // 数据集 ID
+}
+
+message GetDatasetInfoResponse {
+    DatasetInfo info = 1;
+    repeated string domains = 2;     // 领域标签
+    repeated string languages = 3;   // 语言标签
+    map<string, string> metadata = 4; // 其他元数据
+}

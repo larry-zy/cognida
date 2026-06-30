@@ -1,0 +1,570 @@
+"""质量服务 gRPC 实现。"""
+
+import time
+from typing import Any
+
+import pandas as pd
+from grpc import ServicerContext
+
+import quality_pb2
+import quality_pb2_grpc
+from services.quality.evaluator import DataQualityEvaluator
+from services.quality.drift_detector import DriftDetector
+from services.quality.models import QualityReport, UnstructuredQualityReport
+from services.quality.pipeline.executor import QualityPipeline
+from services.quality.registry import EvaluatorRegistry, CleanerRegistry
+from services.quality.rules import RuleEngine
+
+
+class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
+    """质量服务 gRPC 实现。"""
+
+    def __init__(self) -> None:
+        """初始化服务。"""
+        self.evaluator = DataQualityEvaluator()
+        self.pipeline = QualityPipeline()
+        self.drift_detector = DriftDetector()
+        self.rule_engine = RuleEngine()
+
+    def EvaluateQuality(
+        self,
+        request: quality_pb2.EvaluateQualityRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.EvaluateQualityResponse:
+        """评估结构化数据质量。"""
+        try:
+            # 加载数据
+            if request.file_path:
+                data = self.evaluator.load_data(request.file_path)
+            elif request.csv_data:
+                from io import BytesIO
+
+                data = pd.read_csv(BytesIO(request.csv_data))
+            else:
+                return quality_pb2.EvaluateQualityResponse(
+                    success=False,
+                    error_message="No data provided",
+                )
+
+            # 执行评估
+            dimensions = list(request.dimensions) if request.dimensions else None
+            config = dict(request.config) if request.config else None
+
+            report = self.evaluator.evaluate_structured(
+                data,
+                dimensions=dimensions,
+                rule_file=request.rule_file or None,
+                config=config,
+            )
+
+            return quality_pb2.EvaluateQualityResponse(
+                report=self._convert_quality_report(report),
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.EvaluateQualityResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def EvaluateUnstructuredQuality(
+        self,
+        request: quality_pb2.EvaluateUnstructuredQualityRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.EvaluateUnstructuredQualityResponse:
+        """评估非结构化数据质量。"""
+        try:
+            dimensions = list(request.dimensions) if request.dimensions else None
+            config = dict(request.config) if request.config else None
+
+            report = self.evaluator.evaluate_unstructured(
+                request.text,
+                dimensions=dimensions,
+                rule_file=request.rule_file or None,
+                config=config,
+            )
+
+            return quality_pb2.EvaluateUnstructuredQualityResponse(
+                report=self._convert_unstructured_report(report),
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.EvaluateUnstructuredQualityResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def CleanData(
+        self,
+        request: quality_pb2.CleanDataRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.CleanDataResponse:
+        """清洗数据。"""
+        try:
+            # 加载数据
+            if request.file_path:
+                data = self.evaluator.load_data(request.file_path)
+            elif request.csv_data:
+                from io import BytesIO
+
+                data = pd.read_csv(BytesIO(request.csv_data))
+            else:
+                return quality_pb2.CleanDataResponse(
+                    success=False,
+                    error_message="No data provided",
+                )
+
+            # 执行清洗
+            cleaners = list(request.cleaners) if request.cleaners else None
+            config = dict(request.config) if request.config else {}
+
+            if cleaners:
+                config["cleaners"] = cleaners
+
+            result = self.pipeline._clean_data(data, config)
+
+            # 转换清洗后的数据
+            from io import BytesIO
+
+            output = BytesIO()
+            cleaned_data = data.iloc[: result.cleaned_count]
+            cleaned_data.to_csv(output, index=False)
+
+            return quality_pb2.CleanDataResponse(
+                result=self._convert_cleaning_result(result),
+                cleaned_data=output.getvalue(),
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.CleanDataResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def ProcessPipeline(
+        self,
+        request: quality_pb2.ProcessPipelineRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.ProcessPipelineResponse:
+        """执行端到端流程。"""
+        try:
+            config = dict(request.config) if request.config else {}
+
+            if request.is_structured:
+                # 处理结构化数据
+                if request.file_path:
+                    data = self.evaluator.load_data(request.file_path)
+                elif request.csv_data:
+                    from io import BytesIO
+
+                    data = pd.read_csv(BytesIO(request.csv_data))
+                else:
+                    return quality_pb2.ProcessPipelineResponse(
+                        success=False,
+                        error_message="No data provided",
+                    )
+
+                result = self.pipeline.process_structured(data, config)
+
+                return quality_pb2.ProcessPipelineResponse(
+                    result=self._convert_pipeline_result(result),
+                    success=True,
+                )
+
+            else:
+                # 处理非结构化数据
+                result = self.pipeline.process_unstructured(request.text, config)
+
+                return quality_pb2.ProcessPipelineResponse(
+                    result=self._convert_pipeline_result(result),
+                    success=True,
+                )
+
+        except Exception as e:
+            return quality_pb2.ProcessPipelineResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def DetectDrift(
+        self,
+        request: quality_pb2.DetectDriftRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.DetectDriftResponse:
+        """检测数据漂移。"""
+        try:
+            # 加载基线数据
+            if request.baseline_file:
+                baseline_data = self.evaluator.load_data(request.baseline_file)
+            else:
+                from io import BytesIO
+
+                baseline_data = pd.read_csv(BytesIO(request.baseline_data))
+
+            # 加载当前数据
+            if request.current_file:
+                current_data = self.evaluator.load_data(request.current_file)
+            else:
+                from io import BytesIO
+
+                current_data = pd.read_csv(BytesIO(request.current_data))
+
+            # 设置检测器
+            columns = list(request.columns) if request.columns else None
+            threshold = request.threshold if request.threshold > 0 else 0.05
+
+            self.drift_detector.threshold = threshold
+            self.drift_detector.set_baseline(baseline_data, columns)
+
+            # 执行检测
+            result = self.drift_detector.detect_drift(current_data, columns)
+
+            return quality_pb2.DetectDriftResponse(
+                has_drift=result.has_drift,
+                drift_metrics=[
+                    quality_pb2.DetectDriftResult(
+                        field=m.field,
+                        drift_score=m.drift_score,
+                        p_value=m.p_value,
+                        threshold=m.threshold,
+                        drifted=m.drifted,
+                    )
+                    for m in result.drift_metrics
+                ],
+                overall_drift_score=result.overall_drift_score,
+                baseline_timestamp=int(result.baseline_timestamp.timestamp()),
+                current_timestamp=int(result.current_timestamp.timestamp()),
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.DetectDriftResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def ListDimensions(
+        self,
+        request: quality_pb2.ListDimensionsRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.ListDimensionsResponse:
+        """列出可用的评估维度。"""
+        try:
+            # 内置维度
+            structured_dimensions = [
+                "completeness",
+                "accuracy",
+                "consistency",
+                "validity",
+                "uniqueness",
+                "timeliness",
+            ]
+            unstructured_dimensions = [
+                "readability",
+                "information_density",
+                "language_quality",
+                "duplication",
+                "pii_detector",
+                "relevance",
+            ]
+
+            dimensions = []
+
+            # 添加结构化维度
+            for dim in structured_dimensions:
+                dimensions.append(
+                    quality_pb2.DimensionInfo(
+                        name=dim,
+                        description=f"{dim} evaluator",
+                        supports_structured=True,
+                        supports_unstructured=False,
+                    )
+                )
+
+            # 添加非结构化维度
+            for dim in unstructured_dimensions:
+                dimensions.append(
+                    quality_pb2.DimensionInfo(
+                        name=dim,
+                        description=f"{dim} evaluator",
+                        supports_structured=False,
+                        supports_unstructured=True,
+                    )
+                )
+
+            return quality_pb2.ListDimensionsResponse(
+                dimensions=dimensions,
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.ListDimensionsResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def GetQualityRules(
+        self,
+        request: quality_pb2.GetQualityRulesRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.GetQualityRulesResponse:
+        """获取质量规则。"""
+        try:
+            rules = self.rule_engine.load_rules(request.rule_file or None)
+            available_files = self.rule_engine.list_available_rule_files()
+
+            return quality_pb2.GetQualityRulesResponse(
+                rules=self._convert_quality_rules(rules),
+                available_rule_files=available_files,
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.GetQualityRulesResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def UpdateQualityRules(
+        self,
+        request: quality_pb2.UpdateQualityRulesRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.UpdateQualityRulesResponse:
+        """更新质量规则。"""
+        try:
+            # 这里简化处理，实际应该保存到文件
+            return quality_pb2.UpdateQualityRulesResponse(
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.UpdateQualityRulesResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def RegisterCustomEvaluator(
+        self,
+        request: quality_pb2.RegisterCustomEvaluatorRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.RegisterCustomEvaluatorResponse:
+        """注册自定义评估器。"""
+        try:
+            # 动态加载和注册评估器
+            import importlib
+
+            module = importlib.import_module(request.module_path)
+            evaluator_class = getattr(module, request.class_name)
+
+            # 注册到注册表
+            EvaluatorRegistry.register(request.name)(evaluator_class)
+
+            return quality_pb2.RegisterCustomEvaluatorResponse(
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.RegisterCustomEvaluatorResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def RegisterCustomCleaner(
+        self,
+        request: quality_pb2.RegisterCustomCleanerRequest,
+        context: ServicerContext,
+    ) -> quality_pb2.RegisterCustomCleanerResponse:
+        """注册自定义清洗器。"""
+        try:
+            # 动态加载和注册清洗器
+            import importlib
+
+            module = importlib.import_module(request.module_path)
+            cleaner_class = getattr(module, request.class_name)
+
+            # 注册到注册表
+            CleanerRegistry.register(request.name)(cleaner_class)
+
+            return quality_pb2.RegisterCustomCleanerResponse(
+                success=True,
+            )
+
+        except Exception as e:
+            return quality_pb2.RegisterCustomCleanerResponse(
+                success=False,
+                error_message=str(e),
+            )
+
+    def _convert_quality_report(self, report: QualityReport) -> quality_pb2.QualityReport:
+        """转换质量报告。"""
+        return quality_pb2.QualityReport(
+            overall_score=report.overall_score,
+            dimensions=[self._convert_dimension_score(d) for d in report.dimensions],
+            issues=[self._convert_quality_issue(i) for i in report.issues],
+            record_count=report.record_count,
+            timestamp=int(report.timestamp.timestamp()),
+            metadata=report.metadata,
+        )
+
+    def _convert_unstructured_report(
+        self, report: UnstructuredQualityReport
+    ) -> quality_pb2.UnstructuredQualityReport:
+        """转换非结构化质量报告。"""
+        return quality_pb2.UnstructuredQualityReport(
+            overall_score=report.overall_score,
+            dimensions=[self._convert_unstructured_dim_score(d) for d in report.dimensions],
+            text_stats={k: str(v) for k, v in report.text_stats.items()},
+            issues=[self._convert_text_issue(i) for i in report.issues],
+            timestamp=int(report.timestamp.timestamp()),
+        )
+
+    def _convert_dimension_score(self, score) -> quality_pb2.DimensionScore:
+        """转换维度评分。"""
+        return quality_pb2.DimensionScore(
+            name=score.name,
+            score=score.score,
+            passed=score.passed,
+            issues=[self._convert_quality_issue(i) for i in score.issues],
+        )
+
+    def _convert_unstructured_dim_score(self, score) -> quality_pb2.UnstructuredDimensionScore:
+        """转换非结构化维度评分。"""
+        return quality_pb2.UnstructuredDimensionScore(
+            name=score.name,
+            score=score.score,
+            passed=score.passed,
+            issues=[self._convert_text_issue(i) for i in score.issues],
+            details={k: str(v) for k, v in score.details.items()},
+        )
+
+    def _convert_quality_issue(self, issue) -> quality_pb2.QualityIssue:
+        """转换质量问题。"""
+        return quality_pb2.QualityIssue(
+            severity=self._convert_severity(issue.severity),
+            dimension=issue.dimension,
+            field=issue.field or "",
+            description=issue.description,
+            count=issue.count,
+            sample=[str(s) for s in issue.sample[:5]],
+        )
+
+    def _convert_text_issue(self, issue) -> quality_pb2.TextQualityIssue:
+        """转换文本质量问题。"""
+        return quality_pb2.TextQualityIssue(
+            type=issue.type,
+            severity=self._convert_severity(issue.severity),
+            description=issue.description,
+            position_start=issue.position[0] if issue.position else 0,
+            position_end=issue.position[1] if issue.position else 0,
+            snippet=issue.snippet or "",
+            suggestion=issue.suggestion or "",
+        )
+
+    def _convert_severity(self, severity) -> quality_pb2.SeverityLevel:
+        """转换严重级别。"""
+        mapping = {
+            "critical": quality_pb2.SeverityLevel.CRITICAL,
+            "warning": quality_pb2.SeverityLevel.WARNING,
+            "info": quality_pb2.SeverityLevel.INFO,
+        }
+        return mapping.get(severity.value if hasattr(severity, "value") else severity, quality_pb2.SeverityLevel.INFO)
+
+    def _convert_cleaning_result(self, result) -> quality_pb2.CleaningResult:
+        """转换清洗结果。"""
+        return quality_pb2.CleaningResult(
+            original_count=result.original_count,
+            cleaned_count=result.cleaned_count,
+            removed_count=result.removed_count,
+            operations=[
+                quality_pb2.CleaningOperation(
+                    type=op.type,
+                    field=op.field or "",
+                    count=op.count,
+                    description=op.description,
+                )
+                for op in result.operations
+            ],
+            metadata={k: str(v) for k, v in result.metadata.items()},
+            timestamp=int(result.timestamp.timestamp()),
+        )
+
+    def _convert_pipeline_result(self, result) -> quality_pb2.PipelineResult:
+        """转换流程结果。"""
+        pb_result = quality_pb2.PipelineResult(
+            decision=self._convert_decision(result.decision),
+            quick_score=result.quick_score or 0.0,
+            deep_score=result.deep_score,
+            stage_times={k: float(v) for k, v in result.stage_times.items()},
+            metadata={k: str(v) for k, v in result.metadata.items()},
+            timestamp=int(result.timestamp.timestamp()),
+        )
+
+        if result.cleaning_result:
+            pb_result.cleaning_result.CopyFrom(self._convert_cleaning_result(result.cleaning_result))
+
+        if isinstance(result.quality_report, QualityReport):
+            pb_result.structured_report.CopyFrom(self._convert_quality_report(result.quality_report))
+        else:
+            pb_result.unstructured_report.CopyFrom(self._convert_unstructured_report(result.quality_report))
+
+        return pb_result
+
+    def _convert_decision(self, decision) -> quality_pb2.Decision:
+        """转换决策。"""
+        mapping = {
+            "accept": quality_pb2.Decision.ACCEPT,
+            "reject": quality_pb2.Decision.REJECT,
+            "review": quality_pb2.Decision.REVIEW,
+        }
+        return mapping.get(decision.value if hasattr(decision, "value") else decision, quality_pb2.Decision.REVIEW)
+
+    def _convert_quality_rules(self, rules) -> quality_pb2.QualityRules:
+        """转换质量规则。"""
+        return quality_pb2.QualityRules(
+            version=rules.version,
+            field_rules=[self._convert_field_rule(r) for r in rules.field_rules],
+            dimension_rules=[self._convert_dimension_rule(r) for r in rules.dimension_rules],
+            cleaning_rules={k: str(v) for k, v in rules.cleaning_rules.items()},
+            metadata={k: str(v) for k, v in rules.metadata.items()},
+        )
+
+    def _convert_field_rule(self, rule) -> quality_pb2.FieldRule:
+        """转换字段规则。"""
+        return quality_pb2.FieldRule(
+            name=rule.name,
+            type=self._convert_field_type(rule.type),
+            required=rule.required,
+            pattern=rule.pattern or "",
+            min_value=float(rule.min_value) if rule.min_value is not None else 0.0,
+            max_value=float(rule.max_value) if rule.max_value is not None else 0.0,
+            min_length=rule.min_length or 0,
+            max_length=rule.max_length or 0,
+            allowed_values=list(rule.allowed_values) if rule.allowed_values else [],
+            description=rule.description,
+        )
+
+    def _convert_dimension_rule(self, rule) -> quality_pb2.DimensionRule:
+        """转换维度规则。"""
+        return quality_pb2.DimensionRule(
+            name=rule.name,
+            enabled=rule.enabled,
+            threshold=rule.threshold,
+            weight=rule.weight,
+            config={k: str(v) for k, v in rule.config.items()},
+        )
+
+    def _convert_field_type(self, field_type) -> quality_pb2.FieldType:
+        """转换字段类型。"""
+        mapping = {
+            "string": quality_pb2.FieldType.STRING,
+            "integer": quality_pb2.FieldType.INTEGER,
+            "float": quality_pb2.FieldType.FLOAT,
+            "boolean": quality_pb2.FieldType.BOOLEAN,
+            "date": quality_pb2.FieldType.DATE,
+            "datetime": quality_pb2.FieldType.DATETIME,
+            "array": quality_pb2.FieldType.ARRAY,
+        }
+        return mapping.get(field_type.value if hasattr(field_type, "value") else field_type, quality_pb2.FieldType.STRING)

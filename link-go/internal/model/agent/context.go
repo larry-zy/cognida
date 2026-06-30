@@ -1,0 +1,154 @@
+// Package agent 提供 Agent 协作上下文的 Go context 传递支持
+package agent
+
+import "context"
+
+// ========================================
+// Context Keys - 用于在 context.Context 中传递协作上下文
+// ========================================
+
+// contextKey 是内部类型，防止外部包冲突
+type contextKey struct{}
+
+// 定义 context key 变量
+var (
+	// CollaborationCtxKey 协作上下文 key
+	CollaborationCtxKey = contextKey{}
+	// SessionIDKey 会话 ID key
+	SessionIDKey = contextKey{}
+	// TenantIDKey 租户 ID key
+	TenantIDKey = contextKey{}
+	// UserIDKey 用户 ID key
+	UserIDKey = contextKey{}
+	// RequestIDKey 请求 ID key（用于链路追踪）
+	RequestIDKey = contextKey{}
+)
+
+// ========================================
+// CollaborationContext 传递辅助函数
+// ========================================
+
+// WithCollaborationContext 将协作上下文注入到 Go context 中
+func WithCollaborationContext(ctx context.Context, cc *CollaborationContext) context.Context {
+	return context.WithValue(ctx, CollaborationCtxKey, cc)
+}
+
+// GetCollaborationContext 从 Go context 中获取协作上下文
+func GetCollaborationContext(ctx context.Context) (*CollaborationContext, bool) {
+	cc, ok := ctx.Value(CollaborationCtxKey).(*CollaborationContext)
+	return cc, ok
+}
+
+// MustGetCollaborationContext 获取协作上下文，不存在则返回 nil
+// 与 GetCollaborationContext 的区别是只返回值，不返回 bool
+func MustGetCollaborationContext(ctx context.Context) *CollaborationContext {
+	cc, _ := GetCollaborationContext(ctx)
+	return cc
+}
+
+// ========================================
+// SessionID 传递辅助函数
+// ========================================
+
+// WithSessionID 将会话 ID 注入到 Go context 中
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, SessionIDKey, sessionID)
+}
+
+// GetSessionID 从 Go context 中获取会话 ID
+func GetSessionID(ctx context.Context) (string, bool) {
+	sessionID, ok := ctx.Value(SessionIDKey).(string)
+	return sessionID, ok
+}
+
+// MustGetSessionID 获取会话 ID，不存在则返回空字符串
+func MustGetSessionID(ctx context.Context) string {
+	sessionID, _ := GetSessionID(ctx)
+	return sessionID
+}
+
+// ========================================
+// TenantID 传递辅助函数
+// ========================================
+
+// WithTenantID 将租户 ID 注入到 Go context 中
+func WithTenantID(ctx context.Context, tenantID int64) context.Context {
+	return context.WithValue(ctx, TenantIDKey, tenantID)
+}
+
+// GetTenantID 从 Go context 中获取租户 ID
+func GetTenantID(ctx context.Context) (int64, bool) {
+	tenantID, ok := ctx.Value(TenantIDKey).(int64)
+	return tenantID, ok
+}
+
+// MustGetTenantID 获取租户 ID，不存在则返回 0
+func MustGetTenantID(ctx context.Context) int64 {
+	tenantID, _ := GetTenantID(ctx)
+	return tenantID
+}
+
+// ========================================
+// UserID 传递辅助函数
+// ========================================
+
+// WithUserID 将用户 ID 注入到 Go context 中
+func WithUserID(ctx context.Context, userID int64) context.Context {
+	return context.WithValue(ctx, UserIDKey, userID)
+}
+
+// GetUserID 从 Go context 中获取用户 ID
+func GetUserID(ctx context.Context) (int64, bool) {
+	userID, ok := ctx.Value(UserIDKey).(int64)
+	return userID, ok
+}
+
+// MustGetUserID 获取用户 ID，不存在则返回 0
+func MustGetUserID(ctx context.Context) int64 {
+	userID, _ := GetUserID(ctx)
+	return userID
+}
+
+// ========================================
+// RequestID 传递辅助函数（链路追踪）
+// ========================================
+
+// WithRequestID 将请求 ID 注入到 Go context 中
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, RequestIDKey, requestID)
+}
+
+// GetRequestID 从 Go context 中获取请求 ID
+func GetRequestID(ctx context.Context) (string, bool) {
+	requestID, ok := ctx.Value(RequestIDKey).(string)
+	return requestID, ok
+}
+
+// MustGetRequestID 获取请求 ID，不存在则返回空字符串
+func MustGetRequestID(ctx context.Context) string {
+	requestID, _ := GetRequestID(ctx)
+	return requestID
+}
+
+// ========================================
+// 组合辅助函数
+// ========================================
+
+// WithAgentContext 将所有 Agent 相关的上下文注入到 Go context 中
+func WithAgentContext(ctx context.Context, sessionID string, tenantID int64, userID int64, cc *CollaborationContext) context.Context {
+	ctx = WithSessionID(ctx, sessionID)
+	ctx = WithTenantID(ctx, tenantID)
+	ctx = WithUserID(ctx, userID)
+	if cc != nil {
+		ctx = WithCollaborationContext(ctx, cc)
+	}
+	return ctx
+}
+
+// NewAgentContext 创建新的 Agent 上下文
+// 这是一个便捷函数，用于创建包含所有必要信息的 context
+func NewAgentContext(ctx context.Context, sessionID string, tenantID int64, userID int64, originalQuery string) context.Context {
+	cc := NewCollaborationContext(sessionID, tenantID, originalQuery)
+	cc.UserID = userID
+	return WithAgentContext(ctx, sessionID, tenantID, userID, cc)
+}

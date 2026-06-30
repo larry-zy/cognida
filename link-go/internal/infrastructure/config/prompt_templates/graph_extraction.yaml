@@ -1,0 +1,91 @@
+# 实体关系联合提取提示词模板
+templates:
+  - id: "graph_extraction"
+    name: "图谱联合提取"
+    description: "一次调用同时提取实体和关系，提高一致性和效率"
+    content: |
+      # 任务说明
+      你是一个专业的知识图谱构建助手。请仔细阅读以下文档内容，同时提取实体和关系。
+
+      # 文档内容
+      {{document}}
+
+      {{if .existingEntities}}
+      # 已有实体上下文（同一知识库中已存在的实体类型和示例）
+      {{.existingEntities}}
+      {{end}}
+
+      # 实体类型定义
+      - **Person**: 人员、角色、职位、开发者、作者等
+      - **Organization**: 公司名称、机构、组织、团队、社区等
+      - **Product**: 产品名称、服务、软件、工具等
+      - **Technology**: 编程语言、框架、库、算法、协议等
+      - **Concept**: 概念、方法论、原理、理论、模式等
+      - **Document**: 文档、规范、标准、手册等
+      - **Project**: 项目名称、代码库、模块、组件等
+      - **Location**: 地址、位置、目录、路径、URL等
+      - **Event**: 事件、会议、发布、里程碑等
+      - **Time**: 日期、时间段、版本号等
+      - **Other**: 其他重要名词
+
+      # 关系类型定义（11种标准类型）
+
+      | 类型 | 说明 | 示例 |
+      |------|------|------|
+      | CONTAINS | 包含 | 书籍包含章节 |
+      | RELATED_TO | 相关 | 两个技术相关 |
+      | DEPENDS_ON | 依赖 | 应用依赖数据库 |
+      | PART_OF | 组成 | 章节组成书的一部分 |
+      | SIMILAR_TO | 相似 | CNN与RNN相似 |
+      | CAUSES | 导致 | 错误导致崩溃 |
+      | LOCATED_IN | 位于 | 文件位于目录 |
+      | BELONGS_TO | 属于 | 员工属于公司 |
+      | CONNECTED_TO | 连接 | 前端连接后端 |
+      | PRECEDES | 先于 | 设计先于开发 |
+      | FOLLOWS | 后于 | 测试后于开发 |
+
+      # 提取要求
+
+      ## 实体提取
+      1. 识别文档中所有重要实体
+      2. 为每个实体指定最精确的类型
+      3. 添加相关属性（别名、特征等）
+      4. 避免重复，相同实体只提取一次
+
+      ## 关系提取
+      1. 仅提取文档中明确表达的关系
+      2. 关系的source和target必须是提取的实体
+      3. 选择最精确的关系类型
+      4. 评估关系强度（1-10）
+
+      # 输出格式要求
+
+      只返回JSON格式，不要添加任何其他文字说明。
+      不要使用markdown代码块标记。
+
+      {"nodes":[...],"relations":[...]}
+
+      # 完整示例
+
+      输入："Neo4j是一个图数据库，由Neo Technology公司开发。它需要Go驱动才能在Go项目中使用。"
+
+      输出：
+      {
+        "nodes": [
+          {"id":"1","name":"Neo4j","title":"Neo4j","entity_type":"Product","attributes":["图数据库"],"chunks":[]},
+          {"id":"2","name":"Neo Technology","title":"Neo Technology","entity_type":"Organization","attributes":["公司","开发商"],"chunks":[]},
+          {"id":"3","name":"Go驱动","title":"Go驱动","entity_type":"Technology","attributes":["驱动","SDK"],"chunks":[]},
+          {"id":"4","name":"Go项目","title":"Go项目","entity_type":"Project","attributes":["项目"],"chunks":[]}
+        ],
+        "relations": [
+          {"id":"rel_1","source":"Neo Technology","target":"Neo4j","type":"CONNECTED_TO","description":"Neo Technology开发了Neo4j","strength":9.0,"weight":8.5},
+          {"id":"rel_2","source":"Go项目","target":"Neo4j","type":"DEPENDS_ON","description":"Go项目依赖Neo4j","strength":8.0,"weight":7.5},
+          {"id":"rel_3","source":"Go项目","target":"Go驱动","type":"DEPENDS_ON","description":"Go项目需要Go驱动","strength":10.0,"weight":9.5}
+        ]
+      }
+
+      # 注意事项
+      - 如果文档没有实体，返回 {"nodes":[], "relations":[]}
+      - 如果有实体但没有关系，返回 {"nodes":[...], "relations":[]}
+      - entity_type必须是：Person、Organization、Product、Technology、Concept、Document、Project、Location、Event、Time、Other之一
+      - type必须是：CONTAINS、RELATED_TO、DEPENDS_ON、PART_OF、SIMILAR_TO、CAUSES、LOCATED_IN、BELONGS_TO、CONNECTED_TO、PRECEDES、FOLLOWS之一

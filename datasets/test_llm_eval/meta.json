@@ -1,0 +1,9 @@
+{
+  "id": "test_llm_eval",
+  "name": "LLM Evaluation Test Dataset",
+  "description": "Simple dataset to test LLM execution",
+  "type": "file",
+  "eval_type": "qa",
+  "qa_count": 3,
+  "modified_at": "2026-05-06T12:00:00Z"
+}

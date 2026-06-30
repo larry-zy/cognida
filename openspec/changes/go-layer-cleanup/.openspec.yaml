@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-04
+title: Go 层级架构清理与整合
+description: 清理 service/model/repository 层级职责，合并重复模块，精简 service 层为核心业务服务

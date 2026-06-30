@@ -1,0 +1,2 @@
+{"question": "Python是什么时候发布的？", "answer": "Python是由Guido van Rossum于1991年首次发布的。", "relevant_docs": ["doc_001", "doc_002"]}
+{"question": "机器学习的主要类型有哪些？", "answer": "机器学习主要分为监督学习、无监督学习和强化学习三大类。", "relevant_docs": ["doc_003", "doc_004", "doc_005"]}

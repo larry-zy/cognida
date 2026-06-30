@@ -1,0 +1,11 @@
+{
+  "dataset_id": "default",
+  "name": "默认问答数据集",
+  "description": "用于测试评测系统的简单问答数据集",
+  "fields": ["question", "answer"],
+  "metadata": {
+    "version": "1.0",
+    "type": "qa",
+    "created_at": "2026-05-06"
+  }
+}

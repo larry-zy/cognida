@@ -1,0 +1,161 @@
+# 关系提取提示词模板
+templates:
+  - id: "relation_extraction"
+    name: "关系提取格式"
+    description: "从文档中提取实体之间的关系（使用标准关系类型）"
+    content: |
+      # 任务说明
+      你是一个专业的知识图谱构建助手。请仔细阅读以下文档内容，提取其中实体之间的关系。
+
+      # 已识别的实体列表
+      {{entities}}
+
+      # 文档内容
+      {{document}}
+
+      # 标准关系类型定义
+
+      ## 11种标准关系类型
+
+      | 类型代码 | 中文名称 | 说明 | 示例 |
+      |---------|---------|------|------|
+      | CONTAINS | 包含 | A包含B作为组成部分 | 书籍包含章节 |
+      | RELATED_TO | 相关 | A与B存在关联关系 | 机器学习与数据分析相关 |
+      | DEPENDS_ON | 依赖 | A依赖于B才能运行/存在 | 应用依赖数据库 |
+      | PART_OF | 组成 | A是B的组成部分 | 章节是书籍的一部分 |
+      | SIMILAR_TO | 相似 | A与B具有相似性 | CNN与RNN相似 |
+      | CAUSES | 导致 | A导致B发生 | 错误导致系统崩溃 |
+      | LOCATED_IN | 位于 | A位于B的位置 | 配置文件位于/etc目录 |
+      | BELONGS_TO | 属于 | A属于B或从属于B | 用户属于组织 |
+      | CONNECTED_TO | 连接 | A与B有连接关系 | 前端连接后端API |
+      | PRECEDES | 先于 | A在B之前发生或存在 | 设计先于开发 |
+      | FOLLOWS | 后于 | A在B之后发生或存在 | 测试后于开发 |
+
+      # 关系选择指南
+
+      ## 使用 CONTAINS 当：
+      - 实体A包含实体B作为其组成部分
+      - A可以独立存在，B是A的子元素
+      - 示例：课程包含章节、系统包含模块
+
+      ## 使用 RELATED_TO 当：
+      - A与B存在关联但关系不明确
+      - 需要标记两个实体有关联
+      - 示例：两个技术有关联、两个概念相关
+
+      ## 使用 DEPENDS_ON 当：
+      - A需要B才能正常运行或存在
+      - 移除B会导致A无法工作
+      - 示例：应用依赖库、服务依赖数据库
+
+      ## 使用 PART_OF 当：
+      - A是B的组成部分，A不能独立于B存在
+      - 与CONTAINS相反方向
+      - 示例：章节是书的一部分、页是文档的一部分
+
+      ## 使用 SIMILAR_TO 当：
+      - A与B在性质、功能或特征上相似
+      - 两者可互相替代或比较
+      - 示例：两种算法相似、两个框架功能相似
+
+      ## 使用 CAUSES 当：
+      - A的发生导致B的发生
+      - 存在因果关系
+      - 示例：错误导致故障、更新导致问题
+
+      ## 使用 LOCATED_IN 当：
+      - A的物理或逻辑位置在B中
+      - 示例：文件位于目录、服务器位于机房
+
+      ## 使用 BELONGS_TO 当：
+      - A从属于B或归B所有/管理
+      - 示例：员工属于公司、文档属于项目
+
+      ## 使用 CONNECTED_TO 当：
+      - A与B存在连接关系（网络、数据、接口等）
+      - 示例：客户端连接服务器、前端连接后端
+
+      ## 使用 PRECEDES 当：
+      - A在时间或顺序上先于B
+      - 示例：设计先于实现、需求先于开发
+
+      ## 使用 FOLLOWS 当：
+      - A在时间或顺序上后于B
+      - 示例：测试后于编码、部署后于构建
+
+      # 提取要求
+
+      1. **仅使用已识别的实体**：只从上方实体列表中提取关系，不要添加新实体
+      2. **精确匹配类型**：关系类型必须从11种标准类型中选择
+      3. **方向性**: 识别关系的方向（A→B）
+      4. **强度评估**: 评估关系的重要性和紧密程度（1-10）
+      5. **避免推测**: 只提取文档中明确表达的关系
+
+      # 提取示例
+
+      ## 示例1：依赖关系
+      文档："Neo4j图数据库需要Go语言驱动才能在Go项目中使用"
+      实体：["Neo4j", "Go驱动", "Go项目"]
+      输出：{"relations":[
+        {"id":"rel_1","source":"Go项目","target":"Neo4j","type":"DEPENDS_ON","description":"Go项目需要Neo4j图数据库","strength":9.0,"weight":8.5},
+        {"id":"rel_2","source":"Go项目","target":"Go驱动","type":"DEPENDS_ON","description":"Go项目需要Go驱动连接Neo4j","strength":10.0,"weight":9.5}
+      ]}
+
+      ## 示例2：包含关系
+      文档："智能客服系统包含知识库管理、向量检索和图谱检索三个模块"
+      实体：["智能客服系统", "知识库管理", "向量检索", "图谱检索"]
+      输出：{"relations":[
+        {"id":"rel_1","source":"智能客服系统","target":"知识库管理","type":"CONTAINS","description":"智能客服系统包含知识库管理模块","strength":10.0,"weight":9.5},
+        {"id":"rel_2","source":"智能客服系统","target":"向量检索","type":"CONTAINS","description":"智能客服系统包含向量检索模块","strength":10.0,"weight":9.5},
+        {"id":"rel_3","source":"智能客服系统","target":"图谱检索","type":"CONTAINS","description":"智能客服系统包含图谱检索模块","strength":10.0,"weight":9.5}
+      ]}
+
+      ## 示例3：组成关系
+      文档："第一章是书的基础部分"
+      实体：["第一章", "书"]
+      输出：{"relations":[
+        {"id":"rel_1","source":"第一章","target":"书","type":"PART_OF","description":"第一章是书的一部分","strength":9.0,"weight":8.5}
+      ]}
+
+      ## 示例4：相似关系
+      文档："CNN和RNN都是常用的神经网络架构，各有优势"
+      实体：["CNN", "RNN", "神经网络"]
+      输出：{"relations":[
+        {"id":"rel_1","source":"CNN","target":"RNN","type":"SIMILAR_TO","description":"CNN和RNN都是神经网络架构，功能相似","strength":8.0,"weight":7.5},
+        {"id":"rel_2","source":"CNN","target":"神经网络","type":"PART_OF","description":"CNN是神经网络的一种","strength":9.0,"weight":8.5},
+        {"id":"rel_3","source":"RNN","target":"神经网络","type":"PART_OF","description":"RNN是神经网络的一种","strength":9.0,"weight":8.5}
+      ]}
+
+      ## 示例5：因果关系
+      文档："内存泄漏导致系统性能下降"
+      实体：["内存泄漏", "系统性能"]
+      输出：{"relations":[
+        {"id":"rel_1","source":"内存泄漏","target":"系统性能","type":"CAUSES","description":"内存泄漏导致系统性能下降","strength":9.0,"weight":8.5}
+      ]}
+
+      # 输出格式要求
+
+      **重要**：
+      1. 只返回JSON格式，不要添加任何其他文字说明
+      2. 不要使用markdown代码块标记（如```json）
+      3. 确保返回的是有效的JSON格式
+      4. 只返回relations数组，不要返回其他字段
+
+      请严格按照以下JSON格式输出：
+
+      {"relations":[{"id":"rel_1","source":"源实体名称","target":"目标实体名称","type":"关系类型","description":"关系描述","strength":8.0,"weight":7.5}]}
+
+      # 字段说明
+      - **id**: 关系的唯一标识符，使用 "rel_1", "rel_2" 等
+      - **source**: 源实体名称，必须来自上方实体列表
+      - **target**: 目标实体名称，必须来自上方实体列表
+      - **type**: 关系类型，必须从11种标准类型中选择
+      - **description**: 关系的详细描述
+      - **strength**: 关系强度（1-10），表示关系的重要性和紧密程度
+      - **weight**: 关系权重（1-10），综合考虑强度和置信度
+
+      # 注意事项
+      - 如果文档中没有明确的关系，请返回：{"relations":[]}
+      - type必须是以下之一：CONTAINS、RELATED_TO、DEPENDS_ON、PART_OF、SIMILAR_TO、CAUSES、LOCATED_IN、BELONGS_TO、CONNECTED_TO、PRECEDES、FOLLOWS
+      - source和target必须来自已识别的实体列表
+      - 确保返回的是纯JSON格式，不要有任何前缀或后缀文字

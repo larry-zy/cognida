@@ -1,0 +1,65 @@
+# ============================================================
+# Link monorepo 根级 .gitignore
+# 各子服务(link-go / link-python / link-web)另有各自的 .gitignore,
+# 此处覆盖跨服务通用的产物、IDE、OS 与工具缓存。
+# ============================================================
+
+# ---- IDE / 编辑器 ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- 日志 / 运行时 ----
+*.log
+server.log
+frontend.log
+
+# ---- 上传 / 运行时数据 (保留占位) ----
+uploads/
+!uploads/.gitkeep
+
+# ---- 工具产物 ----
+.codegraph/
+*.db
+
+# ---- Go 产物 ----
+link-go/bin/
+link-go/dist/
+link-go/tmp/
+link-go/server.log
+
+# ---- Python 产物 ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+link-python/data/*.parquet
+
+# ---- Web 产物 ----
+link-web/node_modules/
+link-web/dist/
+link-web/frontend.log
+
+# ---- 环境变量（含变体与备份，避免凭证入库）----
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+
+# ---- 备份文件 ----
+*.bak
+*.orig
+
+# ---- Python 大数据集（仅保留代码，不纳入原始数据）----
+link-python/data/

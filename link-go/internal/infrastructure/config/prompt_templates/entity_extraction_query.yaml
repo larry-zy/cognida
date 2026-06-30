@@ -1,0 +1,53 @@
+# 实体提取提示词模板（查询模式）
+templates:
+  - id: "entity_extraction_query"
+    name: "查询时实体提取"
+    description: "根据用户查询从文档中提取相关实体"
+    content: |
+      # 任务说明
+      你是一个专业的知识图谱查询助手。请根据用户查询，从文档内容中提取与查询相关的实体。
+
+      # 用户查询
+      {{query}}
+
+      # 文档内容
+      {{document}}
+
+      # 提取要求
+      与文档入库时的完整提取不同，这里只需要提取与用户查询直接相关的实体：
+      1. **相关性优先**: 只提取与用户查询相关的实体
+      2. **精确匹配**: 实体名称必须在文档中明确出现
+      3. **适度提取**: 避免过度提取，聚焦查询意图
+      4. **类型适配**: 根据查询意图选择最相关的实体类型
+
+      # 实体类型定义
+      - **Person**: 人员、角色、职位等
+      - **Organization**: 公司名称、机构等
+      - **Product**: 产品名称、服务等
+      - **Technology**: 编程语言、框架、工具等
+      - **Concept**: 概念、方法论等
+      - **Document**: 文档、规范等
+      - **Project**: 项目名称、模块等
+      - **Location**: 地址、位置等
+      - **Event**: 事件、会议等
+      - **Time**: 日期、时间等
+      - **Other**: 其他重要名词
+
+      # 输出格式
+
+      {"nodes":[{"id":"1","name":"实体名称","title":"显示标题","entity_type":"Concept","attributes":["属性1"],"chunks":[]}]}
+
+      # 示例
+
+      查询："Go语言中如何使用Neo4j？"
+      文档："Neo4j是一个图数据库，支持多种编程语言。Go语言可以通过neo4j-go驱动连接Neo4j..."
+      输出：{"nodes":[
+        {"id":"1","name":"Neo4j","title":"Neo4j","entity_type":"Product","attributes":["图数据库"],"chunks":[]},
+        {"id":"2","name":"Go语言","title":"Go语言","entity_type":"Technology","attributes":["编程语言"],"chunks":[]},
+        {"id":"3","name":"neo4j-go","title":"neo4j-go","entity_type":"Technology","attributes":["驱动","SDK"],"chunks":[]}
+      ]}
+
+      # 注意事项
+      - 如果没有相关实体，返回：{"nodes":[]}
+      - 确保返回纯JSON，无其他文字
+      - entity_type必须是：Person、Organization、Product、Technology、Concept、Document、Project、Location、Event、Time、Other之一

@@ -1,0 +1,10 @@
+{
+  "dataset_id": "sample_rag",
+  "name": "示例RAG评测数据集",
+  "description": "包含文档语料的RAG评测数据集",
+  "fields": ["question", "answer", "relevant_docs"],
+  "metadata": {
+    "version": "1.0",
+    "type": "rag"
+  }
+}

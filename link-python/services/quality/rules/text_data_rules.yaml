@@ -1,0 +1,80 @@
+# 文本数据质量规则配置
+
+version: "1.0"
+
+# 继承默认规则的字段规则（可扩展）
+
+# 维度规则 - 针对非结构化文本数据
+dimension_rules:
+  - name: readability
+    enabled: true
+    threshold: 70
+    weight: 1.0
+    config:
+      min_length: 50
+      readable_ratio_threshold: 0.5
+
+  - name: information_density
+    enabled: true
+    threshold: 60
+    weight: 1.0
+    config:
+      min_length: 50
+      valid_word_threshold: 0.3
+      stop_word_threshold: 0.7
+
+  - name: language_quality
+    enabled: true
+    threshold: 60
+    weight: 1.0
+
+  - name: duplication
+    enabled: true
+    threshold: 70
+    weight: 1.0
+    config:
+      similarity_threshold: 0.85
+
+  - name: pii_detector
+    enabled: true
+    threshold: 80
+    weight: 1.0
+
+  - name: relevance
+    enabled: false
+    threshold: 60
+    weight: 1.0
+    config:
+      expected_topics: []
+      expected_keywords: []
+
+# 清洗规则 - 针对文本数据
+cleaning_rules:
+  text_cleaning:
+    remove_special_chars: true
+    remove_html: true
+    normalize_whitespace: true
+    fix_encoding: true
+
+  dedup:
+    exact_dedup: true
+    fuzzy_dedup: true
+    text_column: "content"
+    similarity_threshold: 0.85
+
+  denoising:
+    remove_ads: true
+    remove_junk: true
+    remove_boilerplate: true
+    text_column: "content"
+
+  pii_masking:
+    mask_phone: true
+    mask_email: true
+    mask_id_card: true
+    text_column: "content"
+
+# 元数据
+metadata:
+  description: "文本数据质量规则配置"
+  data_type: "unstructured_text"

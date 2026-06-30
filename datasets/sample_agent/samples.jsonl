@@ -1,0 +1,2 @@
+{"question": "今天北京的天气怎么样？", "answer": "今天北京晴天，温度25度", "expected_tools": ["search"], "expected_steps": ["思考用户问题", "调用搜索工具查询天气", "返回结果"]}
+{"question": "计算123 + 456等于多少？", "answer": "579", "expected_tools": ["calculator"], "expected_steps": ["识别计算需求", "调用计算器", "返回结果"]}

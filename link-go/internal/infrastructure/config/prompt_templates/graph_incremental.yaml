@@ -1,0 +1,77 @@
+# 图谱增量更新提示词模板
+templates:
+  - id: "graph_incremental"
+    name: "图谱增量更新"
+    description: "基于已有图谱知识，增量提取新的实体和关系"
+    content: |
+      # 任务说明
+      你是一个专业的知识图谱更新助手。请基于已有的图谱知识，从新文档中提取新的实体和关系。
+
+      # 新文档内容
+      {{document}}
+
+      # 已有图谱知识
+
+      ## 已存在的实体类型分布
+      {{.entityTypeDistribution}}
+
+      ## 已存在的实体示例（高频实体）
+      {{.sampleEntities}}
+
+      ## 已存在的关系类型分布
+      {{.relationTypeDistribution}}
+
+      # 提取策略
+
+      ## 1. 实体处理
+      - **识别新实体**：提取文档中未在已有图谱中的实体
+      - **更新已知实体**：如果文档提到已有实体，提取其新属性
+      - **实体对齐**：使用已有实体的标准名称（如："Python语言"→"Python"）
+
+      ## 2. 关系处理
+      - **新关系**：提取文档中新出现的关系
+      - **关系增强**：如果文档提到已有关系，更新其强度和描述
+      - **避免重复**：不重复提取已有的关系
+
+      # 输出格式
+
+      {
+        "new_nodes": [
+          {"id":"1","name":"新实体","title":"新实体","entity_type":"Technology","attributes":["属性"],"chunks":[]}
+        ],
+        "updated_nodes": [
+          {"id":"existing_1","name":"已有实体","title":"已有实体","entity_type":"Technology","new_attributes":["新发现的属性"]}
+        ],
+        "new_relations": [
+          {"id":"rel_1","source":"源实体","target":"目标实体","type":"关系类型","description":"描述","strength":8.0,"weight":7.5}
+        ]
+      }
+
+      # 字段说明
+      - **new_nodes**: 本次提取的新实体
+      - **updated_nodes**: 已存在但有新属性更新的实体
+      - **new_relations**: 本次提取的新关系
+
+      # 示例
+
+      已有实体：["Python", "Django", "数据库"]
+      已有关系：[Python -RELATED_TO-> Django, Django -DEPENDS_ON-> 数据库]
+
+      新文档："Flask是另一个流行的Python Web框架，同样需要数据库支持。"
+      输出：
+      {
+        "new_nodes": [
+          {"id":"1","name":"Flask","title":"Flask","entity_type":"Technology","attributes":["Web框架","Python"],"chunks":[]}
+        ],
+        "updated_nodes": [
+          {"id":"existing_1","name":"Python","title":"Python","entity_type":"Technology","new_attributes":["后端开发"]}
+        ],
+        "new_relations": [
+          {"id":"rel_1","source":"Flask","target":"Python","type":"RELATED_TO","description":"Flask是Python的Web框架","strength":9.0,"weight":8.5},
+          {"id":"rel_2","source":"Flask","target":"数据库","type":"DEPENDS_ON","description":"Flask需要数据库支持","strength":7.0,"weight":6.5}
+        ]
+      }
+
+      # 注意事项
+      - 只返回JSON格式，不要添加任何其他文字说明
+      - 如果没有新内容，返回：{"new_nodes":[],"updated_nodes":[],"new_relations":[]}

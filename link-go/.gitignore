@@ -1,0 +1,45 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+server.exe
+
+# Output
+/bin/
+/dist/
+/tmp/
+tmp/
+
+# Logs
+*.log
+
+# Uploads (keep .gitkeep)
+uploads/*
+!uploads/.gitkeep
+
+# Node modules (root and web)
+node_modules/
+web/node_modules/
+web/dist/
+
+# Empty/orphan files
+nul

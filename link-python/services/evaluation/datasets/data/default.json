@@ -1,0 +1,101 @@
+{
+  "metadata": {
+    "dataset_id": "default",
+    "description": "默认评测数据集，用于测试和演示",
+    "version": "1.0.0",
+    "domains": ["general", "technology"],
+    "languages": ["zh"]
+  },
+  "qa_pairs": [
+    {
+      "question": "什么是机器学习？",
+      "answer": "机器学习是人工智能的一个分支，它使计算机能够在没有被明确编程的情况下学习。它通过从数据中学习模式和规律，然后利用这些模式对新数据进行预测或决策。",
+      "relevant_chunks": [
+        {
+          "chunk_id": "ml_intro_1",
+          "content": "机器学习（Machine Learning）是人工智能的核心领域之一，它研究计算机系统如何从数据中学习和改进。",
+          "score": 0.95
+        },
+        {
+          "chunk_id": "ml_intro_2",
+          "content": "传统的编程需要明确地告诉计算机每一步该做什么，而机器学习则是让计算机通过数据自动学习。",
+          "score": 0.88
+        }
+      ],
+      "metadata": {
+        "category": "ai",
+        "difficulty": "basic"
+      }
+    },
+    {
+      "question": "Python 的主要特点是什么？",
+      "answer": "Python 是一种高级编程语言，主要特点包括：简洁易读的语法、强大的标准库、跨平台支持、动态类型系统和自动内存管理。它广泛应用于数据科学、Web 开发、自动化和人工智能领域。",
+      "relevant_chunks": [
+        {
+          "chunk_id": "python_features_1",
+          "content": "Python 由 Guido van Rossum 于 1991 年首次发布，其设计哲学强调代码的可读性和简洁的语法。",
+          "score": 0.92
+        },
+        {
+          "chunk_id": "python_features_2",
+          "content": "Python 的主要应用领域包括：Web 开发（Django、Flask）、数据科学（NumPy、Pandas）、机器学习（TensorFlow、PyTorch）等。",
+          "score": 0.90
+        }
+      ],
+      "metadata": {
+        "category": "programming",
+        "difficulty": "basic"
+      }
+    },
+    {
+      "question": "什么是深度学习？",
+      "answer": "深度学习是机器学习的一个子领域，它使用多层神经网络（深度神经网络）来学习数据的表示。深度学习在图像识别、自然语言处理、语音识别等领域取得了重大突破。",
+      "relevant_chunks": [
+        {
+          "chunk_id": "dl_intro_1",
+          "content": "深度学习（Deep Learning）是机器学习的一个分支，它基于人工神经网络，特别是深度神经网络。",
+          "score": 0.93
+        }
+      ],
+      "metadata": {
+        "category": "ai",
+        "difficulty": "intermediate"
+      }
+    },
+    {
+      "question": "如何理解 RAG（检索增强生成）？",
+      "answer": "RAG（Retrieval-Augmented Generation）是一种结合信息检索和生成模型的技术。它首先从知识库中检索相关文档，然后将检索到的文档作为上下文传递给生成模型，从而产生更准确、更有依据的回答。",
+      "relevant_chunks": [
+        {
+          "chunk_id": "rag_intro_1",
+          "content": "RAG 通过检索外部知识库来增强生成模型的能力，可以减少幻觉问题，提高回答的准确性。",
+          "score": 0.94
+        },
+        {
+          "chunk_id": "rag_intro_2",
+          "content": "RAG 的工作流程包括：1）文档索引；2）检索相关文档；3）生成回答。",
+          "score": 0.91
+        }
+      ],
+      "metadata": {
+        "category": "ai",
+        "difficulty": "intermediate"
+      }
+    },
+    {
+      "question": "什么是向量数据库？",
+      "answer": "向量数据库是一种专门用于存储和检索向量嵌入的数据库。它支持高效的相似度搜索和近似最近邻（ANN）查询，常用于 RAG 系统、推荐系统和图像检索等场景。常见的向量数据库包括 Milvus、Pinecone、Weaviate 等。",
+      "relevant_chunks": [
+        {
+          "chunk_id": "vector_db_1",
+          "content": "向量数据库通过索引高维向量来实现快速检索，常用的索引算法包括 HNSW、IVF、PQ 等。",
+          "score": 0.89
+        }
+      ],
+      "metadata": {
+        "category": "database",
+        "difficulty": "intermediate"
+      }
+    }
+  ]
+}

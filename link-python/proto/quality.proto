@@ -1,0 +1,348 @@
+syntax = "proto3";
+
+package quality;
+
+// 质量服务
+service QualityService {
+  // 评估结构化数据质量
+  rpc EvaluateQuality(EvaluateQualityRequest) returns (EvaluateQualityResponse);
+
+  // 评估非结构化数据质量
+  rpc EvaluateUnstructuredQuality(EvaluateUnstructuredQualityRequest) returns (EvaluateUnstructuredQualityResponse);
+
+  // 清洗数据
+  rpc CleanData(CleanDataRequest) returns (CleanDataResponse);
+
+  // 执行端到端流程
+  rpc ProcessPipeline(ProcessPipelineRequest) returns (ProcessPipelineResponse);
+
+  // 检测数据漂移
+  rpc DetectDrift(DetectDriftRequest) returns (DetectDriftResponse);
+
+  // 列出可用的评估维度
+  rpc ListDimensions(ListDimensionsRequest) returns (ListDimensionsResponse);
+
+  // 获取质量规则
+  rpc GetQualityRules(GetQualityRulesRequest) returns (GetQualityRulesResponse);
+
+  // 更新质量规则
+  rpc UpdateQualityRules(UpdateQualityRulesRequest) returns (UpdateQualityRulesResponse);
+
+  // 注册自定义评估器
+  rpc RegisterCustomEvaluator(RegisterCustomEvaluatorRequest) returns (RegisterCustomEvaluatorResponse);
+
+  // 注册自定义清洗器
+  rpc RegisterCustomCleaner(RegisterCustomCleanerRequest) returns (RegisterCustomCleanerResponse);
+}
+
+// 严重级别
+enum SeverityLevel {
+  SEVERITY_UNKNOWN = 0;
+  CRITICAL = 1;
+  WARNING = 2;
+  INFO = 3;
+}
+
+// 决策类型
+enum Decision {
+  DECISION_UNKNOWN = 0;
+  ACCEPT = 1;
+  REJECT = 2;
+  REVIEW = 3;
+}
+
+// 字段类型
+enum FieldType {
+  FIELD_TYPE_UNKNOWN = 0;
+  STRING = 1;
+  INTEGER = 2;
+  FLOAT = 3;
+  BOOLEAN = 4;
+  DATE = 5;
+  DATETIME = 6;
+  ARRAY = 7;
+}
+
+// 质量问题
+message QualityIssue {
+  SeverityLevel severity = 1;
+  string dimension = 2;
+  string field = 3;
+  string description = 4;
+  int32 count = 5;
+  repeated string sample = 6;
+}
+
+// 维度评分
+message DimensionScore {
+  string name = 1;
+  double score = 2;
+  bool passed = 3;
+  repeated QualityIssue issues = 4;
+}
+
+// 结构化数据质量报告
+message QualityReport {
+  double overall_score = 1;
+  repeated DimensionScore dimensions = 2;
+  repeated QualityIssue issues = 3;
+  int32 record_count = 4;
+  int64 timestamp = 5;
+  map<string, string> metadata = 6;
+}
+
+// 文本质量问题
+message TextQualityIssue {
+  string type = 1;
+  SeverityLevel severity = 2;
+  string description = 3;
+  int32 position_start = 4;
+  int32 position_end = 5;
+  string snippet = 6;
+  string suggestion = 7;
+}
+
+// 非结构化数据维度评分
+message UnstructuredDimensionScore {
+  string name = 1;
+  double score = 2;
+  bool passed = 3;
+  repeated TextQualityIssue issues = 4;
+  map<string, string> details = 5;
+}
+
+// 非结构化数据质量报告
+message UnstructuredQualityReport {
+  double overall_score = 1;
+  repeated UnstructuredDimensionScore dimensions = 2;
+  map<string, string> text_stats = 3;
+  repeated TextQualityIssue issues = 4;
+  int64 timestamp = 5;
+}
+
+// 清洗操作
+message CleaningOperation {
+  string type = 1;
+  string field = 2;
+  int32 count = 3;
+  string description = 4;
+}
+
+// 清洗结果
+message CleaningResult {
+  int32 original_count = 1;
+  int32 cleaned_count = 2;
+  int32 removed_count = 3;
+  repeated CleaningOperation operations = 4;
+  map<string, string> metadata = 5;
+  int64 timestamp = 6;
+}
+
+// 流程结果
+message PipelineResult {
+  Decision decision = 1;
+  double quick_score = 2;
+  double deep_score = 3;
+  CleaningResult cleaning_result = 4;
+  oneof report {
+    QualityReport structured_report = 5;
+    UnstructuredQualityReport unstructured_report = 6;
+  }
+  map<string, double> stage_times = 7;
+  map<string, string> metadata = 8;
+  int64 timestamp = 9;
+}
+
+// 字段规则
+message FieldRule {
+  string name = 1;
+  FieldType type = 2;
+  bool required = 3;
+  string pattern = 4;
+  double min_value = 5;
+  double max_value = 6;
+  int32 min_length = 7;
+  int32 max_length = 8;
+  repeated string allowed_values = 9;
+  string description = 10;
+}
+
+// 维度规则
+message DimensionRule {
+  string name = 1;
+  bool enabled = 2;
+  double threshold = 3;
+  double weight = 4;
+  map<string, string> config = 5;
+}
+
+// 质量规则
+message QualityRules {
+  string version = 1;
+  repeated FieldRule field_rules = 2;
+  repeated DimensionRule dimension_rules = 3;
+  map<string, string> cleaning_rules = 4;
+  map<string, string> metadata = 5;
+}
+
+// EvaluateQuality 请求/响应
+message EvaluateQualityRequest {
+  oneof data {
+    string file_path = 1;
+    bytes csv_data = 2;
+  }
+  repeated string dimensions = 3;
+  string rule_file = 4;
+  map<string, string> config = 5;
+}
+
+message EvaluateQualityResponse {
+  QualityReport report = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// EvaluateUnstructuredQuality 请求/响应
+message EvaluateUnstructuredQualityRequest {
+  string text = 1;
+  repeated string dimensions = 2;
+  string rule_file = 3;
+  map<string, string> config = 4;
+}
+
+message EvaluateUnstructuredQualityResponse {
+  UnstructuredQualityReport report = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// CleanData 请求/响应
+message CleanDataRequest {
+  oneof data {
+    string file_path = 1;
+    bytes csv_data = 2;
+  }
+  repeated string cleaners = 3;
+  map<string, string> config = 4;
+}
+
+message CleanDataResponse {
+  CleaningResult result = 1;
+  bytes cleaned_data = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+// ProcessPipeline 请求/响应
+message ProcessPipelineRequest {
+  oneof data {
+    string file_path = 1;
+    bytes csv_data = 2;
+    string text = 3;  // 用于非结构化数据
+  }
+  bool is_structured = 4;
+  map<string, string> config = 5;
+}
+
+message ProcessPipelineResponse {
+  PipelineResult result = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// DetectDrift 请求/响应
+message DetectDriftRequest {
+  oneof baseline {
+    string baseline_file = 1;
+    bytes baseline_data = 2;
+  }
+  oneof current {
+    string current_file = 3;
+    bytes current_data = 4;
+  }
+  repeated string columns = 5;
+  double threshold = 6;
+}
+
+message DetectDriftResult {
+  string field = 1;
+  double drift_score = 2;
+  double p_value = 3;
+  double threshold = 4;
+  bool drifted = 5;
+}
+
+message DetectDriftResponse {
+  bool has_drift = 1;
+  repeated DetectDriftResult drift_metrics = 2;
+  double overall_drift_score = 3;
+  int64 baseline_timestamp = 4;
+  int64 current_timestamp = 5;
+  bool success = 6;
+  string error_message = 7;
+}
+
+// ListDimensions 请求/响应
+message ListDimensionsRequest {}
+
+message DimensionInfo {
+  string name = 1;
+  string description = 2;
+  bool supports_structured = 3;
+  bool supports_unstructured = 4;
+}
+
+message ListDimensionsResponse {
+  repeated DimensionInfo dimensions = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// GetQualityRules 请求/响应
+message GetQualityRulesRequest {
+  string rule_file = 1;
+}
+
+message GetQualityRulesResponse {
+  QualityRules rules = 1;
+  repeated string available_rule_files = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+// UpdateQualityRules 请求/响应
+message UpdateQualityRulesRequest {
+  string rule_file = 1;
+  QualityRules rules = 2;
+}
+
+message UpdateQualityRulesResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// RegisterCustomEvaluator 请求/响应
+message RegisterCustomEvaluatorRequest {
+  string name = 1;
+  string module_path = 2;
+  string class_name = 3;
+  map<string, string> config = 4;
+}
+
+message RegisterCustomEvaluatorResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// RegisterCustomCleaner 请求/响应
+message RegisterCustomCleanerRequest {
+  string name = 1;
+  string module_path = 2;
+  string class_name = 3;
+  map<string, string> config = 4;
+}
+
+message RegisterCustomCleanerResponse {
+  bool success = 1;
+  string error_message = 2;
+}

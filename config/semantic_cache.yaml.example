@@ -1,0 +1,44 @@
+# 语义缓存配置示例
+
+# 全局开关（关闭时所有 Agent 都不使用缓存）
+enabled: false
+
+# 默认配置
+threshold: 0.85  # 相似度阈值 (0-1)
+ttl: 24h        # 缓存过期时间
+top_k: 5        # 检索数量
+
+# 各 Agent 独立配置
+agents:
+  # RAG Agent - 高精度要求
+  rag_agent:
+    enabled: true
+    threshold: 0.90
+    ttl: 24h
+    top_k: 3
+
+  # QA Agent - FAQ 场景，高精度
+  qa_agent:
+    enabled: true
+    threshold: 0.95
+    ttl: 168h  # 7天，FAQ 变化慢
+
+  # Code Agent - 代码相关问题
+  code_agent:
+    enabled: true
+    threshold: 0.92
+    ttl: 24h
+    top_k: 5
+
+  # ReAct Agent - 工具调用结果变化快
+  react_agent:
+    enabled: false  # 关闭缓存
+    threshold: 0.85
+    ttl: 5m         # 即使开启也只缓存 5 分钟
+
+  # DeepResearch - 探索性结果
+  deep_research:
+    enabled: false  # 默认关闭
+    threshold: 0.80
+    ttl: 1h
+    top_k: 5

@@ -1,0 +1,12 @@
+id,name,age,email,score,created_at
+1,Alice,25,alice@example.com,85.5,2024-01-01
+2,Bob,30,bob@example.com,90.0,2024-02-01
+3,Charlie,35,charlie@example.com,78.5,2024-03-01
+4,David,-5,david@example.com,92.0,2024-04-01
+5,Eve,150,eve@example.com,88.5,2024-05-01
+6,Frank,28,,95.0,2024-06-01
+7,Grace,,grace@example.com,82.0,2024-07-01
+8,Henry,45,invalid-email,75.5,2024-08-01
+9,Isabel,32,isabel@example.com,89.0,2024-09-01
+10,Jack,29,jack@example.com,91.5,2024-10-01
+2,Duplicate,30,duplicate@example.com,85.0,2024-11-01

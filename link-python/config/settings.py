@@ -1,0 +1,95 @@
+"""配置管理模块。"""
+
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """应用配置。"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",  # 忽略额外的环境变量
+    )
+
+    # 应用配置
+    app_name: str = Field(default="link-python", description="应用名称")
+    app_env: Literal["dev", "test", "prod"] = Field(default="dev", description="运行环境")
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO", description="日志级别"
+    )
+
+    # API 配置（HTTP REST API，用于调试和管理）
+    api_host: str = Field(default="0.0.0.0", description="API 监听地址")
+    api_port: int = Field(default=8000, description="API 监听端口")
+
+    # MCP 配置
+    mcp_mode: Literal["stdio", "http"] = Field(
+        default="stdio", description="MCP 运行模式"
+    )
+    mcp_port: int = Field(default=3000, description="MCP HTTP 端口")
+
+    # gRPC 配置
+    grpc_enabled: bool = Field(default=True, description="是否启用 gRPC 服务")
+    grpc_port: int = Field(default=50051, description="gRPC 监听端口")
+    grpc_max_workers: int = Field(default=10, description="gRPC 最大工作线程数")
+
+    # Go 服务配置
+    go_service_url: str = Field(
+        default="http://localhost:8080", description="Go 服务地址"
+    )
+
+    # LLM 配置
+    llm_provider: str = Field(default="openai", description="LLM 提供商")
+    llm_api_key: str = Field(default="", description="LLM API 密钥")
+    llm_base_url: str = Field(
+        default="https://api.openai.com/v1", description="LLM API 地址"
+    )
+    llm_model: str = Field(default="gpt-4", description="LLM 模型名称")
+
+    # 存储配置（可选，Python 服务直接连接）
+    milvus_host: str = Field(default="localhost", description="Milvus 地址")
+    milvus_port: int = Field(default=19530, description="Milvus 端口")
+    neo4j_uri: str = Field(default="bolt://localhost:7687", description="Neo4j URI")
+
+    # 文件上传配置
+    upload_base_dir: str = Field(default="D:/link/uploads", description="共享上传目录")
+    allowed_paths: list[str] = Field(
+        default=["D:/link/uploads"], description="允许访问的文件路径列表"
+    )
+
+    # 数据库配置（可选）
+    database_url: str | None = Field(default=None, description="数据库连接字符串")
+
+    # Redis 配置（可选）
+    redis_url: str | None = Field(default=None, description="Redis 连接字符串")
+
+    @field_validator("app_env")
+    @classmethod
+    def validate_app_env(cls, v: str) -> str:
+        """验证运行环境。"""
+        valid_envs = {"dev", "test", "prod"}
+        if v not in valid_envs:
+            raise ValueError(f"app_env 必须是 {valid_envs} 之一")
+        return v
+
+    @property
+    def is_dev(self) -> bool:
+        """是否为开发环境。"""
+        return self.app_env == "dev"
+
+    @property
+    def is_prod(self) -> bool:
+        """是否为生产环境。"""
+        return self.app_env == "prod"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """获取配置单例。"""
+    return Settings()
