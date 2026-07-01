@@ -524,6 +524,8 @@ docker-compose logs -f
 
 ### 本地开发
 
+三个服务分别启动，建议使用独立终端。启动顺序：**依赖服务 → Go 后端 → Python 服务 → 前端**。
+
 #### 启动依赖服务
 
 ```bash
@@ -531,32 +533,71 @@ docker-compose logs -f
 docker-compose -f docker/docker-deps.yml up -d
 ```
 
-#### 启动 Go 服务
+#### 1. 启动 Go 服务（后端 · 端口 8080）
+
+入口：`link-go/cmd/server/main.go`
 
 ```bash
 cd link-go
 
-# 复制配置文件
-cp config/config.example.yaml config/config.yaml
-
 # 安装依赖
-go mod download
+make deps                       # 等价于 go mod download && go mod tidy
 
-# 启动服务
-go run cmd/server/main.go
+# 开发模式启动
+make run                        # 等价于 go run ./cmd/server/main.go
+
+# 或生产模式（编译后运行）
+make build && ./bin/link
 ```
 
-#### 启动 Python 服务
+监听 `0.0.0.0:8080`（可用环境变量 `SERVER_PORT` 覆盖）。
+
+#### 2. 启动 Python 服务（gRPC / MCP · 端口 50051 / 3000）
 
 ```bash
 cd link-python
 
-# 安装依赖
-pip install -r requirements.txt
+# 安装依赖（推荐安装全部功能）
+pip install -e ".[all]"         # 或 uv pip install -e ".[all]"
 
-# 启动 gRPC 服务
-python grpc_service/server.py
+# 启动 gRPC 服务（主服务，端口 50051）
+python -m grpc_service.server   # 或 console script: link-python-grpc
+
+# 启动 MCP 服务（可选，AI 工具调用）
+python -m mcp.server            # 或 console script: link-python-mcp
 ```
+
+- gRPC：默认 `50051`（环境变量 `GRPC_PORT`）
+- MCP：默认 `stdio` 模式；HTTP 模式监听 `3000`（`MCP_MODE=http`、`MCP_PORT`）
+
+#### 3. 启动前端（Vue 3 + Vite · 端口 5173）
+
+```bash
+cd link-web
+
+# 安装依赖
+npm install
+
+# 开发模式启动
+npm run dev
+
+# 生产构建 / 预览
+npm run build
+npm run preview
+```
+
+浏览器访问 `http://localhost:5173`，Vite 已配置将 `/api` 代理到 Go 后端 `http://localhost:8080`。
+
+#### 端口一览
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| link-go（后端） | 8080 | REST / gRPC / SSE 网关 |
+| link-python（gRPC） | 50051 | Document 服务（另有 50052 Evaluation、50053 Quality） |
+| link-python（MCP） | 3000 | HTTP 模式下的 MCP 服务（默认 stdio） |
+| link-web（前端） | 5173 | Vite 开发服务器 |
+
+**调用链路**：浏览器(:5173) → Go 后端(:8080) → gRPC → Python 服务(:50051)
 
 ---
 

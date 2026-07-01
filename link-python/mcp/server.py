@@ -264,7 +264,7 @@ class LinkPythonMCPServer:
             "properties": {},
         }
 
-    async def run(self, host: str = "0.0.0.0", port: int = 8888) -> None:
+    async def run(self, host: str = "0.0.0.0", port: int = 3000) -> None:
         """运行 MCP Server。
 
         Args:
@@ -304,15 +304,14 @@ class LinkPythonMCPServer:
 
 async def main() -> None:
     """主函数。"""
-    import os
-
     # 设置日志
     setup_logging()
 
-    # 从环境变量获取运行模式
-    mode = os.getenv("MCP_MODE", "stdio")  # 默认 stdio 模式
-    host = os.getenv("MCP_HOST", "0.0.0.0")
-    port = int(os.getenv("MCP_PORT", "8888"))
+    # 从配置读取运行参数（settings 已支持 .env 与环境变量覆盖）
+    settings = get_settings()
+    mode = getattr(settings, "mcp_mode", "stdio")  # 默认 stdio 模式
+    host = getattr(settings, "mcp_host", "0.0.0.0")
+    port = getattr(settings, "mcp_port", 3000)
 
     # 启动服务器（工具通过 get_registry() 自动获取）
     server = LinkPythonMCPServer(mode=mode)

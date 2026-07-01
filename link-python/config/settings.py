@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     mcp_mode: Literal["stdio", "http"] = Field(
         default="stdio", description="MCP 运行模式"
     )
+    mcp_host: str = Field(default="0.0.0.0", description="MCP HTTP 监听地址")
     mcp_port: int = Field(default=3000, description="MCP HTTP 端口")
 
     # gRPC 配置
