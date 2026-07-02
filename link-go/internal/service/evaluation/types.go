@@ -98,7 +98,8 @@ type QAResult struct {
 	Question         string   `json:"question"`
 	ReferenceAnswer  string   `json:"reference_answer"`
 	GeneratedAnswer  string   `json:"generated_answer"`
-	RetrievedChunks  []string `json:"retrieved_chunks,omitempty"`
+	RetrievedChunks  []string `json:"retrieved_chunks,omitempty"` // 检索到的分块正文（用于生成与忠实度类指标）
+	RetrievedPIDs    []string `json:"retrieved_pids,omitempty"`   // 检索到的分块ID（用于检索指标：precision/recall/ndcg/mrr）
 	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
 	Success          bool     `json:"success"`
 	Error            string   `json:"error,omitempty"`
@@ -157,6 +158,11 @@ type EvaluationResult struct {
 	// 语义相似度聚合
 	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
 
+	// RAG 专属指标聚合（忠实度/上下文相关性/噪声比，仅 RAG 类型有意义）
+	Faithfulness     *float64 `json:"faithfulness,omitempty"`
+	ContextRelevance *float64 `json:"context_relevance,omitempty"`
+	NoiseRatio       *float64 `json:"noise_ratio,omitempty"`
+
 	// 统计
 	TotalCount   int     `json:"total_count"`
 	SuccessCount int     `json:"success_count"`
@@ -173,11 +179,12 @@ type ComputeMetricsRequest struct {
 
 // ComputeItem 单个计算项
 type ComputeItem struct {
-	Question         string   `json:"question"`
-	ReferenceAnswer  string   `json:"reference_answer"`
-	GeneratedAnswer  string   `json:"generated_answer"`
-	RetrievedPIDs    []string `json:"retrieved_pids,omitempty"`
-	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
+	Question          string   `json:"question"`
+	ReferenceAnswer   string   `json:"reference_answer"`
+	GeneratedAnswer   string   `json:"generated_answer"`
+	RetrievedPIDs     []string `json:"retrieved_pids,omitempty"`     // 检索到的分块ID（检索指标）
+	RelevantPIDs      []string `json:"relevant_pids,omitempty"`      // 标注的相关分块ID
+	RetrievedContexts []string `json:"retrieved_contexts,omitempty"` // 检索到的分块正文（RAG 忠实度类指标）
 }
 
 // ComputeMetricsResponse Python 指标计算响应

@@ -184,29 +184,46 @@ def compute_rag_metrics(
             sem = compute_semantic_metrics(ref_answers, answers)
             result["answer_quality"]["semantic_similarity"] = sem.get("similarity", 0)
 
-    # 检索指标
+    # 检索指标（compute_retrieval_metrics 是“逐条”接口：入参为单条的布尔相关性序列，
+    # 而非文档ID二维列表。此处按问题逐条计算再求均值。）
     if any(m.startswith("retrieval_") for m in metrics):
-        retrieval_result = compute_retrieval_metrics(
-            relevant_docs=relevant_doc_ids,
-            retrieved_docs=retrieved_doc_ids,
-        )
-        result["retrieval"] = retrieval_result
+        sums = {"precision": 0.0, "recall": 0.0, "ndcg": 0.0, "mrr": 0.0, "map": 0.0}
+        n = 0
+        for relevant, retrieved in zip(relevant_doc_ids, retrieved_doc_ids):
+            relevant_set = set(relevant)
+            retrieved_bool = [doc_id in relevant_set for doc_id in retrieved]
+            ret = compute_retrieval_metrics(
+                retrieved_bool,
+                total_relevant=len(relevant_set),
+                k=len(retrieved_bool),
+            )
+            sums["precision"] += ret.get("precision", 0.0)
+            sums["recall"] += ret.get("recall", 0.0)
+            sums["ndcg"] += ret.get("ndcg", 0.0)
+            sums["mrr"] += ret.get("mrr", 0.0)
+            sums["map"] += ret.get("map_score", 0.0)
+            n += 1
+        result["retrieval"] = {k: (v / n if n > 0 else 0.0) for k, v in sums.items()}
 
     # RAG 特有指标
     rag_specific = {}
 
+    # faithfulness/context_relevance 需要每条问题一份上下文（List[List[str]]），
+    # 与 answers/questions 逐条对齐，而非把全部文档拍平成一份。
+    retrieved_contexts = [
+        list(docs) if isinstance(docs, list) else [str(docs)]
+        for docs in retrieved_doc_ids
+    ]
+
     if "faithfulness" in metrics:
-        # 构建检索上下文（简化版，使用 doc_id 作为占位）
-        retrieved_contexts = [[" ".join(docs) for docs in retrieved_doc_ids]]
         rag_specific["faithfulness"] = faithfulness(answers, retrieved_contexts)
 
     if "context_relevance" in metrics:
-        retrieved_contexts = [[" ".join(docs) for docs in retrieved_doc_ids]]
         rag_specific["context_relevance"] = context_relevance(questions, retrieved_contexts)
 
     if "noise_ratio" in metrics:
         rag_specific["noise_ratio"] = noise_ratio(
-            retrieved_contexts=[[]] * len(relevant_doc_ids),  # 未使用
+            retrieved_contexts=retrieved_contexts,
             relevant_doc_ids=relevant_doc_ids,
             retrieved_doc_ids=retrieved_doc_ids,
         )

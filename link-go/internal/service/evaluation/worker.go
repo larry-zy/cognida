@@ -330,11 +330,12 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 	items := make([]*ComputeItem, len(qaResults))
 	for i, result := range qaResults {
 		items[i] = &ComputeItem{
-			Question:        result.Question,
-			ReferenceAnswer: result.ReferenceAnswer,
-			GeneratedAnswer: result.GeneratedAnswer,
-			RetrievedPIDs:   result.RetrievedChunks,
-			RelevantPIDs:    result.RelevantPIDs,
+			Question:          result.Question,
+			ReferenceAnswer:   result.ReferenceAnswer,
+			GeneratedAnswer:   result.GeneratedAnswer,
+			RetrievedPIDs:     result.RetrievedPIDs,
+			RelevantPIDs:      result.RelevantPIDs,
+			RetrievedContexts: result.RetrievedChunks, // 分块正文，供忠实度/上下文相关性/噪声比计算
 		}
 	}
 
@@ -434,6 +435,17 @@ func (w *EvaluationWorker) fillMetrics(evalResult *EvaluationResult, resp *Compu
 		evalResult.SemanticSimilarity = &val
 	}
 
+	// 填充聚合指标 - RAG 专属指标（忠实度/上下文相关性/噪声比）
+	if val, ok := resp.Aggregate["faithfulness"]; ok {
+		evalResult.Faithfulness = &val
+	}
+	if val, ok := resp.Aggregate["context_relevance"]; ok {
+		evalResult.ContextRelevance = &val
+	}
+	if val, ok := resp.Aggregate["noise_ratio"]; ok {
+		evalResult.NoiseRatio = &val
+	}
+
 	// 填充单项指标
 	for i, item := range resp.Items {
 		if i < len(evalResult.QAResults) {
@@ -472,7 +484,7 @@ func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, confi
 			ReferenceAnswer: qa.ReferenceAnswer,
 			GeneratedAnswer: qa.GeneratedAnswer,
 			RelevantPIDs:    qa.RelevantPIDs,
-			RetrievedPIDs:   qa.RetrievedChunks,
+			RetrievedPIDs:   qa.RetrievedPIDs,
 			Success:         qa.Success,
 			Error:           qa.Error,
 			CreatedAt:       time.Now(),
@@ -505,12 +517,42 @@ func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, confi
 		return fmt.Errorf("failed to save results: %w", err)
 	}
 
+	// 持久化任务级聚合指标（含 faithfulness/context_relevance/noise_ratio 等只在批级存在的指标）
+	if err := w.taskRepo.UpdateMetrics(ctx, taskID, buildTaskMetrics(appResult)); err != nil {
+		return fmt.Errorf("failed to save task metrics: %w", err)
+	}
+
 	// 更新任务状态为完成
 	if err := w.taskRepo.UpdateStatus(ctx, taskID, domeval.TaskStatusCompleted); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
 	return nil
+}
+
+// buildTaskMetrics 将应用层聚合结果映射为领域层任务级指标
+func buildTaskMetrics(r *EvaluationResult) *domeval.TaskMetrics {
+	if r == nil {
+		return nil
+	}
+	return &domeval.TaskMetrics{
+		Precision:          r.Precision,
+		Recall:             r.Recall,
+		NDCG:               r.NDCG,
+		MRR:                r.MRR,
+		MAP:                r.MAP,
+		ROUGE1:             r.ROUGE1,
+		ROUGE2:             r.ROUGE2,
+		ROUGEL:             r.ROUGEL,
+		BLEU1:              r.BLEU1,
+		BLEU2:              r.BLEU2,
+		BLEU4:              r.BLEU4,
+		LLMJudgeScore:      r.LLMJudgeScore,
+		SemanticSimilarity: r.SemanticSimilarity,
+		Faithfulness:       r.Faithfulness,
+		ContextRelevance:   r.ContextRelevance,
+		NoiseRatio:         r.NoiseRatio,
+	}
 }
 
 // handleTaskError 处理任务错误
@@ -582,6 +624,7 @@ func convertQAResultsToApp(results []*domeval.QAResult) []*QAResult {
 			ReferenceAnswer:    r.ReferenceAnswer,
 			GeneratedAnswer:    r.GeneratedAnswer,
 			RetrievedChunks:    r.RetrievedChunks,
+			RetrievedPIDs:      r.RetrievedPIDs,
 			RelevantPIDs:       r.RelevantPIDs,
 			Success:            r.Success,
 			Error:              r.Error,

@@ -72,64 +72,79 @@
         <QaResultTable :results="detail.qa_results" />
       </div>
 
-      <!-- 检索指标 -->
-      <div v-if="detail.metric?.retrieval_metrics" class="detail-section">
+      <!-- 检索指标（任务级聚合，来自 detail.metrics 扁平契约） -->
+      <div v-if="hasRetrievalMetrics" class="detail-section">
         <h4>检索指标</h4>
         <div class="metrics-grid">
-          <div class="metric-item">
+          <div v-if="detail.metrics?.precision != null" class="metric-item">
             <div class="metric-label">Precision</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.retrieval_metrics.precision) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.precision) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.recall != null" class="metric-item">
             <div class="metric-label">Recall</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.retrieval_metrics.recall) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.recall) }}</div>
           </div>
-          <div class="metric-item">
-            <div class="metric-label">NDCG@3</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.retrieval_metrics.ndcg3) }}</div>
+          <div v-if="detail.metrics?.ndcg != null" class="metric-item">
+            <div class="metric-label">NDCG</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.ndcg) }}</div>
           </div>
-          <div class="metric-item">
-            <div class="metric-label">NDCG@10</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.retrieval_metrics.ndcg10) }}</div>
-          </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.mrr != null" class="metric-item">
             <div class="metric-label">MRR</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.retrieval_metrics.mrr) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.mrr) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.map != null" class="metric-item">
             <div class="metric-label">MAP</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.retrieval_metrics.map) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.map) }}</div>
           </div>
         </div>
       </div>
 
-      <!-- 生成指标 -->
-      <div v-if="detail.metric?.generation_metrics" class="detail-section">
+      <!-- 生成指标（任务级聚合，来自 detail.metrics 扁平契约） -->
+      <div v-if="hasGenerationMetrics" class="detail-section">
         <h4>生成指标</h4>
         <div class="metrics-grid">
-          <div class="metric-item">
+          <div v-if="detail.metrics?.bleu_1 != null" class="metric-item">
             <div class="metric-label">BLEU-1</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.generation_metrics.bleu1) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.bleu_1) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.bleu_2 != null" class="metric-item">
             <div class="metric-label">BLEU-2</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.generation_metrics.bleu2) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.bleu_2) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.bleu_4 != null" class="metric-item">
             <div class="metric-label">BLEU-4</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.generation_metrics.bleu4) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.bleu_4) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.rouge_1 != null" class="metric-item">
             <div class="metric-label">ROUGE-1</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.generation_metrics.rouge1) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.rouge_1) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.rouge_2 != null" class="metric-item">
             <div class="metric-label">ROUGE-2</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.generation_metrics.rouge2) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.rouge_2) }}</div>
           </div>
-          <div class="metric-item">
+          <div v-if="detail.metrics?.rouge_l != null" class="metric-item">
             <div class="metric-label">ROUGE-L</div>
-            <div class="metric-value">{{ formatPercent(detail.metric.generation_metrics.rougeL) }}</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.rouge_l) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RAG 专属指标（忠实度/上下文相关性/噪声比） -->
+      <div v-if="hasRagMetrics" class="detail-section">
+        <h4>RAG 专属指标</h4>
+        <div class="metrics-grid">
+          <div v-if="detail.metrics?.faithfulness != null" class="metric-item">
+            <div class="metric-label">忠实度</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.faithfulness) }}</div>
+          </div>
+          <div v-if="detail.metrics?.context_relevance != null" class="metric-item">
+            <div class="metric-label">上下文相关性</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.context_relevance) }}</div>
+          </div>
+          <div v-if="detail.metrics?.noise_ratio != null" class="metric-item">
+            <div class="metric-label">噪声比例</div>
+            <div class="metric-value">{{ formatPercent(detail.metrics.noise_ratio) }}</div>
           </div>
         </div>
       </div>
@@ -188,6 +203,25 @@ const emit = defineEmits<{
 const visible = computed({
   get: () => props.modelValue,
   set: (v: boolean) => emit('update:modelValue', v)
+})
+
+/** 任务级检索指标是否存在任意值 */
+const hasRetrievalMetrics = computed(() => {
+  const m = props.detail?.metrics
+  return !!m && (m.precision != null || m.recall != null || m.ndcg != null || m.mrr != null || m.map != null)
+})
+
+/** 任务级生成指标是否存在任意值 */
+const hasGenerationMetrics = computed(() => {
+  const m = props.detail?.metrics
+  return !!m && (m.bleu_1 != null || m.bleu_2 != null || m.bleu_4 != null ||
+    m.rouge_1 != null || m.rouge_2 != null || m.rouge_l != null)
+})
+
+/** RAG 专属指标是否存在任意值 */
+const hasRagMetrics = computed(() => {
+  const m = props.detail?.metrics
+  return !!m && (m.faithfulness != null || m.context_relevance != null || m.noise_ratio != null)
 })
 
 function handleClose() {

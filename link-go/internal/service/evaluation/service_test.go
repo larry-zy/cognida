@@ -73,6 +73,15 @@ func (m *mockTaskRepo) UpdateError(ctx context.Context, id string, errorMsg stri
 	return m.updateErr
 }
 
+func (m *mockTaskRepo) UpdateMetrics(ctx context.Context, id string, metrics *domeval.TaskMetrics) error {
+	task, ok := m.tasks[id]
+	if !ok {
+		return domeval.ErrTaskNotFound
+	}
+	task.Metrics = metrics
+	return m.updateErr
+}
+
 func (m *mockTaskRepo) SoftDelete(ctx context.Context, id string) error {
 	_, ok := m.tasks[id]
 	if !ok {

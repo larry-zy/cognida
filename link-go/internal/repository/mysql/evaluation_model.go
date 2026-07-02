@@ -28,6 +28,7 @@ type EvaluationTaskModel struct {
 	TotalCount   int       `gorm:"column:total_count;not null;default:0" json:"total_count"`
 	SuccessCount int       `gorm:"column:success_count;not null;default:0" json:"success_count"`
 	FailureCount int       `gorm:"column:failure_count;not null;default:0" json:"failure_count"`
+	Metrics      []byte    `gorm:"column:metrics;type:json" json:"metrics,omitempty"`
 	CreatedAt    time.Time `gorm:"column:created_at;not null;index:idx_created_at" json:"created_at"`
 	UpdatedAt    time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 	DeletedAt    *time.Time `gorm:"column:deleted_at;index" json:"deleted_at,omitempty"`
@@ -45,6 +46,14 @@ func (m *EvaluationTaskModel) ToDomain() *evaluation.EvaluationTask {
 		config = json.RawMessage(m.Config)
 	}
 
+	var metrics *evaluation.TaskMetrics
+	if len(m.Metrics) > 0 {
+		var parsed evaluation.TaskMetrics
+		if err := json.Unmarshal(m.Metrics, &parsed); err == nil {
+			metrics = &parsed
+		}
+	}
+
 	return &evaluation.EvaluationTask{
 		ID:           m.ID,
 		TenantID:     m.TenantID,
@@ -60,6 +69,7 @@ func (m *EvaluationTaskModel) ToDomain() *evaluation.EvaluationTask {
 		TotalCount:   m.TotalCount,
 		SuccessCount: m.SuccessCount,
 		FailureCount: m.FailureCount,
+		Metrics:      metrics,
 		CreatedAt:    m.CreatedAt,
 		UpdatedAt:    m.UpdatedAt,
 		DeletedAt:    m.DeletedAt,
@@ -71,6 +81,13 @@ func FromDomainEvaluationTask(task *evaluation.EvaluationTask) *EvaluationTaskMo
 	var config []byte
 	if task.Config != nil {
 		config = []byte(task.Config)
+	}
+
+	var metrics []byte
+	if task.Metrics != nil {
+		if data, err := json.Marshal(task.Metrics); err == nil {
+			metrics = data
+		}
 	}
 
 	return &EvaluationTaskModel{
@@ -88,6 +105,7 @@ func FromDomainEvaluationTask(task *evaluation.EvaluationTask) *EvaluationTaskMo
 		TotalCount:   task.TotalCount,
 		SuccessCount: task.SuccessCount,
 		FailureCount: task.FailureCount,
+		Metrics:      metrics,
 		CreatedAt:    task.CreatedAt,
 		UpdatedAt:    task.UpdatedAt,
 		DeletedAt:    task.DeletedAt,

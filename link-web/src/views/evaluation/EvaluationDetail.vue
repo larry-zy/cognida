@@ -43,29 +43,40 @@
       </UiCard>
 
       <!-- 聚合指标卡片 -->
-      <UiCard v-if="detail.metric" class="metrics-card">
+      <UiCard v-if="hasAnyMetrics" class="metrics-card">
         <template #header>
           <h3>聚合指标</h3>
         </template>
 
         <!-- 检索指标 -->
-        <div v-if="detail.metric.retrieval_metrics" class="metrics-section">
+        <div v-if="displayRetrievalMetrics.length > 0" class="metrics-section">
           <h4>检索指标</h4>
           <div class="metrics-grid">
-            <div class="metric-card" v-for="(value, key) in displayRetrievalMetrics" :key="key">
-              <div class="metric-label">{{ retrievalLabels[key as keyof RetrievalMetrics] }}</div>
-              <div class="metric-value">{{ formatPercent(value) }}</div>
+            <div class="metric-card" v-for="item in displayRetrievalMetrics" :key="item.key">
+              <div class="metric-label">{{ item.label }}</div>
+              <div class="metric-value">{{ formatPercent(item.value) }}</div>
             </div>
           </div>
         </div>
 
         <!-- 生成指标 -->
-        <div v-if="detail.metric.generation_metrics" class="metrics-section">
+        <div v-if="displayGenerationMetrics.length > 0" class="metrics-section">
           <h4>生成指标</h4>
           <div class="metrics-grid">
-            <div class="metric-card" v-for="(value, key) in displayGenerationMetrics" :key="key">
-              <div class="metric-label">{{ generationLabels[key as keyof GenerationMetrics] }}</div>
-              <div class="metric-value">{{ formatPercent(value) }}</div>
+            <div class="metric-card" v-for="item in displayGenerationMetrics" :key="item.key">
+              <div class="metric-label">{{ item.label }}</div>
+              <div class="metric-value">{{ formatPercent(item.value) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAG 专属指标 -->
+        <div v-if="displayRagMetrics.length > 0" class="metrics-section">
+          <h4>RAG 专属指标</h4>
+          <div class="metrics-grid">
+            <div class="metric-card" v-for="item in displayRagMetrics" :key="item.key">
+              <div class="metric-label">{{ item.label }}</div>
+              <div class="metric-value">{{ formatPercent(item.value) }}</div>
             </div>
           </div>
         </div>
@@ -241,8 +252,7 @@ import {
   type SSEProgressEvent
 } from '@/types'
 
-type RetrievalMetrics = NonNullable<EvaluationDetail['metric']>['retrieval_metrics']
-type GenerationMetrics = NonNullable<EvaluationDetail['metric']>['generation_metrics']
+type MetricRow = { key: string; label: string; value: number }
 
 const route = useRoute()
 const router = useRouter()
@@ -282,36 +292,57 @@ const scoreMarks = [
   { value: 100, label: '100%' }
 ]
 
+// 指标标签映射（扁平契约 detail.metrics 的字段名）
+const retrievalLabels: Array<[string, string]> = [
+  ['precision', '精确率'],
+  ['recall', '召回率'],
+  ['ndcg', 'NDCG'],
+  ['mrr', 'MRR'],
+  ['map', 'MAP']
+]
+
+const generationLabels: Array<[string, string]> = [
+  ['bleu_1', 'BLEU-1'],
+  ['bleu_2', 'BLEU-2'],
+  ['bleu_4', 'BLEU-4'],
+  ['rouge_1', 'ROUGE-1'],
+  ['rouge_2', 'ROUGE-2'],
+  ['rouge_l', 'ROUGE-L']
+]
+
+const ragLabels: Array<[string, string]> = [
+  ['faithfulness', '忠实度'],
+  ['context_relevance', '上下文相关性'],
+  ['noise_ratio', '噪声比例']
+]
+
+/** 从扁平 metrics 中按给定 key 列表挑出已定义的项 */
+function pickMetrics(labels: Array<[string, string]>): MetricRow[] {
+  const m = detail.value?.metrics
+  if (!m) return []
+  const rows: MetricRow[] = []
+  for (const [key, label] of labels) {
+    const value = (m as Record<string, number | undefined>)[key]
+    if (value != null) rows.push({ key, label, value })
+  }
+  return rows
+}
+
 // 显示的检索指标
-const displayRetrievalMetrics = computed(() => {
-  if (!detail.value?.metric?.retrieval_metrics) return {}
-  return detail.value.metric.retrieval_metrics
-})
+const displayRetrievalMetrics = computed(() => pickMetrics(retrievalLabels))
 
 // 显示的生成指标
-const displayGenerationMetrics = computed(() => {
-  if (!detail.value?.metric?.generation_metrics) return {}
-  return detail.value.metric.generation_metrics
-})
+const displayGenerationMetrics = computed(() => pickMetrics(generationLabels))
 
-// 指标标签映射
-const retrievalLabels: Record<string, string> = {
-  precision: '精确率',
-  recall: '召回率',
-  ndcg3: 'NDCG@3',
-  ndcg10: 'NDCG@10',
-  mrr: 'MRR',
-  map: 'MAP'
-}
+// 显示的 RAG 专属指标
+const displayRagMetrics = computed(() => pickMetrics(ragLabels))
 
-const generationLabels: Record<string, string> = {
-  bleu1: 'BLEU-1',
-  bleu2: 'BLEU-2',
-  bleu4: 'BLEU-4',
-  rouge1: 'ROUGE-1',
-  rouge2: 'ROUGE-2',
-  rougeL: 'ROUGE-L'
-}
+// 是否有任意聚合指标
+const hasAnyMetrics = computed(() =>
+  displayRetrievalMetrics.value.length > 0 ||
+  displayGenerationMetrics.value.length > 0 ||
+  displayRagMetrics.value.length > 0
+)
 
 // 过滤和排序后的 QA 结果
 const filteredQAResults = computed(() => {

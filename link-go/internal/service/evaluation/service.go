@@ -162,6 +162,7 @@ func (s *Service) GetEvaluationResult(ctx context.Context, taskID string) (*Eval
 		DatasetID:    task.DatasetID,
 		Type:         task.Type,
 		Status:       task.Status,
+		Metrics:      task.Metrics,
 		QAResults:    qaResults,
 		TotalCount:   task.TotalCount,
 		SuccessCount: task.SuccessCount,
@@ -177,6 +178,7 @@ type EvaluationResultDetail struct {
 	DatasetID    string                      `json:"dataset_id"`
 	Type         domeval.EvaluationType      `json:"type"`
 	Status       domeval.TaskStatus          `json:"status"`
+	Metrics      *domeval.TaskMetrics        `json:"metrics,omitempty"` // 任务级聚合指标
 	QAResults    []*domeval.EvaluationResult `json:"qa_results"`
 	TotalCount   int                         `json:"total_count"`
 	SuccessCount int                         `json:"success_count"`

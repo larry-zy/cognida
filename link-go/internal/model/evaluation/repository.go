@@ -43,6 +43,9 @@ type EvaluationTaskRepository interface {
 	// UpdateError 更新任务错误信息
 	UpdateError(ctx context.Context, id string, errorMsg string) error
 
+	// UpdateMetrics 更新任务级聚合指标（评测完成后写入）
+	UpdateMetrics(ctx context.Context, id string, metrics *TaskMetrics) error
+
 	// SoftDelete 软删除任务
 	SoftDelete(ctx context.Context, id string) error
 

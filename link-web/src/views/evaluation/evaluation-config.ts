@@ -40,6 +40,15 @@ export const GRADER_GROUPS: GraderGroup[] = [
     ]
   },
   {
+    title: 'RAG 专属指标',
+    onlyType: 'rag',
+    options: [
+      { value: 'faithfulness', label: '忠实度（答案是否基于检索内容）' },
+      { value: 'context_relevance', label: '上下文相关性（检索内容与问题相关性）' },
+      { value: 'noise_ratio', label: '噪声比例（检索到的不相关文档占比）' }
+    ]
+  },
+  {
     title: '语义质量',
     options: [
       { value: 'semantic_similarity', label: '语义相似度' },

@@ -67,7 +67,7 @@ func (e *RAGExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskC
 			continue
 		}
 
-		// 保存检索到的文档 ID
+		// 保存检索到的文档：正文用于生成，ChunkID 用于检索指标
 		retrievedPIDs := make([]string, len(retrievedDocs))
 		retrievedChunks := make([]string, len(retrievedDocs))
 		for j, doc := range retrievedDocs {
@@ -75,6 +75,7 @@ func (e *RAGExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskC
 			retrievedChunks[j] = doc.Content
 		}
 		results[i].RetrievedChunks = retrievedChunks
+		results[i].RetrievedPIDs = retrievedPIDs
 
 		// 2. 生成阶段
 		generateCtx, generateCancel := context.WithTimeout(ctx, e.generateTimeout)

@@ -341,8 +341,9 @@ class ComputeItem(BaseModel):
     question: str
     reference_answer: str
     generated_answer: str
-    retrieved_pids: List[str] = []
-    relevant_pids: List[str] = []
+    retrieved_pids: List[str] = []       # 检索到的分块ID（用于 precision/recall/ndcg/mrr）
+    relevant_pids: List[str] = []        # 标注的相关分块ID
+    retrieved_contexts: List[str] = []   # 检索到的分块正文（用于 faithfulness/context_relevance）
 
 
 class ComputeMetricsRequest(BaseModel):
@@ -401,6 +402,27 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
         bleu_4_sum = 0.0
         count = 0
 
+        # 检索指标累加器（仅统计含相关文档标注的样本）
+        precision_sum = 0.0
+        recall_sum = 0.0
+        ndcg_sum = 0.0
+        mrr_sum = 0.0
+        map_sum = 0.0
+        retrieval_count = 0
+
+        # 语义 / LLM 裁判累加器
+        semantic_sum = 0.0
+        semantic_count = 0
+        llm_sum = 0.0
+        llm_count = 0
+
+        # RAG 专属指标（忠实度/上下文相关性/噪声比）需按批计算，先收集
+        rag_answers: List[str] = []
+        rag_questions: List[str] = []
+        rag_contexts: List[List[str]] = []
+        rag_relevant_ids: List[List[str]] = []
+        rag_retrieved_ids: List[List[str]] = []
+
         for i, item in enumerate(request.items):
             item_result = ComputeItemResult(index=i)
 
@@ -433,28 +455,44 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                     item_result.bleu_4 = gen["bleu_4"]
                     bleu_4_sum += gen["bleu_4"]
 
-            # 检索指标（如果有相关文档信息）
-            if item.relevant_pids and item.retrieved_pids:
-                if any(g in request.graders for g in ["precision", "recall", "ndcg"]):
-                    ret = compute_retrieval_metrics(
-                        relevant_pids=item.relevant_pids,
-                        retrieved_pids=item.retrieved_pids,
-                    )
-                    item_result.precision = ret.get("precision")
-                    item_result.recall = ret.get("recall")
-                    item_result.ndcg = ret.get("ndcg")
-                    item_result.rr = ret.get("rr")
+            # 检索指标（需同时有相关文档标注与检索结果）
+            if item.relevant_pids and item.retrieved_pids and any(
+                g in request.graders for g in ["precision", "recall", "ndcg", "mrr", "map"]
+            ):
+                # 将 检索ID 序列按是否命中相关ID 转成布尔相关性列表
+                relevant_set = set(item.relevant_pids)
+                retrieved_bool = [pid in relevant_set for pid in item.retrieved_pids]
+                ret = compute_retrieval_metrics(
+                    retrieved_bool,
+                    total_relevant=len(relevant_set),
+                    k=len(retrieved_bool),
+                )
+                item_result.precision = ret.get("precision")
+                item_result.recall = ret.get("recall")
+                item_result.ndcg = ret.get("ndcg")
+                item_result.rr = ret.get("mrr")  # 单条为 Reciprocal Rank，键名为 mrr
 
-            # 语义相似度
-            if "semantic" in request.graders:
+                precision_sum += ret.get("precision", 0.0)
+                recall_sum += ret.get("recall", 0.0)
+                ndcg_sum += ret.get("ndcg", 0.0)
+                mrr_sum += ret.get("mrr", 0.0)
+                map_sum += ret.get("map_score", 0.0)
+                retrieval_count += 1
+
+            # 语义相似度（前端评测器为 semantic_similarity / semantic_relevance）
+            if any(g in request.graders for g in ["semantic", "semantic_similarity", "semantic_relevance"]):
                 try:
                     sem = await compute_semantic_metrics(
                         [item.reference_answer],
                         [item.generated_answer],
                     )
                     if sem and "similarity" in sem:
-                        item_result.semantic_similarity = sem["similarity"][0] if isinstance(sem["similarity"], list) else sem["similarity"]
-                except Exception as e:
+                        sim = sem["similarity"][0] if isinstance(sem["similarity"], list) else sem["similarity"]
+                        item_result.semantic_similarity = sim
+                        if sim is not None:
+                            semantic_sum += sim
+                            semantic_count += 1
+                except Exception:
                     pass  # 语义指标失败不影响其他指标
 
             # LLM Judge
@@ -468,8 +506,19 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                     )
                     item_result.llm_score = score.get("total_score")
                     item_result.llm_reasoning = score.get("reasoning")
-                except Exception as e:
+                    if item_result.llm_score is not None:
+                        llm_sum += item_result.llm_score
+                        llm_count += 1
+                except Exception:
                     pass  # LLM Judge 失败不影响其他指标
+
+            # 收集 RAG 专属指标所需数据（按批计算）
+            if item.retrieved_contexts:
+                rag_answers.append(item.generated_answer)
+                rag_questions.append(item.question)
+                rag_contexts.append(item.retrieved_contexts)
+                rag_relevant_ids.append(item.relevant_pids)
+                rag_retrieved_ids.append(item.retrieved_pids)
 
             items_result.append(item_result)
             count += 1
@@ -488,6 +537,33 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                 aggregate["bleu_2"] = bleu_2_sum / count
             if bleu_4_sum > 0:
                 aggregate["bleu_4"] = bleu_4_sum / count
+
+        # 检索指标聚合（仅对含标注的样本求均值）
+        if retrieval_count > 0:
+            aggregate["precision"] = precision_sum / retrieval_count
+            aggregate["recall"] = recall_sum / retrieval_count
+            aggregate["ndcg"] = ndcg_sum / retrieval_count
+            aggregate["mrr"] = mrr_sum / retrieval_count
+            aggregate["map"] = map_sum / retrieval_count
+
+        # 语义 / LLM 聚合
+        if semantic_count > 0:
+            aggregate["semantic_similarity"] = semantic_sum / semantic_count
+        if llm_count > 0:
+            aggregate["llm_score"] = llm_sum / llm_count
+
+        # RAG 专属指标聚合（忠实度 / 上下文相关性 / 噪声比）
+        if rag_contexts:
+            if "faithfulness" in request.graders:
+                aggregate["faithfulness"] = faithfulness(rag_answers, rag_contexts)
+            if "context_relevance" in request.graders:
+                aggregate["context_relevance"] = context_relevance(rag_questions, rag_contexts)
+            if "noise_ratio" in request.graders and any(rag_relevant_ids):
+                aggregate["noise_ratio"] = noise_ratio(
+                    retrieved_contexts=rag_contexts,
+                    relevant_doc_ids=rag_relevant_ids,
+                    retrieved_doc_ids=rag_retrieved_ids,
+                )
 
         return ComputeMetricsResponse(
             items=items_result,

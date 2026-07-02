@@ -27,7 +27,8 @@ type QAResult struct {
 	Question         string   `json:"question"`
 	ReferenceAnswer  string   `json:"reference_answer"`
 	GeneratedAnswer  string   `json:"generated_answer"`
-	RetrievedChunks  []string `json:"retrieved_chunks,omitempty"`
+	RetrievedChunks  []string `json:"retrieved_chunks,omitempty"` // 检索到的分块正文（用于生成与忠实度类指标）
+	RetrievedPIDs    []string `json:"retrieved_pids,omitempty"`   // 检索到的分块ID（用于检索指标：precision/recall/ndcg/mrr）
 	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
 	Success          bool     `json:"success"`
 	Error            string   `json:"error,omitempty"`
@@ -83,6 +84,39 @@ func (c *EvaluationTaskConfig) Validate() error {
 // EvaluationTask 实体
 // ========================================
 
+// TaskMetrics 任务级聚合指标
+//
+// 存放整批评测的聚合结果。其中检索/生成/LLM/语义类指标可由逐条 QAResult 求均值得到，
+// 但 RAG 专属指标（faithfulness/context_relevance/noise_ratio）与语料级 MAP 只在批级别存在，
+// 无法从逐条结果还原，必须在此持久化。
+type TaskMetrics struct {
+	// 检索指标
+	Precision *float64 `json:"precision,omitempty"`
+	Recall    *float64 `json:"recall,omitempty"`
+	NDCG      *float64 `json:"ndcg,omitempty"`
+	MRR       *float64 `json:"mrr,omitempty"`
+	MAP       *float64 `json:"map,omitempty"`
+
+	// 生成指标
+	ROUGE1 *float64 `json:"rouge_1,omitempty"`
+	ROUGE2 *float64 `json:"rouge_2,omitempty"`
+	ROUGEL *float64 `json:"rouge_l,omitempty"`
+	BLEU1  *float64 `json:"bleu_1,omitempty"`
+	BLEU2  *float64 `json:"bleu_2,omitempty"`
+	BLEU4  *float64 `json:"bleu_4,omitempty"`
+
+	// LLM Judge
+	LLMJudgeScore *float64 `json:"llm_judge_score,omitempty"`
+
+	// 语义相似度
+	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+
+	// RAG 专属指标（仅 RAG 类型有意义）
+	Faithfulness     *float64 `json:"faithfulness,omitempty"`
+	ContextRelevance *float64 `json:"context_relevance,omitempty"`
+	NoiseRatio       *float64 `json:"noise_ratio,omitempty"`
+}
+
 // EvaluationTask 评测任务实体
 type EvaluationTask struct {
 	ID           string          `json:"id"`
@@ -99,6 +133,7 @@ type EvaluationTask struct {
 	TotalCount   int             `json:"total_count"`
 	SuccessCount int             `json:"success_count"`
 	FailureCount int             `json:"failure_count"`
+	Metrics      *TaskMetrics    `json:"metrics,omitempty"` // 任务级聚合指标（完成后写入）
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	DeletedAt    *time.Time      `json:"deleted_at,omitempty"`

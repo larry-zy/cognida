@@ -42,8 +42,7 @@ export const EvaluationStatusType: Record<EvaluationStatusValue, 'info' | 'warni
 export interface RetrievalMetrics {
   precision: number    // 精确率
   recall: number       // 召回率
-  ndcg3: number        // NDCG@3
-  ndcg10: number       // NDCG@10
+  ndcg: number         // NDCG
   mrr: number          // 平均倒数排名
   map: number          // 平均精确率
 }
@@ -66,6 +65,33 @@ export interface GenerationMetrics {
 export interface MetricResult {
   retrieval_metrics?: RetrievalMetrics
   generation_metrics?: GenerationMetrics
+}
+
+/**
+ * 任务级聚合指标（扁平结构，与后端 Go TaskMetrics 对齐）
+ * 后端在评测完成后写入 evaluation_tasks.metrics(JSON) 列。
+ */
+export interface TaskMetrics {
+  // 检索指标
+  precision?: number
+  recall?: number
+  ndcg?: number
+  mrr?: number
+  map?: number
+  // 生成指标
+  rouge_1?: number
+  rouge_2?: number
+  rouge_l?: number
+  bleu_1?: number
+  bleu_2?: number
+  bleu_4?: number
+  // LLM Judge / 语义
+  llm_judge_score?: number
+  semantic_similarity?: number
+  // RAG 专属
+  faithfulness?: number
+  context_relevance?: number
+  noise_ratio?: number
 }
 
 /**
@@ -123,8 +149,10 @@ export interface EvaluationDetail {
   updated_at: string
   // 任务信息
   task?: EvaluationTaskDetail
-  // 评测指标
+  // 评测指标（旧结构，逐步废弃）
   metric?: MetricResult
+  // 任务级聚合指标（新契约，扁平结构）
+  metrics?: TaskMetrics
 }
 
 /**

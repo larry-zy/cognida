@@ -3,6 +3,7 @@ package mysql
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -96,6 +97,34 @@ func (r *EvaluationTaskRepository) UpdateError(ctx context.Context, id string, e
 			"status":        string(evaluation.TaskStatusFailed),
 			"error_message": errorMsg,
 			"updated_at":    time.Now(),
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("%w: %v", evaluation.ErrRepository, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return evaluation.ErrTaskNotFound
+	}
+	return nil
+}
+
+// UpdateMetrics 更新任务级聚合指标
+func (r *EvaluationTaskRepository) UpdateMetrics(ctx context.Context, id string, metrics *evaluation.TaskMetrics) error {
+	var data []byte
+	if metrics != nil {
+		var err error
+		data, err = json.Marshal(metrics)
+		if err != nil {
+			return fmt.Errorf("%w: marshal metrics: %v", evaluation.ErrRepository, err)
+		}
+	}
+
+	result := r.db.WithContext(ctx).
+		Model(&EvaluationTaskModel{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{
+			"metrics":    data,
+			"updated_at": time.Now(),
 		})
 
 	if result.Error != nil {
