@@ -17,7 +17,7 @@ type EvaluationTaskModel struct {
 	ID           string    `gorm:"column:id;primaryKey;type:varchar(64)" json:"id"`
 	TenantID     int64     `gorm:"column:tenant_id;not null;index:idx_tenant_status" json:"tenant_id"`
 	UserID       int64     `gorm:"column:user_id;not null;index" json:"user_id"`
-	DatasetID    string    `gorm:"column:dataset_id;not null;type:varchar(128);index" json:"dataset_id"`
+	DatasetID    string    `gorm:"column:dataset_id;not null;type:varchar(64);index" json:"dataset_id"`
 	Type         string    `gorm:"column:type;not null;type:varchar(32);index:idx_type_status" json:"type"`
 	KnowledgeBaseID string    `gorm:"column:knowledge_base_id;type:varchar(64)" json:"knowledge_base_id,omitempty"`
 	AgentID      string    `gorm:"column:agent_id;type:varchar(64)" json:"agent_id,omitempty"`
@@ -128,7 +128,7 @@ func ToDomainEvaluationTaskList(models []*EvaluationTaskModel) []*evaluation.Eva
 // EvaluationResultModel 评测结果 GORM 模型
 type EvaluationResultModel struct {
 	ID                 int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	TaskID             string    `gorm:"column:task_id;not null;index:idx_task_id" json:"task_id"`
+	TaskID             string    `gorm:"column:task_id;not null;type:varchar(64);index:idx_task_id" json:"task_id"`
 	Question           string    `gorm:"column:question;not null;type:text" json:"question"`
 	ReferenceAnswer    string    `gorm:"column:reference_answer;type:text" json:"reference_answer"`
 	GeneratedAnswer    string    `gorm:"column:generated_answer;type:text" json:"generated_answer"`

@@ -423,7 +423,7 @@ func (m *TagModel) FromDomain(entity *domain_knowledge.Tag) *TagModel {
 // RetrievalSettingModel 检索设置数据库模型
 type RetrievalSettingModel struct {
 	ID        int64      `gorm:"primaryKey;autoIncrement"`
-	TenantID  int64      `gorm:"not null;index:idx_kb_tenant"`
+	TenantID  int64      `gorm:"not null;index:idx_tenant_id"`
 	SessionID *string    `gorm:"type:varchar(36);index:idx_session_id"`
 	// 向量检索配置
 	VectorTopK      *int     `gorm:"default:5"`
@@ -571,7 +571,7 @@ type MessageModel struct {
 	SessionID           string     `gorm:"not null;type:varchar(36);index:idx_session_id"`
 	Role                string     `gorm:"type:varchar(50);not null"`
 	Content             string     `gorm:"type:text;not null"`
-	KnowledgeReferences string     `gorm:"type:text"`
+	KnowledgeReferences string     `gorm:"type:json"`
 	AgentSteps          string     `gorm:"type:json"`
 	ToolCalls           string     `gorm:"type:json"`
 	IsCompleted         bool       `gorm:"type:tinyint(1);default:0"`
@@ -650,9 +650,9 @@ func (m *MessageModel) FromDomain(entity *domain_conversation.Message) *MessageM
 // UserModel 用户数据库模型
 type UserModel struct {
 	ID           int64      `gorm:"primaryKey;autoIncrement"`
-	TenantID     int64      `gorm:"not null;index:idx_tenant_id"`
-	Username     string     `gorm:"type:varchar(50);not null;index:idx_tenant_username,priority:1"`
-	Email        string     `gorm:"type:varchar(100);not null;index:idx_tenant_email,priority:1"`
+	TenantID     int64      `gorm:"not null;uniqueIndex:uk_tenant_username,priority:1;uniqueIndex:uk_tenant_email,priority:1"`
+	Username     string     `gorm:"type:varchar(50);not null;uniqueIndex:uk_tenant_username,priority:2"`
+	Email        string     `gorm:"type:varchar(100);not null;uniqueIndex:uk_tenant_email,priority:2"`
 	PasswordHash string     `gorm:"type:varchar(255);not null"`
 	Avatar       string     `gorm:"type:varchar(500)"`
 	Status       int8       `gorm:"type:tinyint;default:1;index:idx_status"`

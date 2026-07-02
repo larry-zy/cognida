@@ -20,12 +20,12 @@ type AuditLogModel struct {
 	ResourceID   *string   `gorm:"size:100;comment:资源ID"`
 	ResourceName *string   `gorm:"size:255;comment:资源名称"`
 	Details      string    `gorm:"type:json;comment:详情"`
-	Status       string    `gorm:"index:size:20;default:success;comment:状态"`
+	Status       string    `gorm:"index;size:20;default:success;comment:状态"`
 	ErrorMessage *string   `gorm:"type:text"`
 	IPAddress    *string   `gorm:"size:45"`
 	RequestID    *string   `gorm:"size:64;index"`
 	DurationMs   *int      `gorm:"comment:耗时ms"`
-	CreatedAt    time.Time `gorm:"index:_autoCreateTime"`
+	CreatedAt    time.Time `gorm:"autoCreateTime;index"`
 }
 
 // TableName 指定表名

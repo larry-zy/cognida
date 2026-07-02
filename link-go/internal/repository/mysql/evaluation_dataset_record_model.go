@@ -15,7 +15,7 @@ import (
 // DatasetRecordModel 数据集样本记录 GORM 模型
 type DatasetRecordModel struct {
 	ID              int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	DatasetID       string    `gorm:"column:dataset_id;not null;index:idx_dataset_id,idx_tenant_dataset" json:"dataset_id"`
+	DatasetID       string    `gorm:"column:dataset_id;not null;type:varchar(64);index:idx_dataset_id,idx_tenant_dataset" json:"dataset_id"`
 	TenantID        int64     `gorm:"column:tenant_id;not null;index:idx_tenant_id,idx_tenant_dataset" json:"tenant_id"`
 	Question        string    `gorm:"column:question;not null;type:text" json:"question"`
 	ReferenceAnswer string    `gorm:"column:reference_answer;not null;type:text" json:"reference_answer"`
