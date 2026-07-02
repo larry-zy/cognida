@@ -11,6 +11,12 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
+# 本文件为端到端集成脚本: 依赖运行中的评测服务 (localhost:8000),
+# test_* 函数接收非 fixture 位置参数, 仅经 __main__ 手动运行, 不进 CI 单测。
+pytestmark = pytest.mark.integration
+
 # 设置项目根目录
 PROJECT_ROOT = "D:\\link\\link-python"
 sys.path.insert(0, PROJECT_ROOT)

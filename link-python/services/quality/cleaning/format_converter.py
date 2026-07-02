@@ -248,7 +248,9 @@ class FormatConverter(Cleaner):
         Returns:
             (标准化后的列, 标准化的记录数)
         """
-        normalized = series.copy()
+        # 转为 object dtype 再赋值: 新版 pandas 的 str/StringDtype 列
+        # 不允许写入 float, 会抛 TypeError; object 列可承载混合类型。
+        normalized = series.astype(object).copy()
         count = 0
 
         for idx, value in series.items():
@@ -257,7 +259,8 @@ class FormatConverter(Cleaner):
                 cleaned = re.sub(r"[^\d.-]", "", value)
                 try:
                     if cleaned:
-                        normalized.iloc[idx] = float(cleaned)
+                        # 用标签索引 .at 而非位置索引 .iloc, 避免非默认索引错位
+                        normalized.at[idx] = float(cleaned)
                         count += 1
                 except ValueError:
                     pass

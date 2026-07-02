@@ -76,7 +76,8 @@ async def test_parse_text():
 
     assert result["success"] is True
     assert result["text"] == "Hello, world!\n\nThis is a test."
-    assert result["metadata"]["format"] == "txt"
+    # 解析器统一以规范格式名 "text" 标注 (txt 仅为文件扩展名别名)
+    assert result["metadata"]["format"] == "text"
 
 
 @pytest.mark.asyncio

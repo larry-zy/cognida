@@ -72,4 +72,4 @@ logs/
 *.sqlite3
 
 # uv
-uv.lock
+# 注: uv.lock 应纳入版本控制以保证 CI (uv sync --frozen) 与本地环境一致。

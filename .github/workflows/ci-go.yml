@@ -1,0 +1,81 @@
+name: CI - Go
+
+# monorepo 说明: 本仓库为单一 git 仓库, GitHub Actions 只读仓库根的
+# .github/workflows/。原先放在 link-go/.github/ 下的 workflow 永不触发,
+# 故统一上移至根级, 用 paths 过滤 + working-directory 定位子服务。
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'link-go/**'
+      - '.github/workflows/ci-go.yml'
+      - '.claude/hooks/check-go-architecture.sh'
+  pull_request:
+    paths:
+      - 'link-go/**'
+      - '.github/workflows/ci-go.yml'
+      - '.claude/hooks/check-go-architecture.sh'
+
+defaults:
+  run:
+    working-directory: link-go
+
+jobs:
+  build-test:
+    name: 构建与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: link-go/go.mod
+          cache: true
+          cache-dependency-path: link-go/go.sum
+
+      - name: 下载依赖
+        run: go mod download
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: 构建
+        run: go build -o bin/link ./cmd/server
+
+      - name: 单元测试 (-short -race)
+        run: go test -short -race -coverprofile=coverage.out -covermode=atomic ./...
+
+  lint:
+    name: 代码检查 (golangci-lint)
+    runs-on: ubuntu-latest
+    # 棕地存量: golangci-lint 首次接入存量问题多, 先作非阻断反馈, 分批清理后转门禁。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: link-go/go.mod
+          cache: true
+          cache-dependency-path: link-go/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: link-go
+
+  architecture:
+    name: 架构合规检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 复用 .claude/hooks 中已维护的架构校验脚本作为单一事实源
+      # (原 workflow 引用的 cmd/archcheck/main.go 并不存在)。
+      # 脚本以自身位置推导 PROJECT_ROOT, 与 cwd 无关。
+      - name: 检查 Clean Architecture 依赖方向
+        run: bash "$GITHUB_WORKSPACE/.claude/hooks/check-go-architecture.sh"

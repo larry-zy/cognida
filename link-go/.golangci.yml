@@ -1,0 +1,40 @@
+# golangci-lint 配置 (v1.60+)
+# 棕地项目: 先启用一组高信噪比的核心 linter, 避免一次性铺满导致无法落地。
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck      # 未处理的 error
+    - govet         # go vet
+    - ineffassign   # 无效赋值
+    - staticcheck   # 静态分析
+    - unused        # 未使用的代码
+    - gosimple      # 可简化的写法
+    - misspell      # 拼写
+    - bodyclose     # HTTP body 未关闭
+    - gosec         # 安全问题
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # 测试文件放宽安全/错误检查
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    # 生成代码(gRPC/wire)不检查
+    - path: \.pb\.go
+      linters:
+        - all
+    - path: wire_gen\.go
+      linters:
+        - all
+
+linters-settings:
+  gosec:
+    excludes:
+      - G115  # 整型转换溢出(存量误报多, 单独处理)

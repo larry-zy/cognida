@@ -9,14 +9,14 @@ FAILED=0
 
 echo "🔄 Proto 文件一致性检查..."
 
-# 已定义的 proto 文件
-PROTO_FILES=("docreader" "evaluation" "ml" "annotation")
+# 已定义的 proto 服务 (与 link-go/api/proto/<svc>/<svc>.proto 实际布局一致)
+PROTO_FILES=("analytics" "docreader" "evaluation" "judge" "quality")
 
-# 检查 Go 端 proto 文件
+# 检查 Go 端 proto 文件 (每个服务一个子目录)
 for proto in "${PROTO_FILES[@]}"; do
-    proto_file="$PROJECT_ROOT/link-go/api/proto/${proto}.proto"
+    proto_file="$PROJECT_ROOT/link-go/api/proto/${proto}/${proto}.proto"
     if [ ! -f "$proto_file" ]; then
-        echo "❌ Proto 文件缺失: ${proto}.proto"
+        echo "❌ Proto 文件缺失: ${proto}/${proto}.proto"
         FAILED=1
     fi
 done

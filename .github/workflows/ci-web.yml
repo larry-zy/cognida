@@ -1,0 +1,48 @@
+name: CI - Web
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'link-web/**'
+      - '.github/workflows/ci-web.yml'
+  pull_request:
+    paths:
+      - 'link-web/**'
+      - '.github/workflows/ci-web.yml'
+
+defaults:
+  run:
+    working-directory: link-web
+
+jobs:
+  check:
+    name: 检查与测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: link-web/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      # 棕地存量: ESLint 存量告警/废弃语法较多, 先作非阻断反馈,
+      # 待用 `npm run lint:fix` + 手工清理废弃 slot 语法后再转为门禁。
+      - name: ESLint (非阻断)
+        run: npm run lint
+        continue-on-error: true
+
+      - name: 类型检查
+        run: npm run type-check
+
+      - name: 单元测试
+        run: npm run test
+
+      - name: 构建
+        run: npm run build

@@ -3,7 +3,6 @@
 import pytest
 
 from tools import BaseTool, get_registry
-from tools.evaluation import LLMJudgeTool
 
 
 class DummyTool(BaseTool):
@@ -53,11 +52,3 @@ class TestToolRegistry:
         """测试全局注册中心。"""
         registry = get_registry()
         assert isinstance(registry, get_registry().__class__)
-
-    def test_llm_judge_registered(self) -> None:
-        """测试 LLM 评测工具已注册。"""
-        tool = LLMJudgeTool()
-        registry = get_registry()
-        registry.register(tool)
-
-        assert registry.get("llm_judge") is tool

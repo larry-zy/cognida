@@ -6,8 +6,8 @@ import pytest
 from unittest.mock import Mock, patch
 from grpc import ServicerContext
 
-import quality_pb2
-import quality_pb2_grpc
+from proto import quality_pb2
+from proto import quality_pb2_grpc
 from services.quality.servicer import QualityServicer
 
 
@@ -243,7 +243,8 @@ class TestQualityServicer:
 
         assert response.success is True
         assert response.rules is not None
-        assert isinstance(response.available_rule_files, list)
+        # available_rule_files 是 protobuf repeated 字段 (非 list), 校验其可迭代且元素为字符串
+        assert all(isinstance(f, str) for f in response.available_rule_files)
 
     def test_get_quality_rules_with_file(self, servicer, mock_context):
         """测试获取指定文件的质量规则。"""

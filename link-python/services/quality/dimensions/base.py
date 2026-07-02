@@ -110,4 +110,10 @@ class DimensionEvaluator(ABC):
         Returns:
             是否通过
         """
+        # config 经 proto map<string,string> 传入时 threshold 可能为字符串,
+        # 统一转为 float 后再比较, 避免 float 与 str 的比较报错。
+        try:
+            threshold = float(threshold)
+        except (TypeError, ValueError):
+            threshold = 80.0
         return score >= threshold

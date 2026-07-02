@@ -50,12 +50,22 @@ class PIIMasker(Cleaner):
         config = config or {}
         operations: list[CleaningOperation] = []
 
-        text_column = config.get("text_column")
-        if not text_column or text_column not in data.columns:
-            # 没有指定文本列，检查所有字符串列
-            text_columns = [col for col in data.columns if data[col].dtype == "object"]
+        # 支持三种列指定方式: columns(列表) / text_column(单列) / 自动检测
+        configured = config.get("columns") or config.get("text_column")
+        if isinstance(configured, str):
+            configured = [configured]
+
+        if configured:
+            text_columns = [col for col in configured if col in data.columns]
         else:
-            text_columns = [text_column]
+            # 没有指定文本列，检查所有字符串列。
+            # 注: pandas 3.x 字符串列默认 dtype 为 'str'(StringDtype) 而非 'object',
+            # 故用 is_string_dtype 同时覆盖两者; 逐值仍有 isinstance 守卫。
+            text_columns = [
+                col
+                for col in data.columns
+                if pd.api.types.is_string_dtype(data[col])
+            ]
 
         cleaned_data = data.copy()
         total_masked = 0

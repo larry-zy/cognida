@@ -351,8 +351,15 @@ class QualityPipeline:
         Returns:
             决策结果
         """
-        accept_threshold = config.get("accept_threshold", 80)
-        reject_threshold = config.get("reject_threshold", 50)
+        # config 经 proto map<string,string> 传入时阈值可能为字符串, 统一转 float
+        try:
+            accept_threshold = float(config.get("accept_threshold", 80))
+        except (TypeError, ValueError):
+            accept_threshold = 80.0
+        try:
+            reject_threshold = float(config.get("reject_threshold", 50))
+        except (TypeError, ValueError):
+            reject_threshold = 50.0
 
         if score >= accept_threshold:
             return Decision.ACCEPT

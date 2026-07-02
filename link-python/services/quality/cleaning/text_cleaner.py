@@ -15,11 +15,13 @@ from ..registry import register_cleaner
 import pandas as pd
 
 
-@register_cleaner("text_cleaner")
 class TextCleanerImpl(TextCleaner):
-    """文本清洗器实现。"""
+    """文本清洗器实现 (仅处理字符串)。
 
-    cleaner_name = "text_cleaner"
+    内部实现类, 不单独注册; 通过 UnifiedTextCleaner("text_cleaner") 对外暴露。
+    """
+
+    cleaner_name = "string_text_cleaner"
     description = "特殊字符去除、编码修复、HTML标签去除、空白字符标准化"
 
     # 特殊字符模式（控制字符等）
@@ -209,10 +211,6 @@ class TextCleanerImpl(TextCleaner):
         return text
 
 
-# 为测试提供便捷别名
-TextCleaner = TextCleanerImpl
-
-
 @register_cleaner("dataframe_text_cleaner")
 class DataFrameTextCleaner(Cleaner):
     """DataFrame文本清洗器。
@@ -245,10 +243,12 @@ class DataFrameTextCleaner(Cleaner):
         config = config or {}
         operations: list[CleaningOperation] = []
 
-        # 获取要清洗的列
+        # 获取要清洗的列; 未指定时自动检测字符串列。
+        # 注: pandas 3.x 字符串列默认 dtype 为 'str'(StringDtype) 而非 'object',
+        # 故用 is_string_dtype 同时覆盖两者。
         text_columns = config.get(
             "columns",
-            [col for col in data.columns if data[col].dtype == "object"],
+            [col for col in data.columns if pd.api.types.is_string_dtype(data[col])],
         )
 
         cleaned_data = data.copy()
@@ -274,13 +274,16 @@ class DataFrameTextCleaner(Cleaner):
 
 
 # 统一的文本清洗器 - 同时支持字符串和DataFrame清洗
+# 注册为 "text_cleaner": 对外的默认文本清洗器, 按输入类型分派
+# (字符串 -> 返回 (str, ops); DataFrame -> 返回 CleaningResult)。
+@register_cleaner("text_cleaner")
 class UnifiedTextCleaner(Cleaner):
     """统一的文本清洗器。
 
     支持字符串清洗和DataFrame清洗。
     """
 
-    cleaner_name = "unified_text_cleaner"
+    cleaner_name = "text_cleaner"
     description = "统一的文本清洗器，支持字符串和DataFrame"
 
     def __init__(self) -> None:
@@ -333,62 +336,5 @@ class UnifiedTextCleaner(Cleaner):
             return self._df_cleaner.clean(data, config)
 
 
-# 更新别名为统一版本
+# 对外别名: 默认文本清洗器统一为 UnifiedTextCleaner
 TextCleaner = UnifiedTextCleaner
-class DataFrameTextCleaner(Cleaner):
-    """DataFrame文本清洗器。
-
-    对DataFrame中的文本列进行清洗。
-    """
-
-    cleaner_name = "dataframe_text_cleaner"
-    description = "对DataFrame中的文本列进行批量清洗"
-
-    def __init__(self) -> None:
-        """初始化清洗器。"""
-        super().__init__()
-        self._text_cleaner = TextCleanerImpl()
-
-    def clean(
-        self,
-        data: pd.DataFrame,
-        config: dict[str, Any] | None = None,
-    ) -> CleaningResult:
-        """清洗DataFrame数据。
-
-        Args:
-            data: 要清洗的数据
-            config: 清洗配置参数
-
-        Returns:
-            清洗结果
-        """
-        config = config or {}
-        operations: list[CleaningOperation] = []
-
-        # 获取要清洗的列
-        text_columns = config.get(
-            "columns",
-            [col for col in data.columns if data[col].dtype == "object"],
-        )
-
-        cleaned_data = data.copy()
-
-        for col in text_columns:
-            if col not in data.columns:
-                continue
-
-            # 对每条记录进行清洗
-            cleaned_values = []
-            for value in data[col]:
-                if pd.isna(value):
-                    cleaned_values.append(value)
-                else:
-                    text = str(value)
-                    cleaned_text, ops = self._text_cleaner.clean(text, config)
-                    cleaned_values.append(cleaned_text)
-                    operations.extend(ops)
-
-            cleaned_data[col] = cleaned_values
-
-        return self._create_result(data, cleaned_data, operations)

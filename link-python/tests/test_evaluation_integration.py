@@ -7,8 +7,11 @@ import asyncio
 import pytest
 
 from services.evaluation.datasets import get_dataset_manager
-from services.evaluation.runners import EvaluationRunner, EvaluationConfig, Progress
+from services.evaluation.runner import EvaluationRunner, EvaluationConfig, Progress
 from services.evaluation.graders import list_graders, get_grader
+
+# 本文件为集成测试: 依赖真实知识库/检索与评分器, 不在 CI 单测内运行。
+pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio

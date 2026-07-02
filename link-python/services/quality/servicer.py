@@ -6,8 +6,10 @@ from typing import Any
 import pandas as pd
 from grpc import ServicerContext
 
-import quality_pb2
-import quality_pb2_grpc
+# 通过 proto 命名空间包导入, 与 grpc_service/servicer.py 及生成代码保持一致
+# (裸 import quality_pb2 需要 proto/ 目录本身在 sys.path 上, 生产/测试均不成立)
+from proto import quality_pb2
+from proto import quality_pb2_grpc
 from services.quality.evaluator import DataQualityEvaluator
 from services.quality.drift_detector import DriftDetector
 from services.quality.models import QualityReport, UnstructuredQualityReport
@@ -406,7 +408,8 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
             issues=[self._convert_quality_issue(i) for i in report.issues],
             record_count=report.record_count,
             timestamp=int(report.timestamp.timestamp()),
-            metadata=report.metadata,
+            # proto metadata 为 map<string,string>, 需将值统一转为字符串
+            metadata={k: str(v) for k, v in report.metadata.items()},
         )
 
     def _convert_unstructured_report(
