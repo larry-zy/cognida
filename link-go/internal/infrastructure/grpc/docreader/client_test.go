@@ -9,6 +9,9 @@ import (
 
 // TestDocReaderClient 测试 Python 文档服务连接
 func TestDocReaderClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("需要运行中的 Python docreader gRPC 服务(127.0.0.1:50051), 跳过短测")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -39,6 +42,9 @@ func TestDocReaderClient(t *testing.T) {
 
 // TestParseDocument 测试文档解析
 func TestParseDocument(t *testing.T) {
+	if testing.Short() {
+		t.Skip("需要运行中的 Python docreader gRPC 服务(127.0.0.1:50051), 跳过短测")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -65,6 +71,9 @@ func TestParseDocument(t *testing.T) {
 
 // TestFetchURL 测试 URL 获取
 func TestFetchURL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("需要运行中的 Python docreader gRPC 服务与外网访问, 跳过短测")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

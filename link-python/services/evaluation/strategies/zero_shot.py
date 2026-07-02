@@ -15,7 +15,7 @@ class ZeroShotStrategy(BaseStrategy):
     直接调用指定的评分器，不使用任何样本数据学习。
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None):
+    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
         super().__init__(
             name="zero_shot",
             description="直接执行评分器，不使用样本数据",

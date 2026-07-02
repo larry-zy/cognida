@@ -1,156 +1,145 @@
 <template>
   <div class="knowledge-detail-container">
-    <el-page-header @back="goBack" :content="knowledgeBase?.name || '知识库详情'" />
+    <UiPageHeader :title="knowledgeBase?.name || '知识库详情'" :divider="false">
+      <template #actions>
+        <UiButton variant="secondary" @click="goBack">返回</UiButton>
+      </template>
+    </UiPageHeader>
 
-    <el-tabs v-model="activeTab" class="detail-tabs" @tab-change="handleTabChange">
+    <UiTabs
+      v-model="activeTab"
+      class="detail-tabs"
+      :tabs="detailTabs"
+      @change="handleTabChange"
+    >
       <!-- 概览 -->
-      <el-tab-pane label="概览" name="overview">
+      <template #overview>
         <div class="overview-section" v-loading="statsLoading">
-          <el-row :gutter="20" v-if="stats">
-            <el-col :span="6">
-              <el-statistic title="文档数量" :value="stats.knowledge_count">
-                <template #suffix>个</template>
-              </el-statistic>
-            </el-col>
-            <el-col :span="6">
-              <el-statistic title="分块数量" :value="stats.chunk_count">
-                <template #suffix>个</template>
-              </el-statistic>
-            </el-col>
-            <el-col :span="6">
-              <div class="statistic-item">
-                <div class="statistic-title">总存储</div>
-                <div class="statistic-value">{{ formatFileSize(stats.total_size) }}</div>
+          <UiGrid v-if="stats" :columns="4" gap="lg">
+            <UiStatistic title="文档数量" :value="stats.knowledge_count" suffix="个" />
+            <UiStatistic title="分块数量" :value="stats.chunk_count" suffix="个" />
+            <div class="statistic-item">
+              <div class="statistic-title">总存储</div>
+              <div class="statistic-value">{{ formatFileSize(stats.total_size) }}</div>
+            </div>
+            <div class="statistic-item">
+              <div class="statistic-title">状态</div>
+              <div class="statistic-value">
+                <UiTag :variant="knowledgeBase?.status === 1 ? 'success' : 'info'">
+                  {{ knowledgeBase?.status === 1 ? '启用' : '禁用' }}
+                </UiTag>
               </div>
-            </el-col>
-            <el-col :span="6">
-              <el-statistic title="状态">
-                <template #default>
-                  <el-tag :type="knowledgeBase?.status === 1 ? 'success' : 'info'">
-                    {{ knowledgeBase?.status === 1 ? '启用' : '禁用' }}
-                  </el-tag>
-                </template>
-              </el-statistic>
-            </el-col>
-          </el-row>
+            </div>
+          </UiGrid>
 
-          <el-divider />
+          <UiDivider />
 
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="知识库名称">{{ knowledgeBase?.name }}</el-descriptions-item>
-            <el-descriptions-item label="类型">通用</el-descriptions-item>
-            <el-descriptions-item label="创建时间">
+          <UiDescriptions :column="2" border>
+            <UiDescriptionsItem label="知识库名称">{{ knowledgeBase?.name }}</UiDescriptionsItem>
+            <UiDescriptionsItem label="类型">通用</UiDescriptionsItem>
+            <UiDescriptionsItem label="创建时间">
               {{ formatDateTime(knowledgeBase?.created_at) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="更新时间">
+            </UiDescriptionsItem>
+            <UiDescriptionsItem label="更新时间">
               {{ formatDateTime(knowledgeBase?.updated_at) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="描述" :span="2">
+            </UiDescriptionsItem>
+            <UiDescriptionsItem label="描述" :span="2">
               {{ knowledgeBase?.description || '-' }}
-            </el-descriptions-item>
-          </el-descriptions>
+            </UiDescriptionsItem>
+          </UiDescriptions>
         </div>
-      </el-tab-pane>
+      </template>
 
       <!-- 文档管理 -->
-      <el-tab-pane label="文档" name="documents">
+      <template #documents>
         <div class="documents-section">
           <div class="toolbar">
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              :on-change="handleFileSelect"
+            <input
+              ref="fileInputRef"
+              type="file"
               accept=".txt,.md,.pdf,.doc,.docx"
-            >
-              <el-button type="primary" :icon="Upload">上传文档</el-button>
-            </el-upload>
-            <el-text class="hint">支持 txt, md, pdf, doc, docx 格式</el-text>
+              style="display: none"
+              @change="handleFileChange"
+            />
+            <UiButton variant="primary" icon @click="fileInputRef?.click()">
+              <template #icon><el-icon><Upload /></el-icon></template>
+              上传文档
+            </UiButton>
+            <UiText class="hint">支持 txt, md, pdf, doc, docx 格式</UiText>
           </div>
 
-          <el-divider />
+          <UiDivider />
 
-          <el-table
+          <UiTable
+            :columns="documentColumns"
             :data="knowledges"
             v-loading="knowledgesLoading"
             stripe
-            style="width: 100%"
+            row-key="id"
           >
-            <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="type" label="类型" width="100" />
-            <el-table-column prop="storage_size" label="大小" width="120">
-              <template #default="{ row }">
-                {{ formatFileSize(row.storage_size) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="chunk_count" label="分块数" width="100">
-              <template #default="{ row }">
-                {{ row.chunk_count || 0 }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="parse_status" label="处理状态" width="120">
-              <template #default="{ row }">
-                <el-tag :type="getParseStatusType(row.parse_status)">
-                  {{ getParseStatusText(row.parse_status) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="created_at" label="上传时间" width="180">
-              <template #default="{ row }">
-                {{ formatDateTime(row.created_at) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  link
-                  type="primary"
-                  @click="viewKnowledgeChunks(row)"
-                  :disabled="row.chunk_count === 0"
-                >
-                  查看分块
-                </el-button>
-                <el-button link type="danger" @click="deleteKnowledge(row.id)">
-                  删除
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+            <template #cell-storage_size="{ row }">
+              {{ formatFileSize(row.storage_size) }}
+            </template>
+            <template #cell-chunk_count="{ row }">
+              {{ row.chunk_count || 0 }}
+            </template>
+            <template #cell-parse_status="{ row }">
+              <UiTag :variant="getParseStatusType(row.parse_status)">
+                {{ getParseStatusText(row.parse_status) }}
+              </UiTag>
+            </template>
+            <template #cell-created_at="{ row }">
+              {{ formatDateTime(row.created_at) }}
+            </template>
+            <template #cell-actions="{ row }">
+              <UiButton
+                variant="ghost"
+                size="sm"
+                @click.stop="viewKnowledgeChunks(row)"
+                :disabled="row.chunk_count === 0"
+              >
+                查看分块
+              </UiButton>
+              <UiButton variant="danger" size="sm" @click.stop="deleteKnowledge(row.id)">
+                删除
+              </UiButton>
+            </template>
+          </UiTable>
 
-          <el-empty v-if="!knowledgesLoading && knowledges.length === 0" description="暂无文档" />
+          <UiEmpty v-if="!knowledgesLoading && knowledges.length === 0" description="暂无文档" />
         </div>
-      </el-tab-pane>
+      </template>
 
       <!-- 知识检索 -->
-      <el-tab-pane label="检索" name="search">
+      <template #search>
         <div class="search-section">
-          <el-input
-            v-model="searchQuery"
-            placeholder="输入要搜索的内容..."
-            class="search-input"
-            @keyup.enter="handleSearch"
-          >
-            <template #append>
-              <el-button :icon="Search" @click="handleSearch" :loading="searchLoading">
-                搜索
-              </el-button>
-            </template>
-          </el-input>
+          <div class="search-input">
+            <UiInput
+              v-model="searchQuery"
+              placeholder="输入要搜索的内容..."
+              @keyup.enter="handleSearch"
+            />
+            <UiButton variant="primary" icon @click="handleSearch" :loading="searchLoading">
+              <template #icon><el-icon><Search /></el-icon></template>
+              搜索
+            </UiButton>
+          </div>
 
           <div class="search-options">
-            <el-text>Top K:</el-text>
-            <el-input-number v-model="searchTopK" :min="1" :max="20" size="small" />
-            <el-text>相似度阈值:</el-text>
-            <el-input-number
+            <UiText>Top K:</UiText>
+            <UiInputNumber v-model="searchTopK" :min="1" :max="20" size="sm" />
+            <UiText>相似度阈值:</UiText>
+            <UiInputNumber
               v-model="searchThreshold"
               :min="0"
               :max="1"
               :step="0.1"
               :precision="2"
-              size="small"
+              size="sm"
             />
           </div>
 
-          <el-divider />
+          <UiDivider />
 
           <div v-loading="searchLoading" class="search-results">
             <div v-if="searchResults.length > 0">
@@ -160,251 +149,161 @@
                 class="search-result-item"
               >
                 <div class="result-header">
-                  <el-text type="primary" tag="b">结果 {{ index + 1 }}</el-text>
-                  <el-tag size="small">相似度: {{ (result.score * 100).toFixed(1) }}%</el-tag>
+                  <UiText type="primary" tag="b">结果 {{ index + 1 }}</UiText>
                 </div>
                 <div class="result-content">
-                  <el-text>{{ result.content }}</el-text>
+                  <UiText>{{ result.content }}</UiText>
                 </div>
-                <div class="result-footer">
-                  <el-text size="small" type="info">来源: {{ result.knowledge_title }}</el-text>
+                <div class="result-footer" v-if="result.knowledge_title">
+                  <UiText size="sm" type="info">来源: {{ result.knowledge_title }}</UiText>
                 </div>
               </div>
             </div>
-            <el-empty
+            <UiEmpty
               v-else-if="!searchLoading && hasSearched"
               description="未找到相关内容"
             />
-            <el-empty v-else description="输入关键词搜索知识库内容" />
+            <UiEmpty v-else description="输入关键词搜索知识库内容" />
           </div>
         </div>
-      </el-tab-pane>
+      </template>
 
       <!-- 分块列表 -->
-      <el-tab-pane label="分块" name="chunks">
+      <template #chunks>
         <div class="chunks-section">
           <div class="toolbar">
-            <el-select
+            <UiSelect
               v-model="selectedKnowledgeId"
               placeholder="选择文档"
               clearable
+              :options="knowledgeOptions"
               @change="loadChunks"
               style="width: 300px"
-            >
-              <el-option
-                v-for="kb in knowledges"
-                :key="kb.id"
-                :label="kb.title"
-                :value="kb.id"
-              />
-            </el-select>
+            />
           </div>
 
-          <el-divider />
+          <UiDivider />
 
-          <el-table :data="chunks" v-loading="chunksLoading" stripe style="width: 100%">
-            <el-table-column prop="chunk_index" label="序号" width="80" />
-            <el-table-column prop="content" label="内容" min-width="400" show-overflow-tooltip />
-            <el-table-column prop="token_count" label="Token数" width="100" />
-            <el-table-column label="操作" width="120">
-              <template #default="{ row }">
-                <el-button link type="primary" @click="viewChunkDetail(row)">
-                  详情
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <UiTable :columns="chunkColumns" :data="chunks" v-loading="chunksLoading" stripe>
+            <template #cell-actions="{ row }">
+              <UiButton variant="ghost" size="sm" @click.stop="viewChunkDetail(row)">
+                详情
+              </UiButton>
+            </template>
+          </UiTable>
 
-          <el-empty v-if="!chunksLoading && chunks.length === 0" description="暂无分块数据" />
+          <UiEmpty v-if="!chunksLoading && chunks.length === 0" description="暂无分块数据" />
         </div>
-      </el-tab-pane>
+      </template>
 
       <!-- 设置 -->
-      <el-tab-pane label="设置" name="settings">
+      <template #settings>
         <div class="settings-section" v-loading="settingsLoading">
-          <el-form :model="settingsForm" label-width="140px" style="max-width: 700px">
+          <UiForm :model="settingsForm" label-position="left" label-width="140px" style="max-width: 700px">
             <!-- 基本信息 -->
-            <el-divider content-position="left">基本信息</el-divider>
+            <UiDivider label-position="start">基本信息</UiDivider>
 
-            <el-form-item label="知识库名称">
-              <el-input v-model="settingsForm.name" placeholder="请输入知识库名称" />
-            </el-form-item>
-            <el-form-item label="描述">
-              <el-input
+            <UiFormItem label="知识库名称">
+              <UiInput v-model="settingsForm.name" placeholder="请输入知识库名称" />
+            </UiFormItem>
+            <UiFormItem label="描述">
+              <UiTextarea
                 v-model="settingsForm.description"
-                type="textarea"
                 :rows="3"
                 placeholder="请输入描述"
               />
-            </el-form-item>
-            <el-form-item label="状态">
-              <el-switch
+            </UiFormItem>
+            <UiFormItem label="状态">
+              <UiSwitch
                 v-model="settingsForm.status"
-                :active-value="1"
-                :inactive-value="0"
-                active-text="启用"
-                inactive-text="禁用"
-              />
-            </el-form-item>
+                :true-value="1"
+                :false-value="0"
+              >{{ settingsForm.status === 1 ? '启用' : '禁用' }}</UiSwitch>
+            </UiFormItem>
 
-            <!-- 数据处理配置 -->
-            <el-divider content-position="left">数据处理配置</el-divider>
-            <el-text type="info" size="small" style="margin-bottom: 16px">
-              这些配置控制数据如何被清洗、分块和索引。检索配置请在对话设置中调整。
-            </el-text>
-
-            <el-form-item label="分块大小">
-              <el-input-number
-                v-model="settingsForm.chunk_size"
-                :min="128"
-                :max="2048"
-                :step="64"
-                style="width: 100%"
-              >
-                <template #append>字符</template>
-              </el-input-number>
-            </el-form-item>
-
-            <el-form-item label="分块重叠">
-              <el-input-number
-                v-model="settingsForm.chunk_overlap"
-                :min="0"
-                :max="512"
-                :step="32"
-                style="width: 100%"
-              >
-                <template #append>字符</template>
-              </el-input-number>
-            </el-form-item>
-
-            <el-form-item label="构建知识图谱">
-              <el-switch
-                v-model="settingsForm.graph_enabled"
-                active-text="启用"
-                inactive-text="禁用"
-              />
-              <template #extra>
-                <el-text size="small" type="info">启用后将自动构建实体关系图谱</el-text>
-              </template>
-            </el-form-item>
-
-            <el-form-item label="构建BM25索引">
-              <el-switch
-                v-model="settingsForm.bm25_enabled"
-                active-text="启用"
-                inactive-text="禁用"
-              />
-              <template #extra>
-                <el-text size="small" type="info">启用后将构建稀疏向量索引用于关键词检索</el-text>
-              </template>
-            </el-form-item>
-
-            <el-form-item>
-              <el-button type="primary" @click="saveSettings" :loading="settingsSaving">
+            <UiFormItem>
+              <UiButton variant="primary" @click="saveSettings" :loading="settingsSaving">
                 保存设置
-              </el-button>
-              <el-button @click="resetSettings" style="margin-left: 12px">
-                重置
-              </el-button>
-            </el-form-item>
-          </el-form>
+              </UiButton>
+            </UiFormItem>
+          </UiForm>
 
           <!-- 配置说明 -->
-          <el-alert
+          <UiAlert
             title="配置说明"
             type="info"
             :closable="false"
             style="margin-top: 24px"
           >
             <ul style="margin: 0; padding-left: 20px;">
-              <li><strong>分块配置</strong>：控制文档如何被切分成小块，影响检索精度和上下文完整性</li>
-              <li><strong>知识图谱</strong>：启用后将从文档中自动抽取实体和关系，支持图谱检索</li>
-              <li><strong>BM25索引</strong>：启用后构建稀疏向量，支持关键词精确匹配</li>
+              <li><strong>分块配置</strong>：分块大小/重叠等数据处理参数在<strong>创建知识库时</strong>设定，创建后暂不支持修改</li>
               <li><strong>检索设置</strong>：TopK、相似度阈值等检索参数请在<strong>对话设置</strong>中调整，支持跨知识库检索</li>
             </ul>
-          </el-alert>
+          </UiAlert>
         </div>
-      </el-tab-pane>
-    </el-tabs>
+      </template>
+    </UiTabs>
 
     <!-- 上传文档对话框 -->
-    <el-dialog v-model="showUploadDialog" title="上传文档" width="500px">
-      <el-form :model="uploadForm" label-width="100px">
-        <el-form-item label="文件">
-          <el-text>{{ uploadForm.file?.name }}</el-text>
-        </el-form-item>
-        <el-form-item label="标题">
-          <el-input v-model="uploadForm.title" placeholder="不填写则使用文件名" />
-        </el-form-item>
-        <el-form-item label="分块大小">
-          <el-input-number
-            v-model="uploadForm.chunk_size"
-            :min="128"
-            :max="2048"
-            :step="64"
-          />
-        </el-form-item>
-        <el-form-item label="分块重叠">
-          <el-input-number
-            v-model="uploadForm.chunk_overlap"
-            :min="0"
-            :max="512"
-            :step="32"
-          />
-        </el-form-item>
-      </el-form>
+    <UiModal v-model="showUploadDialog" title="上传文档" size="md">
+      <UiForm :model="uploadForm" label-position="left" label-width="100px">
+        <UiFormItem label="文件">
+          <UiText>{{ uploadForm.file?.name }}</UiText>
+        </UiFormItem>
+      </UiForm>
+      <UiText type="info" size="sm" style="display: block; margin-top: 8px">
+        文档标题默认取文件名，分块规则沿用知识库创建时的配置。
+      </UiText>
       <template #footer>
-        <el-button @click="showUploadDialog = false">取消</el-button>
-        <el-button type="primary" @click="uploadFile" :loading="uploading">
+        <UiButton variant="secondary" @click="showUploadDialog = false">取消</UiButton>
+        <UiButton variant="primary" @click="uploadFile" :loading="uploading">
           上传
-        </el-button>
+        </UiButton>
       </template>
-    </el-dialog>
+    </UiModal>
 
     <!-- 分块详情对话框 -->
-    <el-dialog v-model="showChunkDialog" title="分块详情" width="700px">
-      <el-descriptions :column="2" border v-if="currentChunk">
-        <el-descriptions-item label="序号">{{ currentChunk.chunk_index }}</el-descriptions-item>
-        <el-descriptions-item label="Token数">{{ currentChunk.token_count || 0 }}</el-descriptions-item>
-        <el-descriptions-item label="内容" :span="2">
-          <el-text style="white-space: pre-wrap">{{ currentChunk.content }}</el-text>
-        </el-descriptions-item>
-      </el-descriptions>
-    </el-dialog>
+    <UiModal v-model="showChunkDialog" title="分块详情" size="lg">
+      <UiDescriptions :column="2" border v-if="currentChunk">
+        <UiDescriptionsItem label="序号">{{ currentChunk.chunk_index }}</UiDescriptionsItem>
+        <UiDescriptionsItem label="Token数">{{ currentChunk.token_count || 0 }}</UiDescriptionsItem>
+        <UiDescriptionsItem label="内容" :span="2">
+          <UiText style="white-space: pre-wrap">{{ currentChunk.content }}</UiText>
+        </UiDescriptionsItem>
+      </UiDescriptions>
+    </UiModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-// Element Plus 组件局部引入
+// 自研 UI 组件统一引入
 import {
-  ElPageHeader,
-  ElTabs,
-  ElTabPane,
-  ElRow,
-  ElCol,
-  ElStatistic,
-  ElTag,
-  ElDivider,
-  ElDescriptions,
-  ElDescriptionsItem,
-  ElUpload,
-  ElButton,
-  ElText,
-  ElTable,
-  ElTableColumn,
-  ElInput,
-  ElInputNumber,
-  ElEmpty,
-  ElDialog,
-  ElForm,
-  ElFormItem,
-  ElSwitch,
-  ElAlert,
-  ElMessage,
-  ElMessageBox
-} from 'element-plus'
+  UiPageHeader,
+  UiTabs,
+  UiGrid,
+  UiStatistic,
+  UiTag,
+  UiDivider,
+  UiDescriptions,
+  UiDescriptionsItem,
+  UiButton,
+  UiText,
+  UiTable,
+  UiInput,
+  UiTextarea,
+  UiInputNumber,
+  UiEmpty,
+  UiModal,
+  UiForm,
+  UiFormItem,
+  UiSwitch,
+  UiAlert,
+  UiSelect
+} from '@/components'
+import toast from '@/utils/toast'
+import { ElMessageBox } from '@/utils/confirm'
 import { Upload, Search } from '@element-plus/icons-vue'
 import { knowledgeApi } from '@/api/knowledge'
 import type {
@@ -422,6 +321,34 @@ const kbId = ref<string>(route.params.id as string)
 const activeTab = ref('overview')
 const knowledgeBase = ref<KnowledgeBase | null>(null)
 
+// Tabs 配置
+const detailTabs = [
+  { key: 'overview', label: '概览' },
+  { key: 'documents', label: '文档' },
+  { key: 'search', label: '检索' },
+  { key: 'chunks', label: '分块' },
+  { key: 'settings', label: '设置' }
+]
+
+// 文档表格列
+const documentColumns = [
+  { key: 'title', title: '标题', width: 200 },
+  { key: 'type', title: '类型', width: 100 },
+  { key: 'storage_size', title: '大小', width: 120 },
+  { key: 'chunk_count', title: '分块数', width: 100 },
+  { key: 'parse_status', title: '处理状态', width: 120 },
+  { key: 'created_at', title: '上传时间', width: 180 },
+  { key: 'actions', title: '操作', width: 150 }
+]
+
+// 分块表格列
+const chunkColumns = [
+  { key: 'chunk_index', title: '序号', width: 80 },
+  { key: 'content', title: '内容', width: 400 },
+  { key: 'token_count', title: 'Token数', width: 100 },
+  { key: 'actions', title: '操作', width: 120 }
+]
+
 // 概览相关
 const statsLoading = ref(false)
 const stats = ref<KnowledgeBaseStats | null>(null)
@@ -431,13 +358,14 @@ const knowledgesLoading = ref(false)
 const knowledges = ref<Knowledge[]>([])
 const showUploadDialog = ref(false)
 const uploading = ref(false)
+// 后端上传接口仅接收 file，标题/分块参数由服务端按知识库配置决定，故不再收集
 const uploadForm = reactive({
-  file: null as File | null,
-  title: '',
-  chunk_size: 512,
-  chunk_overlap: 100
+  file: null as File | null
 })
 const statusPolling = ref<Record<string, NodeJS.Timeout>>({})
+// 文件选择（替代 el-upload）
+const fileInputRef = ref<HTMLInputElement>()
+const selectedFileName = ref('')
 
 // 检索相关
 const searchQuery = ref('')
@@ -449,6 +377,9 @@ const hasSearched = ref(false)
 
 // 分块相关
 const selectedKnowledgeId = ref<string>('')
+const knowledgeOptions = computed(() =>
+  knowledges.value.map((kb) => ({ label: kb.title, value: kb.id }))
+)
 const chunksLoading = ref(false)
 const chunks = ref<Chunk[]>([])
 const showChunkDialog = ref(false)
@@ -457,19 +388,25 @@ const currentChunk = ref<Chunk | null>(null)
 // 设置相关
 const settingsLoading = ref(false)
 const settingsSaving = ref(false)
+// 仅保留后端 UpdateKnowledgeBase 接口真正接受的字段（name/description/status）。
+// 分块/图谱/BM25 等数据处理配置后端更新接口不接收，仅在创建时生效，故不在此维护。
 const settingsForm = reactive<UpdateKnowledgeBaseRequest>({
   name: '',
   description: '',
-  status: 1,
-  chunk_size: 512,
-  chunk_overlap: 100,
-  graph_enabled: true,
-  bm25_enabled: false
+  status: 1
 })
 
-function formatDateTime(date?: string) {
+function formatDateTime(date?: string | number) {
   if (!date) return '-'
-  return new Date(date).toLocaleString('zh-CN')
+  // 后端 created_at/updated_at 为 Unix 秒级时间戳（整数）；兼容纯数字字符串与 ISO 字符串
+  const ms =
+    typeof date === 'number'
+      ? date * 1000
+      : /^\d+$/.test(date)
+        ? Number(date) * 1000
+        : Date.parse(date)
+  if (Number.isNaN(ms)) return '-'
+  return new Date(ms).toLocaleString('zh-CN')
 }
 
 function formatFileSize(bytes: number) {
@@ -480,9 +417,10 @@ function formatFileSize(bytes: number) {
   return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
 }
 
+// 状态取值与后端一致：pending / processing / completed / failed
 function getParseStatusType(status: string) {
   const map: Record<string, any> = {
-    unprocessed: 'info',
+    pending: 'info',
     processing: 'warning',
     completed: 'success',
     failed: 'danger'
@@ -492,7 +430,7 @@ function getParseStatusType(status: string) {
 
 function getParseStatusText(status: string) {
   const map: Record<string, string> = {
-    unprocessed: '未处理',
+    pending: '待处理',
     processing: '处理中',
     completed: '已完成',
     failed: '失败'
@@ -510,24 +448,11 @@ async function loadKnowledgeBase() {
     const res = await knowledgeApi.getDetail(kbId.value)
     if (res.data) {
       knowledgeBase.value = res.data
-      // 初始化设置表单 - 从 setting 对象或主对象读取
+      // 初始化设置表单（仅后端可更新的字段）
       const data = res.data
       settingsForm.name = data.name
       settingsForm.description = data.description || ''
       settingsForm.status = data.status
-      // 从 setting 对象读取配置（如果存在）
-      if (data.setting) {
-        settingsForm.chunk_size = data.setting.chunk_size ?? 512
-        settingsForm.chunk_overlap = data.setting.chunk_overlap ?? 100
-        settingsForm.graph_enabled = data.setting.graph_enabled ?? false
-        settingsForm.bm25_enabled = data.setting.bm25_enabled ?? false
-      } else {
-        // 向后兼容：使用默认值
-        settingsForm.chunk_size = 512
-        settingsForm.chunk_overlap = 100
-        settingsForm.graph_enabled = false
-        settingsForm.bm25_enabled = false
-      }
     }
   } catch (error) {
     console.error('Failed to load knowledge base:', error)
@@ -608,17 +533,24 @@ function stopStatusPolling(knowledgeId: string) {
   }
 }
 
-// 处理文件选择
-function handleFileSelect(file: any) {
-  uploadForm.file = file.raw
-  uploadForm.title = file.name
-  showUploadDialog.value = true
+// 处理文件选择（原生 input，替代 el-upload 的 :on-change）
+function handleFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (files && files.length) {
+    const file = files[0]
+    uploadForm.file = file
+    selectedFileName.value = file.name
+    showUploadDialog.value = true
+  }
+  // 重置 input 以便重复选择同一文件时仍触发 change
+  input.value = ''
 }
 
 // 上传文件
 async function uploadFile() {
   if (!uploadForm.file) {
-    ElMessage.warning('请选择文件')
+    toast.warning('请选择文件')
     return
   }
 
@@ -626,23 +558,21 @@ async function uploadFile() {
   try {
     const formData = new FormData()
     formData.append('file', uploadForm.file)
-    if (uploadForm.title) {
-      formData.append('title', uploadForm.title)
-    }
-    formData.append('chunk_size', uploadForm.chunk_size.toString())
-    formData.append('chunk_overlap', uploadForm.chunk_overlap.toString())
 
     const res = await knowledgeApi.uploadFile(kbId.value, formData)
     if (res.data) {
-      ElMessage.success('文件上传成功，正在处理中...')
+      toast.success('文件上传成功，正在处理中...')
       showUploadDialog.value = false
-      // 启动状态轮询
-      startStatusPolling(res.data.knowledge_id)
-      // 刷新列表
+      // 重置文件选择状态
+      selectedFileName.value = ''
+      if (fileInputRef.value) fileInputRef.value.value = ''
+      // 后端上传接口返回的 knowledge_id 为占位符 "pending"，并非真实文档 ID，
+      // 因此不能对它单独轮询。改为刷新列表，由 loadKnowledges 自动为
+      // pending/processing 的文档启动状态轮询。
       await loadKnowledges()
     }
   } catch (error: any) {
-    ElMessage.error(error.message || '上传失败')
+    toast.error(error.message || '上传失败')
   } finally {
     uploading.value = false
   }
@@ -651,19 +581,21 @@ async function uploadFile() {
 // 删除文档
 async function deleteKnowledge(id: string) {
   try {
-    await ElMessageBox.confirm('确定要删除这个文档吗？此操作不可恢复。', '删除确认', {
+    await ElMessageBox.confirm({
+      message: '确定要删除这个文档吗？此操作不可恢复。',
+      title: '删除确认',
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
     await knowledgeApi.deleteKnowledge(kbId.value, id)
-    ElMessage.success('文档删除成功')
+    toast.success('文档删除成功')
     await loadKnowledges()
     await loadStats()
   } catch (error: any) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || '删除失败')
+      toast.error(error.message || '删除失败')
     }
   }
 }
@@ -678,7 +610,7 @@ function viewKnowledgeChunks(knowledge: Knowledge) {
 // 搜索知识
 async function handleSearch() {
   if (!searchQuery.value.trim()) {
-    ElMessage.warning('请输入搜索内容')
+    toast.warning('请输入搜索内容')
     return
   }
 
@@ -689,17 +621,17 @@ async function handleSearch() {
       query: searchQuery.value,
       kb_ids: [kbId.value],
       top_k: searchTopK.value,
-      score_threshold: searchThreshold.value,
-      include_graph: false
+      min_score: searchThreshold.value
     })
     if (res.data) {
-      searchResults.value = res.data.results || []
+      // 后端返回 { total, items }
+      searchResults.value = res.data.items || []
       if (searchResults.value.length === 0) {
-        ElMessage.info('未找到相关内容')
+        toast.info('未找到相关内容')
       }
     }
   } catch (error: any) {
-    ElMessage.error(error.message || '搜索失败')
+    toast.error(error.message || '搜索失败')
   } finally {
     searchLoading.value = false
   }
@@ -760,56 +692,25 @@ function viewChunkDetail(chunk: Chunk) {
 // 保存设置
 async function saveSettings() {
   if (!settingsForm.name) {
-    ElMessage.warning('请输入知识库名称')
+    toast.warning('请输入知识库名称')
     return
   }
 
   settingsSaving.value = true
   try {
-    // 只保存 kb_settings 相关的字段（数据处理配置）
-    const updateData = {
+    // 后端 UpdateKnowledgeBase 仅接受 name/description/status
+    const updateData: UpdateKnowledgeBaseRequest = {
       name: settingsForm.name,
       description: settingsForm.description,
-      status: settingsForm.status,
-      // 数据处理配置
-      chunk_size: settingsForm.chunk_size,
-      chunk_overlap: settingsForm.chunk_overlap,
-      graph_enabled: settingsForm.graph_enabled,
-      bm25_enabled: settingsForm.bm25_enabled
+      status: settingsForm.status
     }
     await knowledgeApi.update(kbId.value, updateData)
-    ElMessage.success('设置保存成功')
+    toast.success('设置保存成功')
     await loadKnowledgeBase()
   } catch (error: any) {
-    ElMessage.error(error.message || '保存失败')
+    toast.error(error.message || '保存失败')
   } finally {
     settingsSaving.value = false
-  }
-}
-
-// 重置设置
-async function resetSettings() {
-  try {
-    await ElMessageBox.confirm('确定要重置为默认设置吗？', '重置确认', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-
-    // 重置为默认值
-    const updateData = {
-      chunk_size: 512,
-      chunk_overlap: 100,
-      graph_enabled: false,
-      bm25_enabled: false
-    }
-    await knowledgeApi.update(kbId.value, updateData)
-    ElMessage.success('重置成功')
-    await loadKnowledgeBase()
-  } catch (error: any) {
-    if (error !== 'cancel') {
-      ElMessage.error(error.message || '重置失败')
-    }
   }
 }
 

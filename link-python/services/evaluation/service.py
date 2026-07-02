@@ -22,7 +22,7 @@ class EvaluationServicer(evaluation_pb2_grpc.EvaluationServiceServicer):
     - GetDatasetInfo: 获取数据集详情
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化服务。"""
         self._logger = get_logger(__name__)
         self._active_evaluations: Dict[str, EvaluationRunner] = {}
@@ -67,7 +67,7 @@ class EvaluationServicer(evaluation_pb2_grpc.EvaluationServiceServicer):
         runner = create_runner(config)
 
         # 创建异步生成器并运行
-        async def generate_responses():
+        async def generate_responses() -> AsyncIterator[evaluation_pb2.EvaluationResponse]:
             async for response in self._execute_evaluation_async(
                 runner,
                 request.dataset_id,
@@ -117,7 +117,7 @@ class EvaluationServicer(evaluation_pb2_grpc.EvaluationServiceServicer):
         Yields:
             评测响应
         """
-        async def progress_callback(progress: Progress):
+        async def progress_callback(progress: Progress) -> AsyncIterator[evaluation_pb2.EvaluationResponse]:
             yield evaluation_pb2.EvaluationResponse(
                 progress=evaluation_pb2.Progress(
                     stage=progress.stage,
@@ -131,7 +131,7 @@ class EvaluationServicer(evaluation_pb2_grpc.EvaluationServiceServicer):
         # 创建进度回调的异步包装
         progress_queue: asyncio.Queue[Optional[evaluation_pb2.EvaluationResponse]] = asyncio.Queue()
 
-        async def send_progress(progress: Progress):
+        async def send_progress(progress: Progress) -> None:
             await progress_queue.put(evaluation_pb2.EvaluationResponse(
                 progress=evaluation_pb2.Progress(
                     stage=progress.stage,
@@ -145,7 +145,7 @@ class EvaluationServicer(evaluation_pb2_grpc.EvaluationServiceServicer):
         # 创建进度任务
         progress_task = None
 
-        async def run_with_progress():
+        async def run_with_progress() -> "EvaluationResult":
             nonlocal progress_task
             progress_task = asyncio.create_task(self._consume_progress(progress_queue))
             return await runner.run(

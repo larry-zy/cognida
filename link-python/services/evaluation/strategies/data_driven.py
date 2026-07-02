@@ -15,7 +15,7 @@ class DataDrivenStrategy(BaseStrategy):
     从样本 QA 对中学习，然后应用学到的模式进行评分。
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None):
+    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
         super().__init__(
             name="data_driven",
             description="从样本数据学习评分模式",

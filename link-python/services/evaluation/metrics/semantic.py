@@ -1,7 +1,7 @@
 """语义相似度评测指标。"""
 
 import asyncio
-from typing import List, Sequence
+from typing import Any, List, Sequence
 
 import numpy as np
 from pydantic import BaseModel
@@ -90,12 +90,12 @@ class AsyncSemanticMetrics:
         self._model_name = model_name
         self._model = None
 
-    async def _get_model(self):
+    async def _get_model(self) -> Any:
         """延迟加载模型。"""
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
-            def load_model():
+            def load_model() -> Any:
                 return SentenceTransformer(self._model_name)
 
             # 在线程池中加载模型
@@ -120,7 +120,7 @@ class AsyncSemanticMetrics:
         # 在线程池中执行编码
         loop = asyncio.get_event_loop()
 
-        def encode_texts(texts):
+        def encode_texts(texts: list[str]) -> np.ndarray:
             return model.encode(texts, convert_to_numpy=True)
 
         ref_embeddings, hyp_embeddings = await asyncio.gather(

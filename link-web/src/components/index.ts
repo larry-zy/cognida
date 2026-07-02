@@ -1,52 +1,13 @@
-// ==================== 基础组件 ====================
-import BaseButton from './BaseButton.vue'
-import BaseCard from './BaseCard.vue'
-import BaseInput from './BaseInput.vue'
-import BaseModal from './BaseModal.vue'
-import BaseTag from './BaseTag.vue'
+// ==================== 组件库统一出口 ====================
+// 自研 UI 组件已统一到 './ui'，请优先从这里或 '@/components/ui' 引入，
+// 避免在视图中直接使用 Element Plus 的 el-* 组件。
+// 用法：import { UiButton, UiForm, UiFormItem } from '@/components'
 
-// ==================== 数据组件 ====================
-import BaseTable from './BaseTable.vue'
-import BaseLoader from './BaseLoader.vue'
-import EmptyState from './EmptyState.vue'
+// 自研 UI 组件（基础/表单/数据/反馈/导航/布局/图标）
+export * from './ui'
 
-// ==================== 布局组件 ====================
-import AppBackground from './AppBackground.vue'
+// 视觉背景组件
+export { default as AppBackground } from './AppBackground.vue'
 
-// ==================== 样式 ====================
-import GlobalStyles from './styles/global.css'
-
-// ==================== 类型 ====================
+// 类型
 export type * from './types'
-
-// ==================== 导出组件 ====================
-export { BaseButton, BaseCard, BaseInput, BaseModal, BaseTag }
-export { BaseTable, BaseLoader, EmptyState }
-export { AppBackground }
-export { GlobalStyles }
-
-// ==================== 便捷插件 ====================
-import type { App } from 'vue'
-
-// 自动注册所有组件
-export function installComponents(app: App) {
-  // 基础组件
-  app.component('BaseButton', BaseButton)
-  app.component('BaseCard', BaseCard)
-  app.component('BaseInput', BaseInput)
-  app.component('BaseModal', BaseModal)
-  app.component('BaseTag', BaseTag)
-
-  // 数据组件
-  app.component('BaseTable', BaseTable)
-  app.component('BaseLoader', BaseLoader)
-  app.component('EmptyState', EmptyState)
-
-  // 布局组件
-  app.component('AppBackground', AppBackground)
-}
-
-// 默认导出用于 app.use()
-export default {
-  install: installComponents
-}

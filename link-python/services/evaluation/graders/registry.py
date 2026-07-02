@@ -29,7 +29,7 @@ class GraderRegistry:
     - 热重载
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化注册表。"""
         self._logger = get_logger(__name__)
         self._graders: Dict[str, Type[BaseGrader]] = {}

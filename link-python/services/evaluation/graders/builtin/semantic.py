@@ -22,7 +22,7 @@ class SemanticSimilarityGrader(BaseGrader):
     使用 sentence-transformers 计算两段文本的语义相似度。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="semantic_similarity",
             mode=GraderMode.POINTWISE,
@@ -90,7 +90,7 @@ class SemanticRelevanceGrader(BaseGrader):
     评估生成答案与问题的语义相关性。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="semantic_relevance",
             mode=GraderMode.POINTWISE,

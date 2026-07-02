@@ -46,7 +46,7 @@ class LLMEvaluateRequest(BaseModel):
 
     @field_validator("outputs")
     @classmethod
-    def check_length(cls, v, info):
+    def check_length(cls, v, info) -> list[str]:
         if "references" in info.data and len(v) != len(info.data["references"]):
             raise ValueError("outputs 和 references 长度必须相同")
         return v
@@ -107,7 +107,7 @@ class AgentEvaluateRequest(BaseModel):
 
     @field_validator("outputs")
     @classmethod
-    def check_length(cls, v, info):
+    def check_length(cls, v, info) -> list[AgentOutput]:
         if "references" in info.data and len(v) != len(info.data["references"]):
             raise ValueError("outputs 和 references 长度必须相同")
         return v
@@ -183,7 +183,7 @@ class RAGEvaluateRequest(BaseModel):
 
     @field_validator("outputs")
     @classmethod
-    def check_length(cls, v, info):
+    def check_length(cls, v, info) -> list[RAGOutput]:
         if "references" in info.data and len(v) != len(info.data["references"]):
             raise ValueError("outputs 和 references 长度必须相同")
         if "questions" in info.data and len(v) != len(info.data["questions"]):

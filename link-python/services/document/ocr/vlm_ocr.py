@@ -16,7 +16,7 @@ class VLMOCREngine(BaseOCR):
         self._logger = get_logger(__name__)
         self._llm_client = None
 
-    def _get_client(self):
+    def _get_client(self) -> Any:
         """获取 LLM 客户端。"""
         if self._llm_client is None:
             from services.llm import get_llm_client

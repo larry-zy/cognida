@@ -22,7 +22,7 @@ class RougeGrader(BaseGrader):
     支持 ROUGE-1、ROUGE-2、ROUGE-L。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="rouge",
             mode=GraderMode.POINTWISE,
@@ -80,7 +80,7 @@ class RougeGrader(BaseGrader):
 class Rouge1Grader(BaseGrader):
     """ROUGE-1 评分器（单词重叠）。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="rouge_1",
             mode=GraderMode.POINTWISE,
@@ -122,7 +122,7 @@ class Rouge1Grader(BaseGrader):
 class Rouge2Grader(BaseGrader):
     """ROUGE-2 评分器（双词组重叠）。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="rouge_2",
             mode=GraderMode.POINTWISE,
@@ -164,7 +164,7 @@ class Rouge2Grader(BaseGrader):
 class RougeLGrader(BaseGrader):
     """ROUGE-L 评分器（最长公共子序列）。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="rouge_l",
             mode=GraderMode.POINTWISE,
@@ -209,7 +209,7 @@ class BleuGrader(BaseGrader):
     支持 BLEU-1、BLEU-2、BLEU-4。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="bleu",
             mode=GraderMode.POINTWISE,
@@ -258,7 +258,7 @@ class BleuGrader(BaseGrader):
 class Bleu1Grader(BaseGrader):
     """BLEU-1 评分器。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="bleu_1",
             mode=GraderMode.POINTWISE,
@@ -300,7 +300,7 @@ class Bleu1Grader(BaseGrader):
 class Bleu4Grader(BaseGrader):
     """BLEU-4 评分器。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="bleu_4",
             mode=GraderMode.POINTWISE,

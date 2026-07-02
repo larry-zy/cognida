@@ -6,7 +6,7 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -260,9 +260,9 @@ def function_grader(
     Returns:
         装饰器函数
     """
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> BaseGrader:
         class FunctionGrader(BaseGrader):
-            def __init__(self, func):
+            def __init__(self, func: Callable[..., Any]) -> None:
                 super().__init__(name, mode, description or func.__doc__)
                 self._func = func
 

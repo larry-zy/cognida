@@ -28,7 +28,7 @@ class PrecisionGrader(BaseGrader):
     衡量检索结果中相关文档的比例。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="precision",
             mode=GraderMode.POINTWISE,
@@ -80,7 +80,7 @@ class RecallGrader(BaseGrader):
     衡量相关文档被检索到的比例。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="recall",
             mode=GraderMode.POINTWISE,
@@ -145,7 +145,7 @@ class NDCGGrader(BaseGrader):
     衡量检索结果的排序质量。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="ndcg",
             mode=GraderMode.POINTWISE,
@@ -202,7 +202,7 @@ class MRRGrader(BaseGrader):
     衡量第一个相关文档的排名倒数。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="mrr",
             mode=GraderMode.POINTWISE,
@@ -252,7 +252,7 @@ class MAPGrader(BaseGrader):
     衡量平均精确率。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="map",
             mode=GraderMode.POINTWISE,

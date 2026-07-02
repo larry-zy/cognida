@@ -31,7 +31,7 @@ class AnswerLengthGrader(BaseGrader):
     - 1 分: < 20 字符
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="answer_length",
             mode=GraderMode.POINTWISE,
@@ -132,7 +132,7 @@ class ConcisenessGrader(BaseGrader):
     根据答案相对于参考答案的长度比例评分。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="conciseness",
             mode=GraderMode.POINTWISE,

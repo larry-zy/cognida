@@ -234,7 +234,7 @@ def compute_rule_metrics(
 class ExactMatchGrader(BaseGrader):
     """精确匹配评分器。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="exact_match",
             mode=GraderMode.POINTWISE,
@@ -272,7 +272,7 @@ class ExactMatchGrader(BaseGrader):
 class ContainsMatchGrader(BaseGrader):
     """关键词包含匹配评分器。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="contains_match",
             mode=GraderMode.POINTWISE,
@@ -311,7 +311,7 @@ class ContainsMatchGrader(BaseGrader):
 class RegexMatchGrader(BaseGrader):
     """正则匹配评分器。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="regex_match",
             mode=GraderMode.POINTWISE,
@@ -350,7 +350,7 @@ class RegexMatchGrader(BaseGrader):
 class NumericMatchGrader(BaseGrader):
     """数值比较评分器。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="numeric_match",
             mode=GraderMode.POINTWISE,

@@ -1,44 +1,51 @@
 <template>
   <div class="general-settings">
-    <el-form :model="form" label-width="120px" style="max-width: 600px">
-      <el-form-item label="主题">
-        <el-radio-group v-model="form.theme">
-          <el-radio label="light">浅色</el-radio>
-          <el-radio label="dark">深色</el-radio>
-          <el-radio label="auto">跟随系统</el-radio>
-        </el-radio-group>
-      </el-form-item>
+    <UiForm :model="form" label-position="left" label-width="120px" style="max-width: 600px">
+      <UiFormItem label="主题">
+        <UiRadioGroup
+          v-model="form.theme"
+          :options="[
+            { label: '浅色', value: 'light' },
+            { label: '深色', value: 'dark' },
+            { label: '跟随系统', value: 'auto' }
+          ]"
+        />
+      </UiFormItem>
 
-      <el-form-item label="语言">
-        <el-select v-model="form.language">
-          <el-option label="简体中文" value="zh-CN" />
-          <el-option label="English" value="en-US" />
-        </el-select>
-      </el-form-item>
+      <UiFormItem label="语言">
+        <UiSelect
+          v-model="form.language"
+          :options="[
+            { label: '简体中文', value: 'zh-CN' },
+            { label: 'English', value: 'en-US' }
+          ]"
+        />
+      </UiFormItem>
 
-      <el-form-item label="字体大小">
-        <el-slider v-model="form.fontSize" :min="12" :max="20" show-stops :marks="{ 14: '默认' }" />
-      </el-form-item>
+      <UiFormItem label="字体大小">
+        <UiSlider v-model="form.fontSize" :min="12" :max="20" :marks="[{ value: 14, label: '默认' }]" />
+      </UiFormItem>
 
-      <el-form-item label="显示思考过程">
-        <el-switch v-model="form.showThinking" />
-      </el-form-item>
+      <UiFormItem label="显示思考过程">
+        <UiSwitch v-model="form.showThinking" />
+      </UiFormItem>
 
-      <el-form-item label="自动保存">
-        <el-switch v-model="form.autoSave" />
-      </el-form-item>
+      <UiFormItem label="自动保存">
+        <UiSwitch v-model="form.autoSave" />
+      </UiFormItem>
 
-      <el-form-item>
-        <el-button type="primary" @click="handleSave">保存设置</el-button>
-        <el-button @click="handleReset">重置</el-button>
-      </el-form-item>
-    </el-form>
+      <UiFormItem>
+        <UiButton variant="primary" @click="handleSave">保存设置</UiButton>
+        <UiButton variant="secondary" @click="handleReset">重置</UiButton>
+      </UiFormItem>
+    </UiForm>
   </div>
 </template>
 
 <script setup lang="ts">
 import { reactive } from 'vue'
-import { ElMessage } from '@/utils/element'
+import { UiForm, UiFormItem, UiRadioGroup, UiSelect, UiSlider, UiSwitch, UiButton } from '@/components/ui'
+import toast from '@/utils/toast'
 import { useSettingsStore } from '@/stores/settings'
 
 const settingsStore = useSettingsStore()
@@ -53,12 +60,12 @@ const form = reactive({
 
 function handleSave() {
   settingsStore.updateSettings(form)
-  ElMessage.success('保存成功')
+  toast.success('保存成功')
 }
 
 function handleReset() {
   settingsStore.resetSettings()
-  ElMessage.success('已重置')
+  toast.success('已重置')
 }
 </script>
 

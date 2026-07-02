@@ -2,7 +2,10 @@
   <div class="evaluation-detail-container">
     <!-- 返回按钮 -->
     <div class="back-header">
-      <el-button :icon="ArrowLeft" @click="goBack">返回列表</el-button>
+      <UiButton variant="secondary" icon @click="goBack">
+        <template #icon><el-icon><ArrowLeft /></el-icon></template>
+        返回列表
+      </UiButton>
     </div>
 
     <!-- 加载状态 -->
@@ -14,33 +17,33 @@
     <!-- 内容 -->
     <template v-else-if="detail">
       <!-- 任务信息卡片 -->
-      <el-card class="info-card" shadow="never">
+      <UiCard class="info-card">
         <template #header>
           <div class="card-header">
             <h3>任务信息</h3>
-            <el-tag v-if="detail.task" :type="getStatusType(detail.task.status)">
+            <UiTag v-if="detail.task" :variant="getStatusType(detail.task.status)">
               {{ getStatusText(detail.task.status) }}
-            </el-tag>
+            </UiTag>
           </div>
         </template>
-        <el-descriptions v-if="detail.task" :column="3" border>
-          <el-descriptions-item label="任务ID">{{ detail.task.task_id.substring(0, 8) }}...</el-descriptions-item>
-          <el-descriptions-item label="数据集">{{ detail.task.dataset_id }}</el-descriptions-item>
-          <el-descriptions-item label="进度">
+        <UiDescriptions v-if="detail.task" :column="3" border>
+          <UiDescriptionsItem label="任务ID">{{ detail.task.task_id.substring(0, 8) }}...</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集">{{ detail.task.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="进度">
             {{ detail.task.success_count }} / {{ detail.task.total_count }}
-          </el-descriptions-item>
-          <el-descriptions-item label="创建时间">{{ formatTime(detail.task.created_at) }}</el-descriptions-item>
-          <el-descriptions-item label="更新时间">
+          </UiDescriptionsItem>
+          <UiDescriptionsItem label="创建时间">{{ formatTime(detail.task.created_at) }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="更新时间">
             {{ formatTime(detail.task.updated_at) }}
-          </el-descriptions-item>
-          <el-descriptions-item v-if="detail.task.error_message" label="错误信息" :span="3">
-            <el-text type="danger">{{ detail.task.error_message }}</el-text>
-          </el-descriptions-item>
-        </el-descriptions>
-      </el-card>
+          </UiDescriptionsItem>
+          <UiDescriptionsItem v-if="detail.task.error_message" label="错误信息" :span="3">
+            <UiText type="danger">{{ detail.task.error_message }}</UiText>
+          </UiDescriptionsItem>
+        </UiDescriptions>
+      </UiCard>
 
       <!-- 聚合指标卡片 -->
-      <el-card v-if="detail.metric" class="metrics-card" shadow="never">
+      <UiCard v-if="detail.metric" class="metrics-card">
         <template #header>
           <h3>聚合指标</h3>
         </template>
@@ -66,49 +69,67 @@
             </div>
           </div>
         </div>
-      </el-card>
+      </UiCard>
 
       <!-- QA 级别结果 -->
-      <el-card class="qa-results-card" shadow="never">
+      <UiCard class="qa-results-card">
         <template #header>
           <div class="card-header">
             <h3>QA 级别结果</h3>
             <div class="header-actions">
-              <el-select v-model="sortBy" size="small" style="width: 140px; margin-right: 8px" @change="handleSortChange">
-                <el-option label="按索引" value="index" />
-                <el-option label="按 BLEU" value="bleu" />
-                <el-option label="按 ROUGE-1" value="rouge1" />
-                <el-option label="按得分" value="score" />
-              </el-select>
-              <el-select v-model="sortOrder" size="small" style="width: 100px" @change="handleSortChange">
-                <el-option label="降序" value="desc" />
-                <el-option label="升序" value="asc" />
-              </el-select>
-              <el-button size="small" :icon="Download" @click="exportResults">导出</el-button>
+              <UiSelect
+                v-model="sortBy"
+                size="sm"
+                class="sort-select"
+                :options="sortByOptions"
+                @change="handleSortChange"
+              />
+              <UiSelect
+                v-model="sortOrder"
+                size="sm"
+                class="order-select"
+                :options="sortOrderOptions"
+                @change="handleSortChange"
+              />
+              <UiButton variant="secondary" size="sm" icon @click="exportResults">
+                <template #icon><el-icon><Download /></el-icon></template>
+                导出
+              </UiButton>
             </div>
           </div>
         </template>
 
         <!-- 筛选器 -->
         <div class="filter-bar">
-          <el-input
+          <UiInput
             v-model="searchQuery"
             placeholder="搜索问题..."
-            :prefix-icon="Search"
-            size="small"
-            style="width: 240px"
+            size="sm"
+            class="search-input"
             clearable
-          />
-          <el-slider
-            v-model="scoreRange"
-            range
-            :min="0"
-            :max="100"
-            :step="5"
-            :marks="{ 0: '0%', 50: '50%', 100: '100%' }"
-            style="width: 300px; margin: 0 16px"
-            @change="handleFilterChange"
-          />
+          >
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </UiInput>
+          <div class="score-sliders">
+            <UiSlider
+              v-model="scoreRange[0]"
+              :min="0"
+              :max="100"
+              :step="5"
+              :show-value="false"
+              :marks="scoreMarks"
+              @change="handleScoreMinChange"
+            />
+            <UiSlider
+              v-model="scoreRange[1]"
+              :min="0"
+              :max="100"
+              :step="5"
+              :show-value="false"
+              :marks="scoreMarks"
+              @change="handleScoreMaxChange"
+            />
+          </div>
           <span class="filter-label">得分: {{ scoreRange[0] }}% - {{ scoreRange[1] }}%</span>
         </div>
 
@@ -118,15 +139,15 @@
             <div class="qa-header">
               <span class="qa-index">#{{ qa.index + 1 }}</span>
               <div class="qa-metrics">
-                <el-tag v-if="qa.bleu !== undefined" size="small" type="info">
+                <UiTag v-if="qa.bleu !== undefined" size="sm" variant="info">
                   BLEU: {{ formatPercent(qa.bleu) }}
-                </el-tag>
-                <el-tag v-if="qa.rouge1 !== undefined" size="small" type="success">
+                </UiTag>
+                <UiTag v-if="qa.rouge1 !== undefined" size="sm" variant="success">
                   ROUGE-1: {{ formatPercent(qa.rouge1) }}
-                </el-tag>
-                <el-tag v-if="qa.score !== undefined" size="small" :type="getScoreType(qa.score)">
+                </UiTag>
+                <UiTag v-if="qa.score !== undefined" size="sm" :variant="getScoreType(qa.score)">
                   得分: {{ formatPercent(qa.score) }}
-                </el-tag>
+                </UiTag>
               </div>
             </div>
             <div class="qa-content">
@@ -166,19 +187,19 @@
           </div>
 
           <!-- 分页 -->
-          <el-pagination
+          <UiPagination
             v-if="totalQAResults > pageSize"
-            v-model:current-page="currentPage"
-            v-model:page-size="pageSize"
+            :page="currentPage"
+            :page-size="pageSize"
             :total="totalQAResults"
-            layout="prev, pager, next, sizes"
             :page-sizes="[10, 20, 50, 100]"
-            @current-change="handlePageChange"
-            @size-change="handleSizeChange"
-            style="margin-top: 16px; justify-content: center"
+            show-size-changer
+            class="qa-pagination"
+            @update:page="handlePageChange"
+            @update:page-size="handleSizeChange"
           />
         </div>
-      </el-card>
+      </UiCard>
     </template>
   </div>
 </template>
@@ -186,7 +207,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from '@/utils/element'
+import toast from '@/utils/toast'
+import {
+  UiButton,
+  UiCard,
+  UiTag,
+  UiText,
+  UiDescriptions,
+  UiDescriptionsItem,
+  UiInput,
+  UiSelect,
+  UiSlider,
+  UiPagination
+} from '@/components'
 import {
   ArrowLeft,
   Loading,
@@ -229,6 +262,25 @@ const sortOrder = ref<'asc' | 'desc'>('desc')
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalQAResults = ref(0)
+
+// 排序选项
+const sortByOptions = [
+  { label: '按索引', value: 'index' },
+  { label: '按 BLEU', value: 'bleu' },
+  { label: '按 ROUGE-1', value: 'rouge1' },
+  { label: '按得分', value: 'score' }
+]
+const sortOrderOptions = [
+  { label: '降序', value: 'desc' },
+  { label: '升序', value: 'asc' }
+]
+
+// 得分滑块刻度
+const scoreMarks = [
+  { value: 0, label: '0%' },
+  { value: 50, label: '50%' },
+  { value: 100, label: '100%' }
+]
 
 // 显示的检索指标
 const displayRetrievalMetrics = computed(() => {
@@ -362,7 +414,7 @@ async function loadDetail() {
       await loadQAResults()
     }
   } catch (error: any) {
-    ElMessage.error(error.message || '加载详情失败')
+    toast.error(error.message || '加载详情失败')
   } finally {
     loading.value = false
   }
@@ -430,17 +482,36 @@ function handleFilterChange() {
   currentPage.value = 1
 }
 
-function handlePageChange() {
-  // 由 computed 处理
+// 得分下限滑块：不得超过上限
+function handleScoreMinChange(value: number) {
+  if (value > scoreRange.value[1]) {
+    scoreRange.value[1] = value
+  }
+  scoreRange.value[0] = value
+  handleFilterChange()
 }
 
-function handleSizeChange() {
+// 得分上限滑块：不得低于下限
+function handleScoreMaxChange(value: number) {
+  if (value < scoreRange.value[0]) {
+    scoreRange.value[0] = value
+  }
+  scoreRange.value[1] = value
+  handleFilterChange()
+}
+
+function handlePageChange(page: number) {
+  currentPage.value = page
+}
+
+function handleSizeChange(size: number) {
+  pageSize.value = size
   currentPage.value = 1
 }
 
 function exportResults() {
   if (!filteredQAResults.value.length) {
-    ElMessage.warning('没有可导出的数据')
+    toast.warning('没有可导出的数据')
     return
   }
 
@@ -465,7 +536,7 @@ function exportResults() {
   link.click()
   URL.revokeObjectURL(url)
 
-  ElMessage.success('导出成功')
+  toast.success('导出成功')
 }
 
 onMounted(() => {
@@ -523,6 +594,15 @@ onUnmounted(() => {
 .header-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.sort-select {
+  width: 140px;
+}
+
+.order-select {
+  width: 100px;
 }
 
 .metrics-section {
@@ -577,9 +657,26 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
+.search-input {
+  width: 240px;
+}
+
+.score-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 300px;
+  margin: 0 16px;
+}
+
 .filter-label {
   font-size: 13px;
   color: var(--color-text-secondary);
+}
+
+.qa-pagination {
+  margin-top: 16px;
+  justify-content: center;
 }
 
 .qa-list {

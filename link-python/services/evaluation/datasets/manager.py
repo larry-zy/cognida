@@ -93,7 +93,7 @@ class DatasetManager:
     - 热重载
     """
 
-    def __init__(self, data_dir: Optional[str | Path] = None):
+    def __init__(self, data_dir: Optional[str | Path] = None) -> None:
         """初始化数据集管理器。
 
         Args:

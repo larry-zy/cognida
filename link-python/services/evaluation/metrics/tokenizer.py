@@ -3,9 +3,12 @@
 支持中文（jieba）和英文分词，以及混合文本处理。
 """
 
+import logging
 import re
 import string
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 try:
     import jieba
@@ -177,7 +180,8 @@ if __name__ == "__main__":
         ("这是一个 mixed 混合 text 文本", "auto"),
     ]
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     for text, lang in test_cases:
         tokens = tokenize(text, language=lang)
-        print(f"[{lang}] {text}")
-        print(f"  -> {tokens}")
+        logger.info("[%s] %s", lang, text)
+        logger.info("  -> %s", tokens)

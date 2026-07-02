@@ -16,7 +16,7 @@ class ConditionalStrategy(BaseStrategy):
     根据问题类型选择使用哪些评分器。
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None):
+    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
         super().__init__(
             name="conditional",
             description="根据问题类型选择评分器",
@@ -109,7 +109,7 @@ class RouterStrategy(BaseStrategy):
     根据问题内容路由到不同的评分策略。
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None):
+    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
         super().__init__(
             name="router",
             description="根据问题内容路由到不同策略",

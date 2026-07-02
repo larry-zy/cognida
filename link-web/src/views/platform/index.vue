@@ -28,25 +28,35 @@
       <!-- 底部用户信息 -->
       <div class="sidebar-footer">
         <div class="user-info" v-if="!uiStore.sidebarCollapsed">
-          <el-avatar :size="32">{{ authStore.username.charAt(0).toUpperCase() }}</el-avatar>
+          <div class="ui-avatar" :style="{ width: '32px', height: '32px' }">
+            <span>{{ authStore.username.charAt(0).toUpperCase() }}</span>
+          </div>
           <div class="user-details">
             <div class="user-name">{{ authStore.username }}</div>
             <div class="user-email">{{ authStore.email }}</div>
           </div>
-          <el-button
-            link
-            :icon="SwitchButton"
+          <UiButton
+            variant="ghost"
+            icon
+            circle
+            size="sm"
             @click="handleLogout"
             title="退出登录"
-          />
+          >
+            <template #icon><el-icon><SwitchButton /></el-icon></template>
+          </UiButton>
         </div>
-        <el-button
+        <UiButton
           v-else
-          link
-          :icon="SwitchButton"
+          variant="ghost"
+          icon
+          circle
+          size="sm"
           @click="handleLogout"
           title="退出登录"
-        />
+        >
+          <template #icon><el-icon><SwitchButton /></el-icon></template>
+        </UiButton>
       </div>
     </aside>
 
@@ -62,7 +72,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessageBox, ElMessage } from '@/utils/element'
+import { UiButton } from '@/components/ui'
+import toast from '@/utils/toast'
+import { ElMessageBox } from '@/utils/confirm'
 import {
   ChatDotRound,
   ChatLineRound,
@@ -104,14 +116,16 @@ function isActive(path: string): boolean {
 // 退出登录
 async function handleLogout() {
   try {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+    await ElMessageBox.confirm({
+      message: '确定要退出登录吗？',
+      title: '提示',
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
     })
 
     await authStore.logout()
-    ElMessage.success('已退出登录')
+    toast.success('已退出登录')
     router.push('/login')
   } catch {
     // 用户取消
@@ -202,6 +216,23 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.ui-avatar {
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.ui-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .user-details {

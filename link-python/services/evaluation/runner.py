@@ -136,7 +136,7 @@ class EvaluationRunner:
     - 并发控制
     """
 
-    def __init__(self, config: EvaluationConfig):
+    def __init__(self, config: EvaluationConfig) -> None:
         """初始化运行器。
 
         Args:

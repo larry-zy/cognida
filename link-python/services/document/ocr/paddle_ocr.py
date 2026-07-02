@@ -17,7 +17,7 @@ class PaddleOCREngine(BaseOCR):
     def name(self) -> str:
         return "paddleocr"
 
-    def _get_engine(self):
+    def _get_engine(self) -> Any:
         """延迟加载 PaddleOCR。"""
         if self._engine is None:
             try:

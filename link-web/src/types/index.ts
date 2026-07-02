@@ -339,28 +339,28 @@ export interface ChunkListResponse {
 }
 
 // 知识检索相关
+// 注意：字段与后端 SearchKnowledge 绑定保持一致（min_score，而非 score_threshold）
 export interface SearchRequest {
   query: string
   kb_ids: string[]
   top_k?: number
-  score_threshold?: number
-  include_graph?: boolean
+  min_score?: number
 }
 
 export interface SearchResult {
   chunk_id: string
   knowledge_id: string
+  // 后端当前为占位值：knowledge_title 恒为空、score 恒为 1.0，展示层需谨慎处理
   knowledge_title: string
   content: string
   score: number
+  highlight?: string
 }
 
 export interface SearchResponse {
-  query: string
-  results: SearchResult[]
+  // 后端返回 { total, items }
   total: number
-  graph_entities?: any[]
-  graph_relationships?: any[]
+  items: SearchResult[]
 }
 
 // ============ FAQ相关 ============

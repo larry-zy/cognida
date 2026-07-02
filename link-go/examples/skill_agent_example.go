@@ -41,18 +41,18 @@ func main() {
 	// ========================================
 	// 3. 演示工作流程
 	// ========================================
-	fmt.Println("=== 步骤 3: 工作流程演示 ===\n")
+	fmt.Println("=== 步骤 3: 工作流程演示 ===")
 
 	fmt.Println("当用户发送消息时:")
 	fmt.Println("1. Agent 收到消息")
 	fmt.Println("2. Skill 中间件自动匹配相关 Skill（基于消息内容）")
 	fmt.Println("3. 将 Skill 内容注入到消息中")
-	fmt.Println("4. Agent 使用增强后的消息生成响应\n")
+	fmt.Println("4. Agent 使用增强后的消息生成响应")
 
 	// ========================================
 	// 4. 演示便捷函数
 	// ========================================
-	fmt.Println("=== 步骤 4: 便捷函数示例 ===\n")
+	fmt.Println("=== 步骤 4: 便捷函数示例 ===")
 
 	// 查找 Skill
 	if skill, err := skills.FindSkill("code-review"); err == nil {
@@ -73,7 +73,7 @@ func main() {
 	// ========================================
 	// 5. 实际使用示例
 	// ========================================
-	fmt.Println("=== 步骤 5: 实际使用代码示例 ===\n")
+	fmt.Println("=== 步骤 5: 实际使用代码示例 ===")
 
 	fmt.Println(`// 创建带 Skill 注入的 Agent
 import (
@@ -94,8 +94,7 @@ agent := framework.New(chatModel).
     Build()
 
 // 当用户发送 "请帮我审查这段代码" 时
-// 中间件自动匹配并注入 code-review Skill
-`)
+// 中间件自动匹配并注入 code-review Skill`)
 
 	fmt.Println("\n=== 总结 ===")
 	fmt.Println("✅ Skill 工具自动注册 (skill_list, skill_invoke, skill_match)")

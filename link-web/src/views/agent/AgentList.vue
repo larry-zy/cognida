@@ -2,15 +2,19 @@
   <div class="agent-list-container">
     <div class="header">
       <h2>Agent 管理</h2>
-      <el-button type="primary" :icon="Plus">创建 Agent</el-button>
+      <UiButton variant="primary" icon>
+        <template #icon><el-icon><Plus /></el-icon></template>
+        创建 Agent
+      </UiButton>
     </div>
 
-    <el-empty description="暂无 Agent" />
+    <UiEmpty description="暂无 Agent" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { Plus } from '@element-plus/icons-vue'
+import { UiButton, UiEmpty } from '@/components/ui'
 </script>
 
 <style scoped>

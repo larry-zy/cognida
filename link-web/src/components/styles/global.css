@@ -127,6 +127,27 @@
   --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
   --shadow-glow-primary: 0 0 20px rgba(34, 211, 238, 0.3);
   --shadow-glow-secondary: 0 0 20px rgba(129, 140, 248, 0.3);
+
+  /* ========== 补充：修复此前被引用但未定义的变量 ========== */
+  /* 辅助色 - 靛蓝系（用于双色渐变、glow-secondary） */
+  --secondary: #818cf8;
+  --secondary-dark: #6366f1;
+  --secondary-light: #a5b4fc;
+  --color-secondary: var(--secondary);
+  --color-secondary-dark: var(--secondary-dark);
+  --color-secondary-light: var(--secondary-light);
+
+  /* 语义色浅色变体（用于 tag/alert 文字） */
+  --color-success-light: #34d399;
+  --color-danger-light: #f87171;
+  --color-warning-light: #fbbf24;
+  --color-info-light: #60a5fa;
+
+  /* 字体别名（body 内引用了 --font-sans） */
+  --font-sans: var(--font-body);
+
+  /* 更小圆角（checkbox 等） */
+  --radius-xs: 4px;
 }
 
 /* ==================== 响应式断点 ==================== */

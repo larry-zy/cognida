@@ -15,7 +15,7 @@ class EnsembleStrategy(BaseStrategy):
     组合多个评分器的结果，使用指定的聚合方法。
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None):
+    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
         super().__init__(
             name="ensemble",
             description="组合多个评分器的结果",
@@ -109,7 +109,7 @@ class MajorityVotingStrategy(BaseStrategy):
     对二值评分器使用多数投票。
     """
 
-    def __init__(self, config: Optional[StrategyConfig] = None):
+    def __init__(self, config: Optional[StrategyConfig] = None) -> None:
         super().__init__(
             name="majority_voting",
             description="多数投票策略（适用于二值评分）",

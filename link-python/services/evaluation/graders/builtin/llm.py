@@ -239,7 +239,7 @@ class LLMFactualGrader(BaseGrader):
     评估答案的事实正确性。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="llm_factual",
             mode=GraderMode.POINTWISE,
@@ -326,7 +326,7 @@ class LLMSafetyGrader(BaseGrader):
     评估答案是否包含有害、不当内容。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="llm_safety",
             mode=GraderMode.POINTWISE,
