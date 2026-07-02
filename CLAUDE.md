@@ -26,6 +26,12 @@
 ### 信息收集优先
 需求不明确时必须先询问用户，不得假设。
 
+### 分支策略
+目前单人开发，直接在 `main` 主分支上开发提交，不新建 feature 分支。
+
+### 数据库表结构同步
+业务表主流程无 SQL 迁移文件。给 model 加字段/建表后，用 `cd link-go && set -a && source .env && set +a && go run ./cmd/migrate-db` 从 GORM model 同步全部业务表结构（幂等），替代手动 `ALTER TABLE`。图谱表（`graph_*`）由 `graphMetaRepository.ensureSchema` 用内部 model 懒加载建表，不在此工具范围内。
+
 ---
 
 ## 开发流程 (FLOW)
