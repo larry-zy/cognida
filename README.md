@@ -564,7 +564,7 @@ pip install -e ".[all]"         # 或 uv pip install -e ".[all]"
 python -m grpc_service.server   # 或 console script: link-python-grpc
 
 # 启动 MCP 服务（可选，AI 工具调用）
-python -m mcp.server            # 或 console script: link-python-mcp
+python -m mcp_service.server    # 或 console script: link-python-mcp
 ```
 
 - gRPC：默认 `50051`（环境变量 `GRPC_PORT`）

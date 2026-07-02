@@ -8,7 +8,7 @@
 //
 // 运行前置：启动 Python MCP http server，例如
 //
-//	MCP_MODE=http MCP_HOST=127.0.0.1 MCP_PORT=8899 .venv/bin/python -m mcp.server
+//	MCP_MODE=http MCP_HOST=127.0.0.1 MCP_PORT=8899 .venv/bin/python -m mcp_service.server
 //
 // 端点可经 MCP_TEST_ENDPOINT 覆盖（默认 http://127.0.0.1:8899/mcp）。
 package e2e

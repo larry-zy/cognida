@@ -10,7 +10,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from mcp.server import LinkPythonMCPServer
+from mcp_service.server import LinkPythonMCPServer
 
 EXPECTED_TOOLS = {
     "data_describe",

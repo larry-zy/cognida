@@ -308,7 +308,7 @@ link-python/
 
 ```bash
 # MCP Server
-uv run python -m mcp.server
+uv run python -m mcp_service.server
 
 # gRPC Server  
 uv run python -m grpc.server

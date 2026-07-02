@@ -95,7 +95,7 @@ all = [
 ]
 
 [project.scripts]
-link-python-mcp = "mcp.server:main"
+link-python-mcp = "mcp_service.server:main"
 link-python-grpc = "grpc_service.server:main"
 
 [build-system]
@@ -108,7 +108,7 @@ packages = [
     "core",
     "services",
     "config",
-    "mcp",
+    "mcp_service",
     "grpc_service",
     "api",
 ]
@@ -126,7 +126,7 @@ dev-dependencies = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["tools", "services", "config", "core", "mcp", "grpc_service", "api", "tests"]
+src = ["tools", "services", "config", "core", "mcp_service", "grpc_service", "api", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

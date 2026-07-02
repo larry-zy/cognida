@@ -7,8 +7,9 @@ from typing import Any
 from aiohttp import web
 from config import get_settings
 from core import get_logger, setup_logging
-from tools import get_registry
 from tools.bootstrap import register_default_tools
+
+from tools import get_registry
 
 
 class LinkPythonMCPServer:
@@ -35,10 +36,11 @@ class LinkPythonMCPServer:
             self._app = web.Application()
             self._setup_http_handlers()
         else:
-            # 延迟 import 官方 mcp SDK：仅 stdio 模式需要，避免 http 模式强依赖
-            import mcp.server.stdio
+            # 延迟 import 官方 mcp SDK：仅 stdio 模式需要，避免 http 模式强依赖。
+            # 本地包已由 mcp/ 重命名为 mcp_service/，不再遮蔽官方 mcp SDK。
+            from mcp.server import Server
 
-            self._server = mcp.server.stdio.StdioServer()
+            self._server = Server(get_settings().app_name)
             self._app = None
             self._setup_handlers()
 
@@ -297,9 +299,17 @@ class LinkPythonMCPServer:
                 self._logger.info("HTTP MCP Server 已停止")
                 await runner.cleanup()
         else:
-            # stdio 模式
-            async with self._server:
-                await self._server.run()
+            # stdio 模式：官方 SDK 用 stdio_server() 提供读写流，
+            # 再交给 Server.run() 处理 JSON-RPC 循环。
+            from mcp.server.stdio import stdio_server
+
+            self._logger.info("启动 stdio MCP Server")
+            async with stdio_server() as (read_stream, write_stream):
+                await self._server.run(
+                    read_stream,
+                    write_stream,
+                    self._server.create_initialization_options(),
+                )
 
 
 async def main() -> None:

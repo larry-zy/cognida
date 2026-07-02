@@ -273,7 +273,7 @@ link-python/
 ### 4.2 MCP Server 实现
 
 ```python
-# link-python/mcp/server.py
+# link-python/mcp_service/server.py
 from mcp.server import Server
 from mcp.transport.stdio import stdio_server
 from link_python.mcp.tools.registry import ToolRegistry
@@ -309,7 +309,7 @@ if __name__ == "__main__":
 ### 4.3 MCP Tool 定义示例
 
 ```python
-# link-python/mcp/tools/data/analysis.py
+# link-python/mcp_service/tools/data/analysis.py
 from mcp.server.models import Tool
 from link_python.services.data.analyzer import analyze_dataframe
 
