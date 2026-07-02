@@ -127,7 +127,7 @@ func (o *simpleOrchestrator) Execute(ctx context.Context, agentID string, input 
 }
 
 // ExecuteStream 流式执行 Agent（实现 domain.AgentExecutor 接口）
-func (o *simpleOrchestrator) ExecuteStream(ctx context.Context, agentID string, input string) (<-chan string, error) {
+func (o *simpleOrchestrator) ExecuteStream(ctx context.Context, agentID string, input string) (<-chan *agent.StreamEvent, error) {
 	o.mu.Lock()
 	o.status[agentID] = agent.AgentStatusRunning
 	o.lastError = nil
@@ -135,10 +135,10 @@ func (o *simpleOrchestrator) ExecuteStream(ctx context.Context, agentID string, 
 
 	log.Printf("[AgentOrchestrator] ExecuteStream: AgentID=%s, Input=%q", agentID, input)
 
-	chunkChan := make(chan string, 10)
+	eventChan := make(chan *agent.StreamEvent, 10)
 
 	go func() {
-		defer close(chunkChan)
+		defer close(eventChan)
 		defer func() {
 			o.mu.Lock()
 			o.status[agentID] = agent.AgentStatusIdle
@@ -148,21 +148,25 @@ func (o *simpleOrchestrator) ExecuteStream(ctx context.Context, agentID string, 
 		// 执行查询
 		answer, err := o.Execute(ctx, agentID, input)
 		if err != nil {
+			select {
+			case <-ctx.Done():
+			case eventChan <- &agent.StreamEvent{Type: agent.StreamEventError, Error: err.Error()}:
+			}
 			return
 		}
 
-		// 分块发送响应
+		// 分块发送响应（该编排器无工具调用，仅有内容流）
 		chunks := o.splitIntoChunks(answer, 50)
 		for _, chunk := range chunks {
 			select {
 			case <-ctx.Done():
 				return
-			case chunkChan <- chunk:
+			case eventChan <- &agent.StreamEvent{Type: agent.StreamEventContent, Content: chunk}:
 			}
 		}
 	}()
 
-	return chunkChan, nil
+	return eventChan, nil
 }
 
 // GetStatus 获取 Agent 状态（实现 domain.AgentExecutor 接口）
@@ -366,17 +370,17 @@ func (o *fallbackOrchestrator) Execute(ctx context.Context, agentID string, inpu
 }
 
 // ExecuteStream 降级流式执行（实现 domain.AgentExecutor 接口）
-func (o *fallbackOrchestrator) ExecuteStream(ctx context.Context, agentID string, input string) (<-chan string, error) {
+func (o *fallbackOrchestrator) ExecuteStream(ctx context.Context, agentID string, input string) (<-chan *agent.StreamEvent, error) {
 	o.mu.Lock()
 	o.status[agentID] = agent.AgentStatusRunning
 	o.mu.Unlock()
 
 	log.Printf("[AgentOrchestrator] ExecuteStream in FALLBACK mode")
 
-	chunkChan := make(chan string, 10)
+	eventChan := make(chan *agent.StreamEvent, 10)
 
 	go func() {
-		defer close(chunkChan)
+		defer close(eventChan)
 		defer func() {
 			o.mu.Lock()
 			o.status[agentID] = agent.AgentStatusIdle
@@ -385,21 +389,25 @@ func (o *fallbackOrchestrator) ExecuteStream(ctx context.Context, agentID string
 
 		answer, err := o.Execute(ctx, agentID, input)
 		if err != nil {
+			select {
+			case <-ctx.Done():
+			case eventChan <- &agent.StreamEvent{Type: agent.StreamEventError, Error: err.Error()}:
+			}
 			return
 		}
 
-		// 分块发送响应
+		// 分块发送响应（降级模式无工具调用）
 		chunks := splitIntoChunksForFallback(answer, 50)
 		for _, chunk := range chunks {
 			select {
 			case <-ctx.Done():
 				return
-			case chunkChan <- chunk:
+			case eventChan <- &agent.StreamEvent{Type: agent.StreamEventContent, Content: chunk}:
 			}
 		}
 	}()
 
-	return chunkChan, nil
+	return eventChan, nil
 }
 
 // GetStatus 获取状态（实现 domain.AgentExecutor 接口）

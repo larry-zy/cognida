@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -308,23 +309,20 @@ func serializeToolCalls(calls []ToolCallInfo) string {
 	return result
 }
 
-// serializeAgentSteps converts agent steps to JSON string
+// serializeAgentSteps converts agent steps to JSON string.
+//
+// steps 内含嵌套结构（如 "steps": []map[string]interface{}{...} 的工具调用轨迹），
+// 必须用 json.Marshal 才能生成合法 JSON，供前端 parseAgentSteps 回放思考时间线。
 func serializeAgentSteps(steps map[string]interface{}) string {
 	if len(steps) == 0 {
 		return ""
 	}
-	// 简化实现，生产环境应使用 json.Marshal
-	result := "{"
-	i := 0
-	for k, v := range steps {
-		if i > 0 {
-			result += ","
-		}
-		result += fmt.Sprintf(`"%s":"%v"`, k, v)
-		i++
+	b, err := json.Marshal(steps)
+	if err != nil {
+		log.Printf("[AgentPersistence] serializeAgentSteps marshal failed: %v", err)
+		return ""
 	}
-	result += "}"
-	return result
+	return string(b)
 }
 
 // escapeString escapes special characters in string

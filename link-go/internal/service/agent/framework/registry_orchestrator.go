@@ -3,6 +3,7 @@ package framework
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -102,7 +103,10 @@ func (o *registryAgentOrchestrator) Execute(ctx context.Context, agentID string,
 }
 
 // ExecuteStream 流式执行 Agent（实现 domain.AgentExecutor 接口）
-func (o *registryAgentOrchestrator) ExecuteStream(ctx context.Context, agentID string, input string) (<-chan string, error) {
+//
+// 与旧实现不同，它把底层 Agent 产出的结构化 Chunk（内容/工具调用/工具结果/错误）
+// 逐一映射为 *agent.StreamEvent，完整保留工具调用轨迹，供上层渲染可视化时间线。
+func (o *registryAgentOrchestrator) ExecuteStream(ctx context.Context, agentID string, input string) (<-chan *agent.StreamEvent, error) {
 	// 获取 Agent 实例
 	agentInstance, err := o.getAgent(agentID)
 	if err != nil {
@@ -116,10 +120,10 @@ func (o *registryAgentOrchestrator) ExecuteStream(ctx context.Context, agentID s
 
 	log.Printf("[RegistryOrchestrator] ExecuteStream: AgentID=%s, Input=%q", agentID, input)
 
-	chunkChan := make(chan string, 16)
+	eventChan := make(chan *agent.StreamEvent, 16)
 
 	go func() {
-		defer close(chunkChan)
+		defer close(eventChan)
 		defer func() {
 			o.mu.Lock()
 			o.status[agentID] = agent.AgentStatusIdle
@@ -130,65 +134,105 @@ func (o *registryAgentOrchestrator) ExecuteStream(ctx context.Context, agentID s
 		chunkStream, err := agentInstance.Stream(ctx, input)
 		if err != nil {
 			log.Printf("[RegistryOrchestrator] Stream failed: %v", err)
+			o.emit(ctx, eventChan, &agent.StreamEvent{
+				Type:  agent.StreamEventError,
+				Error: err.Error(),
+			})
 			return
 		}
 
-		// 转发 Chunk 内容
+		// step 记录工具调用轮次，每次 tool_call 递增
+		step := 0
+
 		for chunk := range chunkStream {
+			// 内容增量
 			if chunk.Content != "" {
-				select {
-				case <-ctx.Done():
+				if !o.emit(ctx, eventChan, &agent.StreamEvent{
+					Type:    agent.StreamEventContent,
+					Content: chunk.Content,
+				}) {
 					return
-				case chunkChan <- chunk.Content:
 				}
 			}
 
-			// 处理工具调用事件
+			// 结构化事件
 			if chunk.Metadata != nil {
 				if event, ok := chunk.Metadata["event"].(string); ok {
 					switch event {
 					case "tool_call":
-						// 工具调用事件
 						if tc, ok := chunk.Metadata["tool_call"].(*ToolCallInStream); ok {
-							toolMsg := o.formatToolCallEvent(tc)
-							select {
-							case <-ctx.Done():
+							step++
+							if !o.emit(ctx, eventChan, &agent.StreamEvent{
+								Type:      agent.StreamEventToolCall,
+								Step:      step,
+								ToolID:    tc.ID,
+								ToolName:  tc.Name,
+								ToolInput: marshalToolInput(tc.Input),
+								Status:    "calling",
+							}) {
 								return
-							case chunkChan <- toolMsg:
 							}
 						}
 					case "tool_result":
-						// 工具结果事件
 						if tc, ok := chunk.Metadata["tool_call"].(*ToolCallInStream); ok {
-							resultMsg := o.formatToolResultEvent(tc)
-							select {
-							case <-ctx.Done():
+							status := "success"
+							if tc.Error != "" {
+								status = "error"
+							}
+							if !o.emit(ctx, eventChan, &agent.StreamEvent{
+								Type:      agent.StreamEventToolResult,
+								Step:      step,
+								ToolID:    tc.ID,
+								ToolName:  tc.Name,
+								ToolInput: marshalToolInput(tc.Input),
+								Output:    tc.Output,
+								Status:    status,
+								Error:     tc.Error,
+							}) {
 								return
-							case chunkChan <- resultMsg:
 							}
 						}
 					case "error":
-						// 错误事件
 						if errMsg, ok := chunk.Metadata["error"].(string); ok {
-							errorMsg := fmt.Sprintf("\n\n❌ 错误: %s", errMsg)
-							select {
-							case <-ctx.Done():
+							if !o.emit(ctx, eventChan, &agent.StreamEvent{
+								Type:  agent.StreamEventError,
+								Error: errMsg,
+							}) {
 								return
-							case chunkChan <- errorMsg:
 							}
 						}
 					}
 				}
 			}
 
-			// 检查是否完成
 			if chunk.Done {
 				break
 			}
 		}
 	}()
 
-	return chunkChan, nil
+	return eventChan, nil
+}
+
+// emit 向事件通道发送一个事件，遵守 ctx 取消。返回 false 表示已取消，调用方应退出。
+func (o *registryAgentOrchestrator) emit(ctx context.Context, ch chan<- *agent.StreamEvent, ev *agent.StreamEvent) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case ch <- ev:
+		return true
+	}
+}
+
+// marshalToolInput 将工具入参序列化为 JSON 字符串，失败时降级为 fmt 表示。
+func marshalToolInput(input map[string]interface{}) string {
+	if len(input) == 0 {
+		return ""
+	}
+	if b, err := json.Marshal(input); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", input)
 }
 
 // GetStatus 获取 Agent 状态（实现 domain.AgentExecutor 接口）
@@ -249,28 +293,6 @@ func (o *registryAgentOrchestrator) buildToolCallsInfo(toolCalls []*ToolCall) st
 		sb.WriteString("\n")
 	}
 	return sb.String()
-}
-
-// formatToolCallEvent 格式化工具调用事件
-func (o *registryAgentOrchestrator) formatToolCallEvent(tc *ToolCallInStream) string {
-	inputStr := ""
-	if tc.Input != nil {
-		inputStr = fmt.Sprintf("%v", tc.Input)
-	}
-	return fmt.Sprintf("\n\n🔧 调用工具: %s\n📝 参数: %s", tc.Name, inputStr)
-}
-
-// formatToolResultEvent 格式化工具结果事件
-func (o *registryAgentOrchestrator) formatToolResultEvent(tc *ToolCallInStream) string {
-	if tc.Error != "" {
-		return fmt.Sprintf("\n\n❌ 工具执行失败: %s\n错误: %s", tc.Name, tc.Error)
-	}
-	// 截断过长的输出
-	output := tc.Output
-	if len(output) > 500 {
-		output = output[:500] + "... (已截断)"
-	}
-	return fmt.Sprintf("\n\n✅ 工具执行成功: %s\n📊 结果: %s", tc.Name, output)
 }
 
 // ========================================

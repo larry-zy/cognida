@@ -391,13 +391,14 @@ export interface Agent {
 
 // Agent 流式事件类型
 export interface AgentStreamEvent {
-  event: 'step' | 'done' | 'error' | 'session'
+  event: 'step' | 'done' | 'error' | 'session' | 'ui'
   session_id?: string
   step?: number
   step_count?: number
   // 步骤类型 - 扩展以支持更多类型
   type?: 'thinking' | 'agent_call' | 'search' | 'utility' | 'action'
-    | 'plan' | 'analysis' | 'review' | 'synthesis' | 'retrieval' | 'tool_result'
+    | 'plan' | 'analysis' | 'review' | 'synthesis' | 'retrieval'
+    | 'tool_call' | 'tool_result'
     | 'complete' | 'error' | 'thought' | 'reflection'  // 兼容旧类型
   stage?: string  // 阶段: "信息检索", "反思校验", "规划阶段", "分析阶段", etc.
   content?: string
@@ -405,8 +406,11 @@ export interface AgentStreamEvent {
   tool_name?: string
   tool_desc?: string
   tool_params?: Record<string, any>
+  tool_input?: string   // 工具入参（JSON 字符串）
   tool_id?: string
   tool_output?: string
+  status?: 'calling' | 'success' | 'error'  // 工具执行状态
+  error?: string
   is_agent?: boolean
   agent_name?: string
   agent_stage?: string
@@ -423,7 +427,8 @@ export interface AgentStep {
   step: number
   // 扩展类型以支持更多步骤类型
   type: 'thinking' | 'agent_call' | 'search' | 'utility' | 'action'
-    | 'plan' | 'analysis' | 'review' | 'synthesis' | 'retrieval' | 'tool_result'
+    | 'plan' | 'analysis' | 'review' | 'synthesis' | 'retrieval'
+    | 'tool_call' | 'tool_result'
     | 'complete' | 'error' | 'thought' | 'reflection'
   stage?: string  // 阶段
   content?: string
@@ -431,8 +436,11 @@ export interface AgentStep {
   tool_name?: string
   tool_desc?: string
   tool_params?: Record<string, any>
+  tool_input?: string   // 工具入参（JSON 字符串）
   tool_output?: string
   tool_id?: string
+  status?: 'calling' | 'success' | 'error'  // 工具执行状态
+  error?: string
   is_agent?: boolean
   agent_name?: string
   agent_stage?: string

@@ -143,7 +143,7 @@
       <!-- 消息区域 -->
       <div class="ai-messages" ref="messagesContainer">
         <!-- 空状态 -->
-        <div v-if="messages.length === 0 && !streamingContent" class="ai-welcome">
+        <div v-if="messages.length === 0 && !streamingContent && !streamingSteps.length" class="ai-welcome">
           <div class="ai-welcome__icon" :class="`welcome-${activeTab}`">
             <svg v-if="activeTab === 'knowledge'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7z"/>
@@ -185,6 +185,11 @@
               </svg>
             </div>
             <div class="ai-message__content">
+              <!-- Agent 思考过程时间线 -->
+              <AgentTimeline
+                v-if="message.role === 'assistant' && message.steps && message.steps.length"
+                :steps="message.steps"
+              />
               <div class="ai-message__bubble" v-html="renderMarkdown(message.content)"></div>
               <!-- Text2SQL 特有：SQL 查询结果 -->
               <div v-if="message.sql_result" class="sql-result">
@@ -217,6 +222,8 @@
                   </table>
                 </div>
               </div>
+              <!-- 生成式 UI：AI 融合 SQL + 分析结果生成的可视化布局 -->
+              <A2UIRenderer v-if="message.ui_spec" :spec="message.ui_spec" />
               <div class="ai-message__actions">
                 <span class="ai-message__time">{{ formatTime(message.created_at) }}</span>
                 <button class="ai-message__action" @click="copyMessage(message.content)" title="复制">
@@ -230,7 +237,7 @@
           </div>
 
           <!-- 流式消息 -->
-          <div v-if="streamingContent" class="ai-message ai-message--assistant ai-message--streaming">
+          <div v-if="streamingContent || streamingSteps.length" class="ai-message ai-message--assistant ai-message--streaming">
             <div class="ai-message__avatar">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path v-if="activeTab === 'knowledge'" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7z"/>
@@ -240,7 +247,15 @@
               </svg>
             </div>
             <div class="ai-message__content">
-              <div class="ai-message__bubble" v-html="renderMarkdown(streamingContent)"></div>
+              <!-- 实时思考过程时间线 -->
+              <AgentTimeline
+                v-if="streamingSteps.length"
+                :steps="streamingSteps"
+                :active="true"
+              />
+              <div v-if="streamingContent" class="ai-message__bubble" v-html="renderMarkdown(streamingContent)"></div>
+              <!-- 生成式 UI 布局（流式到达即渲染） -->
+              <A2UIRenderer v-if="streamingUISpec" :spec="streamingUISpec" />
               <div class="ai-message__actions">
                 <span class="streaming-indicator">{{ streamingIndicator }}</span>
               </div>
@@ -291,9 +306,12 @@ import MarkdownIt from 'markdown-it'
 import { useAuthStore } from '@/stores/auth'
 import { agentApi } from '@/api/agent'
 import { sessionApi } from '@/api/session'
-import type { Session, Message } from '@/types'
+import type { Session, Message, AgentStep } from '@/types'
 import { formatTime } from '@/utils'
 import { copyToClipboard } from '@/utils/security'
+import AgentTimeline from '@/components/agent/AgentTimeline.vue'
+import A2UIRenderer from '@/components/agent/A2UIRenderer.vue'
+import type { A2UISpec } from '@/components/agent/a2ui-context'
 
 const authStore = useAuthStore()
 const userInitial = computed(() => authStore.username?.charAt(0).toUpperCase() || 'U')
@@ -303,6 +321,8 @@ interface AIMessage extends Message {
   sql_result?: string
   query_data?: any[]
   agent_type?: string
+  steps?: AgentStep[]  // Agent 思考步骤（工具调用轨迹）
+  ui_spec?: A2UISpec   // 生成式 UI（A2UI）布局：由后端融合真实 SQL+分析结果下发
 }
 
 // Tab 配置
@@ -343,6 +363,8 @@ const messages = ref<AIMessage[]>([])
 const inputMessage = ref('')
 const isStreaming = ref(false)
 const streamingContent = ref('')
+const streamingSteps = ref<AgentStep[]>([])  // 当前流式消息的思考步骤
+const streamingUISpec = ref<A2UISpec | null>(null)  // 当前流式消息的生成式 UI 布局
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
@@ -361,6 +383,61 @@ const md = new MarkdownIt({ html: true, linkify: true, typographer: true })
 
 function renderMarkdown(content: string): string {
   return md.render(content)
+}
+
+// 从持久化的 agent_steps JSON 恢复思考步骤（用于历史消息回放时间线）
+function parseAgentSteps(raw?: string): AgentStep[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    const list = Array.isArray(parsed) ? parsed : parsed?.steps
+    if (!Array.isArray(list)) return []
+    return list
+      .filter((s: any) => s && (s.type === 'tool_call' || s.type === 'tool_result'))
+      .map((s: any, idx: number): AgentStep => ({
+        id: `${s.tool_id || s.step || idx}`,
+        step: Number(s.step) || idx + 1,
+        type: s.type,
+        tool_name: s.tool_name,
+        tool_input: s.tool_input,
+        tool_output: s.tool_output,
+        tool_id: s.tool_id,
+        status: s.status,
+        error: s.error,
+        timestamp: 0
+      }))
+      // 同一步的 tool_call 与 tool_result 合并，保留最新（result 覆盖 call）
+      .reduce((acc: AgentStep[], cur: AgentStep) => {
+        const key = cur.tool_id || String(cur.step)
+        const existing = acc.find(a => (a.tool_id || String(a.step)) === key)
+        if (existing) Object.assign(existing, cur)
+        else acc.push(cur)
+        return acc
+      }, [])
+  } catch {
+    return []
+  }
+}
+
+// 将流式事件合并进步骤列表：tool_call 新建，tool_result 更新同一步
+function upsertStep(target: AgentStep[], event: any) {
+  const key = event.tool_id || String(event.step)
+  const existing = target.find(s => (s.tool_id || String(s.step)) === key)
+  const patch = {
+    step: Number(event.step) || target.length + 1,
+    type: event.type,
+    tool_name: event.tool_name ?? existing?.tool_name,
+    tool_input: event.tool_input ?? existing?.tool_input,
+    tool_output: event.tool_output ?? existing?.tool_output,
+    tool_id: event.tool_id ?? existing?.tool_id,
+    status: event.status ?? existing?.status,
+    error: event.error ?? existing?.error
+  }
+  if (existing) {
+    Object.assign(existing, patch)
+  } else {
+    target.push({ id: key, timestamp: 0, ...patch } as AgentStep)
+  }
 }
 
 // 计算属性
@@ -443,7 +520,8 @@ async function switchSession(sessionId: string) {
         ...msg,
         created_at: typeof msg.created_at === 'number'
           ? new Date(msg.created_at * 1000).toISOString()
-          : msg.created_at
+          : msg.created_at,
+        steps: parseAgentSteps(msg.agent_steps)
       }))
       // 根据 session 类型设置 activeTab
       const session = sessions.value.find(s => s.id === sessionId)
@@ -527,6 +605,8 @@ async function sendMessage() {
 
   isStreaming.value = true
   streamingContent.value = ''
+  streamingSteps.value = []
+  streamingUISpec.value = null
 
   try {
     let assistantContent = ''
@@ -552,22 +632,35 @@ async function sendMessage() {
       if (event.event === 'step') {
         if (event.type === 'thought' || event.type === 'thinking') {
           if (event.content) {
-            streamingContent.value = event.content
-            // 不要覆盖 assistantContent，只更新流式显示
-            // assistantContent 应该从 done 事件的 answer 获取
+            // 文本增量：累加为回答内容（后端按 token 分块推送）
+            streamingContent.value += event.content
           }
-        } else if (event.type === 'tool_result' && event.tool_name === 'sql_execute') {
-          if (event.tool_output) {
+        } else if (event.type === 'tool_call' || event.type === 'tool_result') {
+          // 结构化工具事件 → 合并进思考时间线
+          upsertStep(streamingSteps.value, event)
+
+          // Text2SQL 特例：从 sql_execute 工具结果提取 SQL 与结果表
+          if (event.type === 'tool_result' && event.tool_name === 'sql_execute' && event.tool_output) {
             try {
               const output = JSON.parse(event.tool_output)
-              // executed_sql 包含实际执行的 SQL，rows 包含查询结果
               sqlResult = output.executed_sql || output.sql || ''
-              // rows 是查询结果数据
               queryData = output.rows || output.data || null
             } catch {
               sqlResult = event.tool_output
             }
           }
+        } else if (event.type === 'error') {
+          // Agent 执行错误：提示用户并在时间线中留痕
+          const errText = event.error || event.content || '执行出错'
+          ElMessage.error(errText)
+          streamingSteps.value.push({
+            id: `error-${streamingSteps.value.length}`,
+            step: streamingSteps.value.length + 1,
+            type: 'error',
+            status: 'error',
+            error: errText,
+            timestamp: 0
+          })
         }
       } else if (event.event === 'done') {
         // done 事件包含完整答案
@@ -579,8 +672,15 @@ async function sendMessage() {
           assistantContent = event.content
           streamingContent.value = event.content
         }
+      } else if (event.event === 'ui') {
+        // 生成式 UI：后端融合真实 SQL 行集 + 分析指标装配的 A2UI 布局。
+        // SSE 解析器把 spec 的字段直接铺在 event 上（并附加 event:'ui'）。
+        const spec = event as unknown as A2UISpec
+        if (Array.isArray(spec.components) && spec.components.length) {
+          streamingUISpec.value = spec
+        }
       } else if (event.event === 'error') {
-        ElMessage.error(event.content || '查询失败')
+        ElMessage.error(event.error || event.content || '查询失败')
       }
 
       scrollToBottom()
@@ -595,6 +695,8 @@ async function sendMessage() {
       token_count: Math.ceil(assistantContent.length / 3),
       sql_result: sqlResult || undefined,
       query_data: queryData || undefined,
+      steps: streamingSteps.value.length ? [...streamingSteps.value] : undefined,
+      ui_spec: streamingUISpec.value || undefined,
       agent_type: activeTab.value === 'text2sql' ? 'text2sql' : 'rag',
       created_at: new Date().toISOString()
     })
@@ -614,6 +716,8 @@ async function sendMessage() {
   } finally {
     isStreaming.value = false
     streamingContent.value = ''
+    streamingSteps.value = []
+    streamingUISpec.value = null
   }
 }
 

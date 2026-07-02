@@ -18,6 +18,7 @@ import (
 	"link/internal/infrastructure/mcp"
 	"link/internal/repository/milvus"
 	"link/internal/repository/mysql"
+	"link/internal/service/agent/genui"
 	agentinit "link/internal/service/agent/initializer"
 	ragtool "link/internal/service/agent/tools"
 
@@ -141,6 +142,11 @@ func main() {
 				ragtool.InitDataAnalysisTool(mcpClient)
 				log.Println("✅ 数据分析工具初始化完成")
 			}
+
+			// 注入生成式 UI 的 LLM：Text2SQL 取数+分析后，由 Go 端用它定制布局
+			// （Level 2）；未注入时降级为确定性模板（Level 1）。
+			genui.SetModel(toolModel)
+			log.Println("✅ 生成式 UI（GenUI）已启用 LLM 定制布局")
 
 			// 初始化所有 Agents
 			if err := initializer.Initialize(ctx, toolModel); err != nil {

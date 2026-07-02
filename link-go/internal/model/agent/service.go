@@ -147,10 +147,45 @@ type AgentExecutor interface {
 	Execute(ctx context.Context, agentID string, input string) (string, error)
 
 	// ExecuteStream runs the agent with streaming response.
-	ExecuteStream(ctx context.Context, agentID string, input string) (<-chan string, error)
+	// 返回结构化事件流，保留工具调用轨迹与思考步骤，供上层可视化。
+	ExecuteStream(ctx context.Context, agentID string, input string) (<-chan *StreamEvent, error)
 
 	// GetStatus returns the current agent status.
 	GetStatus(agentID string) (AgentStatus, error)
+}
+
+// ========================================
+// StreamEvent Agent 流式执行事件（领域实体）
+// ========================================
+
+// StreamEventType 流式事件类型
+type StreamEventType string
+
+const (
+	// StreamEventContent 内容增量（LLM 生成的文本 token）
+	StreamEventContent StreamEventType = "content"
+	// StreamEventToolCall 工具调用开始
+	StreamEventToolCall StreamEventType = "tool_call"
+	// StreamEventToolResult 工具执行结果
+	StreamEventToolResult StreamEventType = "tool_result"
+	// StreamEventError 执行错误
+	StreamEventError StreamEventType = "error"
+)
+
+// StreamEvent 表示 Agent 执行过程中的一个结构化事件。
+//
+// 相比纯文本流，它保留了"第几步、调用了哪个工具、入参/出参、状态"等
+// 结构化信息，使前端可以把 Agent 的思考过程渲染成可视化时间线。
+type StreamEvent struct {
+	Type      StreamEventType // 事件类型
+	Content   string          // 文本增量（Type=content 时有效）
+	Step      int             // 步骤序号（工具调用轮次，从 1 递增）
+	ToolID    string          // 工具调用 ID
+	ToolName  string          // 工具名称
+	ToolInput string          // 工具入参（JSON 字符串）
+	Output    string          // 工具输出（JSON 字符串，Type=tool_result 时有效）
+	Status    string          // 工具状态: "calling" | "success" | "error"
+	Error     string          // 错误信息
 }
 
 // ========================================

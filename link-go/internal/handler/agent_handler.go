@@ -11,9 +11,18 @@ import (
 	"github.com/google/uuid"
 
 	agentuc "link/internal/service/agent"
+	"link/internal/service/agent/genui"
 	ragtool "link/internal/service/agent/tools"
 	"link/internal/handler/sse"
 )
+
+// genUIOption 控制流式过程中是否装配并下发生成式 UI（A2UI）契约。
+// compose 为 true 时，会在 done 之前用捕获到的真实 sql_execute / data_analysis
+// 工具输出经 genui.Compose 拼装 UISpec 并以 ui 事件下发（当前仅 Text2SQL 开启）。
+type genUIOption struct {
+	compose  bool
+	question string
+}
 
 // ========================================
 // Agent Handler
@@ -72,6 +81,114 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	OK(c, resp)
 }
 
+// agentStreamResult 汇总一次流式执行的可持久化产物。
+type agentStreamResult struct {
+	Content   string                   // 完整回答文本
+	ToolCalls []agentuc.ToolCallInfo   // 工具调用记录
+	Steps     []map[string]interface{} // 结构化步骤轨迹（用于历史回放时间线）
+}
+
+// metaString 从 metadata 中安全取字符串字段。
+func metaString(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// streamAgentChunks 消费 chunkChan，按统一的结构化 SSE 契约向前端下发：
+//   - content 事件      → step{type:"thought", content}（追加到回答气泡）
+//   - tool_call 事件    → step{type:"tool_call", step, tool_name, tool_input, status}
+//   - tool_result 事件  → step{type:"tool_result", step, tool_name, tool_output, status, error}
+//   - error 事件        → step{type:"error", error}
+//   - ui                → ui{...UISpec}（仅 genUI.compose 为 true 时，done 之前下发）
+//   - done              → done{answer}
+//
+// 同时收集完整回答、工具调用记录与步骤轨迹用于持久化。
+//
+// genUI 控制是否在 done 之前，用捕获到的真实 sql_execute / data_analysis 工具输出，
+// 经 genui.Compose 拼装一份生成式 UI 契约（UISpec）下发（Text2SQL 专用）。
+func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agentuc.ChatChunkDTO, genUI genUIOption) agentStreamResult {
+	var sb strings.Builder
+	var toolCalls []agentuc.ToolCallInfo
+	var steps []map[string]interface{}
+	var sqlOutput, analysisOutput string // 捕获真实工具输出，供 genUI 融合
+
+	for chunk := range chunkChan {
+		if chunk.Done {
+			// done 之前：开启 genUI 且已取到真实数据时，拼装并下发 ui 事件。
+			if genUI.compose {
+				if spec := genui.Compose(c.Request.Context(), genui.ComposeInput{
+					Question:       genUI.question,
+					SQLOutput:      sqlOutput,
+					AnalysisOutput: analysisOutput,
+				}); spec != nil {
+					sse.SendSSE(c.Writer, "ui", spec)
+				}
+			}
+			sse.SendSSE(c.Writer, "done", gin.H{
+				"event":  "done",
+				"answer": sb.String(),
+			})
+			break
+		}
+
+		// 文本增量：作为回答内容
+		if chunk.Content != "" {
+			sb.WriteString(chunk.Content)
+			sse.SendSSE(c.Writer, "step", gin.H{
+				"event":   "step",
+				"type":    "thought",
+				"content": chunk.Content,
+			})
+			continue
+		}
+
+		// 结构化步骤事件
+		if chunk.Metadata == nil {
+			continue
+		}
+		stepType := metaString(chunk.Metadata["type"])
+		if stepType == "" {
+			continue
+		}
+
+		// 原样透传结构化字段，并标记 SSE 事件名
+		payload := gin.H{"event": "step"}
+		for k, v := range chunk.Metadata {
+			payload[k] = v
+		}
+		sse.SendSSE(c.Writer, "step", payload)
+		steps = append(steps, chunk.Metadata)
+
+		// 工具执行结果收集为持久化记录
+		if stepType == "tool_result" {
+			toolName := metaString(chunk.Metadata["tool_name"])
+			toolOutput := metaString(chunk.Metadata["tool_output"])
+			toolCalls = append(toolCalls, agentuc.ToolCallInfo{
+				ID:     metaString(chunk.Metadata["tool_id"]),
+				Name:   toolName,
+				Input:  metaString(chunk.Metadata["tool_input"]),
+				Output: toolOutput,
+				Error:  metaString(chunk.Metadata["error"]),
+			})
+			// 捕获真实工具输出，供 done 前的 genUI 融合（取最后一次成功结果）。
+			switch toolName {
+			case "sql_execute":
+				if toolOutput != "" {
+					sqlOutput = toolOutput
+				}
+			case "data_analysis":
+				if toolOutput != "" {
+					analysisOutput = toolOutput
+				}
+			}
+		}
+	}
+
+	return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps}
+}
+
 // ChatStream AgenticRAG 流式聊天
 func (h *AgentHandler) ChatStream(c *gin.Context) {
 	log.Printf("[AgentChatStream] Received stream request")
@@ -102,19 +219,8 @@ func (h *AgentHandler) ChatStream(c *gin.Context) {
 	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
 	defer stopHeartbeat()
 
-	// 发送流式数据
-	for chunk := range chunkChan {
-		if chunk.Done {
-			sse.SendSSE(c.Writer, sse.EventTypeDone, chunk)
-			break
-		}
-		if chunk.Content != "" {
-			sse.SendSSE(c.Writer, sse.EventTypeContent, chunk)
-		}
-		if chunk.Metadata != nil {
-			sse.SendSSE(c.Writer, sse.EventTypeMetadata, chunk.Metadata)
-		}
-	}
+	// 发送流式数据（结构化 step 契约）
+	h.streamAgentChunks(c, chunkChan, genUIOption{})
 }
 
 // GetTools 获取可用工具列表
@@ -337,10 +443,6 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
 	defer stopHeartbeat()
 
-	// 收集完整响应用于持久化
-	var fullContent strings.Builder
-	var toolCalls []agentuc.ToolCallInfo
-
 	// 更新请求的 session_id 为准备好的会话 ID
 	req.SessionID = session.ID
 
@@ -352,71 +454,17 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 		return
 	}
 
-	// 发送流式数据并收集内容
-	for chunk := range chunkChan {
-		if chunk.Done {
-			// 发送完成事件，包含完整答案
-			sse.SendSSE(c.Writer, "done", gin.H{
-				"event":  "done",
-				"answer": fullContent.String(),
-			})
-			break
-		}
-		if chunk.Content != "" {
-			fullContent.WriteString(chunk.Content)
-			// 将内容转换为 step 事件（前端期待的格式）
-			sse.SendSSE(c.Writer, "step", gin.H{
-				"event":   "step",
-				"type":    "thought",
-				"content": chunk.Content,
-			})
-		}
-		if chunk.Metadata != nil {
-			// 检查是否有工具调用事件
-			if event, ok := chunk.Metadata["event"].(string); ok {
-				switch event {
-				case "tool_call":
-					// 工具调用开始
-					if tc, ok := chunk.Metadata["tool_call"].(interface{}); ok {
-						sse.SendSSE(c.Writer, "step", gin.H{
-							"event":      "step",
-							"type":       "tool_result",
-							"tool_name":  chunk.Metadata["tool_name"],
-							"tool_params": tc,
-							"content":    "正在调用工具...",
-						})
-					}
-				case "tool_result":
-					// 工具执行结果
-					if tc, ok := chunk.Metadata["tool_call"].(interface{}); ok {
-						// 收集工具调用信息（简化处理，跳过复杂的类型转换）
-						_ = tc // 工具调用信息已在 Agent 层处理
-						sse.SendSSE(c.Writer, "step", gin.H{
-							"event":       "step",
-							"type":        "tool_result",
-							"tool_name":   chunk.Metadata["tool_name"],
-							"tool_output": tc,
-						})
-					}
-				default:
-					sse.SendSSE(c.Writer, sse.EventTypeMetadata, chunk.Metadata)
-				}
-			} else {
-				// 收集工具调用信息（旧格式兼容）
-				if tc, ok := chunk.Metadata["tool_call"].([]agentuc.ToolCallInfo); ok {
-					toolCalls = append(toolCalls, tc...)
-				}
-				sse.SendSSE(c.Writer, sse.EventTypeMetadata, chunk.Metadata)
-			}
-		}
-	}
+	// 发送流式数据并收集内容（结构化 step 契约）；Text2SQL 开启生成式 UI 融合。
+	result := h.streamAgentChunks(c, chunkChan, genUIOption{compose: true, question: req.Query})
 
 	// 持久化：保存助手消息
-	if h.persistenceService != nil && fullContent.Len() > 0 {
+	if h.persistenceService != nil && result.Content != "" {
 		assistantMsgID := fmt.Sprintf("msg-%s", uuid.New().String()[:8])
 		// 捕获需要的变量
 		sessionID := session.ID
-		content := fullContent.String()
+		content := result.Content
+		toolCalls := result.ToolCalls
+		steps := result.Steps
 		go func() {
 			// 使用新的 context，避免请求 context 被取消
 			ctx := context.Background()
@@ -427,6 +475,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 				ToolCalls:  toolCalls,
 				AgentSteps: map[string]interface{}{
 					"session_id": sessionID,
+					"steps":      steps,
 				},
 				TokenCount: 0,
 			}
@@ -492,10 +541,6 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
 	defer stopHeartbeat()
 
-	// 收集完整响应用于持久化
-	var fullContent strings.Builder
-	var toolCalls []agentuc.ToolCallInfo
-
 	// 执行流式聊天（通过持久化服务包装）
 	chunkChan, err := h.executeUseCase.ExecuteStream(c.Request.Context(), &req)
 	if err != nil {
@@ -504,66 +549,17 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 		return
 	}
 
-	// 发送流式数据并收集内容
-	for chunk := range chunkChan {
-		if chunk.Done {
-			// 发送完成事件，包含完整答案
-			sse.SendSSE(c.Writer, "done", gin.H{
-				"event":  "done",
-				"answer": fullContent.String(),
-			})
-			break
-		}
-		if chunk.Content != "" {
-			fullContent.WriteString(chunk.Content)
-			// 将内容转换为 step 事件（前端期待的格式）
-			sse.SendSSE(c.Writer, "step", gin.H{
-				"event":   "step",
-				"type":    "thought",
-				"content": chunk.Content,
-			})
-		}
-		if chunk.Metadata != nil {
-			// 检查是否有工具调用事件
-			if event, ok := chunk.Metadata["event"].(string); ok {
-				switch event {
-				case "tool_call":
-					if tc, ok := chunk.Metadata["tool_call"].(interface{}); ok {
-						sse.SendSSE(c.Writer, "step", gin.H{
-							"event":      "step",
-							"type":       "tool_result",
-							"tool_name":  chunk.Metadata["tool_name"],
-							"tool_params": tc,
-							"content":    "正在调用工具...",
-						})
-					}
-				case "tool_result":
-					if tc, ok := chunk.Metadata["tool_call"].(interface{}); ok {
-						// 工具调用信息已在 Agent 层处理
-						_ = tc
-						sse.SendSSE(c.Writer, "step", gin.H{
-							"event":       "step",
-							"type":        "tool_result",
-							"tool_name":   chunk.Metadata["tool_name"],
-							"tool_output": tc,
-						})
-					}
-				default:
-					sse.SendSSE(c.Writer, sse.EventTypeMetadata, chunk.Metadata)
-				}
-			} else {
-				if tc, ok := chunk.Metadata["tool_call"].([]agentuc.ToolCallInfo); ok {
-					toolCalls = append(toolCalls, tc...)
-				}
-				sse.SendSSE(c.Writer, sse.EventTypeMetadata, chunk.Metadata)
-			}
-		}
-	}
+	// 发送流式数据并收集内容（结构化 step 契约）
+	result := h.streamAgentChunks(c, chunkChan, genUIOption{})
 
 	// 持久化：保存用户消息和助手回复
-	if h.persistenceService != nil && fullContent.Len() > 0 {
+	if h.persistenceService != nil && result.Content != "" {
+		content := result.Content
+		toolCalls := result.ToolCalls
+		steps := result.Steps
 		go func() {
-			ctx := c.Request.Context()
+			// 使用独立 context，避免 SSE 响应结束后请求 context 被取消导致落库失败
+			ctx := context.Background()
 			persistReq := &agentuc.ExecuteRequest{
 				AgentID:   "rag",
 				SessionID: req.SessionID,
@@ -572,9 +568,9 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 				TenantID:  tenantID,
 			}
 			resp := &agentuc.ExecuteResponse{
-				Content:    fullContent.String(),
+				Content:    content,
 				ToolCalls:  toolCalls,
-				AgentSteps: map[string]interface{}{},
+				AgentSteps: map[string]interface{}{"steps": steps},
 			}
 			// 使用持久化服务保存（异步）
 			_, _ = h.persistenceService.ExecuteWithContext(ctx, persistReq, func(ctx context.Context) (*agentuc.ExecuteResponse, error) {

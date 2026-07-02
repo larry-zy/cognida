@@ -78,19 +78,49 @@ func (s *ExecuteService) ExecuteStream(ctx context.Context, req *AgenticRAGReque
 		return nil, err
 	}
 
-	// 转换为 DTO channel
+	// 转换为 DTO channel。
+	// content 事件仅携带文本；工具调用/结果/错误等结构化事件写入 Metadata，
+	// 供 handler 按 SSE step 契约下发前端渲染时间线。
 	resultChan := make(chan *ChatChunkDTO, 10)
 	go func() {
 		defer close(resultChan)
-		for content := range domainChan {
-			resultChan <- &ChatChunkDTO{
-				Content: content,
+		// send 遵守 ctx 取消，避免下游提前退出时 goroutine 阻塞泄漏
+		send := func(dto *ChatChunkDTO) bool {
+			select {
+			case <-ctx.Done():
+				return false
+			case resultChan <- dto:
+				return true
+			}
+		}
+		for ev := range domainChan {
+			if ev == nil {
+				continue
+			}
+			if ev.Type == agent.StreamEventContent {
+				if !send(&ChatChunkDTO{Content: ev.Content}) {
+					return
+				}
+				continue
+			}
+			// 结构化事件（tool_call / tool_result / error）
+			if !send(&ChatChunkDTO{
+				Metadata: map[string]interface{}{
+					"type":        string(ev.Type),
+					"step":        ev.Step,
+					"tool_id":     ev.ToolID,
+					"tool_name":   ev.ToolName,
+					"tool_input":  ev.ToolInput,
+					"tool_output": ev.Output,
+					"status":      ev.Status,
+					"error":       ev.Error,
+				},
+			}) {
+				return
 			}
 		}
 		// 发送完成标记
-		resultChan <- &ChatChunkDTO{
-			Done: true,
-		}
+		send(&ChatChunkDTO{Done: true})
 	}()
 
 	return resultChan, nil
