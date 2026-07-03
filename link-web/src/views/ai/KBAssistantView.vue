@@ -719,12 +719,11 @@ onUnmounted(() => {
 .kb-assistant {
   display: flex;
   gap: 0;
-  height: calc(100vh - 24px * 2);
+  /* 抵消父层 .content-wrapper { padding: 24px }，精确撑满面板。
+     底色/圆角/裁剪由壳层 .main-content 提供，这里不再叠一层半透明底 */
+  height: calc(100% + 48px);
   margin: -24px;
   overflow: hidden;
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-default);
 }
 
 /* ===================== 左侧边栏 ===================== */
@@ -770,14 +769,13 @@ onUnmounted(() => {
 
 /* 搜索框 */
 .sidebar__search {
-  margin: 0 14px 8px;
+  margin: 2px 14px 8px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 11px;
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
-  border: 1px solid var(--color-border-subtle);
 }
 
 .sidebar__search svg {
@@ -810,12 +808,12 @@ onUnmounted(() => {
   letter-spacing: 1.5px;
 }
 
-/* 知识库行 */
+/* 知识库行（未选中） */
 .kb-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   margin: 0 8px 1px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -823,11 +821,14 @@ onUnmounted(() => {
 }
 
 .kb-row:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-tertiary);
 }
 
+/* 选中知识库：卡片样式，带上下结构 */
 .kb-row--active {
-  background: var(--primary-dim);
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
 }
 
 .kb-row svg {
@@ -835,11 +836,11 @@ onUnmounted(() => {
   height: 13px;
   color: var(--text-muted);
   flex: 0 0 13px;
-  margin-top: 2px;
 }
 
 .kb-row--active svg {
   color: var(--primary);
+  margin-top: 2px;
 }
 
 .kb-row__body {
@@ -858,10 +859,11 @@ onUnmounted(() => {
 .kb-row--active .kb-row__name {
   color: var(--primary);
   font-weight: 600;
+  font-size: 13px;
 }
 
 .kb-row__meta {
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 10.5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -887,7 +889,7 @@ onUnmounted(() => {
 }
 
 .session:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-tertiary);
 }
 
 .session--active {
@@ -927,7 +929,7 @@ onUnmounted(() => {
 
 .session__title {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -945,14 +947,14 @@ onUnmounted(() => {
 .session__chip {
   font-family: var(--font-mono);
   font-size: 10px;
-  padding: 0 5px;
+  padding: 0 6px;
   border-radius: 3px;
   border: 1px solid var(--color-border-subtle);
   color: var(--text-muted);
 }
 
 .session--active .session__chip {
-  border-color: rgba(156, 180, 205, 0.35);
+  border-color: rgba(156, 180, 205, 0.4);
   color: var(--primary);
 }
 
@@ -1077,7 +1079,7 @@ onUnmounted(() => {
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  50% { opacity: 0.4; }
 }
 
 /* 图标按钮 */
@@ -1185,7 +1187,7 @@ onUnmounted(() => {
 .msg {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .msg--user {
@@ -1223,8 +1225,13 @@ onUnmounted(() => {
 
 /* 消息列 */
 .msg__col {
-  max-width: 80%;
+  max-width: 78%;
   min-width: 0;
+}
+
+/* AI 回复允许更宽（含时间线 + 引用卡）*/
+.msg--ai .msg__col {
+  max-width: 88%;
 }
 
 .msg--user .msg__col {
@@ -1284,7 +1291,7 @@ onUnmounted(() => {
 
 /* 时间戳 */
 .msg__time {
-  margin-top: 6px;
+  margin-top: 7px;
   font-size: 10.5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -1296,14 +1303,13 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-tertiary);
-  border: 1px solid var(--color-border-subtle);
 }
 
 .sources__title {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 13px;
+  padding: 9px 13px;
   font-size: 11px;
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -1426,7 +1432,7 @@ onUnmounted(() => {
 }
 
 .composer--focus {
-  border-color: rgba(156, 180, 205, 0.45);
+  border-color: rgba(156, 180, 205, 0.5);
 }
 
 .composer__textarea {
@@ -1463,6 +1469,13 @@ onUnmounted(() => {
   padding: 3px 9px;
   border-radius: 3px;
   border: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
+}
+
+.tool-chip:hover {
+  color: var(--text-secondary);
+  border-color: var(--color-border-default);
 }
 
 .tool-chip svg {

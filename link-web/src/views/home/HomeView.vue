@@ -1,5 +1,17 @@
 <template>
-  <div class="home-view">
+  <div class="home-page">
+
+    <!-- 顶栏：宋体标题 + 状态呼吸点（对齐 ui-preview-home.html） -->
+    <div class="topbar">
+      <span class="topbar__title">Link</span>
+      <div class="topbar__right">
+        <span class="status-dot"><i></i>agent · online</span>
+      </div>
+    </div>
+
+    <!-- 内容滚动区 -->
+    <div class="home-scroll">
+      <div class="home-view">
 
     <!-- ============ 1. Hero ============ -->
     <section class="hero">
@@ -250,6 +262,9 @@
       <span>2026-07-04</span>
     </footer>
 
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -258,11 +273,77 @@
 </script>
 
 <style scoped>
+/* ── 页面骨架：抵消父层 .content-wrapper { padding: 24px }，
+   顶栏固定 + 内容独立滚动（对齐 mockup 面板结构） ── */
+.home-page {
+  display: flex;
+  flex-direction: column;
+  margin: -24px;
+  height: calc(100% + 48px);
+  overflow: hidden;
+}
+
+/* ── 顶栏 ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 24px;
+  height: 54px;
+  flex: 0 0 54px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.topbar__title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.topbar__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 状态呼吸点 */
+.status-dot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.status-dot i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: status-pulse 3s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── 内容滚动区 ── */
+.home-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
 /* ── 容器 ── */
 .home-view {
   max-width: 960px;
   margin: 0 auto;
-  padding: 48px 0 64px;
+  padding: 48px 32px 64px;
   display: flex;
   flex-direction: column;
   gap: 60px;
@@ -544,7 +625,7 @@
 .arch-layer__row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -582,8 +663,10 @@
 .arch-connector {
   display: flex;
   align-items: center;
+  justify-content: center;
   height: 20px;
-  padding-left: 24px;
+  margin-left: 24px;
+  border-left: 1px solid var(--border-default);
 }
 
 .arch-connector__line {

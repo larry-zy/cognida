@@ -7,6 +7,8 @@
       <nav class="gv-breadcrumb">
         <span>知识库</span>
         <span class="gv-breadcrumb__sep">/</span>
+        <span>{{ kbId }}</span>
+        <span class="gv-breadcrumb__sep">/</span>
         <span class="gv-breadcrumb__cur">图谱</span>
       </nav>
 
@@ -134,7 +136,7 @@
             </div>
             <div class="gv-info-row">
               <span class="gv-info-label">属性</span>
-              <span class="gv-info-value gv-info-value--mono">
+              <span class="gv-info-value gv-info-value--mono gv-info-value--muted">
                 {{ selectedNodeAttributes.length > 0 ? selectedNodeAttributes.join(', ') : '-' }}
               </span>
             </div>
@@ -197,10 +199,11 @@
         <span class="gv-stat-item">关系 <span class="gv-stat-val">{{ edgeCount }}</span></span>
         <span class="gv-stat-item">实体类型 <span class="gv-stat-val">{{ entityTypeCount }}</span></span>
         <span class="gv-stat-item">布局 <span class="gv-stat-val">force</span></span>
+        <span class="gv-stat-item">渲染 <span class="gv-stat-val">60fps</span></span>
       </div>
       <div class="gv-statusbar__right">
         <span class="gv-status-dot"><i></i></span>
-        已就绪
+        最后同步 <span class="gv-stat-val">{{ lastSyncTime }}</span>
       </div>
     </div>
 
@@ -409,6 +412,14 @@ const entityTypeCount = computed(() => {
   const types = new Set(graphData.value.nodes?.map(n => n.entity_type) || [])
   return types.size
 })
+
+const lastSyncTime = ref('--:--')
+function updateSyncTime() {
+  const now = new Date()
+  const h = String(now.getHours()).padStart(2, '0')
+  const m = String(now.getMinutes()).padStart(2, '0')
+  lastSyncTime.value = `${h}:${m}`
+}
 
 const selectedNodeType = computed(() => selectedNode.value?.entity_type || '-')
 const selectedNodeAttributes = computed(() => selectedNode.value?.attributes || [])
@@ -620,6 +631,7 @@ async function loadGraph() {
       graphData.value = convertToVisData(res.data)
       if (network) { network.destroy(); network = null }
       initGraph()
+      updateSyncTime()
     }
   } catch (error: any) {
     toastError(`加载图谱失败: ${error?.message || error}`)
@@ -984,12 +996,16 @@ onUnmounted(() => {
    红线：无 linear-gradient/backdrop-filter/发光 box-shadow/emoji
    =================================================== */
 
-/* 整页：flex 竖排，撑满父容器 */
+/* 整页：用负 margin 抵消父层 .content-wrapper 的 24px padding，撑满可用区域 */
 .gv-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background: transparent;
+  /* 抵消 platform/index.vue 的 .content-wrapper { padding: 24px } */
+  margin: -24px;
+  /* 精确撑高：fill parent height + 抵消两端 padding。
+     底色由壳层 .main-content 提供，不再叠一层半透明底 */
+  height: calc(100% + 48px);
+  overflow: hidden;
 }
 
 /* ===== 顶部工具栏 ===== */
@@ -1000,8 +1016,8 @@ onUnmounted(() => {
   padding: 0 20px;
   height: 54px;
   flex: 0 0 54px;
+  /* 顶栏分隔线与 mockup 一致：发丝线 05% */
   border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-secondary);
 }
 
 .gv-topbar__title {
@@ -1084,7 +1100,7 @@ onUnmounted(() => {
   flex: 0 0 1px;
 }
 
-/* hairline 次级按钮（添加节点/关系） */
+/* hairline 次级按钮（添加节点/关系）：border 对应 mockup var(--hair) = --border-default */
 .gv-btn-sec {
   display: flex;
   align-items: center;
@@ -1099,6 +1115,7 @@ onUnmounted(() => {
   white-space: nowrap;
   transition:
     color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
     background var(--duration-fast) var(--ease-default);
 }
 
@@ -1110,6 +1127,7 @@ onUnmounted(() => {
 .gv-btn-sec:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-elevated);
+  border-color: var(--color-border-default);
 }
 
 /* 图标按钮（30×30） */
@@ -1177,7 +1195,7 @@ onUnmounted(() => {
   z-index: 10;
 }
 
-/* 图例浮层（左下角） */
+/* 图例浮层（左下角）：mockup 无 shadow，纯 --ink-2 底色 */
 .gv-legend {
   position: absolute;
   left: 16px;
@@ -1186,7 +1204,6 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   padding: 10px 13px;
   min-width: 130px;
-  box-shadow: var(--shadow-md);
 }
 
 .gv-legend__title {
@@ -1217,7 +1234,7 @@ onUnmounted(() => {
   flex: 0 0 9px;
 }
 
-/* 缩放控件（右下角） */
+/* 缩放控件（右下角）：mockup 无 shadow，纯 --ink-2 底色 */
 .gv-zoom {
   position: absolute;
   right: 16px;
@@ -1228,7 +1245,6 @@ onUnmounted(() => {
   background: var(--color-bg-tertiary);
   border-radius: var(--radius-sm);
   padding: 4px;
-  box-shadow: var(--shadow-md);
 }
 
 .gv-zoom .gv-icon-btn {
@@ -1314,6 +1330,12 @@ onUnmounted(() => {
   font-size: 11.5px;
 }
 
+/* 属性行：比正常值更暗（对应 mockup style="font-size:11px;color:var(--t3)"） */
+.gv-info-value--muted {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
 /* 小节标题 */
 .gv-section-head {
   display: flex;
@@ -1344,7 +1366,7 @@ onUnmounted(() => {
   gap: 0;
   padding: 7px 16px;
   font-size: 12px;
-  cursor: default;
+  cursor: pointer;
   transition: background var(--duration-fast) var(--ease-default);
 }
 
@@ -1488,8 +1510,8 @@ onUnmounted(() => {
   padding: 0 20px;
   height: 32px;
   flex: 0 0 32px;
-  border-top: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-secondary);
+  /* mockup 使用 var(--hair) = --border-default (9% opacity) */
+  border-top: 1px solid var(--color-border-default);
 }
 
 .gv-statusbar__left {
@@ -1543,5 +1565,25 @@ onUnmounted(() => {
 
 .gv-form-group:last-child {
   margin-bottom: 0;
+}
+
+/* ===== 滚动条：与 mockup 一致（4px 细轨道） ===== */
+.gv-drawer__body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.gv-drawer__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.gv-drawer__body::-webkit-scrollbar-thumb {
+  background: rgba(232, 230, 223, 0.14);
+  border-radius: 2px;
+}
+
+/* 呼吸脉冲动画（本地定义，确保 scoped 作用域可用） */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 </style>

@@ -37,7 +37,7 @@
       </div>
     </aside>
 
-    <!-- 主内容区 -->
+    <!-- 主内容区（顶栏由各页面自有，见 ui-preview-*.html 定稿） -->
     <main class="main-content">
       <div class="content-wrapper">
         <router-view />
@@ -123,14 +123,13 @@ async function handleLogout() {
 /* ==================== 图标导航栏 ==================== */
 .rail {
   width: 60px;
-  flex-shrink: 0;
+  flex: 0 0 60px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 14px 0;
+  padding: 12px 0;
   background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
 }
 
 .rail__logo {
@@ -139,15 +138,14 @@ async function handleLogout() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  background: var(--primary-dim);
-  border: 1px solid var(--color-border-default);
-  color: var(--color-primary);
+  border-radius: 5px;
+  background: var(--primary);
+  color: var(--on-primary);
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   text-decoration: none;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .rail__nav {
@@ -155,10 +153,9 @@ async function handleLogout() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  overflow-y: auto;
+  gap: 4px;
   width: 100%;
-  padding: 0 10px;
+  padding: 0;
 }
 
 .rail__item {
@@ -169,71 +166,68 @@ async function handleLogout() {
   justify-content: center;
   flex-shrink: 0;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 5px;
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .rail__item svg {
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
 }
 
 .rail__item:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .rail__item.active {
-  background: var(--color-bg-active);
-  color: var(--color-primary);
+  background: var(--primary-dim);
+  color: var(--primary);
 }
 
 .rail__footer {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border-subtle);
-  width: 100%;
+  gap: 4px;
 }
 
 .rail__avatar {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border-default);
-  color: var(--color-text-secondary);
-  font-size: 13px;
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: 12px;
   font-weight: 600;
-  margin: 0 auto;
 }
 
 .rail__logout:hover {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 
 /* ==================== 主内容区 ==================== */
 .main-content {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
 }
 
 .content-wrapper {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
 }
 </style>
