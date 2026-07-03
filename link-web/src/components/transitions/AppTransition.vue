@@ -1,6 +1,13 @@
 <template>
   <router-view v-slot="{ Component }">
-    <transition :name="transitionName" @before-enter="handleBeforeEnter" @after-enter="handleAfterEnter">
+    <transition
+      :name="transitionName"
+      @before-enter="handleBeforeEnter"
+      @after-enter="clearTransitioning"
+      @enter-cancelled="clearTransitioning"
+      @after-leave="clearTransitioning"
+      @leave-cancelled="clearTransitioning"
+    >
       <component :is="Component" :key="route.path" />
     </transition>
   </router-view>
@@ -30,13 +37,16 @@ router.afterEach((to, from) => {
   } else {
     transitionName.value = 'fade'
   }
+  // 兜底：无论上一次过渡是否被打断，进入新路由前先清掉全局锁定类，
+  // 避免 page-transitioning 卡死后 pointer-events:none 覆盖所有页面。
+  clearTransitioning()
 })
 
 function handleBeforeEnter() {
   document.body.classList.add('page-transitioning')
 }
 
-function handleAfterEnter() {
+function clearTransitioning() {
   document.body.classList.remove('page-transitioning')
 }
 </script>

@@ -106,6 +106,14 @@
           </div>
         </template>
       </div>
+
+      <!-- 侧栏底部：当前知识库概览（真实数据，不虚构指标） -->
+      <div v-if="selectedKb" class="side-stats">
+        <div class="side-stats__row"><span>文档总数</span><b>{{ selectedKb.document_count ?? 0 }} 篇</b></div>
+        <div class="side-stats__row"><span>向量索引</span><b>{{ formatChunkCount(selectedKb.chunk_count ?? 0) }}</b></div>
+        <div class="side-stats__bar"><i :style="{ width: indexHealthPct + '%' }"></i></div>
+        <div class="side-stats__cap">{{ indexHealthCap }}</div>
+      </div>
     </aside>
 
     <!-- 主区 -->
@@ -168,6 +176,15 @@
                 <span>引用来源可追溯</span>
               </div>
             </div>
+            <!-- 预制起始问题 -->
+            <div v-if="selectedKb" class="suggest-row welcome__suggest">
+              <span
+                v-for="q in starterQuestions"
+                :key="q"
+                class="suggest-chip"
+                @click="applySuggestion(q)"
+              >{{ q }}</span>
+            </div>
           </div>
 
           <!-- 历史消息 -->
@@ -229,7 +246,19 @@
                     </div>
                   </div>
                 </div>
-                <div class="msg__time">{{ formatTime(message.created_at) }}</div>
+                <!-- 推荐追问（预制，仅最后一条回答显示） -->
+                <div
+                  v-if="message.id === lastAssistantId && !isStreaming"
+                  class="suggest-row"
+                >
+                  <span
+                    v-for="q in followupQuestions"
+                    :key="q"
+                    class="suggest-chip"
+                    @click="applySuggestion(q)"
+                  >{{ q }}</span>
+                </div>
+                <div class="msg__time">{{ formatAnswerMeta(message) }}</div>
               </div>
             </div>
           </template>
@@ -288,6 +317,22 @@
                 <path d="M12 8v4M12 16h.01"/>
               </svg>
               未选择知识库
+            </span>
+            <!-- 图谱增强开关：开启后检索结合知识图谱做关系推理与多跳 -->
+            <span
+              class="tool-chip"
+              :class="{ 'tool-chip--active': graphEnhanced }"
+              title="开启后检索会调用 graph_query 补充实体关系，并启用多跳推理"
+              @click="graphEnhanced = !graphEnhanced"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="6" cy="12" r="2.5"/>
+                <circle cx="18" cy="6" r="2.5"/>
+                <circle cx="18" cy="18" r="2.5"/>
+                <line x1="8.2" y1="11" x2="15.8" y2="7"/>
+                <line x1="8.2" y1="13" x2="15.8" y2="17"/>
+              </svg>
+              图谱增强
             </span>
             <span class="composer__count">{{ inputMessage.length }} / 4000</span>
             <button
@@ -379,14 +424,50 @@ function selectKb(kb: KnowledgeBase) {
 // 也未被任何代码消费），检索工具 rag_query 的 kb_id 由 LLM 从对话内容决定。
 // 因此将所选知识库以固定格式前缀写入下发 query，让 LLM 带上正确的 kb_id；
 // UI 展示与历史回显时剥离该前缀，用户只看到自己的原始提问。
-const KB_SCOPE_RE = /^【限定知识库】[^\n]*\n+/
+// 剥离下发时注入的限定/增强前缀行（【限定知识库】/【图谱增强】），历史回显只显示用户原文
+const KB_SCOPE_RE = /^(?:【限定知识库】[^\n]*\n|【图谱增强】[^\n]*\n)+\n*/
 function buildWireQuery(content: string): string {
   const kb = selectedKb.value
-  if (!kb) return content
-  return `【限定知识库】${kb.name}（kb_id=${kb.id}，调用检索工具时必须传入该 kb_id）\n\n${content}`
+  let prefix = ''
+  if (kb) {
+    prefix += `【限定知识库】${kb.name}（kb_id=${kb.id}，调用检索工具时必须传入该 kb_id）\n`
+  }
+  if (graphEnhanced.value) {
+    prefix += `【图谱增强】请结合知识图谱检索：优先调用 graph_query 工具补充实体关系，并在 rag_query 中设置 enable_multi_hop=true 做多跳推理。\n`
+  }
+  if (!prefix) return content
+  return `${prefix}\n${content}`
 }
 function stripKbScope(content: string): string {
   return typeof content === 'string' ? content.replace(KB_SCOPE_RE, '') : content
+}
+
+// ===== 图谱增强开关 =====
+const graphEnhanced = ref(false)
+
+// ===== 预制推荐追问（用户已授权 "预制的就可以"）=====
+const starterQuestions = ['这个知识库主要涵盖哪些内容？', '帮我总结最近入库的重点文档', '有哪些关键概念需要了解？']
+const followupQuestions = ['能展开讲讲吗？', '有相关的文档来源吗？', '换个角度再解释一下']
+function applySuggestion(text: string) {
+  inputMessage.value = text
+  nextTick(() => {
+    textareaRef.value?.focus()
+    adjustTextareaHeight()
+  })
+}
+
+// ===== 侧栏索引概览（仅用真实字段，不虚构百分比）=====
+const indexHealthPct = computed(() => ((selectedKb.value?.chunk_count ?? 0) > 0 ? 100 : 0))
+const indexHealthCap = computed(() => {
+  const c = selectedKb.value?.chunk_count ?? 0
+  return c > 0 ? `向量索引正常 · 共 ${formatChunkCount(c)} 个片段` : '尚未建立向量索引'
+})
+
+// ===== 回答元信息：时间 + 引用统计 =====
+function formatAnswerMeta(m: KBMessage): string {
+  const t = formatTime(m.created_at)
+  const n = m.ragContext?.contexts_with_score?.length ?? 0
+  return n > 0 ? `${t} · 引用 ${n} 篇文档 · 已按相关度重排` : t
 }
 
 // ===== 会话状态 =====
@@ -490,6 +571,13 @@ function clearCurrentSession() {
 
 // ===== 消息 / 流式状态 =====
 const messages = ref<KBMessage[]>([])
+// 最后一条助手消息 id —— 仅在其下方展示推荐追问
+const lastAssistantId = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'assistant') return messages.value[i].id
+  }
+  return ''
+})
 const inputMessage = ref('')
 const isStreaming = ref(false)
 const streamingContent = ref('')
@@ -1524,5 +1612,85 @@ onUnmounted(() => {
 .btn-send svg {
   width: 15px;
   height: 15px;
+}
+
+/* 图谱增强激活态 */
+.tool-chip--active {
+  color: var(--primary);
+  border-color: rgba(156, 180, 205, 0.5);
+}
+
+/* ===================== 推荐追问 chips ===================== */
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.welcome__suggest {
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid var(--color-border-subtle);
+  color: var(--text-muted);
+  font-size: 12px;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
+}
+
+.suggest-chip:hover {
+  color: var(--text-secondary);
+  border-color: var(--color-border-default);
+}
+
+/* ===================== 侧栏底部索引概览 ===================== */
+.side-stats {
+  margin: 8px 14px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+}
+
+.side-stats__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.side-stats__row b {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.side-stats__bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.side-stats__bar i {
+  display: block;
+  height: 100%;
+  background: var(--primary-dark);
+  transition: width var(--duration-slow);
+}
+
+.side-stats__cap {
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
 </style>
