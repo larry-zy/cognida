@@ -13,14 +13,21 @@ import (
 
 	"link/cmd/wire"
 
+	rediscache "link/internal/infrastructure/cache/redis"
 	"link/internal/infrastructure/config"
 	llmchat "link/internal/infrastructure/llm/chat"
 	"link/internal/infrastructure/mcp"
 	"link/internal/repository/milvus"
 	"link/internal/repository/mysql"
+	neo4jrepo "link/internal/repository/neo4j"
 	"link/internal/service/agent/genui"
 	agentinit "link/internal/service/agent/initializer"
+	"link/internal/service/agent/resultstore"
+	"link/internal/service/agent/semanticcache"
+	"link/internal/service/agent/termgrounding"
 	ragtool "link/internal/service/agent/tools"
+
+	neo4jsdk "github.com/neo4j/neo4j-go-driver/v5/neo4j"
 
 	"github.com/joho/godotenv"
 )
@@ -128,6 +135,50 @@ func main() {
 			ragtool.InitSQLExecuteTool(db)
 			ragtool.InitGetSchemaTool(db)
 			log.Println("✅ SQL 工具初始化完成")
+
+			// 初始化指标语义层工具（NL2Semantics）：注入语义模型仓储
+			ragtool.InitSemanticTools(mysql.NewSemanticRepository(db))
+			log.Println("✅ 指标语义层工具初始化完成")
+
+			// 初始化 Result Store（data-by-reference）：完整结果集落库、回灌 LLM 只给信封。
+			// Redis 可用则用 Redis 后端；否则降级为进程内内存后端（单实例可用）。
+			var rs resultstore.Store
+			if rediscache.Client != nil {
+				rs = resultstore.NewRedisStore(rediscache.Client)
+				log.Println("✅ Result Store 使用 Redis 后端")
+			} else {
+				rs = resultstore.NewMemoryStore()
+				log.Println("⚠️  Redis 未配置，Result Store 降级为进程内内存后端")
+			}
+			ragtool.InitResultStore(rs)
+
+			// 初始化受信查询缓存（Verified/Golden Query）：键含语义模型版本，版本变更即失效。
+			// 复用 Result Store 的 Redis 客户端；Redis 不可用则降级为进程内内存缓存。
+			var sc semanticcache.Cache
+			if rediscache.Client != nil {
+				sc = semanticcache.NewRedisCache(rediscache.Client)
+			} else {
+				sc = semanticcache.NewMemoryCache()
+			}
+			ragtool.InitSemanticCache(sc)
+			log.Println("✅ 受信查询缓存初始化完成")
+
+			// 术语接地：模型内同义词接地始终可用；Neo4j 可用时叠加知识图谱/血缘增强。
+			// 未连接 Neo4j 时端口为 nil，接地退化为仅模型内同义词。
+			if driver, ok := neo4jDriver.(neo4jsdk.DriverWithContext); ok {
+				dbName := ""
+				if cfg.Neo4j != nil {
+					dbName = cfg.Neo4j.DatabaseName
+				}
+				if graphRepo, gerr := neo4jrepo.NewNeo4jRepositoryFromDriver(driver, dbName); gerr != nil {
+					log.Printf("⚠️  术语接地图谱端口初始化失败，退化为仅模型内同义词: %v", gerr)
+				} else {
+					ragtool.InitTermGrounding(termgrounding.NewGraphAdapter(graphRepo, ""))
+					log.Println("✅ 术语接地已叠加知识图谱增强")
+				}
+			} else {
+				log.Println("ℹ️  未连接 Neo4j，术语接地仅用模型内同义词")
+			}
 
 			// 初始化数据分析工具：注入 MCP 调用器（与 skill 同源端点）
 			skillCfg := config.LoadSkillConfig()

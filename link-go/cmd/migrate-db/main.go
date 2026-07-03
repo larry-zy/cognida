@@ -65,6 +65,13 @@ func main() {
 		&mysqlrepo.DatasetRecordModel{},
 		&mysqlrepo.EvaluationTaskModel{},
 		&mysqlrepo.EvaluationResultModel{},
+		// 指标语义层（NL2Semantics）
+		&mysqlrepo.SemanticModelModel{},
+		&mysqlrepo.SemanticLogicalTableModel{},
+		&mysqlrepo.SemanticDimensionModel{},
+		&mysqlrepo.SemanticMeasureModel{},
+		&mysqlrepo.SemanticMetricModel{},
+		&mysqlrepo.SemanticRelationModel{},
 	}
 
 	if err := db.AutoMigrate(models...); err != nil {

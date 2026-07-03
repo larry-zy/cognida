@@ -5,11 +5,17 @@ import (
 	"strconv"
 )
 
-// sqlExecuteOutput 对应 tools.SQLExecuteResult 的 JSON 形态（仅取需要的字段）。
+// sqlExecuteOutput 对应 tools.SQLExecuteResult 的信封 JSON 形态（仅取需要的字段）。
+//
+// 数据按引用（data-by-reference）改造后，sql_execute 的 tool_output 不再回传全量行，
+// 而是「结果信封」：samples 为有界样本（默认 ≤20 行），完整结果集存于 Result Store，
+// 由 result_id 索引。genUI 以样本作为「有界数据快照」渲染；样本被截断时通过 Meta
+// 暴露 result_id 与 truncated，供前端/后续 Phase 3 的按引用回放升级。
 type sqlExecuteOutput struct {
 	Columns     []string                 `json:"columns"`
-	Rows        []map[string]interface{} `json:"rows"`
-	Count       int                      `json:"count"`
+	Samples     []map[string]interface{} `json:"samples"`
+	RowCount    int                      `json:"row_count"`
+	ResultID    string                   `json:"result_id"`
 	ExecutedSQL string                   `json:"executed_sql"`
 }
 
@@ -20,24 +26,32 @@ type analysisOutput struct {
 	Data         map[string]interface{} `json:"data"`
 }
 
-// AssembleDataModel 把真实的 sql_execute 输出与（可选的）data_analysis 输出解析、
-// 融合成一份 DataModel。sqlJSON 为空或无行集时返回 nil（无可展示数据）。
+// AssembleDataModel 把真实的 sql_execute 信封与（可选的）data_analysis 输出解析、
+// 融合成一份 DataModel。sqlJSON 为空或无样本时返回 nil（无可展示数据）。
 //
 // 关键约束：本函数是 dataModel 中数字的唯一来源，全部取自解析结果，绝不臆造。
+// 渲染以信封的 samples（有界快照）为准；当 row_count 超过样本数（truncated）时，
+// Meta 携带 result_id 供按引用回放完整结果集。
 func AssembleDataModel(sqlJSON, analysisJSON string) *DataModel {
 	var sqlOut sqlExecuteOutput
 	if sqlJSON == "" || json.Unmarshal([]byte(sqlJSON), &sqlOut) != nil {
 		return nil
 	}
-	if len(sqlOut.Rows) == 0 {
+	if len(sqlOut.Samples) == 0 {
 		return nil
 	}
 
 	dm := &DataModel{
-		Table: &TableData{Columns: sqlOut.Columns, Rows: sqlOut.Rows},
+		Table: &TableData{Columns: sqlOut.Columns, Rows: sqlOut.Samples},
 		Meta:  map[string]interface{}{},
 	}
-	dm.Meta["row_count"] = sqlOut.Count
+	dm.Meta["row_count"] = sqlOut.RowCount
+	if truncated := sqlOut.RowCount > len(sqlOut.Samples); truncated {
+		dm.Meta["truncated"] = true
+		if sqlOut.ResultID != "" {
+			dm.Meta["result_id"] = sqlOut.ResultID
+		}
+	}
 	if sqlOut.ExecutedSQL != "" {
 		dm.Meta["executed_sql"] = sqlOut.ExecutedSQL
 	}
@@ -132,7 +146,7 @@ func buildSeries(sqlOut sqlExecuteOutput, an analysisOutput, hasAnalysis bool) *
 	}
 
 	s := &SeriesData{Name: valueCol}
-	for _, row := range sqlOut.Rows {
+	for _, row := range sqlOut.Samples {
 		if f, ok := toFloat(row[valueCol]); ok {
 			s.Actual = append(s.Actual, f)
 			if timeCol != "" {
@@ -166,7 +180,7 @@ func buildSeries(sqlOut sqlExecuteOutput, an analysisOutput, hasAnalysis bool) *
 
 func firstNumericColumn(sqlOut sqlExecuteOutput) string {
 	for _, col := range sqlOut.Columns {
-		if _, ok := toFloat(sqlOut.Rows[0][col]); ok {
+		if _, ok := toFloat(sqlOut.Samples[0][col]); ok {
 			return col
 		}
 	}
@@ -178,7 +192,7 @@ func firstNonNumericColumn(sqlOut sqlExecuteOutput, exclude string) string {
 		if col == exclude {
 			continue
 		}
-		if _, ok := toFloat(sqlOut.Rows[0][col]); !ok {
+		if _, ok := toFloat(sqlOut.Samples[0][col]); !ok {
 			return col
 		}
 	}

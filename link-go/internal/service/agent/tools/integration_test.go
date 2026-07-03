@@ -142,8 +142,8 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count < 3 {
-			t.Errorf("expected at least 3 rows, got %d", result.Count)
+		if result.RowCount < 3 {
+			t.Errorf("expected at least 3 rows, got %d", result.RowCount)
 		}
 
 		// 检查列名
@@ -173,8 +173,8 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count < 2 {
-			t.Errorf("expected at least 2 active users, got %d", result.Count)
+		if result.RowCount < 2 {
+			t.Errorf("expected at least 2 active users, got %d", result.RowCount)
 		}
 	})
 
@@ -189,8 +189,8 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count < 3 {
-			t.Errorf("expected at least 3 order records, got %d", result.Count)
+		if result.RowCount < 3 {
+			t.Errorf("expected at least 3 order records, got %d", result.RowCount)
 		}
 
 		// 检查列名
@@ -220,7 +220,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count == 0 {
+		if result.RowCount == 0 {
 			t.Error("expected at least 1 status group")
 		}
 	})
@@ -236,8 +236,8 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count < 2 {
-			t.Errorf("expected at least 2 rows, got %d", result.Count)
+		if result.RowCount < 2 {
+			t.Errorf("expected at least 2 rows, got %d", result.RowCount)
 		}
 	})
 
@@ -388,8 +388,8 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count > 3 {
-			t.Errorf("expected max 3 rows, got %d", result.Count)
+		if result.RowCount > 3 {
+			t.Errorf("expected max 3 rows, got %d", result.RowCount)
 		}
 	})
 
@@ -417,8 +417,8 @@ func TestEndToEndScenarios(t *testing.T) {
 		}
 
 		// 应该返回 3 个集成测试用户
-		if result.Count < 3 {
-			t.Errorf("expected at least 3 users, got %d", result.Count)
+		if result.RowCount < 3 {
+			t.Errorf("expected at least 3 users, got %d", result.RowCount)
 		}
 	})
 }

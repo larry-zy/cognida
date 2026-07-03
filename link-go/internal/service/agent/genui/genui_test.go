@@ -9,16 +9,17 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// 真实形态样本：sql_execute 的月度销售额行集。
+// 真实形态样本：sql_execute 的月度销售额信封（samples 为有界样本，全量存 Result Store）。
 const sampleSQL = `{
+  "result_id": "rs_demo",
   "columns": ["month", "revenue"],
-  "rows": [
+  "samples": [
     {"month": "2026-01", "revenue": 120},
     {"month": "2026-02", "revenue": 135},
     {"month": "2026-03", "revenue": 150},
     {"month": "2026-04", "revenue": 168}
   ],
-  "count": 4,
+  "row_count": 4,
   "executed_sql": "SELECT month, revenue FROM sales ORDER BY month LIMIT 100"
 }`
 
@@ -68,11 +69,43 @@ func TestAssembleDataModel_FusesRealSQLAndAnalysis(t *testing.T) {
 }
 
 func TestAssembleDataModel_NoRowsReturnsNil(t *testing.T) {
-	if dm := AssembleDataModel(`{"columns":["a"],"rows":[],"count":0}`, ""); dm != nil {
-		t.Errorf("empty rows should yield nil datamodel, got %v", dm)
+	if dm := AssembleDataModel(`{"columns":["a"],"samples":[],"row_count":0}`, ""); dm != nil {
+		t.Errorf("empty samples should yield nil datamodel, got %v", dm)
 	}
 	if dm := AssembleDataModel("", ""); dm != nil {
 		t.Errorf("empty sql should yield nil datamodel")
+	}
+}
+
+// 全量结果超过样本数时，genUI 以有界样本渲染，并在 Meta 暴露 result_id + truncated，
+// 作为前端/后续 Phase 3 按引用回放完整结果集的挂钩。
+func TestAssembleDataModel_TruncatedSurfacesResultID(t *testing.T) {
+	const bounded = `{
+	  "result_id": "rs_big",
+	  "columns": ["month", "revenue"],
+	  "samples": [
+	    {"month": "2026-01", "revenue": 120},
+	    {"month": "2026-02", "revenue": 135}
+	  ],
+	  "row_count": 5000
+	}`
+	dm := AssembleDataModel(bounded, "")
+	if dm == nil {
+		t.Fatal("expected non-nil datamodel")
+	}
+	if dm.Meta["row_count"] != 5000 {
+		t.Errorf("row_count = %v, want 5000 (真实全量)", dm.Meta["row_count"])
+	}
+	if dm.Meta["truncated"] != true {
+		t.Errorf("truncated = %v, want true", dm.Meta["truncated"])
+	}
+	if dm.Meta["result_id"] != "rs_big" {
+		t.Errorf("result_id = %v, want rs_big", dm.Meta["result_id"])
+	}
+	// 未截断时不应携带 result_id / truncated
+	full := AssembleDataModel(sampleSQL, "")
+	if _, ok := full.Meta["truncated"]; ok {
+		t.Error("未截断结果不应标记 truncated")
 	}
 }
 

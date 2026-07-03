@@ -355,7 +355,7 @@ func (a *agentImpl) chatWithMemoryAndTools(ctx context.Context, messages []*sche
 				ToolCalls: []schema.ToolCall{tc},
 			})
 
-			messages = append(messages, schema.ToolMessage(toolCall.Output, tc.ID))
+			messages = append(messages, schema.ToolMessage(compactObservation(toolCall.Output), tc.ID))
 		}
 	}
 
@@ -584,7 +584,7 @@ func (a *agentImpl) chatWithTools(ctx context.Context, message string) (*Respons
 				ToolCalls: []schema.ToolCall{tc},
 			})
 
-			messages = append(messages, schema.ToolMessage(toolCall.Output, tc.ID))
+			messages = append(messages, schema.ToolMessage(compactObservation(toolCall.Output), tc.ID))
 		}
 	}
 
@@ -1015,7 +1015,7 @@ func (a *agentImpl) streamWithTools(ctx context.Context, messages []*schema.Mess
 				ToolCalls: []schema.ToolCall{tc},
 			})
 
-			messages = append(messages, schema.ToolMessage(toolOutput, tc.ID))
+			messages = append(messages, schema.ToolMessage(compactObservation(toolOutput), tc.ID))
 		}
 	}
 
@@ -1108,4 +1108,19 @@ func (a *agentImpl) streamWithoutTools(ctx context.Context, messages []*schema.M
 // Name implements Agent.Name.
 func (a *agentImpl) Name() string {
 	return a.name
+}
+
+// maxObservationChars 单条工具观察进入历史前的字符上限。数据类工具（sql_execute 等）
+// 已经回传紧凑信封，此处是对其余工具超长输出的通用安全网，防止长循环爆窗。
+const maxObservationChars = 8000
+
+// compactObservation 压缩工具观察：超过上限则截断并标注，避免原始大结果逐字灌入上下文。
+// data-by-reference 的正道是工具回传 result_id 信封；本函数只兜底非信封化的超长输出。
+func compactObservation(output string) string {
+	runes := []rune(output)
+	if len(runes) <= maxObservationChars {
+		return output
+	}
+	return string(runes[:maxObservationChars]) +
+		fmt.Sprintf("\n...[观察已截断，省略 %d 字符；如需完整数据请按 result_id 取用]", len(runes)-maxObservationChars)
 }

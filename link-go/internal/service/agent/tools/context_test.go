@@ -87,9 +87,9 @@ func (m *mockDataService) NaturalLanguageToSQL(ctx interface{}, query string, sc
 
 func (m *mockDataService) ExecuteQuery(ctx interface{}, sql string, params map[string]interface{}) (*SQLExecuteResult, error) {
 	return &SQLExecuteResult{
-		Columns: []string{"id", "name"},
-		Rows:    []map[string]interface{}{{"id": 1, "name": "test"}},
-		Count:   1,
+		Columns:  []string{"id", "name"},
+		Samples:  []map[string]interface{}{{"id": 1, "name": "test"}},
+		RowCount: 1,
 	}, nil
 }
 

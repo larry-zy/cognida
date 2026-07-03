@@ -274,8 +274,8 @@ func TestSQLExecute(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count != 2 {
-			t.Errorf("expected 2 rows, got %d", result.Count)
+		if result.RowCount != 2 {
+			t.Errorf("expected 2 rows, got %d", result.RowCount)
 		}
 
 		if len(result.Columns) != 3 {
@@ -300,8 +300,8 @@ func TestSQLExecute(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count != 1 {
-			t.Errorf("expected 1 row, got %d", result.Count)
+		if result.RowCount != 1 {
+			t.Errorf("expected 1 row, got %d", result.RowCount)
 		}
 	})
 
@@ -321,8 +321,8 @@ func TestSQLExecute(t *testing.T) {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
 
-		if result.Count != 0 {
-			t.Errorf("expected 0 rows, got %d", result.Count)
+		if result.RowCount != 0 {
+			t.Errorf("expected 0 rows, got %d", result.RowCount)
 		}
 	})
 

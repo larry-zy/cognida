@@ -39,6 +39,11 @@ func InitializeTools() error {
 		return err
 	}
 
+	// 指标语义层工具（NL2Semantics）
+	if err := registerSemanticTools(); err != nil {
+		return err
+	}
+
 	// 图谱工具
 	if err := registerGraphTools(); err != nil {
 		return err
@@ -152,6 +157,32 @@ func registerKBTools() error {
 // data_query 已移除，使用 sql_execute 代替
 func registerDataTools() error {
 	// 数据查询功能由 sql_execute 工具提供
+	return nil
+}
+
+// registerSemanticTools 注册指标语义层工具（semantic_models / semantic_query）
+//
+// 工具无需仓储即可注册；真实语义模型仓储由组合根通过 InitSemanticTools 注入。
+// 未注入时工具报告语义层未启用并提示回退词法 NL2SQL。
+func registerSemanticTools() error {
+	modelsTool := NewSemanticModelsTool()
+	if modelsTool != nil {
+		if err := GlobalRegistry.Register("semantic", modelsTool); err != nil {
+			return err
+		}
+	}
+	queryTool := NewSemanticQueryTool()
+	if queryTool != nil {
+		if err := GlobalRegistry.Register("semantic", queryTool); err != nil {
+			return err
+		}
+	}
+	groundTool := NewGroundTermsTool()
+	if groundTool != nil {
+		if err := GlobalRegistry.Register("semantic", groundTool); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	agentctx "link/internal/model/agent"
+	"link/internal/service/agent/resultstore"
 )
 
 // ========================================
@@ -27,16 +30,29 @@ type SQLExecuteRequest struct {
 	MaxRows int `json:"max_rows" jsonschema:"description=最大返回行数，默认100，最大1000"`
 }
 
-// SQLExecuteResult SQL 执行结果
+// SQLExecuteResult SQL 执行结果——回灌 LLM 的"结果信封"，不含完整原始行。
+// 完整结果集经 Result Store 按 ResultID 持久化，供后续分析/导出/渲染按引用取用。
 type SQLExecuteResult struct {
+	// ResultID 完整结果集在 Result Store 的引用（result store 不可用时为空）
+	ResultID string `json:"result_id,omitempty"`
+
 	// Columns 列名
 	Columns []string `json:"columns"`
 
-	// Rows 数据行
-	Rows []map[string]interface{} `json:"rows"`
+	// Dtypes 各列推断类型（number/bool/string/null）
+	Dtypes map[string]string `json:"dtypes,omitempty"`
 
-	// Count 返回行数
-	Count int `json:"count"`
+	// RowCount 结果总行数
+	RowCount int `json:"row_count"`
+
+	// Samples 样本行（不超过信封上限，绝非完整结果）
+	Samples []map[string]interface{} `json:"samples"`
+
+	// Aggregates 关键聚合值（数值列 min/max/sum/count）
+	Aggregates map[string]interface{} `json:"aggregates,omitempty"`
+
+	// Truncated 样本是否少于总行数
+	Truncated bool `json:"truncated"`
 
 	// LatencyMs 查询耗时（毫秒）
 	LatencyMs int64 `json:"latency_ms"`
@@ -51,9 +67,17 @@ type SQLExecuteResult struct {
 // 全局 DB（通过 init 设置）
 var sqlDB *gorm.DB
 
+// 全局 Result Store（通过 InitResultStore 注入；未注入时结果不落库，仅回样本）
+var resultStore resultstore.Store
+
 // InitSQLExecuteTool 初始化 SQL 执行工具
 func InitSQLExecuteTool(db *gorm.DB) {
 	sqlDB = db
+}
+
+// InitResultStore 注入 Result Store（组合根调用，与 InitSQLExecuteTool 对称）。
+func InitResultStore(s resultstore.Store) {
+	resultStore = s
 }
 
 // NewSQLExecuteTool 创建 SQL 执行工具
@@ -152,12 +176,38 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult,
 		warning = fmt.Sprintf("结果已限制在 %d 行", req.MaxRows)
 	}
 
+	// data-by-reference：完整结果集写入 Result Store，回灌 LLM 的只是信封。
+	result := &resultstore.Result{
+		Owner:   resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx)),
+		Columns: columns,
+		Rows:    rowData,
+	}
+	resultID := ""
+	if resultStore != nil {
+		id, err := resultStore.Put(ctx, result, resultstore.DefaultTTL)
+		if err != nil {
+			// 落库失败不阻断查询，降级为仅回样本（下游按引用取数会失败并提示重跑）
+			warning = strings.TrimSpace(warning + " 结果暂存失败，未生成 result_id")
+		} else {
+			resultID = id
+		}
+	} else {
+		warning = strings.TrimSpace(warning + " 结果存储未启用，未生成 result_id")
+	}
+
+	result.ResultID = resultID
+	env := resultstore.BuildEnvelope(result, resultstore.DefaultSampleRows)
+
 	return &SQLExecuteResult{
-		Columns:    columns,
-		Rows:       rowData,
-		Count:      len(rowData),
-		LatencyMs:  time.Since(startTime).Milliseconds(),
-		Warning:    warning,
+		ResultID:    resultID,
+		Columns:     env.Columns,
+		Dtypes:      env.Dtypes,
+		RowCount:    env.RowCount,
+		Samples:     env.Samples,
+		Aggregates:  env.Aggregates,
+		Truncated:   env.Truncated,
+		LatencyMs:   time.Since(startTime).Milliseconds(),
+		Warning:     warning,
 		ExecutedSQL: execSQL,
 	}, nil
 }
