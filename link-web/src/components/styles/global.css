@@ -1,43 +1,47 @@
 /* ==================== 全局样式系统 ==================== */
-/* Refined Dark Minimalism - 暗色背景 + 青色强调色 */
+/* 月夜台账 Moonlight Ledger —— 墨色实底 + 月光银青单强调色 */
+/* 红线：不用玻璃拟态/渐变按钮/发光阴影/靛紫霓虹；宋体标题 + 等宽数字 */
 
 :root {
   /* ========== 色彩系统 ========== */
-  /* 主色 - 青色系 */
-  --primary: #22d3ee;
-  --primary-dark: #14b8a6;
-  --primary-light: #67e8f9;
+  /* 主色 - 月光银青（取自壁纸月色） */
+  --primary: #9cb4cd;
+  --primary-dark: #7f92a8;
+  --primary-light: #b3c9de;
+  /* 强调色的暗调铺底 & 按钮上的深色文字 */
+  --primary-dim: rgba(156, 180, 205, 0.12);
+  --on-primary: #101720;
 
-  /* 语义色 */
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --info: #3b82f6;
+  /* 语义色 - 低饱和 */
+  --success: #86ae90;
+  --warning: #c9a86c;
+  --danger: #c08a8a;
+  --info: #7f92a8;
 
-  /* 背景色 - 暗色系 */
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #111116;
-  --bg-tertiary: #1a1a1f;
-  --bg-elevated: #222228;
-  --bg-hover: rgba(34, 211, 238, 0.08);
-  --bg-active: rgba(34, 211, 238, 0.12);
+  /* 背景色 - 墨色系 */
+  --bg-primary: #0c0f15;
+  --bg-secondary: rgba(15, 18, 26, 0.92);
+  --bg-tertiary: #171b25;
+  --bg-elevated: #1e2330;
+  --bg-hover: rgba(156, 180, 205, 0.08);
+  --bg-active: rgba(156, 180, 205, 0.12);
 
-  /* 文字色 */
-  --text-primary: #f0f0f5;
-  --text-secondary: #a0a0b0;
-  --text-muted: #606070;
-  --text-disabled: #404050;
+  /* 文字色 - 暖灰白 */
+  --text-primary: #e8e6df;
+  --text-secondary: #a8a69e;
+  --text-muted: #6d6c66;
+  --text-disabled: #4b4b47;
 
-  /* 边框色 */
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.15);
+  /* 边框色 - 发丝线 */
+  --border-subtle: rgba(232, 230, 223, 0.05);
+  --border-default: rgba(232, 230, 223, 0.09);
+  --border-strong: rgba(232, 230, 223, 0.16);
   --border-focus: var(--primary);
 
   /* ========== 字体系统 ========== */
-  --font-display: 'Outfit', sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --font-display: 'Songti SC', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
 
   /* ========== 间距系统 (4px基础单位) ========== */
   --space-1: 4px;
@@ -125,23 +129,24 @@
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
   --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
-  --shadow-glow-primary: 0 0 20px rgba(34, 211, 238, 0.3);
-  --shadow-glow-secondary: 0 0 20px rgba(129, 140, 248, 0.3);
+  /* 发光阴影已废弃：映射为普通黑色投影，避免霓虹感 */
+  --shadow-glow-primary: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-glow-secondary: 0 4px 16px rgba(0, 0, 0, 0.35);
 
   /* ========== 补充：修复此前被引用但未定义的变量 ========== */
-  /* 辅助色 - 靛蓝系（用于双色渐变、glow-secondary） */
-  --secondary: #818cf8;
-  --secondary-dark: #6366f1;
-  --secondary-light: #a5b4fc;
+  /* 辅助色 - 钢青灰系（图表分族、次要强调） */
+  --secondary: #7f92a8;
+  --secondary-dark: #62758a;
+  --secondary-light: #93a5b8;
   --color-secondary: var(--secondary);
   --color-secondary-dark: var(--secondary-dark);
   --color-secondary-light: var(--secondary-light);
 
   /* 语义色浅色变体（用于 tag/alert 文字） */
-  --color-success-light: #34d399;
-  --color-danger-light: #f87171;
-  --color-warning-light: #fbbf24;
-  --color-info-light: #60a5fa;
+  --color-success-light: #9cc4a5;
+  --color-danger-light: #d0a3a3;
+  --color-warning-light: #d6bb87;
+  --color-info-light: #93a5b8;
 
   /* 字体别名（body 内引用了 --font-sans） */
   --font-sans: var(--font-body);
@@ -188,9 +193,7 @@
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(ellipse at 20% 20%, rgba(34, 211, 238, 0.03) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(129, 140, 248, 0.03) 0%, transparent 50%);
+  background: linear-gradient(180deg, rgba(10, 13, 19, 0.18) 0%, rgba(10, 13, 19, 0.42) 100%);
 }
 
 .bg-noise {
@@ -201,54 +204,48 @@
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }
 
-/* ==================== 玻璃态效果 ==================== */
+/* ==================== 面板效果（原玻璃态类，改为墨色实底） ==================== */
 .glass {
-  background: rgba(15, 15, 18, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-default);
 }
 
 .glass-subtle {
-  background: rgba(15, 15, 18, 0.4);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-subtle);
 }
 
 .glass-elevated {
-  background: rgba(39, 39, 43, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-strong);
 }
 
-/* ==================== 渐变效果 ==================== */
+/* ==================== 强调铺色（原渐变类，改为单色实底） ==================== */
 .gradient-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  background: var(--color-primary);
+  color: var(--on-primary);
 }
 
 .gradient-secondary {
-  background: linear-gradient(135deg, var(--color-secondary) 0%, var(--color-secondary-dark) 100%);
+  background: var(--color-secondary);
+  color: var(--on-primary);
 }
 
 .gradient-glow {
-  background: linear-gradient(135deg,
-    rgba(34, 211, 238, 0.2) 0%,
-    rgba(129, 140, 248, 0.1) 100%);
+  background: var(--primary-dim);
 }
 
-/* ==================== 发光效果 ==================== */
+/* ==================== 发光效果（已废弃：降级为普通投影/无效果） ==================== */
 .glow-primary {
-  box-shadow: var(--shadow-glow-primary);
+  box-shadow: var(--shadow-md);
 }
 
 .glow-secondary {
-  box-shadow: var(--shadow-glow-secondary);
+  box-shadow: var(--shadow-md);
 }
 
 .glow-text-primary {
-  text-shadow: 0 0 20px rgba(34, 211, 238, 0.5);
+  text-shadow: none;
 }
 
 /* ==================== 滚动条样式 ==================== */
@@ -298,12 +295,12 @@ body {
 
 /* ==================== 选中状态 ==================== */
 ::selection {
-  background: rgba(34, 211, 238, 0.3);
+  background: rgba(156, 180, 205, 0.28);
   color: var(--color-text-primary);
 }
 
 ::-moz-selection {
-  background: rgba(34, 211, 238, 0.3);
+  background: rgba(156, 180, 205, 0.28);
   color: var(--color-text-primary);
 }
 
@@ -400,15 +397,10 @@ a:hover {
   100% { background-position: 200% 0; }
 }
 
+/* glow 动画已废弃：仅保留透明度脉冲（状态点用） */
 @keyframes glow {
-  0%, 100% {
-    box-shadow: 0 0 5px rgba(34, 211, 238, 0.3),
-                0 0 10px rgba(34, 211, 238, 0.2);
-  }
-  50% {
-    box-shadow: 0 0 15px rgba(34, 211, 238, 0.4),
-                0 0 25px rgba(34, 211, 238, 0.3);
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 @keyframes float {
@@ -429,11 +421,9 @@ a:hover {
 .animate-glow { animation: glow 2s ease-in-out infinite; }
 .animate-float { animation: float 3s ease-in-out infinite; }
 
-/* 玻璃态 */
+/* 面板（原玻璃态，改为墨色实底） */
 .glass-effect {
-  background: rgba(15, 15, 18, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-default);
 }
 
@@ -443,11 +433,9 @@ a:hover {
 .text-muted { color: var(--color-text-muted); }
 .text-brand { color: var(--color-primary); }
 
+/* 渐变文字已废弃：降级为强调色实色 */
 .text-gradient {
-  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-primary);
 }
 
 /* 悬浮效果 */
@@ -464,8 +452,6 @@ a:hover {
 /* Dialog 对话框 */
 .el-dialog {
   background: var(--color-bg-secondary) !important;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-xl);
 }
@@ -494,7 +480,6 @@ a:hover {
 /* Dialog 遮罩层 */
 .el-overlay {
   background: rgba(0, 0, 0, 0.6) !important;
-  backdrop-filter: blur(4px);
 }
 
 /* Card 卡片 */
@@ -561,7 +546,7 @@ a:hover {
 
 .el-input__wrapper.is-focus {
   border-color: var(--color-primary) !important;
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+  box-shadow: 0 0 0 3px rgba(156, 180, 205, 0.12);
 }
 
 .el-input__inner {
@@ -583,7 +568,7 @@ a:hover {
 
 .el-textarea__inner:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+  box-shadow: 0 0 0 3px rgba(156, 180, 205, 0.12);
 }
 
 /* Button 按钮 */
@@ -603,38 +588,38 @@ a:hover {
 }
 
 .el-button--primary {
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  background: var(--color-primary);
   border-color: transparent;
-  color: var(--color-bg-primary);
+  color: var(--on-primary);
 }
 
 .el-button--primary:hover {
-  background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary));
-  box-shadow: 0 4px 12px rgba(34, 211, 238, 0.3);
+  background: var(--color-primary-light);
+  color: var(--on-primary);
 }
 
 .el-button--success {
-  background: linear-gradient(135deg, var(--color-success), #059669);
+  background: var(--color-success);
   border-color: transparent;
-  color: white;
+  color: var(--on-primary);
 }
 
 .el-button--danger {
-  background: linear-gradient(135deg, var(--color-danger), #dc2626);
+  background: var(--color-danger);
   border-color: transparent;
-  color: white;
+  color: var(--on-primary);
 }
 
 .el-button--warning {
-  background: linear-gradient(135deg, var(--color-warning), #d97706);
+  background: var(--color-warning);
   border-color: transparent;
-  color: white;
+  color: var(--on-primary);
 }
 
 .el-button--info {
-  background: linear-gradient(135deg, var(--color-info), #2563eb);
+  background: var(--color-info);
   border-color: transparent;
-  color: white;
+  color: var(--on-primary);
 }
 
 /* Select 选择器 */
@@ -651,7 +636,7 @@ a:hover {
 
 .el-select__wrapper.is-focus {
   border-color: var(--color-primary) !important;
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+  box-shadow: 0 0 0 3px rgba(156, 180, 205, 0.12);
 }
 
 .el-select__placeholder {
@@ -663,7 +648,7 @@ a:hover {
 }
 
 .el-select-dropdown {
-  background: var(--color-bg-secondary) !important;
+  background: var(--color-bg-elevated) !important;
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   padding: var(--space-2);
@@ -695,26 +680,26 @@ a:hover {
 }
 
 .el-tag--success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(134, 174, 144, 0.15);
+  border-color: rgba(134, 174, 144, 0.3);
   color: var(--color-success-light);
 }
 
 .el-tag--danger {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(192, 138, 138, 0.15);
+  border-color: rgba(192, 138, 138, 0.3);
   color: var(--color-danger-light);
 }
 
 .el-tag--warning {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(201, 168, 108, 0.15);
+  border-color: rgba(201, 168, 108, 0.3);
   color: var(--color-warning-light);
 }
 
 .el-tag--info {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(127, 146, 168, 0.15);
+  border-color: rgba(127, 146, 168, 0.3);
   color: var(--color-info-light);
 }
 
@@ -759,7 +744,7 @@ a:hover {
 }
 
 .el-progress-bar__inner {
-  background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
+  background: var(--color-primary);
   border-radius: var(--radius-full);
 }
 
@@ -835,29 +820,28 @@ a:hover {
 }
 
 .el-alert--success {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(134, 174, 144, 0.1);
+  border-color: rgba(134, 174, 144, 0.3);
 }
 
 .el-alert--warning {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(201, 168, 108, 0.1);
+  border-color: rgba(201, 168, 108, 0.3);
 }
 
 .el-alert--error {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(192, 138, 138, 0.1);
+  border-color: rgba(192, 138, 138, 0.3);
 }
 
 .el-alert--info {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(127, 146, 168, 0.1);
+  border-color: rgba(127, 146, 168, 0.3);
 }
 
 /* Loading 加载 */
 .el-loading-mask {
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
 }
 
 .el-loading-spinner .circular {
@@ -919,7 +903,7 @@ a:hover {
 
 /* Popover 弹出框 */
 .el-popover {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   color: var(--color-text-secondary);
@@ -934,7 +918,7 @@ a:hover {
 
 /* Dropdown 下拉菜单 */
 .el-dropdown-menu {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   padding: var(--space-2);
@@ -997,17 +981,15 @@ a:hover {
 
 /* Message 消息提示 */
 .el-message {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
-  backdrop-filter: blur(20px);
   border-radius: var(--radius-lg);
 }
 
 /* MessageBox 弹框 */
 .el-message-box {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
-  backdrop-filter: blur(24px);
   border-radius: var(--radius-xl);
 }
 
@@ -1022,9 +1004,8 @@ a:hover {
 
 /* Notification 通知 */
 .el-notification {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
-  backdrop-filter: blur(20px);
   border-radius: var(--radius-lg);
 }
 
@@ -1036,7 +1017,7 @@ a:hover {
 
 /* 时间选择器 */
 .el-picker-panel {
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
 }

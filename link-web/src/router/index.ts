@@ -61,7 +61,13 @@ const routes: RouteRecordRaw[] = [
         path: '/ai',
         name: 'AICenter',
         component: () => import('@/views/ai/AICenterView.vue'),
-        meta: { title: 'AI 助手' }
+        meta: { title: 'AI 数据分析' }
+      },
+      {
+        path: '/kb',
+        name: 'KBAssistant',
+        component: () => import('@/views/ai/KBAssistantView.vue'),
+        meta: { title: '知识库助手' }
       },
       {
         path: '/evaluation',

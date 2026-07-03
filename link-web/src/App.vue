@@ -41,9 +41,9 @@ onMounted(() => {
 html, body, #app {
   width: 100%;
   height: 100%;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  color: var(--color-text-primary, #f0f0f5);
-  background: var(--color-bg-primary, #0f0f12);
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif);
+  color: var(--color-text-primary, #e8e6df);
+  background: var(--color-bg-primary, #0c0f15);
   overflow-x: hidden;
 }
 
@@ -70,10 +70,11 @@ body {
 .bg-primary {
   position: absolute;
   inset: 0;
-  background: #0f0f12;
+  background: #0c0f15;
   z-index: 0;
 }
 
+/* 壁纸全透出，仅用一层轻压暗保证文字对比度 */
 .bg-image {
   position: absolute;
   inset: 0;
@@ -81,40 +82,18 @@ body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  opacity: 0.4;
   z-index: 1;
 }
 
 .bg-overlay {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse at 20% 20%, rgba(34, 211, 238, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(129, 140, 248, 0.03) 0%, transparent 50%);
+  background: linear-gradient(180deg, rgba(10, 13, 19, 0.18) 0%, rgba(10, 13, 19, 0.42) 100%);
   z-index: 2;
 }
 
 .bg-noise {
-  position: absolute;
-  inset: 0;
-  opacity: 0.02;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  z-index: 3;
-}
-
-.bg-overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 20% 20%, rgba(34, 211, 238, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(129, 140, 248, 0.03) 0%, transparent 50%);
-}
-
-.bg-noise {
-  position: absolute;
-  inset: 0;
-  opacity: 0.02;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  display: none;
 }
 
 /* ==================== 滚动条样式 ==================== */
@@ -143,29 +122,29 @@ body {
 
 /* ==================== 选中文本样式 ==================== */
 ::selection {
-  background: rgba(34, 211, 238, 0.3);
-  color: #f0f0f5;
+  background: rgba(156, 180, 205, 0.28);
+  color: #e8e6df;
 }
 
 ::-moz-selection {
-  background: rgba(34, 211, 238, 0.3);
-  color: #f0f0f5;
+  background: rgba(156, 180, 205, 0.28);
+  color: #e8e6df;
 }
 
 /* ==================== 链接样式 ==================== */
 a {
-  color: #22d3ee;
+  color: #9cb4cd;
   text-decoration: none;
   transition: color 150ms ease;
 }
 
 a:hover {
-  color: #67e8f9;
+  color: #b3c9de;
 }
 
 /* ==================== 焦点样式 ==================== */
 :focus-visible {
-  outline: 2px solid #22d3ee;
+  outline: 2px solid #9cb4cd;
   outline-offset: 2px;
 }
 
@@ -191,13 +170,10 @@ a:hover {
   50% { opacity: 0.7; }
 }
 
+/* glow 已废弃：仅保留透明度脉冲（状态点用） */
 @keyframes glow {
-  0%, 100% {
-    box-shadow: 0 0 5px rgba(34, 211, 238, 0.3), 0 0 10px rgba(34, 211, 238, 0.2);
-  }
-  50% {
-    box-shadow: 0 0 15px rgba(34, 211, 238, 0.4), 0 0 25px rgba(34, 211, 238, 0.3);
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 /* ==================== 响应式 ==================== */

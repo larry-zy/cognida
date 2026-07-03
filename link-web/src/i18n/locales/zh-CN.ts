@@ -114,7 +114,8 @@ export default {
   },
   menu: {
     home: '首页',
-    ai: 'AI 助手',
+    ai: 'AI 数据分析',
+    kb: '知识库助手',
     knowledge: '知识库',
     graph: '知识图谱',
     agent: 'Agent',

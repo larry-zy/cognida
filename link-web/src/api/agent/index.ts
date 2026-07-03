@@ -18,11 +18,20 @@ interface AgentChatRequest {
 }
 
 /**
+ * 流式请求可选项（不进请求体）
+ */
+interface StreamOptions {
+  /** 传入 AbortSignal 可在组件卸载/切换时中断 SSE 连接 */
+  signal?: AbortSignal
+}
+
+/**
  * 通用流式请求函数
  */
 async function* streamChat(
   endpoint: string,
-  request: string | AgentChatRequest
+  request: string | AgentChatRequest,
+  opts?: StreamOptions
 ): AsyncGenerator<AgentStreamEvent> {
   const query = typeof request === 'string' ? request : request.query
   const sessionId = typeof request === 'string' ? undefined : request.session_id
@@ -52,7 +61,8 @@ async function* streamChat(
   const response = await fetch(`${apiBase}${endpoint}`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: opts?.signal
   })
 
   if (!response.ok) {
@@ -110,22 +120,22 @@ async function* streamChat(
 /**
  * 知识库对话流式请求
  */
-export async function* streamKnowledgeChat(request: string | AgentChatRequest): AsyncGenerator<AgentStreamEvent> {
-  yield* streamChat('/agent/knowledge/stream', request)
+export async function* streamKnowledgeChat(request: string | AgentChatRequest, opts?: StreamOptions): AsyncGenerator<AgentStreamEvent> {
+  yield* streamChat('/agent/knowledge/stream', request, opts)
 }
 
 /**
  * Text2SQL 流式请求
  */
-export async function* streamText2SQL(request: string | AgentChatRequest): AsyncGenerator<AgentStreamEvent> {
-  yield* streamChat('/agent/text2sql/stream', request)
+export async function* streamText2SQL(request: string | AgentChatRequest, opts?: StreamOptions): AsyncGenerator<AgentStreamEvent> {
+  yield* streamChat('/agent/text2sql/stream', request, opts)
 }
 
 /**
  * Agent 流式聊天（保留兼容性）
  */
-export async function* streamAgentChat(request: string | AgentChatRequest): AsyncGenerator<AgentStreamEvent> {
-  yield* streamChat('/agent/chat/stream', request)
+export async function* streamAgentChat(request: string | AgentChatRequest, opts?: StreamOptions): AsyncGenerator<AgentStreamEvent> {
+  yield* streamChat('/agent/chat/stream', request, opts)
 }
 
 /**
