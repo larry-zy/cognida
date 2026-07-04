@@ -20,6 +20,7 @@ import (
 	"link/internal/repository/milvus"
 	"link/internal/repository/mysql"
 	neo4jrepo "link/internal/repository/neo4j"
+	agentadapters "link/internal/service/agent/adapters"
 	"link/internal/service/agent/genui"
 	agentinit "link/internal/service/agent/initializer"
 	"link/internal/service/agent/pendingaction"
@@ -232,6 +233,25 @@ func main() {
 			// （Level 2）；未注入时降级为确定性模板（Level 1）。
 			genui.SetModel(toolModel)
 			log.Println("✅ 生成式 UI（GenUI）已启用 LLM 定制布局")
+
+			// 初始化知识库检索/图谱工具：将已接线的领域服务经适配器注入工具层。
+			// 检索范围与图谱开关由会话 ctx 强制（用户在入口选定），工具/Agent 不再自行选库。
+			if app.Retriever != nil {
+				ragtool.InitRAGQueryTool(agentadapters.NewRAGRetrieverAdapter(app.Retriever, app.KnowledgeBaseRepository))
+				log.Println("✅ RAG 检索工具（rag_query）已接线真实检索器")
+			} else {
+				log.Println("⚠️  检索器未就绪，rag_query 工具未接线")
+			}
+			if app.GraphService != nil {
+				ragtool.InitGraphQueryTool(agentadapters.NewGraphSearchAdapter(app.GraphService, app.KnowledgeBaseRepository))
+				log.Println("✅ 图谱检索工具（graph_query）已接线真实图谱服务")
+			} else {
+				log.Println("⚠️  图谱服务未就绪，graph_query 工具未接线")
+			}
+			if app.KnowledgeBaseRepository != nil {
+				ragtool.InitKnowledgeBaseTool(app.KnowledgeBaseRepository)
+				log.Println("✅ 知识库列表工具（kb_list）已接线知识库仓储")
+			}
 
 			// 初始化所有 Agents
 			if err := initializer.Initialize(ctx, toolModel); err != nil {

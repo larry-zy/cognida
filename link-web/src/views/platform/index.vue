@@ -1,10 +1,24 @@
 <template>
   <div class="platform-container">
-    <!-- 左侧图标导航栏（60px rail） -->
-    <aside class="rail">
-      <router-link to="/home" class="rail__logo" title="Link">
-        <span>L</span>
-      </router-link>
+    <!-- 左侧导航栏（可收缩：展开显示图标+标题，收起仅图标） -->
+    <aside class="rail" :class="{ 'rail--collapsed': collapsed }">
+      <div class="rail__head">
+        <router-link to="/home" class="rail__logo" title="Link">
+          <span>L</span>
+        </router-link>
+        <span class="rail__brand" v-show="!collapsed">Link</span>
+        <button
+          class="rail__toggle"
+          :title="collapsed ? '展开菜单' : '收起菜单'"
+          @click="toggleCollapse"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path v-if="collapsed" d="M9 6l6 6-6 6" />
+            <path v-else d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+      </div>
 
       <nav class="rail__nav">
         <router-link
@@ -13,26 +27,31 @@
           :to="item.path"
           class="rail__item"
           :class="{ active: isActive(item.path) }"
-          :title="item.title"
+          :title="collapsed ? item.title : undefined"
         >
           <!-- 内联线性图标（自研，不依赖 Element Plus）。
                v-html 仅允许注入下方 ICONS 写死的编译期常量，严禁接入任何动态/用户数据 -->
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
             stroke-linecap="round" stroke-linejoin="round" v-html="item.icon" />
+          <span class="rail__label" v-show="!collapsed">{{ item.title }}</span>
         </router-link>
       </nav>
 
       <div class="rail__footer">
-        <div class="rail__avatar" :title="`${authStore.username} · ${authStore.email}`">
-          <span>{{ authStore.username.charAt(0).toUpperCase() }}</span>
+        <div class="rail__profile">
+          <div class="rail__avatar" :title="`${authStore.username} · ${authStore.email}`">
+            <span>{{ authStore.username.charAt(0).toUpperCase() }}</span>
+          </div>
+          <span class="rail__label rail__username" v-show="!collapsed">{{ authStore.username }}</span>
         </div>
-        <button class="rail__item rail__logout" title="退出登录" @click="handleLogout">
+        <button class="rail__item rail__logout" :title="collapsed ? '退出登录' : undefined" @click="handleLogout">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h8" />
             <path d="M10 12h11" />
             <path d="M18 9l3 3-3 3" />
           </svg>
+          <span class="rail__label" v-show="!collapsed">退出登录</span>
         </button>
       </div>
     </aside>
@@ -47,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import toast from '@/utils/toast'
 import { ElMessageBox } from '@/utils/confirm'
@@ -58,6 +77,15 @@ const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+
+// 菜单收缩状态（持久化到 localStorage）
+const RAIL_COLLAPSE_KEY = 'link:rail-collapsed'
+const collapsed = ref(localStorage.getItem(RAIL_COLLAPSE_KEY) === '1')
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem(RAIL_COLLAPSE_KEY, collapsed.value ? '1' : '0')
+}
 
 // 线性图标（24 viewBox 内联 path，stroke 由 currentColor 控制）
 const ICONS = {
@@ -76,8 +104,8 @@ const ICONS = {
 // 菜单项
 const menuItems = computed(() => [
   { path: '/home', title: t('menu.home'), icon: ICONS.home },
-  { path: '/kb', title: t('menu.kb'), icon: ICONS.kb },
-  { path: '/ai', title: t('menu.ai'), icon: ICONS.ai },
+  { path: '/kb-assistant', title: t('menu.kb'), icon: ICONS.kb },
+  { path: '/data-agent', title: t('menu.dataAgent'), icon: ICONS.ai },
   { path: '/knowledge', title: t('menu.knowledge'), icon: ICONS.knowledge },
   { path: '/graphs', title: t('menu.graph'), icon: ICONS.graph },
   { path: '/agent', title: t('menu.agent'), icon: ICONS.agent },
@@ -122,21 +150,45 @@ async function handleLogout() {
   overflow: hidden;
 }
 
-/* ==================== 图标导航栏 ==================== */
+/* ==================== 导航栏（可收缩） ==================== */
 .rail {
-  width: 60px;
-  flex: 0 0 60px;
+  width: 208px;
+  flex: 0 0 208px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 12px 0;
+  padding: 12px 10px;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
+  transition: width 0.2s ease, flex-basis 0.2s ease;
+}
+
+.rail--collapsed {
+  width: 60px;
+  flex: 0 0 60px;
+  padding: 12px 0;
+  align-items: center;
+}
+
+/* 顶部：logo + 品牌名 + 收缩按钮 */
+.rail__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0 2px;
+  margin-bottom: 14px;
+}
+
+.rail--collapsed .rail__head {
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
 }
 
 .rail__logo {
   width: 34px;
   height: 34px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -147,26 +199,25 @@ async function handleLogout() {
   font-size: 17px;
   font-weight: 700;
   text-decoration: none;
-  margin-bottom: 14px;
 }
 
-.rail__nav {
+.rail__brand {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
-.rail__item {
-  width: 40px;
-  height: 40px;
+.rail__toggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -175,9 +226,60 @@ async function handleLogout() {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+.rail__toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rail__toggle:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.rail__nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+}
+
+.rail__item {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 0 11px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.rail--collapsed .rail__item {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+
 .rail__item svg {
   width: 19px;
   height: 19px;
+  flex-shrink: 0;
+}
+
+.rail__label {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .rail__item:hover {
@@ -193,13 +295,30 @@ async function handleLogout() {
 .rail__footer {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 4px;
+  width: 100%;
+}
+
+.rail--collapsed .rail__footer {
+  align-items: center;
+}
+
+.rail__profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 11px;
+}
+
+.rail--collapsed .rail__profile {
+  padding: 4px 0;
+  justify-content: center;
 }
 
 .rail__avatar {
   width: 30px;
   height: 30px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -209,6 +328,10 @@ async function handleLogout() {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.rail__username {
+  color: var(--text-secondary);
 }
 
 .rail__logout:hover {

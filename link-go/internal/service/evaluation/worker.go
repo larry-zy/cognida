@@ -446,6 +446,11 @@ func (w *EvaluationWorker) fillMetrics(evalResult *EvaluationResult, resp *Compu
 		evalResult.NoiseRatio = &val
 	}
 
+	// 填充动态聚合指标载体（注册表驱动，name->value，与固定字段并存）
+	if len(resp.Aggregate) > 0 {
+		evalResult.Scores = resp.Aggregate
+	}
+
 	// 填充单项指标
 	for i, item := range resp.Items {
 		if i < len(evalResult.QAResults) {
@@ -469,6 +474,11 @@ func (w *EvaluationWorker) fillMetrics(evalResult *EvaluationResult, resp *Compu
 
 			// 语义相似度
 			evalResult.QAResults[i].SemanticSimilarity = item.SemanticSimilarity
+
+			// 动态单项指标载体（注册表驱动，name->value）
+			if len(item.Scores) > 0 {
+				evalResult.QAResults[i].Scores = item.Scores
+			}
 		}
 	}
 }
@@ -509,6 +519,9 @@ func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, confi
 
 			// 语义相似度
 			SemanticSimilarity: qa.SemanticSimilarity,
+
+			// 动态指标载体（注册表驱动，name->value）
+			Scores: qa.Scores,
 		}
 	}
 
@@ -552,6 +565,7 @@ func buildTaskMetrics(r *EvaluationResult) *domeval.TaskMetrics {
 		Faithfulness:       r.Faithfulness,
 		ContextRelevance:   r.ContextRelevance,
 		NoiseRatio:         r.NoiseRatio,
+		Scores:             r.Scores,
 	}
 }
 
@@ -641,6 +655,7 @@ func convertQAResultsToApp(results []*domeval.QAResult) []*QAResult {
 			LLMScore:           r.LLMScore,
 			LLMReasoning:       r.LLMReasoning,
 			SemanticSimilarity: r.SemanticSimilarity,
+			Scores:             r.Scores,
 		}
 	}
 	return appResults

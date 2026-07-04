@@ -280,7 +280,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from '@/utils/element'
+import { ElMessage } from '@/utils/toast'
+import { ElMessageBox } from '@/utils/confirm'
 import UiPageHeader from '@/components/layout/UiPageHeader.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiTag from '@/components/ui/UiTag.vue'
@@ -463,15 +464,19 @@ async function editKnowledgeBase(kb: KnowledgeBase) {
 }
 
 async function deleteKnowledgeBase(id: string) {
+  const kb = knowledgeBases.value.find(k => k.id === id)
+  const kbName = kb?.name ? `「${kb.name}」` : ''
   try {
-    await ElMessageBox.confirm('删除知识库后，所有相关文档和分块也将被删除，此操作不可恢复。确定要删除吗？', '删除确认', {
+    await ElMessageBox.confirm({
+      title: '删除知识库',
+      message: `删除知识库${kbName}后，其所有文档、分块与向量索引都会被永久删除，此操作不可恢复。确定要删除吗？`,
+      type: 'danger',
       confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-      type: 'warning'
+      cancelButtonText: '取消'
     })
 
     await knowledgeApi.delete(id)
-    ElMessage.success('知识库删除成功')
+    ElMessage.success(`知识库${kbName}已删除`)
     await loadKnowledgeBases()
   } catch (error: any) {
     if (error !== 'cancel') {

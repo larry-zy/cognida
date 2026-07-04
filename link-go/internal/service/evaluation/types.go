@@ -15,17 +15,28 @@ const (
 	EvaluationTypeAgent EvaluationType = "agent"
 	// EvaluationTypeRAG RAG 评测
 	EvaluationTypeRAG EvaluationType = "rag"
-	// EvaluationTypeQA QA 评测
+	// EvaluationTypeQA QA 评测（llm 的历史别名，向后兼容）
 	EvaluationTypeQA EvaluationType = "qa"
+	// EvaluationTypeLLM 大模型/通用 QA 生成评测
+	EvaluationTypeLLM EvaluationType = "llm"
 )
 
 // IsValid 检查评测类型是否有效
 func (t EvaluationType) IsValid() bool {
 	switch t {
-	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA:
+	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA, EvaluationTypeLLM:
 		return true
 	}
 	return false
+}
+
+// Normalize 将评测类型规范化，qa 归一化为 llm（与 Python 侧 normalize_eval_type 对齐）。
+// 供拉取可用指标目录、按类型区分指标时统一使用。
+func (t EvaluationType) Normalize() EvaluationType {
+	if t == EvaluationTypeQA {
+		return EvaluationTypeLLM
+	}
+	return t
 }
 
 // ========================================
@@ -124,6 +135,9 @@ type QAResult struct {
 
 	// 语义相似度
 	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+
+	// 动态指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
+	Scores map[string]float64 `json:"scores,omitempty"`
 }
 
 // EvaluationResult 评测结果汇总
@@ -163,10 +177,36 @@ type EvaluationResult struct {
 	ContextRelevance *float64 `json:"context_relevance,omitempty"`
 	NoiseRatio       *float64 `json:"noise_ratio,omitempty"`
 
+	// 动态聚合指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
+	Scores map[string]float64 `json:"scores,omitempty"`
+
 	// 统计
 	TotalCount   int     `json:"total_count"`
 	SuccessCount int     `json:"success_count"`
 	FailureCount int     `json:"failure_count"`
+}
+
+// ========================================
+// Grader Catalog Types（可用指标目录，注册表元数据的唯一事实来源在 Python 侧）
+// ========================================
+
+// GraderMeta 单个可用指标（grader）的元数据，来源于 Python 注册表。
+// 字段与 Python `BaseGrader.get_metadata()` 输出对齐。
+type GraderMeta struct {
+	Name             string   `json:"name"`
+	Label            string   `json:"label"`
+	Description      string   `json:"description,omitempty"`
+	Mode             string   `json:"mode,omitempty"`
+	Group            string   `json:"group"`
+	EvalTypes        []string `json:"eval_types"`
+	RequiresReference bool    `json:"requires_reference"`
+	RequiresContexts  bool    `json:"requires_contexts"`
+}
+
+// GraderCatalog 按评测类型过滤后的可用指标目录。
+type GraderCatalog struct {
+	EvalType string        `json:"eval_type"`
+	Graders  []*GraderMeta `json:"graders"`
 }
 
 // ComputeMetricsRequest Python 指标计算请求
@@ -190,7 +230,9 @@ type ComputeItem struct {
 // ComputeMetricsResponse Python 指标计算响应
 type ComputeMetricsResponse struct {
 	Items     []*ComputeItemResult `json:"items"`
-	Aggregate map[string]float64   `json:"aggregate"`
+	Aggregate map[string]float64   `json:"aggregate"` // 聚合结果本身即动态 scores map(name->value)
+	// Unsupported 请求了但注册表中无对应 grader 的指标名（不静默忽略）
+	Unsupported []string `json:"unsupported,omitempty"`
 }
 
 // ComputeItemResult 单项计算结果
@@ -217,4 +259,7 @@ type ComputeItemResult struct {
 
 	// 语义相似度
 	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+
+	// 动态指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
+	Scores map[string]float64 `json:"scores,omitempty"`
 }

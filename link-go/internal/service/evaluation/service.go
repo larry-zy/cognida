@@ -20,6 +20,12 @@ type DatasetService interface {
 	ListDatasets(ctx context.Context) ([]*DatasetMetadata, error)
 }
 
+// GraderCatalogClient 拉取按评测类型过滤的可用指标目录。
+// 由 Python 注册表驱动（唯一事实来源），Go 侧仅做类型校验与代理。
+type GraderCatalogClient interface {
+	ListGraders(ctx context.Context, evalType string) (*GraderCatalog, error)
+}
+
 // Service 评测服务
 type Service struct {
 	datasetService DatasetService
@@ -27,6 +33,7 @@ type Service struct {
 	resultRepo     domeval.EvaluationResultRepository
 	progressCache  domeval.ProgressReader
 	evalQueue      domeval.TaskEnqueuer
+	graderCatalog  GraderCatalogClient
 }
 
 // NewService 创建评测服务
@@ -36,6 +43,7 @@ func NewService(
 	resultRepo domeval.EvaluationResultRepository,
 	progressCache domeval.ProgressReader,
 	evalQueue domeval.TaskEnqueuer,
+	graderCatalog GraderCatalogClient,
 ) *Service {
 	return &Service{
 		datasetService: datasetService,
@@ -43,7 +51,22 @@ func NewService(
 		resultRepo:     resultRepo,
 		progressCache:  progressCache,
 		evalQueue:      evalQueue,
+		graderCatalog:  graderCatalog,
 	}
+}
+
+// ListAvailableGraders 返回某评测类型下的可用指标目录。
+// eval_type 在 Go 侧先做校验并归一化(qa->llm)，再代理到 Python 注册表；
+// 未知类型直接返回 ErrInvalidEvalType，不做静默全量回退。
+func (s *Service) ListAvailableGraders(ctx context.Context, evalType string) (*GraderCatalog, error) {
+	et := EvaluationType(evalType)
+	if !et.IsValid() {
+		return nil, fmt.Errorf("%w: %q", domeval.ErrInvalidEvalType, evalType)
+	}
+	if s.graderCatalog == nil {
+		return nil, fmt.Errorf("grader catalog client not configured")
+	}
+	return s.graderCatalog.ListGraders(ctx, string(et.Normalize()))
 }
 
 // CreateEvaluation 创建评测任务

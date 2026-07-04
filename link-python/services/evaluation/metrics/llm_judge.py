@@ -12,6 +12,7 @@ class LLMJudgeMetrics(BaseModel):
 
     total_score: float  # 总分
     dimension_scores: dict[str, float]  # 各维度分数
+    reasoning: str = ""  # 评分理由
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -76,7 +77,14 @@ class LLMJudgeMetrics(BaseModel):
                 if dim in result
             }
 
-            return cls(total_score=total_score, dimension_scores=dimension_scores)
+            # 提取评分理由（提示词要求返回 reason 字段，兼容 reasoning 命名）
+            reasoning = str(result.get("reason") or result.get("reasoning") or "")
+
+            return cls(
+                total_score=total_score,
+                dimension_scores=dimension_scores,
+                reasoning=reasoning,
+            )
 
         except Exception as e:
             # 失败时返回零分

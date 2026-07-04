@@ -151,7 +151,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	evaluationResultRepository := ProvideEvaluationResultRepository(db)
 	progressCache := ProvideEvaluationProgressCache(redisClient)
 	evaluationQueue := ProvideEvaluationQueue(redisClient)
-	service := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, evaluationQueue)
+	evaluationConfig := ProvideEvaluationConfig()
+	service := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, evaluationQueue, evaluationConfig)
 	datasetManager := ProvideDatasetUseCase(datasetRepository, datasetLoader)
 	evaluationHandler := ProvideEvaluationHandler(service, datasetManager, progressCache)
 	pythonGrpcConfig := ProvidePythonGrpcConfig()
@@ -168,9 +169,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	loggerMiddleware := ProvideLoggerMiddleware()
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
-	evaluationConfig := ProvideEvaluationConfig()
 	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig)
-	app := ProvideApp(router, middlewares, agentRegistry, chatConfig, evaluationConfig, evaluationWorker)
+	app := ProvideApp(router, middlewares, agentRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository)
 	return app, nil
 }
 
@@ -448,8 +448,15 @@ func ProvideEvaluationService(
 	resultRepo evaluation2.EvaluationResultRepository,
 	progressCache *cache.ProgressCache,
 	evalQueue *cache.EvaluationQueue,
+	evalConfig *config.EvaluationConfig,
 ) *evaluation.Service {
-	return evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue)
+	// 可用指标目录代理到 Python 注册表（唯一事实来源），端点来自评测配置带默认兜底
+	pythonEndpoint := "http://localhost:8000"
+	if evalConfig != nil && evalConfig.PythonEndpoint != "" {
+		pythonEndpoint = evalConfig.PythonEndpoint
+	}
+	graderCatalog := evaluation.NewPythonEvaluationClient(pythonEndpoint)
+	return evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue, graderCatalog)
 }
 
 // ProvideDatasetLoader provides the dataset loader
@@ -949,6 +956,11 @@ type App struct {
 	ChatConfig       *config.ChatConfig
 	EvaluationConfig *config.EvaluationConfig
 	EvaluationWorker *evaluation.EvaluationWorker
+	// 以下依赖暴露给组合根（main.go），用于把 Agent 工具（rag_query/graph_query/kb_list）
+	// 接线到真实检索/图谱/知识库服务，替代此前工具层的 mock/未接线状态。
+	Retriever               rag.Retriever
+	GraphService            *knowledge2.GraphService
+	KnowledgeBaseRepository knowledge.KnowledgeBaseRepository
 }
 
 func ProvideApp(
@@ -958,14 +970,20 @@ func ProvideApp(
 	chatConfig *config.ChatConfig,
 	evalConfig *config.EvaluationConfig,
 	evalWorker *evaluation.EvaluationWorker,
+	retriever rag.Retriever,
+	graphService *knowledge2.GraphService,
+	kbRepo knowledge.KnowledgeBaseRepository,
 ) *App {
 	return &App{
-		Router:           r,
-		Middlewares:      m,
-		AgentRegistry:    agentRegistry,
-		ChatConfig:       chatConfig,
-		EvaluationConfig: evalConfig,
-		EvaluationWorker: evalWorker,
+		Router:                  r,
+		Middlewares:             m,
+		AgentRegistry:           agentRegistry,
+		ChatConfig:              chatConfig,
+		EvaluationConfig:        evalConfig,
+		EvaluationWorker:        evalWorker,
+		Retriever:               retriever,
+		GraphService:            graphService,
+		KnowledgeBaseRepository: kbRepo,
 	}
 }
 

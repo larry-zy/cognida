@@ -337,6 +337,34 @@ export interface QAResultDetail {
 
   // 语义相似度
   semantic_similarity?: number
+
+  // 动态指标载体（注册表驱动，name→value）；覆盖同名固定字段，实现平滑迁移
+  scores?: Record<string, number>
+}
+
+/**
+ * 评测器元数据（后端注册表驱动，唯一事实来源）
+ * 与 Go GraderMeta / Python get_metadata() 契约一致。
+ */
+export interface GraderMeta {
+  name: string
+  label: string
+  description?: string
+  mode?: string
+  /** 所属分组键，如 generation/retrieval/rag/semantic/llm/rule */
+  group: string
+  /** 适用的评测类型 llm/rag/agent */
+  eval_types: string[]
+  requires_reference?: boolean
+  requires_contexts?: boolean
+}
+
+/**
+ * 按评测类型过滤的可用指标目录
+ */
+export interface GraderCatalog {
+  eval_type: string
+  graders: GraderMeta[]
 }
 
 /**

@@ -58,16 +58,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Agent管理' }
       },
       {
-        path: '/ai',
-        name: 'AICenter',
-        component: () => import('@/views/ai/AICenterView.vue'),
-        meta: { title: 'AI 数据分析' }
-      },
-      {
-        path: '/kb',
+        path: '/kb-assistant',
         name: 'KBAssistant',
         component: () => import('@/views/ai/KBAssistantView.vue'),
         meta: { title: '知识库助手' }
+      },
+      {
+        path: '/data-agent',
+        name: 'DataAgent',
+        component: () => import('@/views/ai/DataAgentView.vue'),
+        meta: { title: 'DaDa 数据智能体' }
       },
       {
         path: '/evaluation',

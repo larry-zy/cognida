@@ -27,10 +27,26 @@
         />
       </div>
 
-      <!-- 知识库分组 -->
-      <div class="sidebar__group">知识库 KB</div>
+      <!-- 知识库分组（多选：不选=检索全部已启用知识库） -->
+      <div class="sidebar__group">
+        知识库 KB
+        <span class="sidebar__group-hint">{{ selectedKbIds.length ? `已选 ${selectedKbIds.length}` : '全部' }}</span>
+      </div>
 
-      <!-- 知识库列表 -->
+      <!-- 选库模式切换：手动 / 结合 / 智能（自研分段控件） -->
+      <div class="kb-mode">
+        <button
+          v-for="opt in kbModeOptions"
+          :key="opt.value"
+          class="kb-mode__seg"
+          :class="{ 'kb-mode__seg--on': kbScopeMode === opt.value }"
+          :title="opt.hint"
+          @click="kbScopeMode = opt.value"
+        >{{ opt.label }}</button>
+      </div>
+      <div class="kb-mode__cap">{{ kbModeCaption }}</div>
+
+      <!-- 知识库列表（多选复选，智能模式下置灰仅作提示） -->
       <div v-if="kbLoading" class="sidebar__kb-skeleton">
         <div class="skeleton-line" style="width: 70%"></div>
         <div class="skeleton-line" style="width: 50%"></div>
@@ -40,16 +56,18 @@
           v-for="kb in knowledgeBases"
           :key="kb.id"
           class="kb-row"
-          :class="{ 'kb-row--active': selectedKbId === kb.id }"
-          @click="selectKb(kb)"
+          :class="{ 'kb-row--active': isKbSelected(kb.id), 'kb-row--muted': isAutoMode }"
+          @click="toggleKb(kb.id)"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
-            <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
-          </svg>
+          <!-- 自研复选框 -->
+          <span class="kb-check" :class="{ 'kb-check--on': isKbSelected(kb.id) }">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <path d="M5 12l5 5 9-11"/>
+            </svg>
+          </span>
           <div class="kb-row__body">
             <div class="kb-row__name">{{ kb.name }}</div>
-            <div v-if="selectedKbId === kb.id" class="kb-row__meta">
+            <div v-if="isKbSelected(kb.id)" class="kb-row__meta">
               {{ kb.document_count ?? 0 }} 篇
               <span v-if="kb.chunk_count"> / {{ formatChunkCount(kb.chunk_count) }} 向量</span>
             </div>
@@ -57,6 +75,12 @@
         </div>
         <div v-if="knowledgeBases.length === 0" class="sidebar__empty">
           <span>暂无知识库</span>
+        </div>
+        <!-- 未选择时的提示：随模式变化 -->
+        <div v-else class="sidebar__kb-hint">
+          <template v-if="isAutoMode">智能模式 · 勾选忽略，AI 从全部已启用库自选</template>
+          <template v-else-if="kbScopeMode === 'hybrid'">结合模式 · 勾选为候选池，AI 在池内自选</template>
+          <template v-else>未选择 = 检索全部已启用知识库</template>
         </div>
       </template>
 
@@ -107,10 +131,11 @@
         </template>
       </div>
 
-      <!-- 侧栏底部：当前知识库概览（真实数据，不虚构指标） -->
-      <div v-if="selectedKb" class="side-stats">
-        <div class="side-stats__row"><span>文档总数</span><b>{{ selectedKb.document_count ?? 0 }} 篇</b></div>
-        <div class="side-stats__row"><span>向量索引</span><b>{{ formatChunkCount(selectedKb.chunk_count ?? 0) }}</b></div>
+      <!-- 侧栏底部：知识库范围概览（真实数据，不虚构指标）
+           未选择时聚合全部已启用知识库，选择后聚合所选 -->
+      <div v-if="scopeKbs.length > 0" class="side-stats">
+        <div class="side-stats__row"><span>{{ selectedKbIds.length ? `已选 ${scopeKbs.length} 个库` : '全部知识库' }}</span><b>{{ scopeDocCount }} 篇</b></div>
+        <div class="side-stats__row"><span>向量索引</span><b>{{ formatChunkCount(scopeChunkCount) }}</b></div>
         <div class="side-stats__bar"><i :style="{ width: indexHealthPct + '%' }"></i></div>
         <div class="side-stats__cap">{{ indexHealthCap }}</div>
       </div>
@@ -151,7 +176,7 @@
             </div>
             <h2 class="welcome__title">知识库助手</h2>
             <p class="welcome__desc">
-              {{ selectedKb ? `当前知识库：${selectedKb.name}` : '请先在左侧选择一个知识库' }}
+              {{ scopeDesc }}
             </p>
             <div class="welcome__tips">
               <div class="welcome__tip">
@@ -177,7 +202,7 @@
               </div>
             </div>
             <!-- 预制起始问题 -->
-            <div v-if="selectedKb" class="suggest-row welcome__suggest">
+            <div class="suggest-row welcome__suggest">
               <span
                 v-for="q in starterQuestions"
                 :key="q"
@@ -303,20 +328,13 @@
             @blur="composerFocused = false"
           ></textarea>
           <div class="composer__foot">
-            <!-- 当前知识库 chip -->
-            <span v-if="selectedKb" class="tool-chip">
+            <!-- 知识库范围 chip：未选择=全部，已选=数量/名称 -->
+            <span class="tool-chip">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
                 <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
               </svg>
-              {{ selectedKb.name }}
-            </span>
-            <span v-else class="tool-chip tool-chip--warn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M12 8v4M12 16h.01"/>
-              </svg>
-              未选择知识库
+              {{ scopeChipLabel }}
             </span>
             <!-- 图谱增强开关：开启后检索结合知识图谱做关系推理与多跳 -->
             <span
@@ -337,7 +355,7 @@
             <span class="composer__count">{{ inputMessage.length }} / 4000</span>
             <button
               class="btn-send"
-              :disabled="!inputMessage.trim() || isStreaming || !selectedKbId"
+              :disabled="!inputMessage.trim() || isStreaming"
               @click="sendMessage"
             >
               <svg v-if="!isStreaming" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -386,11 +404,75 @@ function renderMarkdown(content: string): string {
   return md.render(content || '')
 }
 
-// ===== 知识库状态 =====
+// ===== 知识库状态（多选）=====
 const knowledgeBases = ref<KnowledgeBase[]>([])
 const kbLoading = ref(false)
-const selectedKbId = ref<string>('')
-const selectedKb = computed(() => knowledgeBases.value.find(kb => kb.id === selectedKbId.value) ?? null)
+// 多选：空数组表示“检索全部已启用知识库”
+const selectedKbIds = ref<string[]>([])
+
+// ===== 选库模式：manual(手动) / hybrid(结合) / auto(智能) =====
+type KbScopeMode = 'manual' | 'hybrid' | 'auto'
+const kbScopeMode = ref<KbScopeMode>('manual')
+const kbModeOptions: { value: KbScopeMode; label: string; hint: string }[] = [
+  { value: 'manual', label: '手动', hint: '完全由你勾选决定，AI 不参与选库' },
+  { value: 'hybrid', label: '结合', hint: '勾选定义候选池，AI 在池内自选最相关的库' },
+  { value: 'auto', label: '智能', hint: '忽略勾选，AI 从全部已启用库中自选' }
+]
+const isAutoMode = computed(() => kbScopeMode.value === 'auto')
+const kbModeCaption = computed(() => {
+  switch (kbScopeMode.value) {
+    case 'hybrid': return '勾选为候选池，AI 在池内自选相关库检索'
+    case 'auto': return '勾选仅作参考，AI 从全部已启用库自选'
+    default: return '范围由你的勾选锁定，AI 不参与选库'
+  }
+})
+
+function isKbSelected(id: string): boolean {
+  return selectedKbIds.value.includes(id)
+}
+
+function toggleKb(id: string) {
+  // 智能模式下勾选被忽略，禁止交互（仅作提示）
+  if (isAutoMode.value) return
+  const idx = selectedKbIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedKbIds.value.splice(idx, 1)
+  } else {
+    selectedKbIds.value.push(id)
+  }
+}
+
+// 当前检索范围内的知识库：未选择时聚合全部，已选时聚合所选
+const scopeKbs = computed<KnowledgeBase[]>(() =>
+  selectedKbIds.value.length
+    ? knowledgeBases.value.filter(kb => selectedKbIds.value.includes(kb.id))
+    : knowledgeBases.value
+)
+const scopeDocCount = computed(() =>
+  scopeKbs.value.reduce((sum, kb) => sum + (kb.document_count ?? 0), 0)
+)
+const scopeChunkCount = computed(() =>
+  scopeKbs.value.reduce((sum, kb) => sum + (kb.chunk_count ?? 0), 0)
+)
+// 欢迎语文案
+const scopeDesc = computed(() => {
+  if (knowledgeBases.value.length === 0) return '暂无知识库'
+  // 智能模式：勾选忽略，AI 从全部已启用库自选，不能宣称固定范围
+  if (isAutoMode.value) return '智能模式 · AI 从全部已启用库自选'
+  if (!selectedKbIds.value.length) return '未选择知识库 · 将检索全部已启用知识库'
+  // 结合模式：勾选是候选池而非最终范围
+  if (kbScopeMode.value === 'hybrid') return `候选池 ${scopeKbs.value.length} 个库 · AI 池内自选`
+  if (scopeKbs.value.length === 1) return `当前知识库：${scopeKbs.value[0].name}`
+  return `已选 ${scopeKbs.value.length} 个知识库`
+})
+// 输入区 chip 文案
+const scopeChipLabel = computed(() => {
+  if (isAutoMode.value) return '智能选库'
+  if (!selectedKbIds.value.length) return '全部知识库'
+  if (kbScopeMode.value === 'hybrid') return `${scopeKbs.value.length} 库候选`
+  if (scopeKbs.value.length === 1) return scopeKbs.value[0].name
+  return `${scopeKbs.value.length} 个知识库`
+})
 
 function formatChunkCount(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
@@ -403,43 +485,12 @@ async function loadKnowledgeBases() {
     const res = await knowledgeApi.getList()
     if (res.data) {
       knowledgeBases.value = Array.isArray(res.data) ? res.data : []
-      // 默认选中第一个
-      if (knowledgeBases.value.length > 0 && !selectedKbId.value) {
-        selectedKbId.value = knowledgeBases.value[0].id
-      }
     }
   } catch (err) {
     console.error('加载知识库失败:', err)
   } finally {
     kbLoading.value = false
   }
-}
-
-function selectKb(kb: KnowledgeBase) {
-  selectedKbId.value = kb.id
-}
-
-// ===== 知识库范围限定 =====
-// 后端 /agent/knowledge/stream 请求体没有 kb_id 字段（AgenticRAGRequest.Context
-// 也未被任何代码消费），检索工具 rag_query 的 kb_id 由 LLM 从对话内容决定。
-// 因此将所选知识库以固定格式前缀写入下发 query，让 LLM 带上正确的 kb_id；
-// UI 展示与历史回显时剥离该前缀，用户只看到自己的原始提问。
-// 剥离下发时注入的限定/增强前缀行（【限定知识库】/【图谱增强】），历史回显只显示用户原文
-const KB_SCOPE_RE = /^(?:【限定知识库】[^\n]*\n|【图谱增强】[^\n]*\n)+\n*/
-function buildWireQuery(content: string): string {
-  const kb = selectedKb.value
-  let prefix = ''
-  if (kb) {
-    prefix += `【限定知识库】${kb.name}（kb_id=${kb.id}，调用检索工具时必须传入该 kb_id）\n`
-  }
-  if (graphEnhanced.value) {
-    prefix += `【图谱增强】请结合知识图谱检索：优先调用 graph_query 工具补充实体关系，并在 rag_query 中设置 enable_multi_hop=true 做多跳推理。\n`
-  }
-  if (!prefix) return content
-  return `${prefix}\n${content}`
-}
-function stripKbScope(content: string): string {
-  return typeof content === 'string' ? content.replace(KB_SCOPE_RE, '') : content
 }
 
 // ===== 图谱增强开关 =====
@@ -457,9 +508,9 @@ function applySuggestion(text: string) {
 }
 
 // ===== 侧栏索引概览（仅用真实字段，不虚构百分比）=====
-const indexHealthPct = computed(() => ((selectedKb.value?.chunk_count ?? 0) > 0 ? 100 : 0))
+const indexHealthPct = computed(() => (scopeChunkCount.value > 0 ? 100 : 0))
 const indexHealthCap = computed(() => {
-  const c = selectedKb.value?.chunk_count ?? 0
+  const c = scopeChunkCount.value
   return c > 0 ? `向量索引正常 · 共 ${formatChunkCount(c)} 个片段` : '尚未建立向量索引'
 })
 
@@ -524,7 +575,7 @@ async function switchSession(sessionId: string) {
     if (res.data) {
       messages.value = (res.data.messages || []).map(msg => ({
         ...msg,
-        content: msg.role === 'user' ? stripKbScope(msg.content) : msg.content,
+        content: msg.content,
         created_at: typeof msg.created_at === 'number'
           ? new Date((msg.created_at as unknown as number) * 1000).toISOString()
           : msg.created_at,
@@ -646,10 +697,6 @@ function upsertStep(target: AgentStep[], event: any) {
 async function sendMessage() {
   const content = inputMessage.value.trim()
   if (!content || isStreaming.value) return
-  if (!selectedKbId.value) {
-    toast.warning('请先在左侧选择一个知识库')
-    return
-  }
 
   const userMsg: KBMessage = {
     id: Date.now().toString(),
@@ -679,9 +726,13 @@ async function sendMessage() {
 
   try {
     for await (const event of agentApi.streamKnowledgeChat({
-      // 下发时附带知识库限定前缀（见 buildWireQuery），展示仍用原始 content
-      query: buildWireQuery(content),
-      session_id: currentSessionId.value || undefined
+      // 结构化下发：原始 content + 知识库范围 + 图谱开关（不再用文本前缀 hack）
+      query: content,
+      session_id: currentSessionId.value || undefined,
+      // 智能模式：忽略勾选，发空数组避免自相矛盾的载荷（后端本就按模式丢弃）
+      kb_ids: isAutoMode.value ? [] : selectedKbIds.value,
+      graph_enabled: graphEnhanced.value,
+      kb_scope_mode: kbScopeMode.value
     }, { signal: streamAbort.signal })) {
       // 更新 session_id
       if (event.session_id && event.session_id !== currentSessionId.value) {
@@ -889,11 +940,75 @@ onUnmounted(() => {
 
 /* 分组标签 */
 .sidebar__group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 10px 16px 6px;
   font-size: 10.5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   letter-spacing: 1.5px;
+}
+
+/* 分组右侧计数提示（已选 N / 全部） */
+.sidebar__group-hint {
+  letter-spacing: 0.5px;
+  color: var(--primary);
+  opacity: 0.85;
+}
+
+/* 未选择时的范围提示 */
+.sidebar__kb-hint {
+  padding: 6px 16px 4px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 选库模式分段控件（自研，手动/结合/智能） */
+.kb-mode {
+  display: flex;
+  gap: 2px;
+  margin: 2px 14px 6px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.kb-mode__seg {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-family: inherit;
+  padding: 5px 0;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.kb-mode__seg:hover {
+  color: var(--text-secondary);
+}
+
+.kb-mode__seg--on {
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+}
+
+.kb-mode__cap {
+  padding: 0 16px 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 智能模式：知识库勾选置灰、禁用交互（仅作提示） */
+.kb-row--muted {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 /* 知识库行（未选中） */
@@ -919,16 +1034,33 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
 }
 
-.kb-row svg {
-  width: 13px;
-  height: 13px;
-  color: var(--text-muted);
-  flex: 0 0 13px;
+/* 自研复选框：未选中为空框，选中填充主色并显示对勾 */
+.kb-check {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border-radius: 4px;
+  border: 1.5px solid var(--color-border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
 }
 
-.kb-row--active svg {
-  color: var(--primary);
-  margin-top: 2px;
+.kb-check svg {
+  width: 10px;
+  height: 10px;
+}
+
+.kb-check--on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.kb-row--active .kb-check {
+  margin-top: 1px;
 }
 
 .kb-row__body {

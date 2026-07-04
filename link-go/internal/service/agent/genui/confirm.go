@@ -52,7 +52,12 @@ func ConfirmCompose(in ConfirmInput) *UISpec {
 			Props: map[string]interface{}{
 				"title":             fmt.Sprintf("确认对表 %s 执行该写操作？", in.Target),
 				"text":              fmt.Sprintf("预计影响 %d 行，确认后立即提交且不可撤销；不确认将在有效期后自动失效。", in.RowsAffected),
+				// 续跑三元组同时在顶层 props 暴露：通用渲染器 A2UINode.fireConfirm 读
+				// 顶层 prop('pending_action_id'/'token'/'session_id')；action.params 保留
+				// 声明式回调契约（endpoint/method）。两处一致，避免 token 落空。
 				"pending_action_id": in.PendingActionID,
+				"token":             in.ConfirmToken,
+				"session_id":        in.SessionID,
 				"confirmLabel":      "确认执行",
 				"cancelLabel":       "取消",
 				// 确认回调契约：POST endpoint + params（follow-up resume）

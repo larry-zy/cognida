@@ -4,7 +4,7 @@ import re
 import math
 from typing import Any, List, Union
 
-from ..base import BaseGrader, GraderMode, GraderScore, MetricType
+from ..base import BaseGrader, EvalType, GraderMode, GraderScore, MetricType
 from ..registry import register_grader
 
 
@@ -239,6 +239,10 @@ class ExactMatchGrader(BaseGrader):
             name="exact_match",
             mode=GraderMode.POINTWISE,
             description="精确匹配评分器 (0-100 分)",
+            label="精确匹配",
+            group="rule",
+            eval_types=[EvalType.LLM],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -277,6 +281,10 @@ class ContainsMatchGrader(BaseGrader):
             name="contains_match",
             mode=GraderMode.POINTWISE,
             description="关键词包含匹配评分器 (0-100 分)",
+            label="关键词包含",
+            group="rule",
+            eval_types=[EvalType.LLM],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -316,6 +324,10 @@ class RegexMatchGrader(BaseGrader):
             name="regex_match",
             mode=GraderMode.POINTWISE,
             description="正则匹配评分器 (0-100 分)",
+            label="正则匹配",
+            group="rule",
+            eval_types=[EvalType.LLM],
+            requires_reference=False,
         )
 
     async def _aevaluate(
@@ -355,6 +367,10 @@ class NumericMatchGrader(BaseGrader):
             name="numeric_match",
             mode=GraderMode.POINTWISE,
             description="数值比较评分器 (0-100 分)",
+            label="数值匹配",
+            group="rule",
+            eval_types=[EvalType.LLM],
+            requires_reference=True,
         )
 
     async def _aevaluate(

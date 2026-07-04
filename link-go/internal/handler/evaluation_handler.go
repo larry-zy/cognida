@@ -659,3 +659,26 @@ func (h *EvaluationHandler) DeleteSample(c *gin.Context) {
 		"sample_id": sampleID,
 	})
 }
+
+// ========================================
+// 可用指标目录（注册表驱动，按评测类型过滤）
+// ========================================
+
+// ListGraders 返回某评测类型下的可用指标目录。
+// GET /api/v1/evaluation/graders?eval_type=llm|qa|rag|agent
+// 目录来源于 Python 注册表（唯一事实来源），前端据此渲染可勾选指标，消除写死漂移。
+func (h *EvaluationHandler) ListGraders(c *gin.Context) {
+	evalType := c.Query("eval_type")
+	if evalType == "" {
+		BadRequest(c, "eval_type is required")
+		return
+	}
+
+	catalog, err := h.service.ListAvailableGraders(c.Request.Context(), evalType)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	OK(c, catalog)
+}

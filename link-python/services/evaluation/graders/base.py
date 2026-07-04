@@ -47,6 +47,35 @@ class GraderMode(str, Enum):
     LISTWISE = "listwise"    # 多样本排序
 
 
+class EvalType(str, Enum):
+    """评测类型。
+
+    每个 grader 声明其适用的评测类型;创建某类型任务时只展示该类型可用的指标。
+    `qa` 是 `llm` 的别名(向后兼容),规范化后统一为 `llm`。
+    """
+    LLM = "llm"       # 大模型/通用 QA 生成评测(含 qa 别名)
+    RAG = "rag"       # 检索增强生成评测
+    AGENT = "agent"   # 智能体评测
+
+
+# `qa` 历史命名等价于 `llm`
+_EVAL_TYPE_ALIASES = {"qa": EvalType.LLM}
+
+
+def normalize_eval_type(value: str | EvalType) -> EvalType:
+    """将外部传入的评测类型规范化为 EvalType(处理 qa->llm 别名)。
+
+    Raises:
+        ValueError: 无法识别的评测类型
+    """
+    if isinstance(value, EvalType):
+        return value
+    key = str(value).strip().lower()
+    if key in _EVAL_TYPE_ALIASES:
+        return _EVAL_TYPE_ALIASES[key]
+    return EvalType(key)  # 非法值抛 ValueError
+
+
 # ============================================================
 # 结果类型
 # ============================================================
@@ -151,17 +180,36 @@ class BaseGrader(ABC):
         name: str,
         mode: GraderMode = GraderMode.POINTWISE,
         description: str = "",
+        label: str = "",
+        group: str = "general",
+        eval_types: Optional[List[EvalType | str]] = None,
+        requires_reference: bool = False,
+        requires_contexts: bool = False,
     ):
         """初始化评分器。
 
         Args:
-            name: 评分器名称
+            name: 评分器名称（唯一标识，如 "rouge"）
             mode: 评分器模式（pointwise/listwise）
             description: 评分器描述
+            label: 展示名称（面向用户，缺省时回退到 name）
+            group: 所属分组（用于前端目录归类，如 "generation"/"retrieval"/"rag"）
+            eval_types: 适用的评测类型列表（llm/rag/agent,可多值共用）；缺省视为通用(全类型)
+            requires_reference: 是否需要参考答案
+            requires_contexts: 是否需要检索上下文
         """
         self.name = name
         self.mode = mode
         self.description = description
+        self.label = label or name
+        self.group = group
+        # 规范化 eval_types（处理 qa->llm 别名）；缺省表示适用于所有类型
+        if eval_types:
+            self.eval_types = [normalize_eval_type(t) for t in eval_types]
+        else:
+            self.eval_types = list(EvalType)
+        self.requires_reference = requires_reference
+        self.requires_contexts = requires_contexts
 
     @abstractmethod
     async def _aevaluate(
@@ -224,9 +272,24 @@ class BaseGrader(ABC):
         """
         return {
             "name": self.name,
+            "label": self.label,
             "description": self.description,
             "mode": self.mode.value if isinstance(self.mode, GraderMode) else self.mode,
+            "group": self.group,
+            "eval_types": [
+                t.value if isinstance(t, EvalType) else t for t in self.eval_types
+            ],
+            "requires_reference": self.requires_reference,
+            "requires_contexts": self.requires_contexts,
         }
+
+    def applies_to(self, eval_type: EvalType | str) -> bool:
+        """判断该 grader 是否适用于指定评测类型。"""
+        try:
+            target = normalize_eval_type(eval_type)
+        except ValueError:
+            return False
+        return target in self.eval_types
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "BaseGrader":

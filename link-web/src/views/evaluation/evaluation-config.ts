@@ -1,7 +1,7 @@
 // ==================== 测评页配置与格式化工具 ====================
 // 从 EvaluationList.vue 抽离的纯常量与纯函数，供页面与子组件共享。
 
-import type { EvaluationTask } from '@/types'
+import type { EvaluationTask, GraderMeta } from '@/types'
 
 /** 评测器分组配置（用于创建对话框的评测器多选） */
 export interface GraderOption {
@@ -19,7 +19,43 @@ export interface GraderGroup {
   options: GraderOption[]
 }
 
-/** 评测器分组（与后端评测器一一对应） */
+/**
+ * 分组键 → 展示标题。后端 grader 的 group 键是唯一事实来源，
+ * 此表仅负责把机器键本地化为中文标题；缺失时回退为原始键。
+ */
+export const GRADER_GROUP_TITLES: Record<string, string> = {
+  generation: '文本生成质量',
+  retrieval: '检索质量',
+  rag: 'RAG 专属指标',
+  semantic: '语义质量',
+  llm: 'AI 评分 (LLM-as-Judge)',
+  rule: '规则匹配',
+  general: '通用指标'
+}
+
+/**
+ * 将后端返回的扁平 grader 目录按 group 归类为展示分组。
+ * 前端不再自行判断适用类型——后端已按 eval_type 过滤，返回什么就展示什么，
+ * 从根源消除前后端目录漂移（如 llm_factual/llm_safety）。
+ */
+export function buildGraderGroups(graders: GraderMeta[]): GraderGroup[] {
+  const byGroup = new Map<string, GraderOption[]>()
+  for (const g of graders) {
+    const opts = byGroup.get(g.group) ?? []
+    opts.push({ value: g.name, label: g.label })
+    byGroup.set(g.group, opts)
+  }
+  return Array.from(byGroup.entries()).map(([key, options]) => ({
+    title: GRADER_GROUP_TITLES[key] ?? key,
+    options
+  }))
+}
+
+/**
+ * 前端回退目录（仅在后端目录接口不可用时使用）。
+ * 注意：唯一事实来源是后端注册表，此常量不再决定"用户能勾选什么"，
+ * 仅作为离线/降级兜底。已移除后端无对应实现的漂移项（llm_factual/llm_safety）。
+ */
 export const GRADER_GROUPS: GraderGroup[] = [
   {
     title: '文本生成质量',
@@ -58,9 +94,7 @@ export const GRADER_GROUPS: GraderGroup[] = [
   {
     title: 'AI 评分 (LLM-as-Judge)',
     options: [
-      { value: 'llm_judge', label: 'LLM 裁判 (多维度)' },
-      { value: 'llm_factual', label: '事实正确性' },
-      { value: 'llm_safety', label: '内容安全性' }
+      { value: 'llm_judge', label: 'LLM 裁判 (多维度)' }
     ]
   }
 ]
@@ -121,10 +155,92 @@ export function formatPercent(value: number): string {
   return (value * 100).toFixed(2) + '%'
 }
 
-/** 判断一条 QA 结果是否包含任意指标 */
+/**
+ * 指标名 → 展示标签 + 是否按百分比（0~1 值）展示。
+ * 未知指标回退为原始名并按百分比展示——这样开发者在后端新增一个 grader 后，
+ * 无需改前端即可在结果里看到它（可选地再补一条美化映射）。
+ */
+export const METRIC_DISPLAY: Record<string, { label: string; percent: boolean }> = {
+  rouge_1: { label: 'ROUGE-1', percent: true },
+  rouge_2: { label: 'ROUGE-2', percent: true },
+  rouge_l: { label: 'ROUGE-L', percent: true },
+  bleu_1: { label: 'BLEU-1', percent: true },
+  bleu_4: { label: 'BLEU-4', percent: true },
+  precision: { label: 'Precision', percent: true },
+  recall: { label: 'Recall', percent: true },
+  ndcg: { label: 'NDCG', percent: true },
+  mrr: { label: 'MRR', percent: true },
+  map: { label: 'MAP', percent: true },
+  faithfulness: { label: '忠实度', percent: true },
+  context_relevance: { label: '上下文相关性', percent: true },
+  noise_ratio: { label: '噪声比例', percent: true },
+  semantic_similarity: { label: '语义相似度', percent: true },
+  semantic_relevance: { label: '语义相关性', percent: true },
+  llm_score: { label: 'LLM Score', percent: false },
+  llm_judge: { label: 'LLM 裁判', percent: false },
+  llm_factual: { label: '事实正确性', percent: false },
+  llm_safety: { label: '内容安全性', percent: false },
+  exact_match: { label: '精确匹配', percent: true },
+  contains_match: { label: '包含匹配', percent: true },
+  regex_match: { label: '正则匹配', percent: true },
+  numeric_match: { label: '数值匹配', percent: true }
+}
+
+/** 兼容读取的固定指标列（旧契约，逐步由动态 scores 取代） */
+const FIXED_METRIC_KEYS = [
+  'rouge_1', 'rouge_2', 'rouge_l', 'bleu_1', 'bleu_4',
+  'precision', 'recall', 'ndcg', 'mrr', 'map',
+  'faithfulness', 'context_relevance', 'noise_ratio',
+  'semantic_similarity', 'semantic_relevance', 'llm_score'
+]
+
+/**
+ * 把一行结果的所有数值指标合并为 {固定列 ∪ 动态 scores}。
+ * 动态 scores（新契约）覆盖同名固定列，实现平滑迁移。
+ */
+export function mergedScores(row: Record<string, unknown>): Record<string, number> {
+  const merged: Record<string, number> = {}
+  for (const k of FIXED_METRIC_KEYS) {
+    const v = row[k]
+    if (typeof v === 'number') merged[k] = v
+  }
+  const scores = row.scores
+  if (scores && typeof scores === 'object') {
+    for (const [k, v] of Object.entries(scores as Record<string, unknown>)) {
+      if (typeof v === 'number') merged[k] = v
+    }
+  }
+  return merged
+}
+
+export interface MetricEntry {
+  key: string
+  label: string
+  text: string
+}
+
+/**
+ * 从一行结果提取用于展示的指标条目：优先动态 scores map，兼容固定字段。
+ * 供结果详情按 map 动态渲染，开发者新增指标自动出现。
+ */
+export function metricEntries(row: Record<string, unknown>): MetricEntry[] {
+  return Object.entries(mergedScores(row)).map(([key, value]) => {
+    const disp = METRIC_DISPLAY[key] ?? { label: key, percent: true }
+    const text = disp.percent ? (value * 100).toFixed(2) + '%' : value.toFixed(2)
+    return { key, label: disp.label, text }
+  })
+}
+
+/** 读取单个指标数值（动态 scores 优先，回退固定字段），空值返回 null。 */
+export function metricValue(row: Record<string, unknown>, key: string): number | null {
+  const scores = row.scores as Record<string, unknown> | undefined
+  const fromScores = scores?.[key]
+  if (typeof fromScores === 'number') return fromScores
+  const fixed = row[key]
+  return typeof fixed === 'number' ? fixed : null
+}
+
+/** 判断一条 QA 结果是否包含任意指标（含动态 scores） */
 export function hasMetrics(row: Record<string, unknown>): boolean {
-  return row.rouge_1 != null || row.rouge_l != null ||
-    row.bleu_1 != null || row.precision != null ||
-    row.recall != null || row.llm_score != null ||
-    row.semantic_similarity != null
+  return Object.keys(mergedScores(row)).length > 0
 }

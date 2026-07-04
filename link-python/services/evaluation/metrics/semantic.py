@@ -37,7 +37,7 @@ class SemanticMetrics(BaseModel):
             raise ValueError("references and hypotheses must have the same length")
 
         if not references:
-            return cls(0.0, 0.0, 0.0)
+            return cls(similarity=0.0, min_similarity=0.0, max_similarity=0.0)
 
         # 尝试使用 sentence-transformers
         try:
@@ -113,7 +113,7 @@ class AsyncSemanticMetrics:
             raise ValueError("references and hypotheses must have the same length")
 
         if not references:
-            return SemanticMetrics(0.0, 0.0, 0.0)
+            return SemanticMetrics(similarity=0.0, min_similarity=0.0, max_similarity=0.0)
 
         model = await self._get_model()
 
@@ -139,6 +139,62 @@ class AsyncSemanticMetrics:
             min_similarity=float(np.min(similarities)),
             max_similarity=float(np.max(similarities)),
         )
+
+
+# 共享模型（进程级懒加载，避免每次调用重新加载 SentenceTransformer）
+_shared_st_model: Any = None
+
+
+def _get_shared_st_model() -> Any:
+    """获取进程级共享的 SentenceTransformer 模型。"""
+    global _shared_st_model
+    if _shared_st_model is None:
+        from sentence_transformers import SentenceTransformer
+
+        _shared_st_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    return _shared_st_model
+
+
+def compute_semantic_similarities(
+    references: List[str],
+    hypotheses: List[str],
+) -> List[float]:
+    """批量计算逐对语义相似度（单次加载模型，含 TF-IDF 降级）。
+
+    与 compute_semantic_metrics 不同，此函数返回每一对 (ref, hyp) 的相似度列表，
+    供逐条评测结果回填使用；且复用进程级共享模型，避免逐条调用时重复加载模型。
+
+    Args:
+        references: 参考文本列表
+        hypotheses: 生成文本列表
+
+    Returns:
+        逐对余弦相似度列表，长度与输入一致
+    """
+    if len(references) != len(hypotheses):
+        raise ValueError("references and hypotheses must have the same length")
+
+    if not references:
+        return []
+
+    try:
+        model = _get_shared_st_model()
+        ref_embeddings = model.encode(references, convert_to_numpy=True)
+        hyp_embeddings = model.encode(hypotheses, convert_to_numpy=True)
+        return [
+            float(np.dot(ref, hyp) / (np.linalg.norm(ref) * np.linalg.norm(hyp) + 1e-9))
+            for ref, hyp in zip(ref_embeddings, hyp_embeddings)
+        ]
+    except ImportError:
+        # 降级到 TF-IDF 余弦相似度
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        vectorizer = TfidfVectorizer()
+        tfidf_matrix = vectorizer.fit_transform(references + hypotheses)
+        ref_tfidf = tfidf_matrix[:len(references)]
+        hyp_tfidf = tfidf_matrix[len(references):]
+        return [float(x) for x in cosine_similarity(ref_tfidf, hyp_tfidf).diagonal()]
 
 
 # 便捷函数

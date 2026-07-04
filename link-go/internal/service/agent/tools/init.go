@@ -135,27 +135,22 @@ func registerWebTools() error {
 }
 
 // registerKBTools 注册知识库工具
+//
+// 检索范围由用户在会话入口选定并经 ctx 强制透传，rag_query 会自动在选定范围内多库检索，
+// 因此不再需要 kb_select（LLM 选库）与 rag_query_multi（LLM 传库列表）。仅保留 kb_list 供查看/说明。
 func registerKBTools() error {
-	// kb_select
-	kbSelectTool := NewKbSelectTool()
-	if kbSelectTool != nil {
-		if err := GlobalRegistry.Register("kb", kbSelectTool); err != nil {
-			return err
-		}
-	}
-
-	// rag_query_multi
-	ragQueryMultiTool := NewRAGQueryMultiTool()
-	if ragQueryMultiTool != nil {
-		if err := GlobalRegistry.Register("kb", ragQueryMultiTool); err != nil {
-			return err
-		}
-	}
-
 	// kb_list
 	kbListTool := NewKbListTool()
 	if kbListTool != nil {
 		if err := GlobalRegistry.Register("kb", kbListTool); err != nil {
+			return err
+		}
+	}
+
+	// kb_route：让 Agent 在结合/智能模式下自主聚焦检索范围（写入 ctx 路由 holder，无需外部服务）。
+	kbRouteTool := NewKbRouteTool()
+	if kbRouteTool != nil {
+		if err := GlobalRegistry.Register("kb", kbRouteTool); err != nil {
 			return err
 		}
 	}

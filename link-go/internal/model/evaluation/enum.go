@@ -13,8 +13,10 @@ const (
 	EvaluationTypeAgent EvaluationType = "agent"
 	// EvaluationTypeRAG RAG 评测
 	EvaluationTypeRAG EvaluationType = "rag"
-	// EvaluationTypeQA QA 评测
+	// EvaluationTypeQA QA 评测（llm 的历史别名，向后兼容）
 	EvaluationTypeQA EvaluationType = "qa"
+	// EvaluationTypeLLM 大模型/通用 QA 生成评测
+	EvaluationTypeLLM EvaluationType = "llm"
 )
 
 // String 返回字符串表示
@@ -25,10 +27,18 @@ func (t EvaluationType) String() string {
 // IsValid 检查评测类型是否有效
 func (t EvaluationType) IsValid() bool {
 	switch t {
-	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA:
+	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA, EvaluationTypeLLM:
 		return true
 	}
 	return false
+}
+
+// Normalize 将评测类型规范化，qa 归一化为 llm（与 Python 侧 normalize_eval_type 对齐）。
+func (t EvaluationType) Normalize() EvaluationType {
+	if t == EvaluationTypeQA {
+		return EvaluationTypeLLM
+	}
+	return t
 }
 
 // ========================================

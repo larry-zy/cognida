@@ -15,6 +15,17 @@ const getApiBaseURL = () => {
 interface AgentChatRequest {
   query: string
   session_id?: string
+  /** 结构化下发：限定检索的知识库 ID 列表（空数组=检索全部已启用知识库） */
+  kb_ids?: string[]
+  /** 结构化下发：是否开启知识图谱增强（关系推理/多跳），false 也会显式发送 */
+  graph_enabled?: boolean
+  /**
+   * 知识库选择模式：
+   * - manual（手动，默认）：范围由 kb_ids 锁定，AI 不参与选库；
+   * - hybrid（结合）：kb_ids 为候选池，AI 经 kb_route 在池内自选；
+   * - auto（智能）：忽略 kb_ids，AI 从租户全部已启用库自选。
+   */
+  kb_scope_mode?: 'manual' | 'hybrid' | 'auto'
 }
 
 /**
@@ -35,6 +46,9 @@ async function* streamChat(
 ): AsyncGenerator<AgentStreamEvent> {
   const query = typeof request === 'string' ? request : request.query
   const sessionId = typeof request === 'string' ? undefined : request.session_id
+  const kbIds = typeof request === 'string' ? undefined : request.kb_ids
+  const graphEnabled = typeof request === 'string' ? undefined : request.graph_enabled
+  const kbScopeMode = typeof request === 'string' ? undefined : request.kb_scope_mode
 
   const token = storage.get<string>('token')
   const currentTenant = storage.get<any>('current_tenant')
@@ -55,6 +69,18 @@ async function* streamChat(
   const body: AgentChatRequest = { query }
   if (sessionId) {
     body.session_id = sessionId
+  }
+  // 仅在非空数组时下发 kb_ids（空数组表示“全部知识库”，无需携带）
+  if (Array.isArray(kbIds) && kbIds.length > 0) {
+    body.kb_ids = kbIds
+  }
+  // graph_enabled 为布尔值时总是下发，false 也显式发送
+  if (typeof graphEnabled === 'boolean') {
+    body.graph_enabled = graphEnabled
+  }
+  // kb_scope_mode 有值即下发（manual/hybrid/auto），后端空串按 manual 处理
+  if (kbScopeMode) {
+    body.kb_scope_mode = kbScopeMode
   }
 
   const apiBase = getApiBaseURL()
@@ -125,17 +151,28 @@ export async function* streamKnowledgeChat(request: string | AgentChatRequest, o
 }
 
 /**
- * Text2SQL 流式请求
- */
-export async function* streamText2SQL(request: string | AgentChatRequest, opts?: StreamOptions): AsyncGenerator<AgentStreamEvent> {
-  yield* streamChat('/agent/text2sql/stream', request, opts)
-}
-
-/**
  * Agent 流式聊天（保留兼容性）
  */
 export async function* streamAgentChat(request: string | AgentChatRequest, opts?: StreamOptions): AsyncGenerator<AgentStreamEvent> {
   yield* streamChat('/agent/chat/stream', request, opts)
+}
+
+/**
+ * Data Agent 流式聊天。
+ *
+ * 后端入口 /agent/text2sql/stream 已迁移为 Data Agent 主入口（单一 ReAct 内核
+ * + 子代理委派，preset id = agent-data-agent），会话类型落库为 text2sql。
+ * 该入口只绑定数据智能体：不选智能体、不选知识库，故请求体只携 query + session_id，
+ * 不下发 kb_ids / graph_enabled。流中除 step / done 外，会随 render_ui 工具成功
+ * 实时下发 ui 事件（A2UI UISpec），由结果画布即时渲染。
+ */
+export async function* streamDataChat(
+  request: { query: string; session_id?: string },
+  opts?: StreamOptions
+): AsyncGenerator<AgentStreamEvent> {
+  const body: AgentChatRequest = { query: request.query }
+  if (request.session_id) body.session_id = request.session_id
+  yield* streamChat('/agent/text2sql/stream', body, opts)
 }
 
 /**
@@ -233,8 +270,8 @@ export async function confirmOperation(params: {
  */
 export const agentApi = {
   streamKnowledgeChat,
-  streamText2SQL,
   streamAgentChat,
+  streamDataChat,
   getUISurfacePage,
   confirmOperation
 }

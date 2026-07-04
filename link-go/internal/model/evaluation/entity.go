@@ -53,6 +53,9 @@ type QAResult struct {
 
 	// 语义相似度
 	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+
+	// 动态指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
+	Scores map[string]float64 `json:"scores,omitempty"`
 }
 
 // ========================================
@@ -115,6 +118,9 @@ type TaskMetrics struct {
 	Faithfulness     *float64 `json:"faithfulness,omitempty"`
 	ContextRelevance *float64 `json:"context_relevance,omitempty"`
 	NoiseRatio       *float64 `json:"noise_ratio,omitempty"`
+
+	// 动态聚合指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
+	Scores map[string]float64 `json:"scores,omitempty"`
 }
 
 // EvaluationTask 评测任务实体
@@ -223,6 +229,9 @@ type EvaluationResult struct {
 
 	// 语义相似度
 	SemanticSimilarity *float64 `json:"semantic_similarity,omitempty"`
+
+	// 动态指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
+	Scores map[string]float64 `json:"scores,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 }

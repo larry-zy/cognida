@@ -430,6 +430,9 @@ func (r *Router) setupEvaluationRoutes(api *gin.RouterGroup) {
 			results.GET("/:task_id", r.evaluationHandler.GetResults)
 			results.GET("/:task_id/qa", r.evaluationHandler.GetQAResults)
 		}
+
+		// 可用指标目录（注册表驱动，按评测类型过滤）
+		eval.GET("/graders", r.evaluationHandler.ListGraders)
 	}
 }
 

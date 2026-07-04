@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	agentctx "link/internal/model/agent"
 )
 
 // ========================================
@@ -29,9 +31,6 @@ func SetGraphService(service GraphQueryService) {
 type GraphQueryRequest struct {
 	// Query 查询内容
 	Query string `json:"query" jsonschema:"required,description=用户的问题或查询内容"`
-
-	// KnowledgeBaseID 知识库ID，空字符串表示查询所有启用的知识库
-	KnowledgeBaseID string `json:"kb_id" jsonschema:"description=知识库ID，空字符串或不传表示查询所有启用的知识库"`
 
 	// TopK 返回结果数量，默认5
 	TopK int `json:"top_k" jsonschema:"description=返回结果数量，默认5，范围1-20"`
@@ -160,9 +159,12 @@ func NewGraphQueryTool() *TypedBaseTool[GraphQueryRequest, GraphQueryResult] {
 - 操作指南："如何配置Nginx？"（请使用 rag_query）
 - 文档摘要："总结文档内容"（请使用 rag_query）
 
+前置条件：仅当用户在本次会话开启了「图谱增强」时可用；未开启时本工具会返回提示而不检索。
+检索范围（哪些知识库）由用户在会话入口选定，或在结合/智能模式下由你经 kb_route 聚焦；
+系统始终在允许范围内强制，无需也无法在本工具参数中指定 kb_id。
+
 参数说明：
 - query: 查询内容（必需）
-- kb_id: 知识库ID（可选，0表示查询所有）
 - top_k: 返回结果数量（可选，默认5）
 - depth: 查询深度/跳数（可选，默认2，最大3）
 - include_path: 是否返回完整路径（可选，默认false）`,
@@ -177,6 +179,19 @@ func graphQuery(ctx context.Context, req *GraphQueryRequest) (*GraphQueryResult,
 	// 1. 参数验证
 	if req.Query == "" {
 		return nil, fmt.Errorf("query cannot be empty")
+	}
+
+	// 门控：图谱增强未开启时，直接返回提示而不检索（非错误）。
+	if !agentctx.IsGraphEnabled(ctx) {
+		return &GraphQueryResult{
+			Query:     req.Query,
+			Entities:  []GraphEntity{},
+			Relations: []GraphRelation{},
+			Count:     0,
+			HasAnswer: false,
+			Answer:    "图谱增强未开启，本次未执行图谱检索。如需关系/关联类分析，请在会话中开启「图谱增强」后重试，或改用 rag_query 查询文档内容。",
+			Latency:   time.Since(startTime).Milliseconds(),
+		}, nil
 	}
 
 	// 设置默认值
@@ -207,7 +222,6 @@ func graphQuery(ctx context.Context, req *GraphQueryRequest) (*GraphQueryResult,
 	// 4. 更新耗时
 	result.Latency = time.Since(startTime).Milliseconds()
 	result.Query = req.Query
-	result.KnowledgeBaseID = req.KnowledgeBaseID
 
 	return result, nil
 }

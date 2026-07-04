@@ -29,9 +29,6 @@ type RAGQueryRequest struct {
 	// Query 查询内容
 	Query string `json:"query" jsonschema:"required,description=用户的问题或查询内容"`
 
-	// KnowledgeBaseID 知识库ID，空字符串表示查询所有启用的知识库
-	KnowledgeBaseID string `json:"kb_id" jsonschema:"description=知识库ID，空字符串或不传表示查询所有启用的知识库"`
-
 	// TopK 返回结果数量，默认5
 	TopK int `json:"top_k" jsonschema:"description=返回结果数量，默认5，范围1-20"`
 
@@ -153,9 +150,11 @@ func NewRAGQueryTool() *TypedBaseTool[RAGQueryRequest, RAGQueryResult] {
 适用场景：
 - 概念解释、操作指南、文档摘要、技术对比、上下文查询、复杂推理
 
+检索范围（哪些知识库）由用户在会话入口选定，或在结合/智能模式下由你经 kb_route 聚焦；
+系统始终在允许范围内强制，无需也无法在本工具参数中指定 kb_id。
+
 参数说明：
 - query: 查询内容（必需）
-- kb_id: 知识库ID（可选）
 - top_k: 返回结果数量（默认5）
 - retrieval_mode: 检索模式（默认hybrid）
 - enable_hyde: 是否启用 HyDE（默认false）
@@ -220,7 +219,6 @@ func ragQuery(ctx context.Context, req *RAGQueryRequest) (*RAGQueryResult, error
 	// 4. 更新耗时和元数据
 	result.Latency = time.Since(startTime).Milliseconds()
 	result.Query = req.Query
-	result.KnowledgeBaseID = req.KnowledgeBaseID
 	result.RetrievalMode = req.RetrievalMode
 
 	// 5. 记录应用的优化措施

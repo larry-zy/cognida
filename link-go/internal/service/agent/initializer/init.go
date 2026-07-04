@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -147,10 +148,26 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 
 // registerRAGAgent 注册 RAG Agent
 func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) error {
-	// 从全局注册表获取 RAG 工具
+	// 从全局注册表获取工具：
+	// rag_query（文档检索）为核心；kb_list（查看可用知识库）与 graph_query（关系检索，受图谱开关门控）为增强。
 	ragTool, ok := toolregistry.GetTool("rag_query")
 	if !ok || ragTool == nil {
-		return fmt.Errorf("获取 RAG 工具失败: 工具未注册")
+		return fmt.Errorf("获取 RAG 工具失败: rag_query 未注册")
+	}
+
+	agentTools := []tool.BaseTool{ragTool}
+	boundNames := []string{"rag_query"}
+	if kbListTool, ok := toolregistry.GetTool("kb_list"); ok && kbListTool != nil {
+		agentTools = append(agentTools, kbListTool)
+		boundNames = append(boundNames, "kb_list")
+	}
+	if kbRouteTool, ok := toolregistry.GetTool("kb_route"); ok && kbRouteTool != nil {
+		agentTools = append(agentTools, kbRouteTool)
+		boundNames = append(boundNames, "kb_route")
+	}
+	if graphTool, ok := toolregistry.GetTool("graph_query"); ok && graphTool != nil {
+		agentTools = append(agentTools, graphTool)
+		boundNames = append(boundNames, "graph_query")
 	}
 
 	// 尝试将 chatModel 转换为 ToolCallingChatModel
@@ -164,18 +181,33 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 	// 构建 RAG Agent
 	ragAgent, err := infraagent.New(nil).
 		Name("RAG助手").
-		Prompt(`你是一个智能助手，具有知识库检索能力。
+		Prompt(`你是一个严谨的知识库问答助手。回答问题必须基于知识库检索到的内容，不得编造。
 
-当用户提问时：
-1. 使用 rag_query 工具从知识库中检索相关信息
-2. 基于检索结果给出准确答案
-3. 如果知识库没有相关信息，诚实告知用户
+【检索范围与选择模式】
+- 检索范围受「知识库选择模式」约束，共三种：手动(manual) / 结合(hybrid) / 智能(auto)。
+- 你无法、也无需在 rag_query / graph_query 参数中指定 kb_id；系统始终在允许范围内强制检索。
+- 手动模式：范围由用户锁定，直接检索即可，无需选库。
+- 结合 / 智能模式：可由你自主聚焦到最相关的知识库——先用 kb_list 查看返回中的 mode 与各库 selectable，
+  再从 selectable=true 的库里挑出 1~N 个最相关的，调用 kb_route 声明；随后 rag_query / graph_query 会在该聚焦范围内检索。
+  越权/超范围的库会被系统忽略；不确定选哪些时可以不 kb_route，系统会按允许范围全量检索。
 
-使用 rag_query 的时机：
-- 用户询问文档内容或专业知识时
-- 需要提供准确来源的信息时`).
+【工具与使用时机】
+1. rag_query —— 主力工具。用户询问文档内容、概念、操作指南、专业知识时使用。
+   支持向量/关键词/混合检索及 HyDE、查询重写/扩展、多跳等优化，复杂问题可开启对应优化。
+2. graph_query —— 关系检索工具，仅在用户开启「图谱增强」时可用。
+   适合"谁负责什么""A 和 B 有何关联""下游依赖有哪些"等关系/关联/溯源类问题。
+   若图谱未开启，该工具会返回提示——此时改用 rag_query，不要反复调用。
+3. kb_list —— 查看当前可用知识库及选择模式(mode)、各库是否可聚焦(selectable)。
+   当用户问"有哪些知识库"、检索为空需说明范围、或在结合/智能模式下准备 kb_route 选库前使用。
+4. kb_route —— 结合/智能模式下声明你要聚焦的知识库（kb_ids 取自 kb_list 中 selectable=true 的库）。
+   手动模式下该工具会被忽略，不必调用。
+
+【回答要求】
+1. 先检索、后作答；优先 rag_query，关系类问题在图谱开启时用 graph_query。
+2. 基于检索结果作答，标注信息来源；检索不到相关信息时如实告知，不要编造。
+3. 答案简洁准确，必要时分点说明。`).
 		WithToolModel(toolModel).
-		Tools(ragTool).
+		Tools(agentTools...).
 		WithMaxIterations(5).
 		Build(ctx)
 
@@ -187,12 +219,12 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 	def := &agent.AgentDefinition{
 		ID:          "agent-rag-001",
 		Name:        "rag_assistant",
-		Description: "RAG 检索助手，可以查询知识库并回答问题",
+		Description: "RAG 检索助手：在用户选定的知识库范围内检索文档，可选开启图谱增强进行关系检索",
 		Type:        agent.AgentTypeAgenticRAG,
 		Status:      agent.AgentStatusIdle,
 		Metadata: map[string]string{
 			"version": "1.0.0",
-			"tools":   "rag_query",
+			"tools":   strings.Join(boundNames, ","),
 		},
 	}
 

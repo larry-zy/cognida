@@ -1,7 +1,10 @@
 // Package agent 提供 Agent 协作上下文的 Go context 传递支持
 package agent
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // ========================================
 // Context Keys - 用于在 context.Context 中传递协作上下文
@@ -26,6 +29,24 @@ var (
 	RequestIDKey = contextKey("request_id")
 	// ToolScopeKey 会话工具 scope key（read / write / etl，Phase 6 硬工具门）
 	ToolScopeKey = contextKey("tool_scope")
+	// AllowedKBIDsKey 用户在会话入口选定的知识库范围 key（[]string，空表示不限定=全部已启用知识库）
+	AllowedKBIDsKey = contextKey("allowed_kb_ids")
+	// GraphEnabledKey 用户是否开启图谱增强 key（bool）
+	GraphEnabledKey = contextKey("graph_enabled")
+	// KBScopeModeKey 知识库选择模式 key（manual/hybrid/auto，见 KBScopeMode* 常量）
+	KBScopeModeKey = contextKey("kb_scope_mode")
+	// RouteSelectionKey Agent 在会话内经 kb_route 声明的聚焦知识库 key（*RouteSelection 指针）
+	RouteSelectionKey = contextKey("kb_route_selection")
+)
+
+// 知识库选择模式常量。
+const (
+	// KBScopeModeManual 手动：范围完全由用户勾选决定，AI 不参与选库（默认）。
+	KBScopeModeManual = "manual"
+	// KBScopeModeHybrid 结合：用户勾选定义候选池，AI 在池内经 kb_route 自选。
+	KBScopeModeHybrid = "hybrid"
+	// KBScopeModeAuto 智能：忽略用户勾选，AI 从租户全部已启用库中经 kb_route 自选。
+	KBScopeModeAuto = "auto"
 )
 
 // ========================================
@@ -154,6 +175,130 @@ func GetToolScope(ctx context.Context) (string, bool) {
 func MustGetToolScope(ctx context.Context) string {
 	scope, _ := GetToolScope(ctx)
 	return scope
+}
+
+// ========================================
+// AllowedKBIDs 传递辅助函数（用户选定的知识库范围）
+// ========================================
+
+// WithAllowedKBIDs 将用户选定的知识库范围注入到 Go context 中。
+// 该范围由入口 handler 从请求 kb_ids 授予，工具层据此做 scope 强制（求交/拒绝越权）。
+// 传入空切片视为“不限定”，工具层按“全部已启用知识库”处理。
+func WithAllowedKBIDs(ctx context.Context, kbIDs []string) context.Context {
+	return context.WithValue(ctx, AllowedKBIDsKey, kbIDs)
+}
+
+// GetAllowedKBIDs 从 Go context 中获取用户选定的知识库范围。
+// 第二个返回值表示是否显式设置过（区分“未设置”与“设置为空”）。
+func GetAllowedKBIDs(ctx context.Context) ([]string, bool) {
+	kbIDs, ok := ctx.Value(AllowedKBIDsKey).([]string)
+	return kbIDs, ok
+}
+
+// MustGetAllowedKBIDs 获取知识库范围，未设置则返回 nil
+func MustGetAllowedKBIDs(ctx context.Context) []string {
+	kbIDs, _ := GetAllowedKBIDs(ctx)
+	return kbIDs
+}
+
+// ========================================
+// GraphEnabled 传递辅助函数（图谱增强开关）
+// ========================================
+
+// WithGraphEnabled 将图谱增强开关注入到 Go context 中
+func WithGraphEnabled(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, GraphEnabledKey, enabled)
+}
+
+// GetGraphEnabled 从 Go context 中获取图谱增强开关
+func GetGraphEnabled(ctx context.Context) (bool, bool) {
+	enabled, ok := ctx.Value(GraphEnabledKey).(bool)
+	return enabled, ok
+}
+
+// IsGraphEnabled 图谱增强是否开启，未设置默认 false
+func IsGraphEnabled(ctx context.Context) bool {
+	enabled, _ := GetGraphEnabled(ctx)
+	return enabled
+}
+
+// ========================================
+// KBScopeMode 传递辅助函数（知识库选择模式）
+// ========================================
+
+// WithKBScopeMode 将知识库选择模式（manual/hybrid/auto）注入到 Go context 中。
+// 非法值由 MustGetKBScopeMode 兜底为 manual。
+func WithKBScopeMode(ctx context.Context, mode string) context.Context {
+	return context.WithValue(ctx, KBScopeModeKey, mode)
+}
+
+// GetKBScopeMode 从 Go context 中获取知识库选择模式
+func GetKBScopeMode(ctx context.Context) (string, bool) {
+	mode, ok := ctx.Value(KBScopeModeKey).(string)
+	return mode, ok
+}
+
+// MustGetKBScopeMode 获取知识库选择模式，未设置或非法值默认 manual（向后兼容）。
+func MustGetKBScopeMode(ctx context.Context) string {
+	switch mode, _ := GetKBScopeMode(ctx); mode {
+	case KBScopeModeHybrid:
+		return KBScopeModeHybrid
+	case KBScopeModeAuto:
+		return KBScopeModeAuto
+	default:
+		return KBScopeModeManual
+	}
+}
+
+// ========================================
+// RouteSelection 传递辅助函数（Agent kb_route 聚焦选择）
+// ========================================
+
+// RouteSelection 承载 Agent 在单次会话内经 kb_route 声明的聚焦知识库范围。
+// 由入口以指针注入 ctx；kb_route 工具写入、检索适配器读取（跨工具调用共享同一指针）。
+// eino ReAct 顺序执行工具，理论上无并发写；仍以 mutex 兜底防御。
+type RouteSelection struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+// NewRouteSelection 创建一个空的路由选择 holder
+func NewRouteSelection() *RouteSelection {
+	return &RouteSelection{}
+}
+
+// Set 记录 Agent 声明的聚焦知识库 ID 集合（覆盖式）。
+func (r *RouteSelection) Set(ids []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ids = append(r.ids[:0:0], ids...) // 拷贝，避免外部切片别名
+}
+
+// Get 返回 Agent 已声明的聚焦知识库 ID 集合的副本；未声明则为 nil。
+func (r *RouteSelection) Get() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.ids) == 0 {
+		return nil
+	}
+	return append([]string(nil), r.ids...)
+}
+
+// WithRouteSelection 将路由选择 holder 注入到 Go context 中。
+func WithRouteSelection(ctx context.Context, sel *RouteSelection) context.Context {
+	return context.WithValue(ctx, RouteSelectionKey, sel)
+}
+
+// GetRouteSelection 从 Go context 中获取路由选择 holder。
+func GetRouteSelection(ctx context.Context) (*RouteSelection, bool) {
+	sel, ok := ctx.Value(RouteSelectionKey).(*RouteSelection)
+	return sel, ok
 }
 
 // ========================================

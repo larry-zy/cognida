@@ -139,7 +139,8 @@ func (t *skillInvokeTool) selectToolForTask(task string) string {
 	case // 知识库相关
 		strings.Contains(taskLower, "kb") ||
 		strings.Contains(taskLower, "知识") && strings.Contains(taskLower, "库"):
-		return "kb_select"
+		// kb_select 已随工具重设计移除；知识库检索统一走 rag_query（范围由会话入口选定并强制）。
+		return "rag_query"
 
 	case // 图谱相关
 		strings.Contains(taskLower, "graph") ||

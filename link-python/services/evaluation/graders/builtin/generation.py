@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from ...graders.base import (
     BaseGrader,
+    EvalType,
     GraderMode,
     GraderScore,
     MetricType,
@@ -27,6 +28,10 @@ class RougeGrader(BaseGrader):
             name="rouge",
             mode=GraderMode.POINTWISE,
             description="ROUGE 评分器 (0-100 分)",
+            label="ROUGE",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -85,6 +90,10 @@ class Rouge1Grader(BaseGrader):
             name="rouge_1",
             mode=GraderMode.POINTWISE,
             description="ROUGE-1 评分器 (0-100 分)",
+            label="ROUGE-1",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -127,6 +136,10 @@ class Rouge2Grader(BaseGrader):
             name="rouge_2",
             mode=GraderMode.POINTWISE,
             description="ROUGE-2 评分器 (0-100 分)",
+            label="ROUGE-2",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -169,6 +182,10 @@ class RougeLGrader(BaseGrader):
             name="rouge_l",
             mode=GraderMode.POINTWISE,
             description="ROUGE-L 评分器 (0-100 分)",
+            label="ROUGE-L",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -214,6 +231,10 @@ class BleuGrader(BaseGrader):
             name="bleu",
             mode=GraderMode.POINTWISE,
             description="BLEU 评分器 (0-100 分)",
+            label="BLEU",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -263,6 +284,10 @@ class Bleu1Grader(BaseGrader):
             name="bleu_1",
             mode=GraderMode.POINTWISE,
             description="BLEU-1 评分器 (0-100 分)",
+            label="BLEU-1",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(
@@ -305,6 +330,10 @@ class Bleu4Grader(BaseGrader):
             name="bleu_4",
             mode=GraderMode.POINTWISE,
             description="BLEU-4 评分器 (0-100 分)",
+            label="BLEU-4",
+            group="generation",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
 
     async def _aevaluate(

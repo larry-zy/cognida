@@ -158,6 +158,10 @@ type EvaluationResultModel struct {
 	// 语义相似度
 	SemanticSimilarity *float64 `gorm:"column:semantic_similarity;type:double" json:"semantic_similarity,omitempty"`
 
+	// 动态指标载体:注册表驱动的 name->value(JSON 列,与上面固定列并存以兼容)
+	// 用 []byte 而非 string:空时为 nil 写入 SQL NULL,避免空串 '' 触发 JSON 列非法文本错误(与 Metrics 列一致)。
+	Scores []byte `gorm:"column:scores;type:json" json:"scores,omitempty"`
+
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
 }
 
@@ -201,6 +205,12 @@ func (m *EvaluationResultModel) ToDomain() *evaluation.EvaluationResult {
 		json.Unmarshal([]byte(m.RelevantPIDs), &result.RelevantPIDs)
 	}
 
+	// 动态指标载体:NULL/空列兼容为空 map
+	result.Scores = map[string]float64{}
+	if len(m.Scores) > 0 {
+		json.Unmarshal(m.Scores, &result.Scores)
+	}
+
 	return result
 }
 
@@ -237,6 +247,13 @@ func FromDomainEvaluationResult(result *evaluation.EvaluationResult) *Evaluation
 	}
 	if data, err := json.Marshal(result.RelevantPIDs); err == nil {
 		model.RelevantPIDs = string(data)
+	}
+
+	// 动态指标载体:仅在有值时写入(空则 Scores 保持 nil→SQL NULL,读侧兼容为空 map)
+	if len(result.Scores) > 0 {
+		if data, err := json.Marshal(result.Scores); err == nil {
+			model.Scores = data
+		}
 	}
 
 	return model

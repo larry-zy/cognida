@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 from core import get_logger
 
-from .base import BaseGrader, GraderMode, MetricType
+from .base import BaseGrader, EvalType, GraderMode, MetricType, normalize_eval_type
 
 
 # ============================================================
@@ -179,6 +179,26 @@ class GraderRegistry:
             metadata = self.get_metadata(name)
             if metadata:
                 result.append(metadata)
+        return result
+
+    def list_graders_for(self, eval_type: str | EvalType) -> List[Dict[str, Any]]:
+        """列出适用于指定评测类型的评分器元数据。
+
+        Args:
+            eval_type: 评测类型(llm/qa、rag、agent),qa 归一化为 llm
+
+        Returns:
+            适用该类型的评分器元数据列表
+
+        Raises:
+            ValueError: 未知评测类型(不做无过滤全量返回)
+        """
+        target = normalize_eval_type(eval_type)  # 未知类型抛 ValueError
+        result: List[Dict[str, Any]] = []
+        for name in self.grader_names:
+            instance = self.get(name)
+            if instance is not None and instance.applies_to(target):
+                result.append(instance.get_metadata())
         return result
 
     def exists(self, name: str) -> bool:
@@ -438,3 +458,18 @@ def list_graders() -> List[Dict[str, Any]]:
         元数据列表
     """
     return get_global_registry().list_graders()
+
+
+def list_graders_for(eval_type: str | EvalType) -> List[Dict[str, Any]]:
+    """列出适用于指定评测类型的评分器元数据(便捷函数)。
+
+    Args:
+        eval_type: 评测类型(llm/qa、rag、agent)
+
+    Returns:
+        适用该类型的评分器元数据列表
+
+    Raises:
+        ValueError: 未知评测类型
+    """
+    return get_global_registry().list_graders_for(eval_type)

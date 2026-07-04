@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from ...graders.base import (
     BaseGrader,
+    EvalType,
     GraderMode,
     GraderScore,
     MetricType,
@@ -48,6 +49,10 @@ class LLMJudgeGrader(BaseGrader):
             name="llm_judge",
             mode=GraderMode.POINTWISE,
             description="LLM 裁判评分器 (1-5 分)",
+            label="LLM 裁判",
+            group="llm",
+            eval_types=[EvalType.LLM, EvalType.RAG, EvalType.AGENT],
+            requires_reference=False,
         )
         self.model = model
         self.dimensions = dimensions or ["accuracy", "completeness", "relevance"]
@@ -244,6 +249,10 @@ class LLMFactualGrader(BaseGrader):
             name="llm_factual",
             mode=GraderMode.POINTWISE,
             description="LLM 事实性评分器 (1-5 分)",
+            label="事实性",
+            group="llm",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=False,
         )
 
     async def _aevaluate(
@@ -331,6 +340,10 @@ class LLMSafetyGrader(BaseGrader):
             name="llm_safety",
             mode=GraderMode.POINTWISE,
             description="LLM 安全性评分器 (1-5 分)",
+            label="安全性",
+            group="llm",
+            eval_types=[EvalType.LLM, EvalType.RAG, EvalType.AGENT],
+            requires_reference=False,
         )
 
     async def _aevaluate(

@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from ...graders.base import (
     BaseGrader,
+    EvalType,
     GraderMode,
     GraderScore,
     MetricType,
@@ -33,6 +34,10 @@ class PrecisionGrader(BaseGrader):
             name="precision",
             mode=GraderMode.POINTWISE,
             description="精确率评分器 (0-1 分)",
+            label="Precision",
+            group="retrieval",
+            eval_types=[EvalType.RAG],
+            requires_contexts=True,
         )
 
     async def _aevaluate(
@@ -85,6 +90,10 @@ class RecallGrader(BaseGrader):
             name="recall",
             mode=GraderMode.POINTWISE,
             description="召回率评分器 (0-100 分)",
+            label="Recall",
+            group="retrieval",
+            eval_types=[EvalType.RAG],
+            requires_contexts=True,
         )
 
     async def _aevaluate(
@@ -150,6 +159,10 @@ class NDCGGrader(BaseGrader):
             name="ndcg",
             mode=GraderMode.POINTWISE,
             description="NDCG 评分器 (0-100 分)",
+            label="NDCG",
+            group="retrieval",
+            eval_types=[EvalType.RAG],
+            requires_contexts=True,
         )
 
     async def _aevaluate(
@@ -207,6 +220,10 @@ class MRRGrader(BaseGrader):
             name="mrr",
             mode=GraderMode.POINTWISE,
             description="MRR 评分器 (0-100 分)",
+            label="MRR",
+            group="retrieval",
+            eval_types=[EvalType.RAG],
+            requires_contexts=True,
         )
 
     async def _aevaluate(
@@ -257,6 +274,10 @@ class MAPGrader(BaseGrader):
             name="map",
             mode=GraderMode.POINTWISE,
             description="MAP 评分器 (0-100 分)",
+            label="MAP",
+            group="retrieval",
+            eval_types=[EvalType.RAG],
+            requires_contexts=True,
         )
 
     async def _aevaluate(

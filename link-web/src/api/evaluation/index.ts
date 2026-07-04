@@ -9,7 +9,8 @@ import type {
   DatasetInfo,
   DatasetListResponse,
   SampleListResponse,
-  QAResult
+  QAResult,
+  GraderCatalog
 } from '@/types'
 
 export const evaluationApi = {
@@ -25,6 +26,16 @@ export const evaluationApi = {
    */
   getResult(taskId: string) {
     return http.get<EvaluationDetail>(`/evaluation/results/${taskId}`)
+  },
+
+  /**
+   * 获取按评测类型过滤的可用指标目录（注册表驱动，唯一事实来源）
+   * eval_type: qa/rag/agent，后端将 qa 归一化为 llm。
+   */
+  getGraders(evalType: string) {
+    return http.get<GraderCatalog>('/evaluation/graders', {
+      params: { eval_type: evalType }
+    })
   },
 
   /**

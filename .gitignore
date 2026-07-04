@@ -63,3 +63,6 @@ link-web/frontend.log
 
 # ---- Python 大数据集（仅保留代码，不纳入原始数据）----
 link-python/data/
+
+# compiled server binary (build artifact)
+/link-go/server

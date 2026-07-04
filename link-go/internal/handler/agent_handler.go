@@ -807,17 +807,31 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	// 从上下文获取用户ID和租户ID
 	userID := GetUserID(c)
 	tenantID := GetTenantID(c)
-	log.Printf("[KnowledgeStream] UserID: %d, TenantID: %d, Query: %s", userID, tenantID, req.Query)
+	log.Printf("[KnowledgeStream] UserID: %d, TenantID: %d, KBIDs: %v, GraphEnabled: %v, KBScopeMode: %q, Query: %s",
+		userID, tenantID, req.KBIDs, req.GraphEnabled, req.KBScopeMode, req.Query)
+
+	// 结构化透传：把租户/用户/知识库范围/图谱开关/选择模式注入 Go context，
+	// 供下游 Agent 工具层读取（scope 强制、多 KB 检索、图谱门控、agentic 选库），
+	// 替代旧的“文本前缀塞进 query”方案。
+	ctx := c.Request.Context()
+	ctx = agentctx.WithTenantID(ctx, tenantID)
+	ctx = agentctx.WithUserID(ctx, userID)
+	ctx = agentctx.WithAllowedKBIDs(ctx, req.KBIDs)
+	ctx = agentctx.WithGraphEnabled(ctx, req.GraphEnabled)
+	// 选择模式 + 路由 holder：结合/智能模式下，kb_route 工具把 AI 的选库写入该 holder，
+	// 供其后的 rag_query/graph_query 读取（跨工具调用共享同一指针）。
+	ctx = agentctx.WithKBScopeMode(ctx, req.KBScopeMode)
+	ctx = agentctx.WithRouteSelection(ctx, agentctx.NewRouteSelection())
 
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)
 
 	// 启动心跳机制（30秒间隔）
-	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
+	stopHeartbeat := sse.StartHeartbeat(ctx, c.Writer, nil)
 	defer stopHeartbeat()
 
 	// 执行流式聊天（通过持久化服务包装）
-	chunkChan, err := h.executeUseCase.ExecuteStream(c.Request.Context(), &req)
+	chunkChan, err := h.executeUseCase.ExecuteStream(ctx, &req)
 	if err != nil {
 		log.Printf("[KnowledgeStream] Execution failed: %v", err)
 		InternalError(c, err.Error())

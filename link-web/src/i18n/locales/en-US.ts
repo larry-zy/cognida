@@ -114,8 +114,8 @@ export default {
   },
   menu: {
     home: 'Home',
-    ai: 'AI Analysis',
     kb: 'KB Assistant',
+    dataAgent: 'Data Agent',
     knowledge: 'Knowledge',
     graph: 'Knowledge Graph',
     agent: 'Agent',

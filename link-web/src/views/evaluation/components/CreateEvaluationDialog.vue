@@ -25,10 +25,11 @@
         <div class="form-tip">选择"默认模型"使用系统默认配置</div>
       </UiFormItem>
 
-      <!-- 评测器 -->
+      <!-- 评测器（后端注册表驱动，按评测类型过滤） -->
       <UiFormItem label="评测器">
-        <template v-for="group in GRADER_GROUPS" :key="group.title">
-          <div v-if="!group.onlyType || group.onlyType === formData.type" class="grader-group">
+        <div v-if="loadingGraders" class="form-tip">正在加载可用指标…</div>
+        <template v-for="group in displayGroups" :key="group.title">
+          <div class="grader-group">
             <div class="grader-group-title">{{ group.title }}</div>
             <UiCheckbox
               v-for="opt in group.options"
@@ -41,6 +42,9 @@
             </UiCheckbox>
           </div>
         </template>
+        <div v-if="!loadingGraders && displayGroups.length === 0" class="form-tip">
+          该评测类型暂无可用指标
+        </div>
         <div class="form-tip">选择启用的评测器，每个评测器计算对应的指标</div>
       </UiFormItem>
 
@@ -77,10 +81,17 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { UiModal, UiForm, UiFormItem, UiSelect, UiCheckbox, UiTextarea, UiButton } from '@/components'
 import toast from '@/utils/toast'
-import { GRADER_GROUPS, LLM_JUDGE_DIMENSIONS, EVALUATION_TYPE_OPTIONS } from '../evaluation-config'
+import {
+  GRADER_GROUPS,
+  LLM_JUDGE_DIMENSIONS,
+  EVALUATION_TYPE_OPTIONS,
+  buildGraderGroups,
+  type GraderGroup
+} from '../evaluation-config'
+import { evaluationApi } from '@/api/evaluation'
 import type { CreateEvaluationRequest } from '@/types'
 
 const props = defineProps<{
@@ -111,6 +122,48 @@ const formData = reactive({
 const selectedGraders = ref<string[]>(['rouge', 'bleu'])
 const llmJudgeDimensions = ref<string[]>(['accuracy', 'relevance'])
 const advancedConfig = ref('')
+
+// ---------- 后端驱动的可用指标目录 ----------
+const displayGroups = ref<GraderGroup[]>([])
+const loadingGraders = ref(false)
+
+/** 前端回退目录：仅在后端目录接口不可用时按类型过滤展示。 */
+function fallbackGroups(type: string): GraderGroup[] {
+  return GRADER_GROUPS.filter(g => !g.onlyType || g.onlyType === type)
+    .map(g => ({ title: g.title, options: g.options }))
+}
+
+// 请求序号：快速切换评测类型时，丢弃过期响应，避免慢请求覆盖新目录/选择。
+let catalogSeq = 0
+
+/** 拉取指定评测类型的可用指标目录（注册表唯一事实来源）。 */
+async function loadCatalog(type: string): Promise<void> {
+  const seq = ++catalogSeq
+  loadingGraders.value = true
+  let groups: GraderGroup[]
+  try {
+    const catalog = await evaluationApi.getGraders(type)
+    groups = buildGraderGroups(catalog?.data?.graders ?? [])
+  } catch {
+    // 后端不可用时降级到前端回退目录，不阻断创建流程
+    groups = fallbackGroups(type)
+  }
+  if (seq !== catalogSeq) return // 已被更新的请求取代，丢弃过期结果
+  displayGroups.value = groups
+  loadingGraders.value = false
+  pruneSelected()
+}
+
+/** 剔除当前目录中不存在的已选指标，避免提交无效指标。 */
+function pruneSelected(): void {
+  const available = new Set(
+    displayGroups.value.flatMap(g => g.options.map(o => o.value))
+  )
+  selectedGraders.value = selectedGraders.value.filter(v => available.has(v))
+}
+
+onMounted(() => loadCatalog(formData.type))
+watch(() => formData.type, (t) => loadCatalog(t))
 
 // ---------- 下拉选项 ----------
 const datasetOptions = computed(() => [

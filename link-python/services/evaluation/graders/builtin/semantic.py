@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from ...graders.base import (
     BaseGrader,
+    EvalType,
     GraderMode,
     GraderScore,
     MetricType,
@@ -27,6 +28,10 @@ class SemanticSimilarityGrader(BaseGrader):
             name="semantic_similarity",
             mode=GraderMode.POINTWISE,
             description="语义相似度评分器 (0-100 分)",
+            label="语义相似度",
+            group="semantic",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=True,
         )
         self._model_cache = None
 
@@ -95,6 +100,10 @@ class SemanticRelevanceGrader(BaseGrader):
             name="semantic_relevance",
             mode=GraderMode.POINTWISE,
             description="语义相关性评分器 (0-100 分)",
+            label="语义相关性",
+            group="semantic",
+            eval_types=[EvalType.LLM, EvalType.RAG],
+            requires_reference=False,
         )
 
     async def _aevaluate(

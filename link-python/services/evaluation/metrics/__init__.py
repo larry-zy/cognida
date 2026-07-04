@@ -30,6 +30,7 @@ from .semantic import (
     AsyncSemanticMetrics,
     compute_semantic_metrics,
     compute_semantic_metrics_async,
+    compute_semantic_similarities,
 )
 from .llm_judge import (
     LLMJudgeMetrics,
@@ -72,6 +73,7 @@ __all__ = [
     "AsyncSemanticMetrics",
     "compute_semantic_metrics",
     "compute_semantic_metrics_async",
+    "compute_semantic_similarities",
     # LLM Judge
     "LLMJudgeMetrics",
     "compute_llm_judge_metrics",

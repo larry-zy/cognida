@@ -16,7 +16,6 @@ func (m *mockRAGService) Query(ctx interface{}, req *RAGQueryRequest) (*RAGQuery
 		Answer: "mock answer",
 		Chunks: []DocumentChunk{},
 		Count:  0,
-	 KnowledgeBaseID:   req.KnowledgeBaseID,
 		Query:  req.Query,
 	}, nil
 }
@@ -30,7 +29,6 @@ func (m *mockGraphService) GraphQuery(ctx interface{}, req *GraphQueryRequest) (
 		Entities:  []GraphEntity{},
 		Relations: []GraphRelation{},
 		Count:     0,
-	 KnowledgeBaseID:      req.KnowledgeBaseID,
 		Query:     req.Query,
 	}, nil
 }

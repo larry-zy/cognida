@@ -75,3 +75,38 @@ def test_rag_specific_absent_when_grader_not_selected():
     assert "faithfulness" not in agg
     assert "context_relevance" not in agg
     assert "noise_ratio" not in agg
+
+
+def test_semantic_similarity_computed_per_item_and_aggregated():
+    """回归：语义相似度此前因 await 同步函数被静默吞掉，现应逐条产出并聚合。"""
+    resp = client.post(ENDPOINT, json=_payload(["semantic_similarity"]))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    agg = body["aggregate"]
+    assert "semantic_similarity" in agg, "聚合缺少 semantic_similarity（语义指标疑似又被吞掉）"
+    assert 0.0 <= agg["semantic_similarity"] <= 1.0
+    # 每条结果都应带上逐条语义相似度
+    for item in body["items"]:
+        assert item.get("semantic_similarity") is not None
+
+
+def test_rouge_aggregate_kept_when_score_is_zero():
+    """回归：ROUGE 全为 0 时，聚合仍应保留字段（此前 sum>0 会误删）。"""
+    payload = {
+        "items": [
+            {
+                "question": "问题",
+                "reference_answer": "完全对不上的参考答案",
+                "generated_answer": "毫不相干输出",
+                "retrieved_pids": [],
+                "relevant_pids": [],
+                "retrieved_contexts": [],
+            }
+        ],
+        "graders": ["rouge"],
+    }
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 200, resp.text
+    agg = resp.json()["aggregate"]
+    assert "rouge_1" in agg and agg["rouge_1"] == 0.0
+    assert "rouge_l" in agg and agg["rouge_l"] == 0.0

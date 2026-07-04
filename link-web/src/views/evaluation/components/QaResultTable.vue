@@ -37,9 +37,9 @@
               {{ row.success ? '成功' : '失败' }}
             </UiTag>
           </span>
-          <span class="col-metric">{{ pct(row.rouge_1, 1) }}</span>
-          <span class="col-metric">{{ pct(row.bleu_1, 1) }}</span>
-          <span class="col-metric">{{ row.llm_score != null ? row.llm_score.toFixed(1) : '-' }}</span>
+          <span class="col-metric">{{ pct(metricValue(row, 'rouge_1'), 1) }}</span>
+          <span class="col-metric">{{ pct(metricValue(row, 'bleu_1'), 1) }}</span>
+          <span class="col-metric">{{ llmScoreText(row) }}</span>
         </div>
 
         <!-- 展开详情 -->
@@ -60,33 +60,14 @@
           <div class="qa-detail-section" v-if="hasMetrics(row)">
             <h5>评测指标</h5>
             <div class="qa-metrics-grid">
-              <div v-if="row.rouge_1 != null" class="qa-metric-item">
-                <span class="metric-label">ROUGE-1:</span>
-                <span class="metric-value">{{ (row.rouge_1 * 100).toFixed(2) }}%</span>
-              </div>
-              <div v-if="row.rouge_l != null" class="qa-metric-item">
-                <span class="metric-label">ROUGE-L:</span>
-                <span class="metric-value">{{ (row.rouge_l * 100).toFixed(2) }}%</span>
-              </div>
-              <div v-if="row.bleu_1 != null" class="qa-metric-item">
-                <span class="metric-label">BLEU-1:</span>
-                <span class="metric-value">{{ (row.bleu_1 * 100).toFixed(2) }}%</span>
-              </div>
-              <div v-if="row.precision != null" class="qa-metric-item">
-                <span class="metric-label">Precision:</span>
-                <span class="metric-value">{{ (row.precision * 100).toFixed(2) }}%</span>
-              </div>
-              <div v-if="row.recall != null" class="qa-metric-item">
-                <span class="metric-label">Recall:</span>
-                <span class="metric-value">{{ (row.recall * 100).toFixed(2) }}%</span>
-              </div>
-              <div v-if="row.llm_score != null" class="qa-metric-item">
-                <span class="metric-label">LLM Score:</span>
-                <span class="metric-value">{{ row.llm_score.toFixed(2) }}</span>
-              </div>
-              <div v-if="row.semantic_similarity != null" class="qa-metric-item">
-                <span class="metric-label">相似度:</span>
-                <span class="metric-value">{{ (row.semantic_similarity * 100).toFixed(2) }}%</span>
+              <!-- 按动态 scores map 渲染，兼容固定字段；开发者新增指标自动出现 -->
+              <div
+                v-for="entry in metricEntries(row)"
+                :key="entry.key"
+                class="qa-metric-item"
+              >
+                <span class="metric-label">{{ entry.label }}:</span>
+                <span class="metric-value">{{ entry.text }}</span>
               </div>
             </div>
           </div>
@@ -109,7 +90,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { UiTag, UiButton, UiAlert } from '@/components'
-import { hasMetrics } from '../evaluation-config'
+import { hasMetrics, metricEntries, metricValue } from '../evaluation-config'
 
 const props = defineProps<{ results: Array<Record<string, any>> }>()
 
@@ -151,6 +132,12 @@ function toggleAll(): void {
 function pct(value: unknown, digits: number): string {
   if (value == null) return '-'
   return (Number(value) * 100).toFixed(digits) + '%'
+}
+
+/** 摘要列的 LLM 评分：动态 scores 优先，回退固定 llm_score 字段 */
+function llmScoreText(row: Record<string, any>): string {
+  const v = metricValue(row, 'llm_score')
+  return v != null ? v.toFixed(1) : '-'
 }
 </script>
 

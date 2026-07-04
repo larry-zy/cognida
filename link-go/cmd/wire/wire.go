@@ -489,8 +489,15 @@ func ProvideEvaluationService(
 	resultRepo domain_evaluation.EvaluationResultRepository,
 	progressCache *evaluationcache.ProgressCache,
 	evalQueue *evaluationcache.EvaluationQueue,
+	evalConfig *config.EvaluationConfig,
 ) *app_evaluation.Service {
-	return app_evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue)
+	// 可用指标目录代理到 Python 注册表（唯一事实来源），端点来自评测配置带默认兜底
+	pythonEndpoint := "http://localhost:8000"
+	if evalConfig != nil && evalConfig.PythonEndpoint != "" {
+		pythonEndpoint = evalConfig.PythonEndpoint
+	}
+	graderCatalog := app_evaluation.NewPythonEvaluationClient(pythonEndpoint)
+	return app_evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue, graderCatalog)
 }
 
 // ProvideDatasetLoader provides the dataset loader
@@ -1038,6 +1045,11 @@ type App struct {
 	ChatConfig       *config.ChatConfig
 	EvaluationConfig *config.EvaluationConfig
 	EvaluationWorker *app_evaluation.EvaluationWorker
+	// 以下依赖暴露给组合根（main.go），用于把 Agent 工具（rag_query/graph_query/kb_list）
+	// 接线到真实检索/图谱/知识库服务，替代此前工具层的 mock/未接线状态。
+	Retriever               domain_rag.Retriever
+	GraphService            *app_kb.GraphService
+	KnowledgeBaseRepository domain_knowledge.KnowledgeBaseRepository
 }
 
 func ProvideApp(
@@ -1047,14 +1059,20 @@ func ProvideApp(
 	chatConfig *config.ChatConfig,
 	evalConfig *config.EvaluationConfig,
 	evalWorker *app_evaluation.EvaluationWorker,
+	retriever domain_rag.Retriever,
+	graphService *app_kb.GraphService,
+	kbRepo domain_knowledge.KnowledgeBaseRepository,
 ) *App {
 	return &App{
-		Router:           r,
-		Middlewares:      m,
-		AgentRegistry:    agentRegistry,
-		ChatConfig:       chatConfig,
-		EvaluationConfig: evalConfig,
-		EvaluationWorker: evalWorker,
+		Router:                  r,
+		Middlewares:             m,
+		AgentRegistry:           agentRegistry,
+		ChatConfig:              chatConfig,
+		EvaluationConfig:        evalConfig,
+		EvaluationWorker:        evalWorker,
+		Retriever:               retriever,
+		GraphService:            graphService,
+		KnowledgeBaseRepository: kbRepo,
 	}
 }
 

@@ -238,8 +238,10 @@ func insertRows(execCtx context.Context, target string, columns []string, rows [
 				args = append(args, row[c])
 			}
 		}
-		stmt := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s",
-			target, strings.Join(quoted, ", "), strings.Join(placeholders, ", "))
+		// target 已由 validateETLTarget 正则白名单校验、列名反引号包裹，行值全部 ? 参数化绑定；
+		// 此处标识符不可参数化，故用字符串拼接组装（等价于原 fmt.Sprintf，安全性不变）。
+		stmt := "INSERT INTO `" + target + "` (" + strings.Join(quoted, ", ") +
+			") VALUES " + strings.Join(placeholders, ", ")
 		if err := opConfig.DB.WithContext(execCtx).Exec(stmt, args...).Error; err != nil {
 			return err
 		}
@@ -251,7 +253,7 @@ func insertRows(execCtx context.Context, target string, columns []string, rows [
 func countTableRows(execCtx context.Context, table string) (int64, error) {
 	var count int64
 	if err := opConfig.DB.WithContext(execCtx).
-		Raw(fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table)).Scan(&count).Error; err != nil {
+		Raw("SELECT COUNT(*) FROM `" + table + "`").Scan(&count).Error; err != nil {
 		return 0, fmt.Errorf("统计派生表行数失败: %w", err)
 	}
 	return count, nil

@@ -244,7 +244,7 @@ func TestService_CreateEvaluation(t *testing.T) {
 		QACount:  10,
 	}
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	req := &CreateEvaluationTaskRequest{
 		DatasetID: "ds-001",
@@ -290,7 +290,7 @@ func TestService_CreateEvaluation_DatasetNotFound(t *testing.T) {
 	dsService := newMockDatasetLoader()
 	progressCache := evaluationcache.NewProgressCache(nil)
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	req := &CreateEvaluationTaskRequest{
 		DatasetID: "nonexistent",
@@ -319,7 +319,7 @@ func TestService_CreateEvaluation_TypeMismatch(t *testing.T) {
 		QACount:  10,
 	}
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	req := &CreateEvaluationTaskRequest{
 		DatasetID: "ds-001",
@@ -356,7 +356,7 @@ func TestService_GetEvaluationResult(t *testing.T) {
 		},
 	}
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	result, err := service.GetEvaluationResult(context.Background(), "task-001")
 	if err != nil {
@@ -377,7 +377,7 @@ func TestService_GetEvaluationResult_TaskNotFound(t *testing.T) {
 	dsService := newMockDatasetLoader()
 	progressCache := evaluationcache.NewProgressCache(nil)
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	_, err := service.GetEvaluationResult(context.Background(), "nonexistent")
 	if !errors.Is(err, domeval.ErrTaskNotFound) {
@@ -395,7 +395,7 @@ func TestService_ListEvaluationResults(t *testing.T) {
 	taskRepo.tasks["task-001"] = domeval.NewEvaluationTask("task-001", 1, 10, "ds-001", domeval.EvaluationTypeRAG, 10)
 	taskRepo.tasks["task-002"] = domeval.NewEvaluationTask("task-002", 1, 10, "ds-002", domeval.EvaluationTypeAgent, 5)
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	result, err := service.ListEvaluationResults(context.Background(), 1, 1, 10)
 	if err != nil {
@@ -427,7 +427,7 @@ func TestService_DeleteEvaluationTask(t *testing.T) {
 	task.SetStatus(domeval.TaskStatusCompleted)
 	taskRepo.tasks["task-001"] = task
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	err := service.DeleteEvaluationTask(context.Background(), "task-001")
 	if err != nil {
@@ -452,7 +452,7 @@ func TestService_DeleteEvaluationTask_RunningTask(t *testing.T) {
 	task.SetStatus(domeval.TaskStatusRunning)
 	taskRepo.tasks["task-001"] = task
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	err := service.DeleteEvaluationTask(context.Background(), "task-001")
 	if err == nil {
@@ -480,7 +480,7 @@ func TestService_GetDatasetList(t *testing.T) {
 		QACount:  5,
 	}
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	datasets, err := service.GetDatasetList(context.Background())
 	if err != nil {
@@ -505,7 +505,7 @@ func TestService_GetDatasetInfo(t *testing.T) {
 		QACount:  10,
 	}
 
-	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil)
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	info, err := service.GetDatasetInfo(context.Background(), "ds-001")
 	if err != nil {

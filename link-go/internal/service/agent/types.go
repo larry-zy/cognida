@@ -12,6 +12,15 @@ type AgenticRAGRequest struct {
 	SessionID string                 `json:"session_id,omitempty"`
 	Options   *AgentOptions          `json:"options,omitempty"`
 	Context   map[string]interface{} `json:"context,omitempty"`
+
+	// KBIDs 用户选定的知识库范围（多选），空表示检索全部已启用知识库。
+	// 由入口注入 ctx 供工具层 scope 强制，替代旧的文本前缀注入。
+	KBIDs []string `json:"kb_ids,omitempty"`
+	// GraphEnabled 是否开启图谱增强检索
+	GraphEnabled bool `json:"graph_enabled,omitempty"`
+	// KBScopeMode 知识库选择模式：manual(手动,默认)/hybrid(结合)/auto(智能)。
+	// manual=范围由 KBIDs 锁定；hybrid=KBIDs 为候选池，AI 经 kb_route 自选；auto=忽略 KBIDs，AI 从租户全部已启用库自选。
+	KBScopeMode string `json:"kb_scope_mode,omitempty"`
 }
 
 // AgentOptions Agent 选项

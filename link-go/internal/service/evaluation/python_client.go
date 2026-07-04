@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"time"
 )
 
@@ -41,34 +42,50 @@ func NewPythonEvaluationClient(baseURL string) *PythonEvaluationClient {
 	}
 }
 
-// ComputeMetrics 批量计算评测指标
+// ComputeMetrics 批量计算评测指标（使用默认重试配置）
 func (c *PythonEvaluationClient) ComputeMetrics(ctx context.Context, req *ComputeMetricsRequest) (*ComputeMetricsResponse, error) {
+	return c.computeMetrics(ctx, req, MaxRetries, RetryDelay)
+}
+
+// ComputeMetricsWithRetry 带自定义重试配置的指标计算
+func (c *PythonEvaluationClient) ComputeMetricsWithRetry(ctx context.Context, req *ComputeMetricsRequest, maxRetries int, retryDelay time.Duration) (*ComputeMetricsResponse, error) {
+	if maxRetries < 1 {
+		maxRetries = 1
+	}
+	if retryDelay < 0 {
+		retryDelay = 0
+	}
+	return c.computeMetrics(ctx, req, maxRetries, retryDelay)
+}
+
+// computeMetrics 批量计算评测指标的内部实现，重试次数与延迟可配置
+func (c *PythonEvaluationClient) computeMetrics(ctx context.Context, req *ComputeMetricsRequest, maxRetries int, retryDelay time.Duration) (*ComputeMetricsResponse, error) {
 	// 序列化请求
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request failed: %w", err)
 	}
 
-	// 构建请求
 	url := c.baseURL + "/api/v1/evaluation/compute-metrics"
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request failed: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
 
 	// 发送请求（带重试）
 	var lastErr error
-	for attempt := 0; attempt < MaxRetries; attempt++ {
+	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			// 重试前等待
 			select {
-			case <-time.After(RetryDelay):
+			case <-time.After(retryDelay):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
+
+		// 每次尝试构建新的请求（body 为一次性 Reader，重试需重新构建）
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request failed: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
 
 		resp, err := c.httpClient.Do(httpReq)
 		if err != nil {
@@ -109,28 +126,36 @@ func (c *PythonEvaluationClient) ComputeMetrics(ctx context.Context, req *Comput
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
-// ComputeMetricsWithRetry 带自定义重试的指标计算
-func (c *PythonEvaluationClient) ComputeMetricsWithRetry(ctx context.Context, req *ComputeMetricsRequest, maxRetries int, retryDelay time.Duration) (*ComputeMetricsResponse, error) {
-	// 创建带自定义超时的客户端
-	client := &PythonEvaluationClient{
-		baseURL: c.baseURL,
-		httpClient: &http.Client{
-			Timeout: c.httpClient.Timeout,
-		},
+// ListGraders 拉取按评测类型过滤的可用指标目录（注册表元数据的唯一事实来源在 Python 侧）。
+// evalType 未知时 Python 返回 400，本方法据此返回错误，不做静默全量回退。
+func (c *PythonEvaluationClient) ListGraders(ctx context.Context, evalType string) (*GraderCatalog, error) {
+	url := fmt.Sprintf("%s/api/v1/evaluation/graders?eval_type=%s", c.baseURL, neturl.QueryEscape(evalType))
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %w", err)
 	}
 
-	// 临时覆盖重试配置
-	originalMaxRetries := MaxRetries
-	originalRetryDelay := RetryDelay
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
 
-	// TODO: 使用更优雅的方式传递重试配置
-	_ = maxRetries
-	_ = retryDelay
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %w", err)
+	}
 
-	resp, err := client.ComputeMetrics(ctx, req)
-	_ = originalMaxRetries
-	_ = originalRetryDelay
-	return resp, err
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("grader catalog error: %d, %s", resp.StatusCode, string(data))
+	}
+
+	var result GraderCatalog
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal response failed: %w", err)
+	}
+	return &result, nil
 }
 
 // SetTimeout 设置 HTTP 超时

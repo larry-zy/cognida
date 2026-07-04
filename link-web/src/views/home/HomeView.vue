@@ -98,10 +98,28 @@
       </div>
     </section>
 
-    <!-- ============ 4. 核心能力 2×2 ============ -->
+    <!-- ============ 4. 核心能力 ============ -->
     <section>
       <div class="section-label">CORE CAPABILITIES</div>
       <div class="cap-grid">
+
+        <!-- DaDa 数据智能体 -->
+        <div class="cap-cell">
+          <div class="cap-cell__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="7" width="16" height="13" rx="2"/>
+              <path d="M9 3v4M15 3v4M4 12h16"/>
+              <circle cx="9.5" cy="16" r="1" fill="currentColor" stroke="none"/>
+              <circle cx="14.5" cy="16" r="1" fill="currentColor" stroke="none"/>
+            </svg>
+          </div>
+          <div class="cap-cell__title">DaDa 数据智能体</div>
+          <div class="cap-cell__desc">
+            单一 ReAct 内核自主取数、分析、操作：自动获取 Schema、构造并执行 SQL，边推理边把图表与结论以 A2UI 生成式 UI 实时画到结果画布；写操作需二次确认。
+          </div>
+          <div class="cap-cell__note">REACT · A2UI · CANVAS</div>
+        </div>
 
         <!-- RAG 知识问答 -->
         <div class="cap-cell">
@@ -115,26 +133,9 @@
           </div>
           <div class="cap-cell__title">RAG 知识问答</div>
           <div class="cap-cell__desc">
-            向量检索 + 图谱扩展联合召回，答案逐句可溯源至原始文档片段，重排序保证相关度。
+            向量 / 关键词 / 混合检索按需限定知识库范围，可一键开启图谱增强做关系推理与多跳，答案逐句溯源至原始文档片段。
           </div>
-          <div class="cap-cell__note">REFS · RERANK · GRAPH</div>
-        </div>
-
-        <!-- SQL 数据分析 -->
-        <div class="cap-cell">
-          <div class="cap-cell__icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <ellipse cx="12" cy="5" rx="8" ry="3"/>
-              <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>
-              <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
-            </svg>
-          </div>
-          <div class="cap-cell__title">SQL 数据分析</div>
-          <div class="cap-cell__desc">
-            自动获取表结构、构造 SQL、执行并返回真实行集，结合 Python 做趋势拟合与预测，数字全部来源于真实查询。
-          </div>
-          <div class="cap-cell__note">SCHEMA · EXECUTE · PYTHON</div>
+          <div class="cap-cell__note">SCOPE · GRAPH · RERANK</div>
         </div>
 
         <!-- 知识图谱 -->
@@ -152,9 +153,25 @@
           </div>
           <div class="cap-cell__title">知识图谱</div>
           <div class="cap-cell__desc">
-            实体关系与数据血缘可视化，支持从任意实体出发扩展关联，辅助根因分析与影响面评估。
+            实体关系与数据血缘可视化，规模统计与节点详情一览，支持从任意实体扩展关联，辅助根因分析与影响面评估。
           </div>
-          <div class="cap-cell__note">NEO4J · LINEAGE · ENTITY</div>
+          <div class="cap-cell__note">NEO4J · STATS · LINEAGE</div>
+        </div>
+
+        <!-- 数据质量管理 -->
+        <div class="cap-cell">
+          <div class="cap-cell__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <div class="cap-cell__title">数据质量管理</div>
+          <div class="cap-cell__desc">
+            结构化五维评估、非结构化文本质量、数据清洗一站式完成，评估与清洗结果留档为历史记录，可回溯对比。
+          </div>
+          <div class="cap-cell__note">ASSESS · CLEAN · HISTORY</div>
         </div>
 
         <!-- RAG 评测 -->
@@ -173,6 +190,23 @@
             量化检索质量，计算 Faithfulness、Relevance、Recall 等指标，任务级聚合持久化，支持多版本对比。
           </div>
           <div class="cap-cell__note">METRICS · BATCH · PERSIST</div>
+        </div>
+
+        <!-- 知识库管理 -->
+        <div class="cap-cell">
+          <div class="cap-cell__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 3h9l4 4v14H6z"/>
+              <path d="M15 3v4h4"/>
+              <path d="M9 13h6M9 17h4"/>
+            </svg>
+          </div>
+          <div class="cap-cell__title">知识库管理</div>
+          <div class="cap-cell__desc">
+            PDF / Word / Excel / Markdown 多格式解析，语义智能分块与向量化，上传预检按 file hash 去重防重传。
+          </div>
+          <div class="cap-cell__note">PARSE · CHUNK · DEDUP</div>
         </div>
 
       </div>
@@ -210,7 +244,7 @@
             <span class="arch-chip">Graph</span>
           </div>
           <div class="arch-sub">
-            handler → service → model ← repository &nbsp;·&nbsp; Eino Agent 框架 &nbsp;·&nbsp; 流式输出
+            handler → service → model ← repository &nbsp;·&nbsp; Eino Agent 框架 &nbsp;·&nbsp; SSE 流式 + A2UI 生成式 UI
           </div>
         </div>
 
@@ -224,6 +258,8 @@
             <span class="arch-chip arch-chip--hi">Document</span>
             <span class="arch-sep">·</span>
             <span class="arch-chip">Evaluation</span>
+            <span class="arch-sep">·</span>
+            <span class="arch-chip">Quality</span>
             <span class="arch-sep">·</span>
             <span class="arch-chip">DataAnalysis</span>
           </div>
