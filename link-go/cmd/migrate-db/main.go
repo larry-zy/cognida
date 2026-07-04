@@ -72,6 +72,8 @@ func main() {
 		&mysqlrepo.SemanticMeasureModel{},
 		&mysqlrepo.SemanticMetricModel{},
 		&mysqlrepo.SemanticRelationModel{},
+		// Data Agent 操作审计
+		&mysqlrepo.OperationAuditModel{},
 	}
 
 	if err := db.AutoMigrate(models...); err != nil {

@@ -7,21 +7,25 @@ import "context"
 // Context Keys - 用于在 context.Context 中传递协作上下文
 // ========================================
 
-// contextKey 是内部类型，防止外部包冲突
-type contextKey struct{}
+// contextKey 是内部类型，防止外部包冲突。
+// 注意必须携带可区分的值：空结构体的所有实例相等，若各 key 都是 contextKey{}，
+// 后写入的 WithValue 会遮蔽先写入的（曾导致 TenantID 恒为 0、Result Store 归属键失效）。
+type contextKey string
 
 // 定义 context key 变量
 var (
 	// CollaborationCtxKey 协作上下文 key
-	CollaborationCtxKey = contextKey{}
+	CollaborationCtxKey = contextKey("collaboration_ctx")
 	// SessionIDKey 会话 ID key
-	SessionIDKey = contextKey{}
+	SessionIDKey = contextKey("session_id")
 	// TenantIDKey 租户 ID key
-	TenantIDKey = contextKey{}
+	TenantIDKey = contextKey("tenant_id")
 	// UserIDKey 用户 ID key
-	UserIDKey = contextKey{}
+	UserIDKey = contextKey("user_id")
 	// RequestIDKey 请求 ID key（用于链路追踪）
-	RequestIDKey = contextKey{}
+	RequestIDKey = contextKey("request_id")
+	// ToolScopeKey 会话工具 scope key（read / write / etl，Phase 6 硬工具门）
+	ToolScopeKey = contextKey("tool_scope")
 )
 
 // ========================================
@@ -128,6 +132,28 @@ func GetRequestID(ctx context.Context) (string, bool) {
 func MustGetRequestID(ctx context.Context) string {
 	requestID, _ := GetRequestID(ctx)
 	return requestID
+}
+
+// ========================================
+// ToolScope 传递辅助函数（Phase 6 硬工具门）
+// ========================================
+
+// WithToolScope 将会话工具 scope（read / write / etl）注入到 Go context 中。
+// scope 由入口（handler / 委派方）授予，与 skill 策略共同构成工具放行的必要条件。
+func WithToolScope(ctx context.Context, scope string) context.Context {
+	return context.WithValue(ctx, ToolScopeKey, scope)
+}
+
+// GetToolScope 从 Go context 中获取会话工具 scope
+func GetToolScope(ctx context.Context) (string, bool) {
+	scope, ok := ctx.Value(ToolScopeKey).(string)
+	return scope, ok
+}
+
+// MustGetToolScope 获取会话工具 scope，不存在则返回空字符串（由策略层按最小权限兜底）
+func MustGetToolScope(ctx context.Context) string {
+	scope, _ := GetToolScope(ctx)
+	return scope
 }
 
 // ========================================

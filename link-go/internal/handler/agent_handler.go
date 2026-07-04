@@ -3,25 +3,39 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	agentctx "link/internal/model/agent"
+	"link/internal/model/agent/operations"
 	agentuc "link/internal/service/agent"
 	"link/internal/service/agent/genui"
+	"link/internal/service/agent/pendingaction"
+	dataagent "link/internal/service/agent/presets/data_agent"
+	"link/internal/service/agent/resultstore"
 	ragtool "link/internal/service/agent/tools"
+	"link/internal/service/agent/uibinding"
 	"link/internal/handler/sse"
 )
 
 // genUIOption 控制流式过程中是否装配并下发生成式 UI（A2UI）契约。
-// compose 为 true 时，会在 done 之前用捕获到的真实 sql_execute / data_analysis
-// 工具输出经 genui.Compose 拼装 UISpec 并以 ui 事件下发（当前仅 Text2SQL 开启）。
+//
+// 渲染即工具（Phase 3）后，`ui` 事件的主路径是 render_ui 工具：agent 每次调用
+// render_ui，handler 从 tool_result 中提取校验后的 UISpec 并立即下发（一次回答
+// 可有多个独立 surface）。compose 为 true 时保留兜底：整个流未产生任何 render_ui
+// surface 才在 done 之前用捕获的 sql_execute / data_analysis 输出做一次性拼装
+// （兼容未挂载 render_ui 的旧 preset，Phase 8 切换后可移除）。
 type genUIOption struct {
-	compose  bool
-	question string
+	compose   bool
+	question  string
+	sessionID string // 归属会话：Confirm 卡片 resume 回调需回传（Phase 5 任务 6.3）
 }
 
 // ========================================
@@ -83,9 +97,60 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 
 // agentStreamResult 汇总一次流式执行的可持久化产物。
 type agentStreamResult struct {
-	Content   string                   // 完整回答文本
-	ToolCalls []agentuc.ToolCallInfo   // 工具调用记录
-	Steps     []map[string]interface{} // 结构化步骤轨迹（用于历史回放时间线）
+	Content    string                   // 完整回答文本
+	ToolCalls  []agentuc.ToolCallInfo   // 工具调用记录
+	Steps      []map[string]interface{} // 结构化步骤轨迹（用于历史回放时间线）
+	UISurfaces []*genui.UISpec          // 本次回答渲染的 UI surface（含有界数据快照，随消息持久化）
+}
+
+// extractRenderedUISpec 从 render_ui 的 tool_output（完整 JSON）中提取校验后的 UISpec。
+// 工具校验失败时 status=error 且无 ui_spec，返回 nil —— 即"校验失败不推 ui 事件"。
+func extractRenderedUISpec(toolOutput string) *genui.UISpec {
+	if toolOutput == "" {
+		return nil
+	}
+	var out struct {
+		UISpec *genui.UISpec `json:"ui_spec"`
+	}
+	if err := json.Unmarshal([]byte(toolOutput), &out); err != nil {
+		return nil
+	}
+	if out.UISpec == nil || len(out.UISpec.Components) == 0 {
+		return nil
+	}
+	return out.UISpec
+}
+
+// extractPendingConfirmUISpec 从 sql_mutate 的 tool_output 中识别危险操作暂停
+// （status=pending_confirm），装配确认卡片 surface（Phase 5 任务 6.3）。
+// 非暂停结果 / 解析失败返回 nil（不推 ui 事件）。UI 契约在 Go 端确定性拼装。
+func extractPendingConfirmUISpec(toolOutput, sessionID string) *genui.UISpec {
+	if toolOutput == "" {
+		return nil
+	}
+	var out struct {
+		Status          string `json:"status"`
+		Target          string `json:"target"`
+		RowsAffected    int64  `json:"rows_affected"`
+		PendingActionID string `json:"pending_action_id"`
+		ConfirmToken    string `json:"confirm_token"`
+		Message         string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(toolOutput), &out); err != nil {
+		return nil
+	}
+	if out.Status != operations.StatusPendingConfirm || out.PendingActionID == "" {
+		return nil
+	}
+	return genui.ConfirmCompose(genui.ConfirmInput{
+		Surface:         "sfc_" + uuid.NewString()[:8],
+		Target:          out.Target,
+		RowsAffected:    out.RowsAffected,
+		Message:         out.Message,
+		PendingActionID: out.PendingActionID,
+		ConfirmToken:    out.ConfirmToken,
+		SessionID:       sessionID,
+	})
 }
 
 // metaString 从 metadata 中安全取字符串字段。
@@ -101,28 +166,32 @@ func metaString(v interface{}) string {
 //   - tool_call 事件    → step{type:"tool_call", step, tool_name, tool_input, status}
 //   - tool_result 事件  → step{type:"tool_result", step, tool_name, tool_output, status, error}
 //   - error 事件        → step{type:"error", error}
-//   - ui                → ui{...UISpec}（仅 genUI.compose 为 true 时，done 之前下发）
+//   - ui                → ui{...UISpec}（render_ui 工具每次成功调用即时下发，可多次）
 //   - done              → done{answer}
 //
-// 同时收集完整回答、工具调用记录与步骤轨迹用于持久化。
+// 同时收集完整回答、工具调用记录、步骤轨迹与 UI surface 用于持久化。
 //
-// genUI 控制是否在 done 之前，用捕获到的真实 sql_execute / data_analysis 工具输出，
-// 经 genui.Compose 拼装一份生成式 UI 契约（UISpec）下发（Text2SQL 专用）。
+// `ui` 事件即时化：tool_result 中 tool_name=="render_ui" 且成功时，立即提取校验后的
+// UISpec 下发（不等流结束）；校验失败的调用 status=error、无 ui_spec，不推 ui 事件
+// （错误已由 eino 循环回灌 LLM 自纠）。genUI.compose 仅作旧 preset 兜底：整个流
+// 没有任何 render_ui surface 时，done 之前用捕获的工具输出一次性拼装。
 func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agentuc.ChatChunkDTO, genUI genUIOption) agentStreamResult {
 	var sb strings.Builder
 	var toolCalls []agentuc.ToolCallInfo
 	var steps []map[string]interface{}
-	var sqlOutput, analysisOutput string // 捕获真实工具输出，供 genUI 融合
+	var uiSurfaces []*genui.UISpec
+	var sqlOutput, analysisOutput string // 捕获真实工具输出，供旧路径 genUI 兜底融合
 
 	for chunk := range chunkChan {
 		if chunk.Done {
-			// done 之前：开启 genUI 且已取到真实数据时，拼装并下发 ui 事件。
-			if genUI.compose {
+			// 兜底路径：未产生任何 render_ui surface 时才做 done 前一次性拼装。
+			if genUI.compose && len(uiSurfaces) == 0 {
 				if spec := genui.Compose(c.Request.Context(), genui.ComposeInput{
 					Question:       genUI.question,
 					SQLOutput:      sqlOutput,
 					AnalysisOutput: analysisOutput,
 				}); spec != nil {
+					uiSurfaces = append(uiSurfaces, spec)
 					sse.SendSSE(c.Writer, "ui", spec)
 				}
 			}
@@ -165,15 +234,33 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 		if stepType == "tool_result" {
 			toolName := metaString(chunk.Metadata["tool_name"])
 			toolOutput := metaString(chunk.Metadata["tool_output"])
+			toolErr := metaString(chunk.Metadata["error"])
 			toolCalls = append(toolCalls, agentuc.ToolCallInfo{
 				ID:     metaString(chunk.Metadata["tool_id"]),
 				Name:   toolName,
 				Input:  metaString(chunk.Metadata["tool_input"]),
 				Output: toolOutput,
-				Error:  metaString(chunk.Metadata["error"]),
+				Error:  toolErr,
 			})
-			// 捕获真实工具输出，供 done 前的 genUI 融合（取最后一次成功结果）。
 			switch toolName {
+			case "render_ui":
+				// 渲染即工具：每次成功调用立即下发独立 ui surface（不等流结束）。
+				if toolErr == "" {
+					if spec := extractRenderedUISpec(toolOutput); spec != nil {
+						uiSurfaces = append(uiSurfaces, spec)
+						sse.SendSSE(c.Writer, "ui", spec)
+					}
+				}
+			case "sql_mutate":
+				// 危险操作暂停：Go 端确定性拼装确认卡片并即时下发（Phase 5 任务 6.3）。
+				// 卡片确认动作携 pending_action_id + token + session_id 回调 confirm 端点。
+				if toolErr == "" {
+					if spec := extractPendingConfirmUISpec(toolOutput, genUI.sessionID); spec != nil {
+						uiSurfaces = append(uiSurfaces, spec)
+						sse.SendSSE(c.Writer, "ui", spec)
+					}
+				}
+			// 捕获真实工具输出，供 done 前的旧路径 genUI 兜底（取最后一次成功结果）。
 			case "sql_execute":
 				if toolOutput != "" {
 					sqlOutput = toolOutput
@@ -186,7 +273,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 		}
 	}
 
-	return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps}
+	return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces}
 }
 
 // ChatStream AgenticRAG 流式聊天
@@ -395,17 +482,18 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 		return
 	}
 
-	// 设置 agent_id 为 text2sql
-	req.AgentID = "agent-text2sql-001"
+	// Phase 8 任务 9.1：主入口迁移到 Data Agent（单一 ReAct 内核 + 子代理委派）。
+	// 旧 text2sql preset 仍保留注册，显式携 agent_id 的调用方可继续使用（兼容）。
+	req.AgentID = dataagent.DataAgentID
 
 	// 从上下文获取用户ID和租户ID
 	userID := GetUserID(c)
 	tenantID := GetTenantID(c)
 	log.Printf("[Text2SQLStream] UserID: %d, TenantID: %d, Query: %s", userID, tenantID, req.Query)
 
-	// 使用持久化服务处理会话和消息
+	// 使用持久化服务处理会话和消息（AgentType 仍映射 text2sql，前端会话列表兼容）
 	prepareReq := &agentuc.PrepareSessionRequest{
-		AgentID:   "agent-text2sql-per",
+		AgentID:   dataagent.DataAgentID,
 		SessionID: req.SessionID,
 		UserID:    userID,
 		TenantID:  tenantID,
@@ -446,8 +534,16 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	// 更新请求的 session_id 为准备好的会话 ID
 	req.SessionID = session.ID
 
+	// Phase 8 任务 9.1：主入口注入 Agent 上下文——租户/会话/用户/请求 ID（审计留痕）
+	// + 协作上下文（子代理委派的循环/深度检测与 Result Store 归属）+ 会话工具 scope。
+	// 主入口默认授予最小权限 read：写/ETL 类工具由硬工具门拦截，危险操作走
+	// pending-confirm 人工确认流，不在此直接放行。
+	ctx := agentctx.NewAgentContext(c.Request.Context(), session.ID, tenantID, userID, req.Query)
+	ctx = agentctx.WithRequestID(ctx, fmt.Sprintf("t2s-%s", uuid.New().String()[:8]))
+	ctx = agentctx.WithToolScope(ctx, "read")
+
 	// 执行流式聊天
-	chunkChan, err := h.executeUseCase.ExecuteStream(c.Request.Context(), &req)
+	chunkChan, err := h.executeUseCase.ExecuteStream(ctx, &req)
 	if err != nil {
 		log.Printf("[Text2SQLStream] Execution failed: %v", err)
 		InternalError(c, err.Error())
@@ -455,7 +551,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	}
 
 	// 发送流式数据并收集内容（结构化 step 契约）；Text2SQL 开启生成式 UI 融合。
-	result := h.streamAgentChunks(c, chunkChan, genUIOption{compose: true, question: req.Query})
+	result := h.streamAgentChunks(c, chunkChan, genUIOption{compose: true, question: req.Query, sessionID: session.ID})
 
 	// 持久化：保存助手消息
 	if h.persistenceService != nil && result.Content != "" {
@@ -465,18 +561,25 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 		content := result.Content
 		toolCalls := result.ToolCalls
 		steps := result.Steps
+		uiSurfaces := result.UISurfaces
 		go func() {
 			// 使用新的 context，避免请求 context 被取消
 			ctx := context.Background()
+			agentSteps := map[string]interface{}{
+				"session_id": sessionID,
+				"steps":      steps,
+			}
+			// UI 持久化：A2UI 规格（含有界数据快照）随 assistant 消息落 MySQL，
+			// 会话重开从消息记录重现 surface，不依赖 SSE 重放（Phase 3 任务 4.5/4.6）。
+			if len(uiSurfaces) > 0 {
+				agentSteps["ui_surfaces"] = uiSurfaces
+			}
 			saveReq := &agentuc.SaveAssistantMessageRequest{
 				MessageID:  assistantMsgID,
 				SessionID:  sessionID,
 				Content:    content,
 				ToolCalls:  toolCalls,
-				AgentSteps: map[string]interface{}{
-					"session_id": sessionID,
-					"steps":      steps,
-				},
+				AgentSteps: agentSteps,
 				TokenCount: 0,
 			}
 			log.Printf("[Text2SQLStream] Saving assistant message for session %s", sessionID)
@@ -486,6 +589,178 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 				log.Printf("[Text2SQLStream] Successfully saved assistant message")
 			}
 		}()
+	}
+}
+
+// ========================================
+// 生成式 UI 交互回调（Phase 3 任务 4.7/4.8）
+// ========================================
+
+// uiPageSizeMax 单页最大行数（防止一次取回超大结果集）。
+const uiPageSizeMax = 200
+
+// GetUISurfacePage 按 surface 绑定状态分页取数（Pagination/Filter 组件回调）。
+//
+// 路由依据 Redis 中的交互绑定状态（surface ↔ result_id + token）：
+//   - 绑定不存在/超会话 TTL → status=session_expired（"会话已过期"，非错误路由）
+//   - token 不匹配          → 403（防伪造回调）
+//   - result_id 已过期      → status=data_expired（"数据已过期，可重跑"占位降级；
+//     小结果的有界快照已随消息持久化，前端直接用快照重现，无需走本接口）
+//   - 正常                  → 按 cursor 返回对应页（不重跑查询）
+//
+// Query 参数：token（必填）、cursor（默认 0）、page_size（默认 50，上限 200）
+func (h *AgentHandler) GetUISurfacePage(c *gin.Context) {
+	surface := c.Param("surface")
+	token := c.Query("token")
+	if surface == "" || token == "" {
+		BadRequest(c, "surface 与 token 不能为空")
+		return
+	}
+
+	bindingStore := uibinding.GetStore()
+	if bindingStore == nil {
+		InternalError(c, "交互绑定存储未启用")
+		return
+	}
+
+	binding, err := bindingStore.Get(c.Request.Context(), surface)
+	if err != nil {
+		// 超会话 TTL：返回"会话已过期"占位，而非错误路由
+		OK(c, gin.H{"status": "session_expired", "message": "会话已过期"})
+		return
+	}
+	if binding.Token != token {
+		Forbidden(c, "回调 token 不匹配")
+		return
+	}
+	// 租户边界：token 是能力凭证，但绑定归属租户仍必须与认证租户一致，
+	// 防止凭 surface+token 跨租户读取 Result Store（同 token 不匹配文案，不泄露存在性）。
+	if binding.TenantID != GetTenantID(c) {
+		Forbidden(c, "回调 token 不匹配")
+		return
+	}
+	if binding.ResultID == "" {
+		OK(c, gin.H{"status": "data_expired", "message": "数据已过期，可重跑"})
+		return
+	}
+
+	store := ragtool.GetResultStore()
+	if store == nil {
+		InternalError(c, "结果存储未启用")
+		return
+	}
+
+	owner := resultstore.OwnerKey(binding.TenantID, binding.SessionID)
+	result, err := store.Get(c.Request.Context(), owner, binding.ResultID)
+	if err != nil {
+		// Result Store TTL 过期（或归属异常）：大数据降级占位（4.7）
+		OK(c, gin.H{"status": "data_expired", "message": "数据已过期，可重跑"})
+		return
+	}
+
+	// cursor 分页（约定：分页使用 cursor 而非 offset 语义暴露；cursor 为行位置）
+	cursor, _ := strconv.Atoi(c.DefaultQuery("cursor", "0"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	if cursor < 0 {
+		cursor = 0
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > uiPageSizeMax {
+		pageSize = uiPageSizeMax
+	}
+
+	total := len(result.Rows)
+	if cursor > total {
+		cursor = total
+	}
+	end := cursor + pageSize
+	if end > total {
+		end = total
+	}
+	nextCursor := ""
+	if end < total {
+		nextCursor = strconv.Itoa(end)
+	}
+
+	OK(c, gin.H{
+		"status":      "ok",
+		"result_id":   binding.ResultID,
+		"columns":     result.Columns,
+		"rows":        result.Rows[cursor:end],
+		"row_count":   total,
+		"cursor":      cursor,
+		"next_cursor": nextCursor,
+	})
+}
+
+// ========================================
+// 危险操作人机确认 resume（Phase 5 任务 6.2）
+// ========================================
+
+// confirmOperationRequest 确认请求：pending_action_id + 一次性 token + 所属会话。
+type confirmOperationRequest struct {
+	PendingActionID string `json:"pending_action_id" binding:"required"`
+	Token           string `json:"token" binding:"required"`
+	SessionID       string `json:"session_id" binding:"required"`
+}
+
+// ConfirmOperation 危险操作确认 resume 端点。
+//
+// sql_mutate 危险级操作（影响行数 ≥ 阈值）会在事务内 dry-run 后回滚并暂存为
+// pending action，前端确认卡片携 pending_action_id + token 调本端点恢复执行：
+//   - token 匹配且未过期 → 提交事务（幂等与审计仍生效）
+//   - token 不匹配        → 403 拒绝，且该 pending action 立即失效（防暴力尝试）
+//   - 不存在/已过期/归属不符 → status=expired（非错误路由，前端展示"已过期"占位，
+//     不泄露他人 pending action 的存在性）
+func (h *AgentHandler) ConfirmOperation(c *gin.Context) {
+	var req confirmOperationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+
+	store := ragtool.GetPendingActionStore()
+	if store == nil {
+		InternalError(c, "待确认操作存储未启用")
+		return
+	}
+
+	// 归属键与暂存时一致：tenant 来自认证上下文，session 由确认卡片回传
+	tenantID := GetTenantID(c)
+	owner := resultstore.OwnerKey(tenantID, req.SessionID)
+
+	action, err := store.Consume(c.Request.Context(), owner, req.PendingActionID, req.Token)
+	if err != nil {
+		if errors.Is(err, pendingaction.ErrTokenMismatch) {
+			// token 不匹配：拒绝，且该 pending action 已在 Consume 内消费失效
+			Forbidden(c, "确认 token 不匹配，该待确认操作已失效")
+			return
+		}
+		OK(c, gin.H{"status": "expired", "message": "待确认操作不存在或已过期，请重新发起"})
+		return
+	}
+
+	// 注入 agent 上下文：确认执行的审计沿用原 tenant/session 归属，
+	// 并携认证 UserID——审计须可追溯是谁批准了危险操作。
+	ctx := agentctx.WithTenantID(c.Request.Context(), tenantID)
+	ctx = agentctx.WithSessionID(ctx, req.SessionID)
+	ctx = agentctx.WithUserID(ctx, GetUserID(c))
+	ctx = agentctx.WithRequestID(ctx, fmt.Sprintf("confirm-%s", uuid.New().String()[:8]))
+
+	switch action.Kind {
+	case operations.OpMutate:
+		result, execErr := ragtool.ExecuteConfirmedMutation(ctx, action)
+		if execErr != nil {
+			InternalError(c, execErr.Error())
+			return
+		}
+		OK(c, result)
+	default:
+		// pending action 消费即失效：进不了执行分支也必须留痕，防静默丢弃
+		ragtool.RecordUnsupportedConfirmKind(ctx, action)
+		BadRequest(c, fmt.Sprintf("不支持的待确认操作类型: %s", action.Kind))
 	}
 }
 

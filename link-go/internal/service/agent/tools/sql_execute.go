@@ -80,6 +80,11 @@ func InitResultStore(s resultstore.Store) {
 	resultStore = s
 }
 
+// GetResultStore 取当前 Result Store（供 handler 层做 UI 回调按引用取数）。
+func GetResultStore() resultstore.Store {
+	return resultStore
+}
+
 // NewSQLExecuteTool 创建 SQL 执行工具
 func NewSQLExecuteTool() *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
 	return NewTypedBaseTool("sql_execute",

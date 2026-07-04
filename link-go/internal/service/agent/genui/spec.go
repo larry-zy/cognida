@@ -20,6 +20,14 @@ package genui
 //	Callout     → 结论/提示条（props: title, text, tone）
 //	Table       → 数据表（props: data{path} → {columns, rows}）—— 融合 sql_execute 行集
 //	LineChart   → 折线图（props: title, series{path} → {labels, actual, forecast}）—— 融合分析序列
+//
+// 交互组件（回调驱动后续轮次，action 经 SSE 之外的 follow-up 通道回传）：
+//
+//	Button      → 动作按钮（props: label, action{name, params}, variant）
+//	Confirm     → 危险操作确认（props: title, text, pending_action_id, confirmLabel, cancelLabel）
+//	Form        → 参数表单（props: fields[{name,label,type,default}], submitAction{name}）
+//	Filter      → 过滤器（props: field, options|{path}, action{name}）
+//	Pagination  → 分页（props: page, pageSize, total|{path}, action{name}）
 const (
 	CompColumn     = "Column"
 	CompRow        = "Row"
@@ -28,11 +36,24 @@ const (
 	CompCallout    = "Callout"
 	CompTable      = "Table"
 	CompLineChart  = "LineChart"
+
+	// 交互组件
+	CompButton     = "Button"
+	CompConfirm    = "Confirm"
+	CompForm       = "Form"
+	CompFilter     = "Filter"
+	CompPagination = "Pagination"
 )
 
 // Catalog 是允许出现在规格中的组件类型全集。
 var Catalog = []string{
 	CompColumn, CompRow, CompText, CompMetricCard, CompCallout, CompTable, CompLineChart,
+	CompButton, CompConfirm, CompForm, CompFilter, CompPagination,
+}
+
+// InteractiveCatalog 是交互组件子集（产生回调、驱动后续轮次的组件）。
+var InteractiveCatalog = []string{
+	CompButton, CompConfirm, CompForm, CompFilter, CompPagination,
 }
 
 // RootID 是组件邻接表的固定根节点 id。

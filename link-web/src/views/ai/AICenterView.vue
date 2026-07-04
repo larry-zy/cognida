@@ -222,8 +222,12 @@
                   </table>
                 </div>
               </div>
-              <!-- 生成式 UI：AI 融合 SQL + 分析结果生成的可视化布局 -->
-              <A2UIRenderer v-if="message.ui_spec" :spec="message.ui_spec" />
+              <!-- 生成式 UI：render_ui 每次调用一个独立 surface，可多面板 -->
+              <A2UIRenderer
+                v-for="surface in message.ui_surfaces || []"
+                :key="surface.surface || surface.title"
+                :spec="surface"
+              />
               <div class="ai-message__actions">
                 <span class="ai-message__time">{{ formatTime(message.created_at) }}</span>
                 <button class="ai-message__action" @click="copyMessage(message.content)" title="复制">
@@ -254,8 +258,12 @@
                 :active="true"
               />
               <div v-if="streamingContent" class="ai-message__bubble" v-html="renderMarkdown(streamingContent)"></div>
-              <!-- 生成式 UI 布局（流式到达即渲染） -->
-              <A2UIRenderer v-if="streamingUISpec" :spec="streamingUISpec" />
+              <!-- 生成式 UI（流式到达即渲染；render_ui 每次调用即推一个面板） -->
+              <A2UIRenderer
+                v-for="surface in streamingUISurfaces"
+                :key="surface.surface || surface.title"
+                :spec="surface"
+              />
               <div class="ai-message__actions">
                 <span class="streaming-indicator">{{ streamingIndicator }}</span>
               </div>
@@ -321,8 +329,8 @@ interface AIMessage extends Message {
   sql_result?: string
   query_data?: any[]
   agent_type?: string
-  steps?: AgentStep[]  // Agent 思考步骤（工具调用轨迹）
-  ui_spec?: A2UISpec   // 生成式 UI（A2UI）布局：由后端融合真实 SQL+分析结果下发
+  steps?: AgentStep[]        // Agent 思考步骤（工具调用轨迹）
+  ui_surfaces?: A2UISpec[]   // 生成式 UI（A2UI）面板：render_ui 每次调用一个独立 surface
 }
 
 // Tab 配置
@@ -364,7 +372,7 @@ const inputMessage = ref('')
 const isStreaming = ref(false)
 const streamingContent = ref('')
 const streamingSteps = ref<AgentStep[]>([])  // 当前流式消息的思考步骤
-const streamingUISpec = ref<A2UISpec | null>(null)  // 当前流式消息的生成式 UI 布局
+const streamingUISurfaces = ref<A2UISpec[]>([])  // 当前流式消息的生成式 UI 面板（可多个）
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
@@ -414,6 +422,20 @@ function parseAgentSteps(raw?: string): AgentStep[] {
         else acc.push(cur)
         return acc
       }, [])
+  } catch {
+    return []
+  }
+}
+
+// 从持久化的 agent_steps JSON 重现 UI 面板（会话重开时不依赖 SSE 重放；
+// 数据来自持久化的有界快照，独立于 Result Store TTL）
+function parseUISurfaces(raw?: string): A2UISpec[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    const list = parsed?.ui_surfaces
+    if (!Array.isArray(list)) return []
+    return list.filter((s: any) => s && Array.isArray(s.components) && s.components.length)
   } catch {
     return []
   }
@@ -521,7 +543,8 @@ async function switchSession(sessionId: string) {
         created_at: typeof msg.created_at === 'number'
           ? new Date(msg.created_at * 1000).toISOString()
           : msg.created_at,
-        steps: parseAgentSteps(msg.agent_steps)
+        steps: parseAgentSteps(msg.agent_steps),
+        ui_surfaces: parseUISurfaces(msg.agent_steps)
       }))
       // 根据 session 类型设置 activeTab
       const session = sessions.value.find(s => s.id === sessionId)
@@ -606,7 +629,7 @@ async function sendMessage() {
   isStreaming.value = true
   streamingContent.value = ''
   streamingSteps.value = []
-  streamingUISpec.value = null
+  streamingUISurfaces.value = []
 
   try {
     let assistantContent = ''
@@ -673,11 +696,16 @@ async function sendMessage() {
           streamingContent.value = event.content
         }
       } else if (event.event === 'ui') {
-        // 生成式 UI：后端融合真实 SQL 行集 + 分析指标装配的 A2UI 布局。
+        // 生成式 UI：render_ui 每次调用即推一个独立 surface（可多面板）。
         // SSE 解析器把 spec 的字段直接铺在 event 上（并附加 event:'ui'）。
         const spec = event as unknown as A2UISpec
         if (Array.isArray(spec.components) && spec.components.length) {
-          streamingUISpec.value = spec
+          // 同 surface 覆盖（幂等），新 surface 追加
+          const idx = spec.surface
+            ? streamingUISurfaces.value.findIndex(s => s.surface === spec.surface)
+            : -1
+          if (idx >= 0) streamingUISurfaces.value.splice(idx, 1, spec)
+          else streamingUISurfaces.value.push(spec)
         }
       } else if (event.event === 'error') {
         ElMessage.error(event.error || event.content || '查询失败')
@@ -696,7 +724,7 @@ async function sendMessage() {
       sql_result: sqlResult || undefined,
       query_data: queryData || undefined,
       steps: streamingSteps.value.length ? [...streamingSteps.value] : undefined,
-      ui_spec: streamingUISpec.value || undefined,
+      ui_surfaces: streamingUISurfaces.value.length ? [...streamingUISurfaces.value] : undefined,
       agent_type: activeTab.value === 'text2sql' ? 'text2sql' : 'rag',
       created_at: new Date().toISOString()
     })
@@ -717,7 +745,7 @@ async function sendMessage() {
     isStreaming.value = false
     streamingContent.value = ''
     streamingSteps.value = []
-    streamingUISpec.value = null
+    streamingUISurfaces.value = []
   }
 }
 

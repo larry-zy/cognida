@@ -4,6 +4,8 @@ package framework
 import (
 	"fmt"
 	"sync"
+
+	domainagent "link/internal/model/agent"
 )
 
 // ========================================
@@ -24,11 +26,29 @@ type AgentInfo struct {
 	Capabilities []AgentCapability `json:"capabilities"`
 }
 
+// AgentGovernance 子代理治理元数据（Phase 7）：构成活体 agent 目录，
+// 供审计留痕（agent_operation_audit 串联）与最小权限校验。
+type AgentGovernance struct {
+	// Purpose 用途描述（该子代理解决什么问题）。
+	Purpose string `json:"purpose"`
+	// DataScope 数据访问级（如 "业务库只读" / "agent_etl_* 派生表读写"）。
+	DataScope string `json:"data_scope"`
+	// Tools 声明的最小工具集（工具名列表，注册时固定）。
+	Tools []string `json:"tools"`
+	// RiskClass 风险级：read / write / etl（与会话 scope 阶梯同构）。
+	RiskClass string `json:"risk_class"`
+}
+
 // AgentEntry represents a registered agent.
 type AgentEntry struct {
 	Agent        Agent
 	Capabilities []AgentCapability
 	Description  string
+	// Governance 治理元数据（Phase 7）；nil 表示未声明（旧注册路径）。
+	Governance *AgentGovernance
+	// ContextMode 该子代理被委派时的默认上下文模式（上下文防火墙）；
+	// 空值按 summary 处理。探查/写作类应为 isolated。
+	ContextMode domainagent.CollaborationContextMode
 }
 
 // CollaborationRegistry manages available agents and their capabilities for multi-agent collaboration.
@@ -54,6 +74,51 @@ func (r *CollaborationRegistry) Register(id string, agent Agent, capabilities []
 		Capabilities: capabilities,
 		Description:  description,
 	}
+}
+
+// RegisterGoverned 注册携治理元数据与默认上下文模式的子代理（Phase 7）。
+// gov 声明 {purpose, data_scope, tools, risk_class} 治理目录项；
+// mode 为该子代理被委派时的默认上下文模式（isolated/summary 上下文防火墙）。
+func (r *CollaborationRegistry) RegisterGoverned(
+	id string,
+	agent Agent,
+	description string,
+	gov *AgentGovernance,
+	mode domainagent.CollaborationContextMode,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.agents[id] = &AgentEntry{
+		Agent:       agent,
+		Description: description,
+		Governance:  gov,
+		ContextMode: mode,
+	}
+}
+
+// GetGovernance 取子代理治理元数据；未注册或未声明时返回 nil。
+func (r *CollaborationRegistry) GetGovernance(name string) *AgentGovernance {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entry, ok := r.agents[name]
+	if !ok {
+		return nil
+	}
+	return entry.Governance
+}
+
+// GetContextMode 取子代理默认上下文模式；未注册或未声明时按 summary 兜底。
+func (r *CollaborationRegistry) GetContextMode(name string) domainagent.CollaborationContextMode {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entry, ok := r.agents[name]
+	if !ok || entry.ContextMode == "" {
+		return domainagent.ContextModeSummary
+	}
+	return entry.ContextMode
 }
 
 // FindAgents finds agents that match the required skills.

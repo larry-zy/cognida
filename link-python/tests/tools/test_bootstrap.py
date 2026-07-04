@@ -12,6 +12,8 @@ EXPECTED_TOOLS = {
     "data_anomaly",
     "data_correlation",
     "data_insight",
+    "data_attribution",
+    "data_comparison",
 }
 
 

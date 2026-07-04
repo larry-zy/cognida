@@ -26,210 +26,80 @@ var delegatePathKey = contextKey{}
 // ========================================
 
 // DelegateTool implements tool.InvokableTool for delegating tasks to other agents.
+// Phase 7 起以结构化委派信封为参数契约（校验型：缺必填字段拒绝并回灌 LLM）。
 type DelegateTool struct {
 	registry *CollaborationRegistry
-	maxDepth int
-	timeout  time.Duration
 }
 
 // NewDelegateTool creates a new delegate tool.
 func NewDelegateTool(registry *CollaborationRegistry) *DelegateTool {
-	return &DelegateTool{
-		registry: registry,
-		maxDepth:  5, // Prevent infinite loops
-		timeout:  30 * time.Second,
+	return &DelegateTool{registry: registry}
+}
+
+// delegationEnvelopeParams 委派信封的工具参数 schema（单次与并行委派共用）。
+func delegationEnvelopeParams() map[string]*schema.ParameterInfo {
+	return map[string]*schema.ParameterInfo{
+		"agent_name": {
+			Type:     schema.String,
+			Desc:     "The name of the agent to delegate the task to",
+			Required: true,
+		},
+		"goal": {
+			Type:     schema.String,
+			Desc:     "该子任务要达成的目标（必填）",
+			Required: true,
+		},
+		"inputs": {
+			Type: schema.Object,
+			Desc: "任务输入（按需）：result_id 传既有结果句柄，sql 传待执行/待分析语句，question 传自然语言问题",
+			SubParams: map[string]*schema.ParameterInfo{
+				"result_id": {Type: schema.String, Desc: "既有查询/分析结果的句柄"},
+				"sql":       {Type: schema.String, Desc: "SQL 语句"},
+				"question":  {Type: schema.String, Desc: "自然语言问题"},
+			},
+		},
+		"constraints": {
+			Type:     schema.Object,
+			Desc:     "委派约束（必填）：scope 声明本次授予的权限级，max_rows 约束结果规模",
+			Required: true,
+			SubParams: map[string]*schema.ParameterInfo{
+				"scope": {
+					Type:     schema.String,
+					Desc:     "本次委派授予的权限 scope（必填，不得超过会话自身 scope）",
+					Enum:     []string{ScopeRead, ScopeWrite, ScopeETL},
+					Required: true,
+				},
+				"max_rows": {Type: schema.Integer, Desc: "结果行数上限"},
+			},
+		},
+		"return": {
+			Type: schema.String,
+			Desc: "期望回传形态（如 \"result_id + 结论摘要\"）",
+		},
 	}
 }
 
 // Info returns the tool description for LLM.
 func (t *DelegateTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
-	agents := t.registry.ListWithDescriptions()
-	agentList := t.formatAgentList(agents)
+	agentList := formatAgentInfos(t.registry.ListWithDescriptions())
 
 	return &schema.ToolInfo{
-		Name: "delegate_to_agent",
-		Desc: fmt.Sprintf("Delegate a task to another agent. Use this when you need a specialized agent to handle a specific sub-task.\n\nAvailable agents:\n%s", agentList),
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"agent_name": {
-				Type:     schema.String,
-				Desc:     "The name of the agent to delegate the task to",
-				Required: true,
-			},
-			"task": {
-				Type:     schema.String,
-				Desc:     "The specific task description to delegate",
-				Required: true,
-			},
-		}),
+		Name:        "delegate_to_agent",
+		Desc:        fmt.Sprintf("Delegate a task to a specialized agent with a structured envelope. 子代理只回传紧凑 handle/摘要（如 result_id + 结论）。缺 goal 或 constraints.scope 的委派会被拒绝。\n\nAvailable agents:\n%s", agentList),
+		ParamsOneOf: schema.NewParamsOneOfByParams(delegationEnvelopeParams()),
 	}, nil
 }
 
 // InvokableRun executes the delegation.
 func (t *DelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...any) (string, error) {
-	// Parse arguments
-	var args struct {
-		AgentName string `json:"agent_name"`
-		Task      string `json:"task"`
-	}
-
-	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
+	var env DelegationEnvelope
+	if err := json.Unmarshal([]byte(argumentsInJSON), &env); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
-
-	// Validate parameters
-	if args.AgentName == "" {
-		return "", fmt.Errorf("agent_name is required")
-	}
-	if args.Task == "" {
-		return "", fmt.Errorf("task is required")
-	}
-
-	// 获取协作上下文
-	collabCtx, hasCtx := agent.GetCollaborationContext(ctx)
-
-	// 检查循环委派
-	if hasCtx && collabCtx.IsCyclic(args.AgentName) {
-		return "", fmt.Errorf("检测到循环委派: %s → %s",
-			collabCtx.ChainDescription(), args.AgentName)
-	}
-
-	// 检查深度限制
-	if hasCtx && collabCtx.IsDepthExceeded() {
-		return "", fmt.Errorf("超过最大委派深度: %d", collabCtx.MaxDepth)
-	}
-
-	// Check if agent exists
-	targetAgent, err := t.registry.GetByName(args.AgentName)
-	if err != nil {
-		agents := t.registry.ListWithDescriptions()
-		suggestions := t.formatAgentList(agents)
-		return "", fmt.Errorf("agent '%s' not found. Available agents:\n%s", args.AgentName, suggestions)
-	}
-
-	// 更新委派链路
-	if hasCtx {
-		collabCtx.AddDelegate(args.AgentName)
-		ctx = agent.WithCollaborationContext(ctx, collabCtx)
-	} else {
-		// 如果没有协作上下文，使用旧的路径追踪方式
-		if t.detectLoop(ctx, args.AgentName) {
-			path := getDelegatePath(ctx)
-			return "", NewCollabLoopError(path, args.AgentName)
-		}
-		ctx = withDelegatePath(ctx, args.AgentName)
-	}
-
-	// Set timeout
-	ctx, cancel := context.WithTimeout(ctx, t.timeout)
-	defer cancel()
-
-	// 构建消息
-	message := t.buildMessage(ctx, collabCtx, hasCtx, args.Task)
-
-	// Execute delegation
-	startTime := time.Now()
-	resp, err := targetAgent.Chat(ctx, message)
-	duration := time.Since(startTime)
-
-	if err != nil {
-		// 存储错误结果
-		if hasCtx {
-			collabCtx.StoreResult(args.AgentName, &agent.TaskResult{
-				AgentName: args.AgentName,
-				Error:     err,
-				Duration:  duration,
-				StartTime: startTime,
-				EndTime:   startTime.Add(duration),
-			})
-		}
-		return "", fmt.Errorf("delegation to agent '%s' failed: %w", args.AgentName, err)
-	}
-
-	// 存储成功结果
-	if hasCtx {
-		collabCtx.StoreResult(args.AgentName, &agent.TaskResult{
-			AgentName: args.AgentName,
-			Content:   resp.Content,
-			Duration:  duration,
-			StartTime: startTime,
-			EndTime:   startTime.Add(duration),
-		})
-	}
-
-	return resp.Content, nil
+	// 契约校验、循环/深度/scope 越权护栏、每次委派授予与留痕均在执行内核
+	return executeDelegation(ctx, t.registry, &env)
 }
 
-// buildMessage 根据协作上下文模式构建消息
-func (t *DelegateTool) buildMessage(ctx context.Context, collabCtx *agent.CollaborationContext, hasCtx bool, task string) string {
-	if !hasCtx || collabCtx.Mode == agent.ContextModeNone || collabCtx.Mode == agent.ContextModeIsolated {
-		// 无上下文模式，只传递任务
-		return task
-	}
-
-	var builder strings.Builder
-
-	switch collabCtx.Mode {
-	case agent.ContextModeSummary:
-		// 摘要模式：传递摘要、原始问题、委派链路
-		builder.WriteString("## 协作上下文\n\n")
-		if collabCtx.OriginalQuery != "" {
-			builder.WriteString(fmt.Sprintf("**原始问题**: %s\n\n", collabCtx.OriginalQuery))
-		}
-		if collabCtx.Summary != "" {
-			builder.WriteString(fmt.Sprintf("**对话摘要**: %s\n\n", collabCtx.Summary))
-		}
-		if len(collabCtx.DelegateChain) > 0 {
-			builder.WriteString(fmt.Sprintf("**已执行流程**: %s\n\n", collabCtx.ChainDescription()))
-		}
-		builder.WriteString(fmt.Sprintf("**当前任务**: %s", task))
-
-	case agent.ContextModeRecent:
-		// 最近消息模式：传递最近 N 条消息
-		builder.WriteString("## 最近对话\n\n")
-		// 这里简化处理，实际应该从 MemoryService 加载
-		if collabCtx.Summary != "" {
-			builder.WriteString(fmt.Sprintf("[摘要] %s\n\n", collabCtx.Summary))
-		}
-		builder.WriteString(fmt.Sprintf("**当前任务**: %s", task))
-
-	case agent.ContextModeFull:
-		// 完整历史模式
-		builder.WriteString("## 完整对话历史\n\n")
-		if collabCtx.Summary != "" {
-			builder.WriteString(fmt.Sprintf("[摘要] %s\n\n", collabCtx.Summary))
-		}
-		if len(collabCtx.DelegateChain) > 0 {
-			builder.WriteString(fmt.Sprintf("[委派链路] %s\n\n", collabCtx.ChainDescription()))
-		}
-		builder.WriteString(fmt.Sprintf("**当前任务**: %s", task))
-
-	default:
-		// 默认只传递任务
-		return task
-	}
-
-	return builder.String()
-}
-
-// formatAgentList formats agent list for tool description.
-func (t *DelegateTool) formatAgentList(agents []AgentInfo) string {
-	var sb strings.Builder
-	for _, a := range agents {
-		sb.WriteString(fmt.Sprintf("- %s: %s\n", a.Name, a.Description))
-	}
-	return sb.String()
-}
-
-// detectLoop checks if the target agent is already in the delegation path.
-func (t *DelegateTool) detectLoop(ctx context.Context, targetAgent string) bool {
-	path := getDelegatePath(ctx)
-	for _, agent := range path {
-		if agent == targetAgent {
-			return true
-		}
-	}
-	return false
-}
 
 // getDelegatePath retrieves the delegation path from context.
 func getDelegatePath(ctx context.Context) []string {

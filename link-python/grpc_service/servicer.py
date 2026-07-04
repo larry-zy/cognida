@@ -389,6 +389,18 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
         logger = get_logger(__name__)
         logger.warning(f"Failed to register EvaluationService", error=str(e))
 
+    # 添加 Quality 数据质量服务
+    try:
+        from proto import quality_pb2_grpc
+        from services.quality.servicer import QualityServicer
+
+        quality_pb2_grpc.add_QualityServiceServicer_to_server(
+            QualityServicer(), server
+        )
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.warning(f"Failed to register QualityService", error=str(e))
+
     server.add_insecure_port(f'127.0.0.1:{port}')
     return server
 

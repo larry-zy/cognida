@@ -139,12 +139,59 @@ export async function* streamAgentChat(request: string | AgentChatRequest, opts?
 }
 
 /**
+ * UI surface 分页回源响应（对齐 Go 端 GetUISurfacePage）。
+ * status: ok | session_expired（绑定超会话 TTL）| data_expired（result_id 过期，可重跑）
+ */
+export interface UISurfacePageResult {
+  status: 'ok' | 'session_expired' | 'data_expired'
+  message?: string
+  result_id?: string
+  columns?: string[]
+  rows?: Record<string, any>[]
+  row_count?: number
+  cursor?: number
+  next_cursor?: number
+}
+
+/**
+ * 按 surface + 能力 token 从 Result Store 回源取一页数据（cursor 分页，不重跑查询）。
+ * 供 A2UI Pagination/Filter 组件回调使用。
+ */
+export async function getUISurfacePage(
+  surface: string,
+  params: { token: string; cursor?: number; page_size?: number }
+): Promise<UISurfacePageResult> {
+  const token = storage.get<string>('token')
+  const currentTenant = storage.get<any>('current_tenant')
+
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (currentTenant?.id) headers['X-Tenant-ID'] = currentTenant.id.toString()
+
+  const qs = new URLSearchParams({ token: params.token })
+  if (params.cursor != null) qs.set('cursor', String(params.cursor))
+  if (params.page_size != null) qs.set('page_size', String(params.page_size))
+
+  const response = await fetch(
+    `${getApiBaseURL()}/agent/ui/surfaces/${encodeURIComponent(surface)}/page?${qs}`,
+    { headers }
+  )
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+  const body = await response.json()
+  // 后端统一 {code, message, data} 信封，页数据在 data 内
+  return (body?.data ?? body) as UISurfacePageResult
+}
+
+/**
  * Agent API
  */
 export const agentApi = {
   streamKnowledgeChat,
   streamText2SQL,
-  streamAgentChat
+  streamAgentChat,
+  getUISurfacePage
 }
 
 export default agentApi

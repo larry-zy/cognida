@@ -31,6 +31,13 @@ from .insight import (
     InsightType,
     InsightSeverity,
 )
+from .attribution import (
+    AttributionAnalyzer,
+    AttributionResult,
+    GroupComparison,
+    SegmentDriver,
+    UNKNOWN_SEGMENT,
+)
 from .validation import (
     DataValidator,
     TimeSeriesDetector,
@@ -65,6 +72,12 @@ __all__ = [
     "Insight",
     "InsightType",
     "InsightSeverity",
+    # Attribution
+    "AttributionAnalyzer",
+    "AttributionResult",
+    "GroupComparison",
+    "SegmentDriver",
+    "UNKNOWN_SEGMENT",
     # Validation
     "DataValidator",
     "TimeSeriesDetector",

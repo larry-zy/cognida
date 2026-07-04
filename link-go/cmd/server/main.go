@@ -22,7 +22,9 @@ import (
 	neo4jrepo "link/internal/repository/neo4j"
 	"link/internal/service/agent/genui"
 	agentinit "link/internal/service/agent/initializer"
+	"link/internal/service/agent/pendingaction"
 	"link/internal/service/agent/resultstore"
+	"link/internal/service/agent/uibinding"
 	"link/internal/service/agent/semanticcache"
 	"link/internal/service/agent/termgrounding"
 	ragtool "link/internal/service/agent/tools"
@@ -152,6 +154,16 @@ func main() {
 			}
 			ragtool.InitResultStore(rs)
 
+			// 初始化 UI 交互绑定存储（surface ↔ result_id + token，会话 TTL）：
+			// 支撑 render_ui 的 Filter/Pagination 等组件回调路由。
+			if rediscache.Client != nil {
+				uibinding.SetStore(uibinding.NewRedisStore(rediscache.Client))
+				log.Println("✅ UI 交互绑定存储使用 Redis 后端")
+			} else {
+				uibinding.SetStore(uibinding.NewMemoryStore())
+				log.Println("⚠️  Redis 未配置，UI 交互绑定存储降级为进程内内存后端")
+			}
+
 			// 初始化受信查询缓存（Verified/Golden Query）：键含语义模型版本，版本变更即失效。
 			// 复用 Result Store 的 Redis 客户端；Redis 不可用则降级为进程内内存缓存。
 			var sc semanticcache.Cache
@@ -179,6 +191,28 @@ func main() {
 			} else {
 				log.Println("ℹ️  未连接 Neo4j，术语接地仅用模型内同义词")
 			}
+
+			// 初始化操作工具（sql_mutate / etl_run / data_export）：
+			// 审计仓储走 MySQL；待确认存储 Redis 可用则 Redis，否则进程内内存。
+			var pendingStore pendingaction.Store
+			if rediscache.Client != nil {
+				pendingStore = pendingaction.NewRedisStore(rediscache.Client)
+				log.Println("✅ 待确认操作存储使用 Redis 后端")
+			} else {
+				pendingStore = pendingaction.NewMemoryStore()
+				log.Println("⚠️  Redis 未配置，待确认操作存储降级为进程内内存后端")
+			}
+			ragtool.InitOperationTools(ragtool.OperationConfig{
+				DB:      db,
+				Audit:   mysql.NewOperationAuditRepository(db),
+				Pending: pendingStore,
+				// 红线原始业务表：Agent 禁止直接修改的系统核心表
+				RedlineTables: []string{
+					"tenants", "tenant_users", "users", "refresh_tokens", "sessions",
+					"audit_logs", "agent_operation_audit",
+				},
+			})
+			log.Println("✅ 操作工具（写/ETL/导出）初始化完成")
 
 			// 初始化数据分析工具：注入 MCP 调用器（与 skill 同源端点）
 			skillCfg := config.LoadSkillConfig()

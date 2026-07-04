@@ -4,6 +4,8 @@
 """
 
 from .anomaly_tool import DataAnomalyTool
+from .attribution_tool import DataAttributionTool
+from .comparison_tool import DataComparisonTool
 from .correlation_tool import DataCorrelationTool
 from .describe_tool import DataDescribeTool
 from .insight_tool import DataInsightTool
@@ -16,11 +18,15 @@ ANALYTICS_TOOLS = [
     DataAnomalyTool,
     DataCorrelationTool,
     DataInsightTool,
+    DataAttributionTool,
+    DataComparisonTool,
 ]
 
 __all__ = [
     "ANALYTICS_TOOLS",
     "DataAnomalyTool",
+    "DataAttributionTool",
+    "DataComparisonTool",
     "DataCorrelationTool",
     "DataDescribeTool",
     "DataInsightTool",

@@ -32,6 +32,7 @@ type Builder struct {
 	sessionID         string
 	autoSelect        bool
 	maxIter           int // 最大迭代次数
+	tokenBudget       int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
 	collabRegistry    *CollaborationRegistry
 	collabConfig      *CollaborationConfig
 
@@ -173,6 +174,13 @@ func (b *Builder) WithSession(sessionID string) *Builder {
 // WithMaxIterations sets the maximum number of iterations for tool calling.
 func (b *Builder) WithMaxIterations(maxIter int) *Builder {
 	b.maxIter = maxIter
+	return b
+}
+
+// WithTokenBudget 设置 ReAct 循环的 token 预算（累计生成消耗达到该值即终止并收尾）。
+// 传入 <=0 表示不限预算，仅受 maxIter 约束。
+func (b *Builder) WithTokenBudget(tokenBudget int) *Builder {
+	b.tokenBudget = tokenBudget
 	return b
 }
 
@@ -372,7 +380,10 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 	// Inject collaboration tools if configured
 	if b.collabRegistry != nil && b.collabConfig != nil {
 		if b.collabConfig.EnableDelegate {
+			// 委派能力成对启用：单次委派（依赖链串行）+ 并行 fan-out（独立子任务，
+			// 受并发上限护栏）。
 			b.tools = append(b.tools, NewDelegateTool(b.collabRegistry))
+			b.tools = append(b.tools, NewParallelDelegateTool(b.collabRegistry, 0))
 		}
 		if b.collabConfig.EnableAsk {
 			b.tools = append(b.tools, NewAskTool(b.collabRegistry))
@@ -411,6 +422,7 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 		afterHooks:     b.afterHooks,
 		middleware:     b.middleware,
 		maxIter:        b.maxIter,
+		tokenBudget:    b.tokenBudget,
 		memoryService:  b.memoryService,
 		contextBuilder: b.contextBuilder,
 		enableMemory:   b.enableMemory,

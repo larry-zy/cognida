@@ -134,6 +134,7 @@ type agentImpl struct {
 	afterHooks  []AfterHook
 	middleware  []Middleware
 	maxIter     int // 最大迭代次数（用于工具调用循环）
+	tokenBudget int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
 
 	// Memory 和 Context Builder 支持
 	memoryService   MemoryService // 记忆服务接口
@@ -490,6 +491,28 @@ func (a *agentImpl) chatWithMemoryOnly(ctx context.Context, messages []*schema.M
 	return response, nil
 }
 
+// ReAct 循环终止原因（写入 Response.Metadata["terminated_by"]）。
+const (
+	// TerminatedByMaxIter 表示达到最大迭代次数而终止。
+	TerminatedByMaxIter = "max_iter"
+	// TerminatedByTokenBudget 表示 token 预算耗尽而终止。
+	TerminatedByTokenBudget = "token_budget"
+)
+
+// windDownPrompt 是达到 maxIter/预算上限时注入的收尾指令：要求模型不再调用工具，
+// 直接基于已获得的观察结果给出「部分结论 + 已达上限说明」，避免返回空内容。
+const windDownPrompt = "已达到本轮的最大步数或 token 预算上限，请勿再调用任何工具。" +
+	"请基于目前已经获得的观察结果，直接用中文给出一个尽可能有用的部分结论，" +
+	"并明确说明因已达处理上限、结果可能不完整，必要时提示用户可如何继续（如按 result_id 取用或缩小范围）。"
+
+// usageTotalTokens 从一次生成响应中安全提取本轮消耗的 total tokens（缺失则 0）。
+func usageTotalTokens(msg *schema.Message) int {
+	if msg == nil || msg.ResponseMeta == nil || msg.ResponseMeta.Usage == nil {
+		return 0
+	}
+	return msg.ResponseMeta.Usage.TotalTokens
+}
+
 // truncateString 截断字符串到指定长度
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
@@ -533,19 +556,32 @@ func (a *agentImpl) chatWithTools(ctx context.Context, message string) (*Respons
 		boundModel = a.toolModel
 	}
 
-	// 迭代处理（可能需要多轮工具调用）
+	// 迭代处理（可能需要多轮工具调用）。
+	// ReAct 循环受 maxIter 与 token 预算共同约束：任一到达上限即终止并收尾。
+	tokensUsed := 0
+	terminatedBy := ""
+	naturalFinish := false // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
 	for i := 0; i < a.maxIter; i++ {
+		// token 预算前置检查：预算已耗尽则不再发起新一轮生成。
+		if a.tokenBudget > 0 && tokensUsed >= a.tokenBudget {
+			terminatedBy = TerminatedByTokenBudget
+			response.Metadata["iterations"] = i
+			break
+		}
+
 		// 生成响应
 		resp, err := boundModel.Generate(ctx, messages)
 		if err != nil {
 			return nil, fmt.Errorf("generate failed: %w", err)
 		}
+		tokensUsed += usageTotalTokens(resp)
 
 		// 检查是否有工具调用
 		if len(resp.ToolCalls) == 0 {
-			// 没有工具调用，返回最终回复
+			// 没有工具调用，模型主动收尾（Content 可能为空，但仍属自然结束，不应误判为达上限）
 			response.Content = resp.Content
 			response.Metadata["iterations"] = i + 1
+			naturalFinish = true
 			break
 		}
 
@@ -586,7 +622,36 @@ func (a *agentImpl) chatWithTools(ctx context.Context, message string) (*Respons
 
 			messages = append(messages, schema.ToolMessage(compactObservation(toolCall.Output), tc.ID))
 		}
+
+		// 本轮工具执行后再判预算：耗尽则标记终止，交由下方 wind-down 收尾。
+		if a.tokenBudget > 0 && tokensUsed >= a.tokenBudget {
+			terminatedBy = TerminatedByTokenBudget
+			response.Metadata["iterations"] = i + 1
+			break
+		}
 	}
+
+	// 循环耗尽 maxIter 却未自然收尾（最后一步仍是工具调用）→ 标记 max_iter。
+	// 以 naturalFinish 判定而非 Content==""：模型主动收尾但返回空内容时仍属自然结束。
+	if !naturalFinish && terminatedBy == "" {
+		terminatedBy = TerminatedByMaxIter
+	}
+
+	// wind-down：因达到 maxIter 或预算耗尽而被动终止（非自然收尾）时，做一次「无工具」收尾生成，
+	// 让模型基于已观察到的结果（Scratchpad/result_id 信封）给出部分结论，而非返回空串。
+	if !naturalFinish && terminatedBy != "" {
+		windMsgs := append(messages, schema.SystemMessage(windDownPrompt))
+		if final, ferr := a.toolModel.Generate(ctx, windMsgs); ferr == nil && final != nil {
+			response.Content = final.Content
+			tokensUsed += usageTotalTokens(final)
+		}
+		response.Metadata["partial"] = true
+	}
+
+	if terminatedBy != "" {
+		response.Metadata["terminated_by"] = terminatedBy
+	}
+	response.Metadata["tokens_used"] = tokensUsed
 
 	// Execute middleware after
 	for i := len(a.middleware) - 1; i >= 0; i-- {
@@ -658,6 +723,12 @@ func (a *agentImpl) chatWithoutTools(ctx context.Context, message string) (*Resp
 
 // invokeTool 执行单个工具调用
 func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (string, error) {
+	// 执行前硬工具门（Phase 6）：skill 策略 + 会话 scope 同为必要条件。
+	// 被拒调用不触达底层执行，以合成 tool_blocked ToolMessage 回灌 LLM。
+	if blocked, ok := gateToolCall(ctx, toolCall.Function.Name); !ok {
+		return blocked, nil
+	}
+
 	// 查找工具
 	var selectedTool tool.BaseTool
 	for _, t := range a.tools {

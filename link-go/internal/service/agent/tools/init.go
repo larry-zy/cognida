@@ -54,6 +54,16 @@ func InitializeTools() error {
 		return err
 	}
 
+	// 渲染工具（render_ui：结果集 → A2UI 规格）
+	if err := registerRenderTools(); err != nil {
+		return err
+	}
+
+	// 操作工具（sql_mutate / etl_run / data_export：写、派生、导出）
+	if err := registerOperationTools(); err != nil {
+		return err
+	}
+
 	// Skill 工具（工具发现和推荐）
 	if err := registerSkillTools(); err != nil {
 		return err
@@ -206,6 +216,46 @@ func registerAnalyticsTools() error {
 	}
 	if dataAnalysisTool != nil {
 		if err := GlobalRegistry.Register("analytics", dataAnalysisTool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// registerRenderTools 注册渲染工具（render_ui）
+//
+// 工具无需 Result Store 即可注册；真实存储由组合根经 InitResultStore 注入
+// （与 sql_execute 共享）。未注入时调用返回"结果存储未启用"错误。
+func registerRenderTools() error {
+	renderUITool := NewRenderUITool()
+	if renderUITool != nil {
+		if err := GlobalRegistry.Register("render", renderUITool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// registerOperationTools 注册操作工具（sql_mutate / etl_run / data_export）
+//
+// 工具无需配置即可注册；写库、审计仓储、待确认存储由组合根经
+// InitOperationTools 注入。未注入时调用返回不可用错误（宁拒不闯）。
+func registerOperationTools() error {
+	mutateTool := NewSQLMutateTool()
+	if mutateTool != nil {
+		if err := GlobalRegistry.Register("operation", mutateTool); err != nil {
+			return err
+		}
+	}
+	etlTool := NewETLRunTool()
+	if etlTool != nil {
+		if err := GlobalRegistry.Register("operation", etlTool); err != nil {
+			return err
+		}
+	}
+	exportTool := NewDataExportTool()
+	if exportTool != nil {
+		if err := GlobalRegistry.Register("operation", exportTool); err != nil {
 			return err
 		}
 	}

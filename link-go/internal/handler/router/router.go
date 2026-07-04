@@ -289,6 +289,12 @@ func (r *Router) setupAgentRoutes(api *gin.RouterGroup) {
 		agent.GET("/config", r.agentHandler.GetConfig)
 		agent.POST("/config", r.agentHandler.UpdateConfig)
 
+		// 生成式 UI 交互回调：按 surface 绑定状态分页取数（Pagination/Filter）
+		agent.GET("/ui/surfaces/:surface/page", r.agentHandler.GetUISurfacePage)
+
+		// 危险操作人机确认 resume：确认卡片携 pending_action_id + token 恢复执行
+		agent.POST("/operations/confirm", r.agentHandler.ConfirmOperation)
+
 		// 进度
 		agent.GET("/progress/:session_id", r.agentHandler.GetProgress)
 

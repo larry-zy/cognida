@@ -66,14 +66,78 @@
     </div>
   </div>
 
+  <!-- 按钮：触发声明式动作（回抛宿主，Phase 4/5 操作类工具消费） -->
+  <div v-else-if="node.type === 'Button'" class="a2ui-button">
+    <UiButton :variant="buttonVariant" size="sm" @click="fireAction(prop('action'))">
+      {{ prop('label') || '执行' }}
+    </UiButton>
+  </div>
+
+  <!-- 确认卡：写操作前置确认（pending_action_id 关联后端待执行操作） -->
+  <UiCard v-else-if="node.type === 'Confirm'" class="a2ui-confirm" variant="bordered" padding="none">
+    <div class="a2ui-confirm__title">{{ prop('title') || '请确认操作' }}</div>
+    <div v-if="prop('text')" class="a2ui-confirm__text">{{ prop('text') }}</div>
+    <div class="a2ui-confirm__actions">
+      <UiButton variant="secondary" size="sm" @click="fireConfirm(false)">
+        {{ prop('cancelLabel') || '取消' }}
+      </UiButton>
+      <UiButton variant="primary" size="sm" @click="fireConfirm(true)">
+        {{ prop('confirmLabel') || '确认执行' }}
+      </UiButton>
+    </div>
+  </UiCard>
+
+  <!-- 表单：参数补全后提交动作 -->
+  <div v-else-if="node.type === 'Form'" class="a2ui-form">
+    <div v-for="f in formFields" :key="f.name" class="a2ui-form__field">
+      <label class="a2ui-form__label">{{ f.label || f.name }}</label>
+      <UiInput
+        v-model="formValues[f.name]"
+        :type="f.type === 'number' ? 'number' : 'text'"
+        size="sm"
+        :placeholder="f.label || f.name"
+      />
+    </div>
+    <UiButton variant="primary" size="sm" @click="fireSubmit()">提交</UiButton>
+  </div>
+
+  <!-- 过滤器：选项可 {path} 绑定自数据树 -->
+  <div v-else-if="node.type === 'Filter'" class="a2ui-filter">
+    <span v-if="prop('field')" class="a2ui-filter__label">{{ prop('field') }}</span>
+    <UiSelect
+      v-model="filterValue"
+      :options="filterOptions"
+      size="sm"
+      clearable
+      placeholder="筛选"
+      @change="fireFilter"
+    />
+  </div>
+
+  <!-- 分页：经 surface 回源按 cursor 取页（不重跑查询），由 Renderer 消化 paginate 动作 -->
+  <div v-else-if="node.type === 'Pagination'" class="a2ui-pagination">
+    <UiPagination
+      :page="pageNo"
+      :page-size="pageSize"
+      :total="pageTotal"
+      size="sm"
+      show-info
+      @change="firePaginate"
+    />
+  </div>
+
   <!-- 未知类型：静默跳过（catalog 已在后端白名单校验） -->
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, reactive, ref } from 'vue'
 import UiCard from '@/components/ui/UiCard.vue'
 import UiAlert from '@/components/ui/UiAlert.vue'
 import UiTable from '@/components/ui/UiTable.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
+import UiPagination from '@/components/ui/UiPagination.vue'
 import { A2UI_CTX, type A2UIContext } from './a2ui-context'
 
 const props = defineProps<{ id: string }>()
@@ -136,6 +200,73 @@ const tableColumns = computed(() => {
   return cols.map((c) => ({ key: c, title: c }))
 })
 const tableRows = computed(() => tableData.value.rows || [])
+
+// ---- 交互组件：动作统一走 ctx.onAction（Renderer 注入） ----
+
+// Button 变体映射（后端 variant → UiButton variant）
+const buttonVariant = computed(() => {
+  const v = prop('variant')
+  if (v === 'danger' || v === 'secondary' || v === 'ghost') return v
+  return 'primary'
+})
+
+// fireAction：Button 的声明式动作 {name, params}
+function fireAction(action: any) {
+  const a = resolve(action)
+  if (!a || typeof a.name !== 'string') return
+  ctx.onAction({ name: a.name, params: a.params || {} })
+}
+
+// fireConfirm：确认卡两个分支都带 pending_action_id（Phase 5 确认续跑消费）
+function fireConfirm(ok: boolean) {
+  ctx.onAction({
+    name: ok ? 'confirm' : 'cancel',
+    params: { pending_action_id: prop('pending_action_id') }
+  })
+}
+
+// ---- Form：本地收集字段值后随 submitAction 提交 ----
+interface FormField { name: string; label?: string; type?: string; default?: any }
+const formFields = computed<FormField[]>(() => {
+  const fs = prop('fields')
+  return Array.isArray(fs) ? fs.filter((f: any) => f && typeof f.name === 'string') : []
+})
+const formValues = reactive<Record<string, any>>({})
+for (const f of formFields.value) {
+  if (formValues[f.name] === undefined) formValues[f.name] = f.default ?? ''
+}
+function fireSubmit() {
+  const name = prop('submitAction')
+  if (typeof name !== 'string' || !name) return
+  ctx.onAction({ name, params: { ...formValues } })
+}
+
+// ---- Filter：选项可为字符串数组或 {label, value} 数组（可 {path} 绑定） ----
+const filterValue = ref<string | number>('')
+const filterOptions = computed(() => {
+  const opts = prop('options')
+  if (!Array.isArray(opts)) return []
+  return opts.map((o: any) =>
+    o && typeof o === 'object' ? { label: String(o.label ?? o.value), value: o.value } : { label: String(o), value: o }
+  )
+})
+function fireFilter(v: string | number | (string | number)[]) {
+  const name = prop('action')
+  ctx.onAction({
+    name: typeof name === 'string' && name ? name : 'filter',
+    params: { field: prop('field'), value: v }
+  })
+}
+
+// ---- Pagination：page/pageSize 本地态，total 通常绑定 /meta/row_count ----
+const localPage = ref(0)
+const pageNo = computed(() => localPage.value || Number(prop('page')) || 1)
+const pageSize = computed(() => Number(prop('pageSize')) || 20)
+const pageTotal = computed(() => Number(prop('total')) || 0)
+function firePaginate(page: number, size: number) {
+  localPage.value = page
+  ctx.onAction({ name: 'paginate', params: { page, page_size: size } })
+}
 
 // ---- LineChart：把 series 绑定映射成 SVG 折线坐标 ----
 const chart = computed(() => {
@@ -203,4 +334,20 @@ const chart = computed(() => {
 .a2ui-chart__legend-item { display: inline-flex; align-items: center; gap: 4px; }
 .a2ui-chart__swatch { width: 10px; height: 3px; border-radius: 2px; background: var(--color-primary, #3370ff); }
 .a2ui-chart__swatch--forecast { background: var(--color-warning, #ff8800); }
+
+.a2ui-button { display: inline-flex; }
+
+.a2ui-confirm { padding: 12px 14px; border-left: 3px solid var(--color-warning, #ff8800); }
+.a2ui-confirm__title { font-size: 13px; font-weight: 600; color: var(--color-text-primary, #1f2329); }
+.a2ui-confirm__text { font-size: 12px; margin-top: 4px; color: var(--color-text-secondary, #646a73); }
+.a2ui-confirm__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
+.a2ui-form { display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
+.a2ui-form__field { display: flex; flex-direction: column; gap: 4px; }
+.a2ui-form__label { font-size: 12px; color: var(--color-text-secondary, #646a73); }
+
+.a2ui-filter { display: flex; align-items: center; gap: 8px; }
+.a2ui-filter__label { font-size: 12px; color: var(--color-text-tertiary, #8f959e); white-space: nowrap; }
+
+.a2ui-pagination { display: flex; justify-content: flex-end; }
 </style>

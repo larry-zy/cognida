@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 
 	infraagent "link/internal/service/agent/framework"
+	dataagent "link/internal/service/agent/presets/data_agent"
 	"link/internal/service/agent/presets/text2sql"
 	toolregistry "link/internal/service/agent/tools"
 	"link/internal/model/agent"
@@ -51,6 +52,11 @@ func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
 	// 3. 注册简单聊天 Agent
 	if err := init.registerChatAgent(ctx, chatModel); err != nil {
 		return fmt.Errorf("注册 Chat Agent 失败: %w", err)
+	}
+
+	// 4. 注册 Data Agent（单一 ReAct 内核）
+	if err := init.registerDataAgent(ctx, chatModel); err != nil {
+		log.Printf("⚠️  注册 Data Agent 失败: %v", err)
 	}
 
 	log.Println("[========== ✅ Agent 初始化完成 ============]")
@@ -220,6 +226,31 @@ func (init *Initializer) registerText2SQLAgent(ctx context.Context, chatModel an
 	return nil
 }
 
+// registerDataAgent 注册 Data Agent（单一 ReAct 内核，查/析/渲/操四类能力）
+func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) error {
+	var toolModel model.ToolCallingChatModel
+	if tm, ok := chatModel.(model.ToolCallingChatModel); ok {
+		toolModel = tm
+	} else {
+		return fmt.Errorf("invalid model type: expected ToolCallingChatModel")
+	}
+
+	// Phase 7：先注册数据域子代理（orchestrator-worker 协作注册表 + 治理目录），
+	// 再把注册表交给指挥官启用委派能力。
+	collabRegistry := infraagent.NewCollaborationRegistry()
+	if err := dataagent.RegisterDataSubAgents(ctx, collabRegistry, toolModel); err != nil {
+		return fmt.Errorf("注册数据域子代理失败: %w", err)
+	}
+	log.Printf("[Agent] ✓ Data sub-agents registered: %v", collabRegistry.List())
+
+	if err := dataagent.RegisterDataAgentPreset(ctx, init.registry, toolModel, collabRegistry); err != nil {
+		return err
+	}
+
+	log.Printf("[Agent] ✓ Data agent registered: id=%s, pattern=single-react+delegate", dataagent.DataAgentID)
+	return nil
+}
+
 // registerChatAgent 注册简单聊天 Agent
 func (init *Initializer) registerChatAgent(ctx context.Context, chatModel any) error {
 	// 类型断言：使用 BaseChatModel（ChatModel 已废弃）
@@ -353,6 +384,10 @@ func GetAgentByID(agentID string) (infraagent.Agent, bool) {
 	case "agent-chat-001":
 		if chatAgentInstance != nil {
 			return chatAgentInstance, true
+		}
+	case dataagent.DataAgentID:
+		if agent := dataagent.GetAgent(); agent != nil {
+			return agent, true
 		}
 	}
 	return nil, false

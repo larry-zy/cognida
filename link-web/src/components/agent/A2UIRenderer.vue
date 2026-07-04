@@ -16,7 +16,9 @@
         {{ spec.genMode === 'llm' ? 'AI 定制布局' : '标准模板' }}
       </span>
     </div>
-    <div class="a2ui__body">
+    <!-- 过期降级占位：绑定超会话 TTL / result_id 过期时提示，快照数据仍可见 -->
+    <UiAlert v-if="surfaceNotice" class="a2ui__notice" :type="surfaceNoticeType" :title="surfaceNotice" />
+    <div class="a2ui__body" :class="{ 'a2ui__body--loading': pageLoading }">
       <A2UINode :id="rootId" />
     </div>
   </div>
@@ -25,17 +27,28 @@
 <script setup lang="ts">
 import { computed, provide, ref, watch } from 'vue'
 import A2UINode from './A2UINode.vue'
+import UiAlert from '@/components/ui/UiAlert.vue'
+import { getUISurfacePage } from '@/api/agent'
 import {
   A2UI_CTX,
   type A2UISpec,
   type A2UIComponent,
   type A2UIDataModel,
+  type A2UIAction,
 } from './a2ui-context'
 
 const props = defineProps<{ spec: A2UISpec }>()
 
+// 非分页交互（Button/Confirm/Form/Filter）向宿主视图抛出，由 Phase 4/5 流程消费。
+const emit = defineEmits<{ action: [action: A2UIAction] }>()
+
 const nodes = ref<Record<string, A2UIComponent>>({})
 const dataModel = ref<A2UIDataModel>({})
+
+// 会话/数据过期降级提示（"会话已过期" / "数据已过期，可重跑"）
+const surfaceNotice = ref('')
+const surfaceNoticeType = ref<'warning' | 'error'>('warning')
+const pageLoading = ref(false)
 
 // 把扁平组件列表索引成 id→节点，并暴露 dataModel 给递归节点。
 watch(
@@ -45,13 +58,65 @@ watch(
     for (const c of spec?.components || []) map[c.id] = c
     nodes.value = map
     dataModel.value = spec?.dataModel || {}
+    surfaceNotice.value = ''
   },
   { immediate: true, deep: true },
 )
 
 const rootId = computed(() => (nodes.value['root'] ? 'root' : ''))
 
-provide(A2UI_CTX, { nodes, dataModel })
+// onAction：paginate 在此消化（按 surface+token 回源取页，不重跑查询），
+// 其余动作补齐 surface 后向上抛。
+function onAction(action: A2UIAction) {
+  if (action.name === 'paginate') {
+    void fetchPage(Number(action.params?.page) || 1, Number(action.params?.page_size) || 20)
+    return
+  }
+  emit('action', { ...action, surface: props.spec?.surface })
+}
+
+// fetchPage：cursor 分页回源 Result Store；过期时展示降级占位（快照仍在）。
+async function fetchPage(page: number, pageSize: number) {
+  const surface = props.spec?.surface
+  const token = dataModel.value?.meta?.surface_token
+  if (!surface || !token) {
+    // 无绑定（历史消息重现 / 绑定写失败降级）：仅有界快照可看，翻页不可用
+    surfaceNotice.value = '会话已过期，仅显示数据快照'
+    surfaceNoticeType.value = 'warning'
+    return
+  }
+  pageLoading.value = true
+  try {
+    const res = await getUISurfacePage(surface, {
+      token: String(token),
+      cursor: (page - 1) * pageSize,
+      page_size: pageSize,
+    })
+    if (res.status === 'session_expired') {
+      surfaceNotice.value = res.message || '会话已过期'
+      surfaceNoticeType.value = 'warning'
+    } else if (res.status === 'data_expired') {
+      surfaceNotice.value = res.message || '数据已过期，可重跑'
+      surfaceNoticeType.value = 'error'
+    } else if (res.status === 'ok' && Array.isArray(res.rows)) {
+      // 用回源页替换表格数据；总行数用于分页组件的 total 绑定
+      surfaceNotice.value = ''
+      dataModel.value = {
+        ...dataModel.value,
+        table: { columns: res.columns || dataModel.value?.table?.columns || [], rows: res.rows },
+        meta: { ...dataModel.value?.meta, row_count: res.row_count },
+      }
+    }
+  } catch (e) {
+    console.error('[A2UI] 分页回源失败:', e)
+    surfaceNotice.value = '数据加载失败，请稍后重试'
+    surfaceNoticeType.value = 'error'
+  } finally {
+    pageLoading.value = false
+  }
+}
+
+provide(A2UI_CTX, { nodes, dataModel, onAction })
 </script>
 
 <style scoped>
@@ -89,7 +154,14 @@ provide(A2UI_CTX, { nodes, dataModel })
   color: var(--color-text-tertiary, #8f959e);
   background: var(--color-fill-secondary, #eef0f3);
 }
+.a2ui__notice {
+  margin: 10px 12px 0;
+}
 .a2ui__body {
   padding: 14px;
+}
+.a2ui__body--loading {
+  opacity: 0.55;
+  pointer-events: none;
 }
 </style>

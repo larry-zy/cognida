@@ -180,7 +180,9 @@ func (s *AgentPersistenceService) prepareSession(ctx context.Context, req *Execu
 // determineAgentType 根据 AgentID 确定 AgentType
 func determineAgentType(agentID string) string {
 	switch {
-	case agentID == "agent-text2sql-001" || agentID == "agent-text2sql-per":
+	// "agent-data-agent" 为 Data Agent 主入口（Phase 8 迁移），会话类型沿用
+	// text2sql 以兼容前端会话列表（AICenterView 按 agent_type 渲染/过滤）。
+	case agentID == "agent-text2sql-001" || agentID == "agent-text2sql-per" || agentID == "agent-data-agent":
 		return "text2sql"
 	case agentID == "agent-rag-001":
 		return "rag"
@@ -281,7 +283,7 @@ func generateSessionTitle(agentType, query string) string {
 // getAgentDisplayName returns display name for agent type
 func getAgentDisplayName(agentType string) string {
 	switch agentType {
-	case "text2sql", "agent-text2sql-001", "agent-text2sql-per":
+	case "text2sql", "agent-text2sql-001", "agent-text2sql-per", "agent-data-agent":
 		return "SQL查询"
 	case "rag", "agent-rag-001":
 		return "知识库检索"

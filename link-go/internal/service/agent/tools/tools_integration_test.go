@@ -1,7 +1,8 @@
 //go:build integration
 // +build integration
 
-package tools
+// 外部测试包（tools_test）：本文件 import 被测包本身，放在 package tools 内会构成自导入循环。
+package tools_test
 
 import (
 	"context"
@@ -14,37 +15,31 @@ import (
 
 // TestRealLLM_ToolRegistry 测试工具注册表。
 func TestRealLLM_ToolRegistry(t *testing.T) {
-	// 测试工具注册表是否正常工作
-	registry := tools.GetDefaultRegistry()
-	allTools := registry.GetTools()
+	registry := tools.GlobalRegistry
+	toolNames := registry.ListTools()
 
-	t.Logf("注册表中的工具数量: %d", len(allTools))
+	t.Logf("注册表中的工具数量: %d", len(toolNames))
+	require.NotEmpty(t, toolNames)
 
-	for _, tool := range allTools {
-		info, err := tool.Info(context.Background())
+	for _, name := range toolNames {
+		tl, ok := registry.Get(name)
+		require.True(t, ok, "tool %s should be retrievable", name)
+		info, err := tl.Info(context.Background())
 		require.NoError(t, err)
-		t.Logf("工具: %s - %s", info.Name, info.Desc)
-	}
-
-	// 测试 GetToolsByNames
-	if len(allTools) > 0 {
-		info, _ := allTools[0].Info(context.Background())
-		toolsByName, err := registry.GetToolsByNames([]string{info.Name})
-		require.NoError(t, err)
-		require.Len(t, toolsByName, 1)
-		t.Logf("按名称获取工具成功: %s", info.Name)
+		t.Logf("工具: %s - %.60s", info.Name, info.Desc)
 	}
 }
 
-// TestRealLLM_ToolList 测试列出所有工具。
+// TestRealLLM_ToolList 测试列出所有工具分组。
 func TestRealLLM_ToolList(t *testing.T) {
-	registry := tools.GetDefaultRegistry()
-	toolNames := registry.List()
+	registry := tools.GlobalRegistry
+	groups := registry.ListGroups()
 
-	t.Logf("可用工具列表: %v", toolNames)
+	t.Logf("工具分组: %v，共 %d 个工具", groups, registry.Size())
+	require.Contains(t, groups, "operation", "操作工具组应已注册")
 
-	// 至少应该有一些工具
-	if len(toolNames) > 0 {
-		t.Logf("工具注册表工作正常，找到 %d 个工具", len(toolNames))
+	for _, name := range []string{"sql_mutate", "etl_run", "data_export"} {
+		_, ok := registry.Get(name)
+		require.True(t, ok, "%s should be registered", name)
 	}
 }
