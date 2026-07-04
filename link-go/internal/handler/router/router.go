@@ -32,6 +32,7 @@ type Router struct {
 	ragOptimizerHandler  *handler.RAGOptimizerHandler
 	guardrailHandler     *handler.GuardrailHandler
 	evaluationHandler    *handler.EvaluationHandler
+	qualityHandler       *handler.QualityHandler
 	webHandler           *web.Handler
 	authMiddleware       *middleware.AuthMiddleware
 	tenantMiddleware     *middleware.TenantMiddleware
@@ -54,6 +55,7 @@ func NewRouter(
 	ragOptimizerHandler *handler.RAGOptimizerHandler,
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
+	qualityHandler *handler.QualityHandler,
 	webHandler *web.Handler,
 	// Middleware
 	authMiddleware *middleware.AuthMiddleware,
@@ -83,6 +85,7 @@ func NewRouter(
 		ragOptimizerHandler:  ragOptimizerHandler,
 		guardrailHandler:     guardrailHandler,
 		evaluationHandler:    evaluationHandler,
+		qualityHandler:       qualityHandler,
 		webHandler:           webHandler,
 		authMiddleware:       authMiddleware,
 		tenantMiddleware:     tenantMiddleware,
@@ -118,6 +121,7 @@ func (r *Router) Setup() {
 			r.setupModelRoutes(auth)
 			r.setupAgentRoutes(auth)
 			r.setupEvaluationRoutes(auth)
+			r.setupQualityRoutes(auth)
 		}
 
 		// 需要认证 + 租户的路由
@@ -424,6 +428,23 @@ func (r *Router) setupEvaluationRoutes(api *gin.RouterGroup) {
 			results.GET("/:task_id", r.evaluationHandler.GetResults)
 			results.GET("/:task_id/qa", r.evaluationHandler.GetQAResults)
 		}
+	}
+}
+
+// setupQualityRoutes 设置数据质量管理中心路由
+func (r *Router) setupQualityRoutes(api *gin.RouterGroup) {
+	quality := api.Group("/quality")
+	{
+		// 评估与清洗
+		quality.POST("/evaluate/structured", r.qualityHandler.EvaluateStructured)
+		quality.POST("/evaluate/unstructured", r.qualityHandler.EvaluateUnstructured)
+		quality.POST("/clean", r.qualityHandler.CleanData)
+		quality.GET("/dimensions", r.qualityHandler.ListDimensions)
+
+		// 历史质检记录
+		quality.GET("/records", r.qualityHandler.ListRecords)
+		quality.GET("/records/:id", r.qualityHandler.GetRecord)
+		quality.DELETE("/records/:id", r.qualityHandler.DeleteRecord)
 	}
 }
 

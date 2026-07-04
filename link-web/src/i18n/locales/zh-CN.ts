@@ -121,6 +121,7 @@ export default {
     agent: 'Agent',
     evaluation: '大模型测评',
     datasets: '数据集管理',
+    quality: '数据质量',
     settings: '设置'
   },
   tenant: {

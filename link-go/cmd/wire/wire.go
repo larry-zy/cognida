@@ -18,11 +18,11 @@ import (
 	"gorm.io/gorm"
 
 	agent "link/internal/model/agent"
+	appAccount "link/internal/service/account"
 	agentuc "link/internal/service/agent"
 	agentframework "link/internal/service/agent/framework"
 	agentinit "link/internal/service/agent/initializer"
 	agenttools "link/internal/service/agent/tools"
-	appAccount "link/internal/service/account"
 	app_chat "link/internal/service/chat"
 	app_evaluation "link/internal/service/evaluation"
 	evalexecutor "link/internal/service/evaluation/executor"
@@ -30,31 +30,35 @@ import (
 	raguc "link/internal/service/knowledge"
 	ragpipeline "link/internal/service/knowledge/pipeline"
 
-	domain_conversation "link/internal/model/conversation"
-	domain_evaluation "link/internal/model/evaluation"
-	domain_llm "link/internal/model/llm"
-	domain_knowledge "link/internal/model/knowledge"
-	domain_rag "link/internal/model/rag"
-	domain_task "link/internal/model/task"
-	domain_types "link/internal/model/common"
-	domain_tenant "link/internal/model/tenant"
-	domain_user "link/internal/model/user"
-	"link/internal/infrastructure/config"
-	infragraph "link/internal/infrastructure/graph"
-	docreader "link/internal/infrastructure/grpc/docreader"
-	"link/internal/infrastructure/llm"
-	llmchat "link/internal/infrastructure/llm/chat"
-	linkembedding "link/internal/infrastructure/llm/embedding"
-	"link/internal/infrastructure/queue"
-	neo4jimpl "link/internal/repository/neo4j"
-	"link/internal/repository/mysql"
-	"link/internal/repository/milvus/retriever"
-	evaluationcache "link/internal/infrastructure/cache/evaluation"
-	rediscache "link/internal/infrastructure/cache/redis"
 	"link/internal/handler"
 	"link/internal/handler/middleware"
 	"link/internal/handler/router"
 	"link/internal/handler/web"
+	evaluationcache "link/internal/infrastructure/cache/evaluation"
+	rediscache "link/internal/infrastructure/cache/redis"
+	"link/internal/infrastructure/config"
+	infragraph "link/internal/infrastructure/graph"
+	docreader "link/internal/infrastructure/grpc/docreader"
+	qualitygrpc "link/internal/infrastructure/grpc/quality"
+	infraid "link/internal/infrastructure/id"
+	"link/internal/infrastructure/llm"
+	llmchat "link/internal/infrastructure/llm/chat"
+	linkembedding "link/internal/infrastructure/llm/embedding"
+	"link/internal/infrastructure/queue"
+	domain_types "link/internal/model/common"
+	domain_conversation "link/internal/model/conversation"
+	domain_evaluation "link/internal/model/evaluation"
+	domain_knowledge "link/internal/model/knowledge"
+	domain_llm "link/internal/model/llm"
+	domain_rag "link/internal/model/rag"
+	qualitymodel "link/internal/model/quality"
+	domain_task "link/internal/model/task"
+	domain_tenant "link/internal/model/tenant"
+	domain_user "link/internal/model/user"
+	qualitysvc "link/internal/service/quality"
+	"link/internal/repository/milvus/retriever"
+	"link/internal/repository/mysql"
+	neo4jimpl "link/internal/repository/neo4j"
 )
 
 // ========================================
@@ -102,6 +106,11 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideEmbedder,
 		ProvideVectorRetriever,
 		ProvideVectorRepository,
+
+		// 文档处理（解析→分块→向量化→图谱）
+		ProvideDocReaderClient,
+		ProvideIDGenerator,
+		ProvideDocumentProcessorService,
 
 		// LLM 组件
 		ProvideLLMClient,
@@ -171,6 +180,13 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideRAGOptimizerHandler,
 		ProvideGuardrailHandler,
 		ProvideWebHandler,
+
+		// 数据质量管理中心
+		ProvidePythonGrpcConfig,
+		ProvideQualityGateway,
+		ProvideQualityCheckRecordRepository,
+		ProvideQualityService,
+		ProvideQualityHandler,
 
 		// 路由
 		ProvideRouter,
@@ -339,8 +355,9 @@ func ProvideKnowledgeBaseService(
 	chunkRepo domain_knowledge.ChunkRepository,
 	statsQuerier domain_knowledge.KnowledgeStatsQuerier,
 	vectorRepo domain_knowledge.VectorRepository,
+	graphRepo domain_knowledge.GraphRepository,
 ) app_kb.KnowledgeBaseService {
-	return app_kb.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo)
+	return app_kb.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo, graphRepo)
 }
 
 // ProvideVectorRepository provides the vector repository
@@ -490,6 +507,29 @@ func ProvideDatasetService(loader *app_evaluation.DatasetLoader) app_evaluation.
 func ProvideDocReaderClient() (*docreader.Client, error) {
 	// 使用默认的 gRPC 地址
 	return docreader.NewClient("localhost:50051")
+}
+
+// ProvideIDGenerator 提供唯一 ID 生成器
+func ProvideIDGenerator() infraid.IDGenerator {
+	return infraid.NewIDGenerator()
+}
+
+// ProvideDocumentProcessorService 提供文档处理服务（解析→分块→向量化→图谱提取）
+func ProvideDocumentProcessorService(
+	kbRepo domain_knowledge.KnowledgeBaseRepository,
+	knowledgeRepo domain_knowledge.KnowledgeRepository,
+	chunkRepo domain_knowledge.ChunkRepository,
+	vectorRepo domain_knowledge.VectorRepository,
+	graphRepo domain_knowledge.GraphRepository,
+	docReaderClient *docreader.Client,
+	embedder embedding.Embedder,
+	llmClient domain_llm.ChatRepository,
+	idGenerator infraid.IDGenerator,
+) app_kb.DocumentProcessorService {
+	return app_kb.NewDocumentProcessorService(
+		kbRepo, knowledgeRepo, chunkRepo, vectorRepo, graphRepo,
+		docReaderClient, embedder, llmClient, idGenerator,
+	)
 }
 
 // ========================================
@@ -660,8 +700,9 @@ func ProvideAuthHandler(accountService *appAccount.AccountService) *handler.Auth
 
 func ProvideKnowledgeBaseHandler(
 	kbService app_kb.KnowledgeBaseService,
+	documentProcessor app_kb.DocumentProcessorService,
 ) *handler.KnowledgeBaseHandler {
-	return handler.NewKnowledgeBaseHandler(kbService, nil)
+	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor)
 }
 
 func ProvideSessionHandler(
@@ -883,6 +924,7 @@ func ProvideRouter(
 	ragOptimizerHandler *handler.RAGOptimizerHandler,
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
+	qualityHandler *handler.QualityHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
@@ -902,10 +944,54 @@ func ProvideRouter(
 		ragOptimizerHandler,
 		guardrailHandler,
 		evaluationHandler,
+		qualityHandler,
 		webHandler,
 		authMiddleware,
 		tenantMiddleware,
 	)
+}
+
+// ========================================
+// 数据质量管理中心 Providers
+// ========================================
+
+// ProvidePythonGrpcConfig 提供 Python gRPC 配置。
+func ProvidePythonGrpcConfig() *config.PythonGrpcConfig {
+	return config.LoadPythonGrpcConfig()
+}
+
+// ProvideQualityGateway 提供数据质量 gRPC 网关（Python 服务适配器）。
+func ProvideQualityGateway(cfg *config.PythonGrpcConfig) qualitysvc.Gateway {
+	target := "localhost:50051"
+	timeout := 60 * time.Second
+	if cfg != nil {
+		if cfg.Target != "" {
+			target = cfg.Target
+		}
+		if cfg.Timeout > 0 {
+			timeout = time.Duration(cfg.Timeout) * time.Second
+		}
+	}
+	return qualitygrpc.NewGateway(target, timeout)
+}
+
+// ProvideQualityCheckRecordRepository 提供质检记录仓储。
+func ProvideQualityCheckRecordRepository(db *gorm.DB) qualitymodel.CheckRecordRepository {
+	return mysql.NewQualityCheckRecordRepository(db)
+}
+
+// ProvideQualityService 提供数据质量应用服务。
+func ProvideQualityService(gateway qualitysvc.Gateway, repo qualitymodel.CheckRecordRepository, idGen infraid.IDGenerator, cfg *config.PythonGrpcConfig) *qualitysvc.Service {
+	timeout := 60 * time.Second
+	if cfg != nil && cfg.Timeout > 0 {
+		timeout = time.Duration(cfg.Timeout) * time.Second
+	}
+	return qualitysvc.NewService(gateway, timeout, repo, idGen)
+}
+
+// ProvideQualityHandler 提供数据质量 HTTP 处理器。
+func ProvideQualityHandler(service *qualitysvc.Service) *handler.QualityHandler {
+	return handler.NewQualityHandler(service)
 }
 
 // ========================================
@@ -946,12 +1032,12 @@ func ProvideMiddlewares(
 
 // App 应用程序实例
 type App struct {
-	Router            *router.Router
-	Middlewares       *Middlewares
-	AgentRegistry     agent.AgentRegistry
-	ChatConfig        *config.ChatConfig
-	EvaluationConfig  *config.EvaluationConfig
-	EvaluationWorker  *app_evaluation.EvaluationWorker
+	Router           *router.Router
+	Middlewares      *Middlewares
+	AgentRegistry    agent.AgentRegistry
+	ChatConfig       *config.ChatConfig
+	EvaluationConfig *config.EvaluationConfig
+	EvaluationWorker *app_evaluation.EvaluationWorker
 }
 
 func ProvideApp(
@@ -963,12 +1049,12 @@ func ProvideApp(
 	evalWorker *app_evaluation.EvaluationWorker,
 ) *App {
 	return &App{
-		Router:            r,
-		Middlewares:       m,
-		AgentRegistry:     agentRegistry,
-		ChatConfig:        chatConfig,
-		EvaluationConfig:  evalConfig,
-		EvaluationWorker:  evalWorker,
+		Router:           r,
+		Middlewares:      m,
+		AgentRegistry:    agentRegistry,
+		ChatConfig:       chatConfig,
+		EvaluationConfig: evalConfig,
+		EvaluationWorker: evalWorker,
 	}
 }
 

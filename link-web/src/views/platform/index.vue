@@ -69,6 +69,7 @@ const ICONS = {
   agent: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
   evaluation: '<path d="M5 21V11"/><path d="M12 21V5"/><path d="M19 21v-8"/>',
   datasets: '<ellipse cx="12" cy="5" rx="7" ry="2.5"/><path d="M5 5v14c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V5"/><path d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>',
+  quality: '<path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>',
   settings: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="17" r="2"/>'
 }
 
@@ -82,6 +83,7 @@ const menuItems = computed(() => [
   { path: '/agent', title: t('menu.agent'), icon: ICONS.agent },
   { path: '/evaluation', title: t('menu.evaluation'), icon: ICONS.evaluation },
   { path: '/datasets', title: t('menu.datasets'), icon: ICONS.datasets },
+  { path: '/quality', title: t('menu.quality'), icon: ICONS.quality },
   { path: '/settings', title: t('menu.settings'), icon: ICONS.settings }
 ])
 

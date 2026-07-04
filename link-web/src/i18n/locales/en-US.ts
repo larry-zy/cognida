@@ -121,6 +121,7 @@ export default {
     agent: 'Agent',
     evaluation: 'Evaluation',
     datasets: 'Datasets',
+    quality: 'Data Quality',
     settings: 'Settings'
   },
   tenant: {

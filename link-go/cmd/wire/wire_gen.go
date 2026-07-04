@@ -23,6 +23,8 @@ import (
 	"link/internal/infrastructure/config"
 	"link/internal/infrastructure/graph"
 	"link/internal/infrastructure/grpc/docreader"
+	qualitygrpc "link/internal/infrastructure/grpc/quality"
+	"link/internal/infrastructure/id"
 	llm2 "link/internal/infrastructure/llm"
 	chat2 "link/internal/infrastructure/llm/chat"
 	embedding2 "link/internal/infrastructure/llm/embedding"
@@ -32,6 +34,7 @@ import (
 	"link/internal/model/conversation"
 	evaluation2 "link/internal/model/evaluation"
 	"link/internal/model/knowledge"
+	qualitymodel "link/internal/model/quality"
 	"link/internal/model/llm"
 	"link/internal/model/rag"
 	"link/internal/model/task"
@@ -50,6 +53,7 @@ import (
 	"link/internal/service/evaluation/executor"
 	knowledge2 "link/internal/service/knowledge"
 	rag2 "link/internal/service/knowledge/pipeline"
+	qualitysvc "link/internal/service/quality"
 	"log"
 	"time"
 )
@@ -79,14 +83,29 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		return nil, err
 	}
 	vectorRepository := ProvideVectorRepository(vectorRetriever)
-	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository)
-	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService)
+	neo4jConfig := ProvideNeo4jConfig()
+	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
+	if err != nil {
+		return nil, err
+	}
+	graphRepository, err := ProvideNeo4jGraphRepository(driverWithContext, neo4jConfig)
+	if err != nil {
+		return nil, err
+	}
+	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
+	client, err := ProvideDocReaderClient()
+	if err != nil {
+		return nil, err
+	}
+	chatConfig := ProvideChatConfig()
+	v := ProvideLLMClient(chatConfig)
+	idGenerator := ProvideIDGenerator()
+	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, v, idGenerator)
+	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService)
 	sessionRepository := ProvideSessionRepository(db)
 	messageRepository := ProvideMessageRepository(db)
 	retrievalSettingRepository := ProvideRetrievalSettingRepository(db)
 	sessionService := ProvideSessionService(sessionRepository, messageRepository, retrievalSettingRepository)
-	chatConfig := ProvideChatConfig()
-	v := ProvideLLMClient(chatConfig)
 	modelRepository := ProvideModelRepository(db)
 	modelFactory := ProvideModelFactory()
 	chatService := ProvideChatService(v, modelRepository, modelFactory)
@@ -104,15 +123,6 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService)
 	agentRegistry := ProvideAgentRegistry()
 	registryAgentHandler := ProvideRegistryAgentHandler(agentRegistry)
-	neo4jConfig := ProvideNeo4jConfig()
-	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
-	if err != nil {
-		return nil, err
-	}
-	graphRepository, err := ProvideNeo4jGraphRepository(driverWithContext, neo4jConfig)
-	if err != nil {
-		return nil, err
-	}
 	graphQueryRepository := ProvideGraphQueryRepository(db)
 	llmChat := ProvideRAGLLMChat(v)
 	graphService := ProvideGraphService(graphRepository, graphQueryRepository, llmChat)
@@ -121,11 +131,11 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	modelHandler := ProvideModelHandler(modelService, chatService)
 	taskRepository := ProvideTaskRepository(db)
 	redisConfig := ProvideRedisConfig()
-	client, err := ProvideRedisClient(redisConfig)
+	redisClient, err := ProvideRedisClient(redisConfig)
 	if err != nil {
 		return nil, err
 	}
-	taskQueue := ProvideTaskQueue(client)
+	taskQueue := ProvideTaskQueue(redisClient)
 	taskService := ProvideTaskService(taskRepository, taskQueue)
 	taskHandler := ProvideTaskHandler(taskService)
 	chatModel := ProvideChatModel(chatConfig)
@@ -139,15 +149,20 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	datasetService := ProvideDatasetService(datasetLoader)
 	evaluationTaskRepository := ProvideEvaluationTaskRepository(db)
 	evaluationResultRepository := ProvideEvaluationResultRepository(db)
-	progressCache := ProvideEvaluationProgressCache(client)
-	evaluationQueue := ProvideEvaluationQueue(client)
+	progressCache := ProvideEvaluationProgressCache(redisClient)
+	evaluationQueue := ProvideEvaluationQueue(redisClient)
 	service := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, evaluationQueue)
 	datasetManager := ProvideDatasetUseCase(datasetRepository, datasetLoader)
 	evaluationHandler := ProvideEvaluationHandler(service, datasetManager, progressCache)
+	pythonGrpcConfig := ProvidePythonGrpcConfig()
+	qualityGateway := ProvideQualityGateway(pythonGrpcConfig)
+	qualityCheckRecordRepository := ProvideQualityCheckRecordRepository(db)
+	qualityService := ProvideQualityService(qualityGateway, qualityCheckRecordRepository, idGenerator, pythonGrpcConfig)
+	qualityHandler := ProvideQualityHandler(qualityService)
 	handler := ProvideWebHandler()
 	authMiddleware := ProvideAuthMiddleware(accountService)
 	tenantMiddleware := ProvideTenantMiddleware()
-	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, handler, authMiddleware, tenantMiddleware)
+	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, handler, authMiddleware, tenantMiddleware)
 	corsMiddleware := ProvideCORSMiddleware()
 	recoveryMiddleware := ProvideRecoveryMiddleware()
 	loggerMiddleware := ProvideLoggerMiddleware()
@@ -301,8 +316,9 @@ func ProvideKnowledgeBaseService(
 	chunkRepo knowledge.ChunkRepository,
 	statsQuerier knowledge.KnowledgeStatsQuerier,
 	vectorRepo knowledge.VectorRepository,
+	graphRepo knowledge.GraphRepository,
 ) knowledge2.KnowledgeBaseService {
-	return knowledge2.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo)
+	return knowledge2.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo, graphRepo)
 }
 
 // ProvideVectorRepository provides the vector repository
@@ -452,6 +468,29 @@ func ProvideDocReaderClient() (*docreader.Client, error) {
 	return docreader.NewClient("localhost:50051")
 }
 
+// ProvideIDGenerator 提供唯一 ID 生成器
+func ProvideIDGenerator() id.IDGenerator {
+	return id.NewIDGenerator()
+}
+
+// ProvideDocumentProcessorService 提供文档处理服务（解析→分块→向量化→图谱提取）
+func ProvideDocumentProcessorService(
+	kbRepo knowledge.KnowledgeBaseRepository,
+	knowledgeRepo knowledge.KnowledgeRepository,
+	chunkRepo knowledge.ChunkRepository,
+	vectorRepo knowledge.VectorRepository,
+	graphRepo knowledge.GraphRepository,
+	docReaderClient *docreader.Client,
+	embedder embedding.Embedder,
+	llmClient llm.ChatRepository,
+	idGenerator id.IDGenerator,
+) knowledge2.DocumentProcessorService {
+	return knowledge2.NewDocumentProcessorService(
+		kbRepo, knowledgeRepo, chunkRepo, vectorRepo, graphRepo,
+		docReaderClient, embedder, llmClient, idGenerator,
+	)
+}
+
 func ProvideAgentOrchestrator() agent.AgentExecutor {
 
 	orchestrator := framework.NewRegistryAgentOrchestrator(agentinit.GetAgentByID)
@@ -599,8 +638,9 @@ func ProvideAuthHandler(accountService *account.AccountService) *handler.AuthHan
 
 func ProvideKnowledgeBaseHandler(
 	kbService knowledge2.KnowledgeBaseService,
+	documentProcessor knowledge2.DocumentProcessorService,
 ) *handler.KnowledgeBaseHandler {
-	return handler.NewKnowledgeBaseHandler(kbService, nil)
+	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor)
 }
 
 func ProvideSessionHandler(
@@ -808,6 +848,7 @@ func ProvideRouter(
 	ragOptimizerHandler *handler.RAGOptimizerHandler,
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
+	qualityHandler *handler.QualityHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
@@ -827,10 +868,50 @@ func ProvideRouter(
 		ragOptimizerHandler,
 		guardrailHandler,
 		evaluationHandler,
+		qualityHandler,
 		webHandler,
 		authMiddleware,
 		tenantMiddleware,
 	)
+}
+
+// ProvidePythonGrpcConfig 提供 Python gRPC 配置。
+func ProvidePythonGrpcConfig() *config.PythonGrpcConfig {
+	return config.LoadPythonGrpcConfig()
+}
+
+// ProvideQualityGateway 提供数据质量 gRPC 网关（Python 服务适配器）。
+func ProvideQualityGateway(cfg *config.PythonGrpcConfig) qualitysvc.Gateway {
+	target := "localhost:50051"
+	timeout := 60 * time.Second
+	if cfg != nil {
+		if cfg.Target != "" {
+			target = cfg.Target
+		}
+		if cfg.Timeout > 0 {
+			timeout = time.Duration(cfg.Timeout) * time.Second
+		}
+	}
+	return qualitygrpc.NewGateway(target, timeout)
+}
+
+// ProvideQualityCheckRecordRepository 提供质检记录仓储。
+func ProvideQualityCheckRecordRepository(db *gorm.DB) qualitymodel.CheckRecordRepository {
+	return mysql.NewQualityCheckRecordRepository(db)
+}
+
+// ProvideQualityService 提供数据质量应用服务。
+func ProvideQualityService(gateway qualitysvc.Gateway, repo qualitymodel.CheckRecordRepository, idGen id.IDGenerator, cfg *config.PythonGrpcConfig) *qualitysvc.Service {
+	timeout := 60 * time.Second
+	if cfg != nil && cfg.Timeout > 0 {
+		timeout = time.Duration(cfg.Timeout) * time.Second
+	}
+	return qualitysvc.NewService(gateway, timeout, repo, idGen)
+}
+
+// ProvideQualityHandler 提供数据质量 HTTP 处理器。
+func ProvideQualityHandler(service *qualitysvc.Service) *handler.QualityHandler {
+	return handler.NewQualityHandler(service)
 }
 
 // Middlewares 中间件集合
