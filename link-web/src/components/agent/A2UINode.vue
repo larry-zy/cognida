@@ -77,7 +77,10 @@
   <UiCard v-else-if="node.type === 'Confirm'" class="a2ui-confirm" variant="bordered" padding="none">
     <div class="a2ui-confirm__title">{{ prop('title') || '请确认操作' }}</div>
     <div v-if="prop('text')" class="a2ui-confirm__text">{{ prop('text') }}</div>
-    <div class="a2ui-confirm__actions">
+    <div v-if="confirmDecided" class="a2ui-confirm__done">
+      {{ confirmDecided === 'confirm' ? '已确认，正在执行…' : '已取消，该操作将自动过期' }}
+    </div>
+    <div v-else class="a2ui-confirm__actions">
       <UiButton variant="secondary" size="sm" @click="fireConfirm(false)">
         {{ prop('cancelLabel') || '取消' }}
       </UiButton>
@@ -217,11 +220,20 @@ function fireAction(action: any) {
   ctx.onAction({ name: a.name, params: a.params || {} })
 }
 
-// fireConfirm：确认卡两个分支都带 pending_action_id（Phase 5 确认续跑消费）
+// fireConfirm：确认卡两个分支都带完整回调三元组（Phase 5 确认续跑消费）：
+// pending_action_id + 一次性确认 token + session_id（后端归属键校验必需）。
+// pending action 消费即失效，本地锁定防双击重复提交。
+const confirmDecided = ref<'' | 'confirm' | 'cancel'>('')
 function fireConfirm(ok: boolean) {
+  if (confirmDecided.value) return
+  confirmDecided.value = ok ? 'confirm' : 'cancel'
   ctx.onAction({
     name: ok ? 'confirm' : 'cancel',
-    params: { pending_action_id: prop('pending_action_id') }
+    params: {
+      pending_action_id: prop('pending_action_id'),
+      token: prop('token'),
+      session_id: prop('session_id')
+    }
   })
 }
 
@@ -341,6 +353,7 @@ const chart = computed(() => {
 .a2ui-confirm__title { font-size: 13px; font-weight: 600; color: var(--color-text-primary, #1f2329); }
 .a2ui-confirm__text { font-size: 12px; margin-top: 4px; color: var(--color-text-secondary, #646a73); }
 .a2ui-confirm__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.a2ui-confirm__done { font-size: 12px; margin-top: 10px; text-align: right; color: var(--color-text-secondary, #646a73); }
 
 .a2ui-form { display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
 .a2ui-form__field { display: flex; flex-direction: column; gap: 4px; }

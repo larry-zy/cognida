@@ -227,6 +227,7 @@
                 v-for="surface in message.ui_surfaces || []"
                 :key="surface.surface || surface.title"
                 :spec="surface"
+                @action="onA2UIAction"
               />
               <div class="ai-message__actions">
                 <span class="ai-message__time">{{ formatTime(message.created_at) }}</span>
@@ -263,6 +264,7 @@
                 v-for="surface in streamingUISurfaces"
                 :key="surface.surface || surface.title"
                 :spec="surface"
+                @action="onA2UIAction"
               />
               <div class="ai-message__actions">
                 <span class="streaming-indicator">{{ streamingIndicator }}</span>
@@ -319,7 +321,7 @@ import { formatTime } from '@/utils'
 import { copyToClipboard } from '@/utils/security'
 import AgentTimeline from '@/components/agent/AgentTimeline.vue'
 import A2UIRenderer from '@/components/agent/A2UIRenderer.vue'
-import type { A2UISpec } from '@/components/agent/a2ui-context'
+import type { A2UISpec, A2UIAction } from '@/components/agent/a2ui-context'
 
 const authStore = useAuthStore()
 const userInitial = computed(() => authStore.username?.charAt(0).toUpperCase() || 'U')
@@ -438,6 +440,37 @@ function parseUISurfaces(raw?: string): A2UISpec[] {
     return list.filter((s: any) => s && Array.isArray(s.components) && s.components.length)
   } catch {
     return []
+  }
+}
+
+// A2UI 交互动作：confirm/cancel 走危险操作确认端点（Phase 5 confirm-resume）。
+// 其余动作（paginate 等）由 A2UIRenderer 内部消化，不会冒泡到这里。
+async function onA2UIAction(action: A2UIAction) {
+  if (action.name === 'cancel') {
+    ElMessage.info('已取消，该操作将自动过期')
+    return
+  }
+  if (action.name !== 'confirm') return
+  const { pending_action_id, token, session_id } = action.params || {}
+  if (!pending_action_id || !token) {
+    ElMessage.error('确认参数缺失，无法执行')
+    return
+  }
+  try {
+    const res = await agentApi.confirmOperation({
+      pending_action_id,
+      token,
+      session_id: session_id || currentSessionId.value
+    })
+    if (res.status === 'expired') {
+      ElMessage.warning(res.message || '待确认操作已过期，请重新发起')
+      return
+    }
+    ElMessage.success(res.duplicate
+      ? `操作已执行过（幂等命中），影响 ${res.rows_affected ?? 0} 行`
+      : `操作已执行：${res.target || ''} 影响 ${res.rows_affected ?? 0} 行`)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '确认执行失败')
   }
 }
 

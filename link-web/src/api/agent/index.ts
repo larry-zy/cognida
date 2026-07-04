@@ -185,13 +185,58 @@ export async function getUISurfacePage(
 }
 
 /**
+ * 危险操作确认响应（对齐 Go 端 ConfirmOperation / SQLMutateResult）。
+ * 成功时 status=success 携 rows_affected；pending action 不存在/已过期时
+ * status=expired（非错误路由）；token 不匹配走 HTTP 403（该操作随即失效）。
+ */
+export interface ConfirmOperationResult {
+  status: 'success' | 'rejected' | 'expired' | string
+  target?: string
+  rows_affected?: number
+  duplicate?: boolean
+  message?: string
+}
+
+/**
+ * 危险操作人机确认 resume（Phase 5）：Confirm 卡片确认后携
+ * pending_action_id + 一次性确认 token + session_id 调用，
+ * 后端校验 token/归属通过后提交暂存的写事务。
+ */
+export async function confirmOperation(params: {
+  pending_action_id: string
+  token: string
+  session_id: string
+}): Promise<ConfirmOperationResult> {
+  const token = storage.get<string>('token')
+  const currentTenant = storage.get<any>('current_tenant')
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (currentTenant?.id) headers['X-Tenant-ID'] = currentTenant.id.toString()
+
+  const response = await fetch(`${getApiBaseURL()}/agent/operations/confirm`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(params)
+  })
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    // 403（token 不匹配）等：透出后端 message，供宿主视图提示
+    throw new Error(body?.message || `HTTP error! status: ${response.status}`)
+  }
+  // 后端统一 {code, message, data} 信封，结果在 data 内
+  return (body?.data ?? body) as ConfirmOperationResult
+}
+
+/**
  * Agent API
  */
 export const agentApi = {
   streamKnowledgeChat,
   streamText2SQL,
   streamAgentChat,
-  getUISurfacePage
+  getUISurfacePage,
+  confirmOperation
 }
 
 export default agentApi
