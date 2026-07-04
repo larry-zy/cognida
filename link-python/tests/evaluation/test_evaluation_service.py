@@ -11,14 +11,11 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
-# 本文件为端到端集成脚本: 依赖运行中的评测服务 (localhost:8000),
-# test_* 函数接收非 fixture 位置参数, 仅经 __main__ 手动运行, 不进 CI 单测。
-pytestmark = pytest.mark.integration
-
+# 本文件为端到端手动脚本: 依赖运行中的评测服务 (localhost:8000),
+# check_* 函数接收位置参数而非 pytest fixture, 仅经 __main__ 手动运行,
+# 刻意不用 test_ 前缀命名, 避免 pytest（含 integration 跑）收集报缺 fixture。
 # 设置项目根目录
-PROJECT_ROOT = "D:\\link\\link-python"
+PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, PROJECT_ROOT)
 
 import httpx
@@ -36,7 +33,7 @@ TEST_DATA_FILE = Path(PROJECT_ROOT) / "tests" / "evaluation" / "test_data.json"
 # 测试函数
 # ============================================================
 
-async def test_llm_evaluation(client: httpx.AsyncClient, test_data: dict) -> bool:
+async def check_llm_evaluation(client: httpx.AsyncClient, test_data: dict) -> bool:
     """测试 LLM 评测模式。"""
     print("\n" + "=" * 60)
     print("Test 1: LLM Evaluation Mode")
@@ -77,7 +74,7 @@ async def test_llm_evaluation(client: httpx.AsyncClient, test_data: dict) -> boo
         return False
 
 
-async def test_agent_evaluation(client: httpx.AsyncClient, test_data: dict) -> bool:
+async def check_agent_evaluation(client: httpx.AsyncClient, test_data: dict) -> bool:
     """测试 Agent 评测模式。"""
     print("\n" + "=" * 60)
     print("Test 2: Agent Evaluation Mode")
@@ -118,7 +115,7 @@ async def test_agent_evaluation(client: httpx.AsyncClient, test_data: dict) -> b
         return False
 
 
-async def test_rag_evaluation(client: httpx.AsyncClient, test_data: dict) -> bool:
+async def check_rag_evaluation(client: httpx.AsyncClient, test_data: dict) -> bool:
     """测试 RAG 评测模式。"""
     print("\n" + "=" * 60)
     print("Test 3: RAG Evaluation Mode")
@@ -160,7 +157,7 @@ async def test_rag_evaluation(client: httpx.AsyncClient, test_data: dict) -> boo
         return False
 
 
-async def test_separate_endpoints(client: httpx.AsyncClient, test_data: dict) -> bool:
+async def check_separate_endpoints(client: httpx.AsyncClient, test_data: dict) -> bool:
     """测试单独评测端点。"""
     print("\n" + "=" * 60)
     print("Test 4: Separate Endpoints")
@@ -220,7 +217,7 @@ async def test_separate_endpoints(client: httpx.AsyncClient, test_data: dict) ->
     return all_passed
 
 
-async def test_edge_cases(client: httpx.AsyncClient, test_data: dict) -> bool:
+async def check_edge_cases(client: httpx.AsyncClient, test_data: dict) -> bool:
     """测试边界情况。"""
     print("\n" + "=" * 60)
     print("Test 5: Edge Cases")
@@ -289,11 +286,11 @@ async def main():
         # 运行测试
         results = []
 
-        results.append(await test_llm_evaluation(client, test_data))
-        results.append(await test_agent_evaluation(client, test_data))
-        results.append(await test_rag_evaluation(client, test_data))
-        results.append(await test_separate_endpoints(client, test_data))
-        results.append(await test_edge_cases(client, test_data))
+        results.append(await check_llm_evaluation(client, test_data))
+        results.append(await check_agent_evaluation(client, test_data))
+        results.append(await check_rag_evaluation(client, test_data))
+        results.append(await check_separate_endpoints(client, test_data))
+        results.append(await check_edge_cases(client, test_data))
 
     # 总结
     print("\n" + "=" * 60)

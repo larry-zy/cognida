@@ -232,8 +232,10 @@ class AnalyticsServicer(analytics_pb2_grpc.AnalyticsServiceServicer):
         else:
             value = 0.0
 
+        # metric_type 是 proto 枚举整数值，须经 Name() 转成枚举名（如 MEAN_A 而非 3_A）
+        metric_name = analytics_pb2.MetricType.Name(metric_type)
         return analytics_pb2.MetricResult(
-            name=f"{metric_type}_{column}" if column else str(metric_type),
+            name=f"{metric_name}_{column}" if column else metric_name,
             value=value,
             details={}
         )
