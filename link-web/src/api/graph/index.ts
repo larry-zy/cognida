@@ -7,7 +7,8 @@ import type {
   UpdateNodeRequest,
   UpdateRelationRequest,
   NodeDetailResponse,
-  RelationTypeOption
+  RelationTypeOption,
+  GraphStatsResponse
 } from '@/types'
 
 /**
@@ -19,6 +20,13 @@ export const graphApi = {
    */
   getGraph(kbId: string): Promise<ApiResponse<GraphData>> {
     return http.get<GraphData>(`/knowledge-bases/${kbId}/graph`)
+  },
+
+  /**
+   * 获取图谱统计信息（平均度/最大度/孤立节点/连通分量等）
+   */
+  getStats(kbId: string): Promise<ApiResponse<GraphStatsResponse>> {
+    return http.get<GraphStatsResponse>(`/graph/stats`, { params: { kb_id: kbId } })
   },
 
   /**

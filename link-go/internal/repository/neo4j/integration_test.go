@@ -343,6 +343,36 @@ func TestRealGetNeighbors(t *testing.T) {
 
 	t.Logf("Found %d neighbors and %d relations", len(result.Neighbors), len(result.Relations))
 
+	// 中心节点属性应被完整加载（id/entity_type），而非仅名字
+	require.NotNil(t, result.Node)
+	assert.Equal(t, "A", result.Node.Name)
+	assert.Equal(t, "a", result.Node.ID, "center node id should be loaded")
+	assert.Equal(t, "Technology", result.Node.EntityType, "center node entity_type should be loaded")
+
+	// 双向：查询中间节点 B，应同时找到入边邻居 A 和出边邻居 C
+	t.Log("Getting neighbors of 'B' (bidirectional)...")
+	resB, err := repo.GetNeighbors(ctx, namespace, "B", &knowledge.RelationQueryOptions{Limit: 10})
+	require.NoError(t, err)
+	names := map[string]bool{}
+	for _, nb := range resB.Neighbors {
+		names[nb.Name] = true
+	}
+	assert.True(t, names["A"], "B 的邻居应包含入边来源 A（双向查询）")
+	assert.True(t, names["C"], "B 的邻居应包含出边目标 C")
+	assert.Equal(t, 2, resB.Degree, "B 的度数应为 2")
+
+	// 关系 source/target 应保留真实存储方向
+	for _, rel := range resB.Relations {
+		switch rel.ID {
+		case "r1":
+			assert.Equal(t, "A", rel.Source)
+			assert.Equal(t, "B", rel.Target)
+		case "r2":
+			assert.Equal(t, "B", rel.Source)
+			assert.Equal(t, "C", rel.Target)
+		}
+	}
+
 	// 清理
 	cleanupTestData(t, ctx, repo, namespace)
 }

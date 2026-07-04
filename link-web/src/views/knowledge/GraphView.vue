@@ -1,10 +1,10 @@
 <template>
-  <div class="gv-page">
+  <div class="gv-page" :class="{ 'gv-page--embedded': embedded }">
 
     <!-- ===== 顶部工具栏 ===== -->
     <div class="gv-topbar">
       <span class="gv-topbar__title">知识图谱</span>
-      <nav class="gv-breadcrumb">
+      <nav v-if="!embedded" class="gv-breadcrumb">
         <span>知识库</span>
         <span class="gv-breadcrumb__sep">/</span>
         <span>{{ kbId }}</span>
@@ -60,6 +60,14 @@
         <button class="gv-icon-btn" title="全屏" @click="toggleFullscreen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>
+          </svg>
+        </button>
+
+        <!-- 清空图谱 -->
+        <button class="gv-icon-btn gv-icon-btn--danger" title="清空图谱" @click="handleClearGraph">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
       </div>
@@ -142,7 +150,12 @@
             </div>
             <div class="gv-info-row">
               <span class="gv-info-label">关联分块数</span>
-              <span class="gv-info-value gv-info-value--mono">{{ selectedNodeChunks.length }}</span>
+              <button
+                v-if="selectedNodeChunks.length > 0"
+                class="gv-info-value gv-info-value--mono gv-chunk-link"
+                @click="openChunkViewer(`实体「${selectedNode.label}」的来源分块`, selectedNodeChunks)"
+              >{{ selectedNodeChunks.length }} · 查看</button>
+              <span v-else class="gv-info-value gv-info-value--mono">0</span>
             </div>
           </div>
 
@@ -161,6 +174,12 @@
               <span class="gv-rel-arrow">→</span>
               <span class="gv-rel-target">{{ rel.target || rel.to || '-' }}</span>
               <div class="gv-rel-actions">
+                <button
+                  v-if="rel.chunk_ids && rel.chunk_ids.length"
+                  class="gv-rel-btn"
+                  :title="`查看 ${rel.chunk_ids.length} 个来源分块`"
+                  @click="openChunkViewer(`关系「${rel.label || rel.type}」的来源分块`, rel.chunk_ids || [])"
+                >分块 {{ rel.chunk_ids.length }}</button>
                 <button class="gv-rel-btn" @click="showEditRelationDialog(rel)">编辑</button>
                 <button class="gv-rel-btn gv-rel-btn--danger" @click="handleDeleteRelation(rel)">删除</button>
               </div>
@@ -193,13 +212,15 @@
     </div>
 
     <!-- ===== 底部状态栏 ===== -->
-    <div class="gv-statusbar">
+    <div v-if="!embedded" class="gv-statusbar">
       <div class="gv-statusbar__left">
         <span class="gv-stat-item">节点 <span class="gv-stat-val">{{ nodeCount }}</span></span>
         <span class="gv-stat-item">关系 <span class="gv-stat-val">{{ edgeCount }}</span></span>
         <span class="gv-stat-item">实体类型 <span class="gv-stat-val">{{ entityTypeCount }}</span></span>
-        <span class="gv-stat-item">布局 <span class="gv-stat-val">force</span></span>
-        <span class="gv-stat-item">渲染 <span class="gv-stat-val">60fps</span></span>
+        <span class="gv-stat-item">平均度 <span class="gv-stat-val">{{ stats ? stats.avg_degree.toFixed(1) : '—' }}</span></span>
+        <span class="gv-stat-item">最大度 <span class="gv-stat-val">{{ stats ? stats.max_degree : '—' }}</span></span>
+        <span class="gv-stat-item">孤立节点 <span class="gv-stat-val">{{ stats ? stats.isolated_nodes : '—' }}</span></span>
+        <span class="gv-stat-item">连通分量 <span class="gv-stat-val">{{ stats ? stats.component_count : '—' }}</span></span>
       </div>
       <div class="gv-statusbar__right">
         <span class="gv-status-dot"><i></i></span>
@@ -238,6 +259,9 @@
       <div class="gv-form-group">
         <UiSlider v-model="addRelationForm.strength" label="强度" :min="1" :max="10" :marks="strengthMarks" :format-value="(v: number) => `当前值: ${v}`" />
       </div>
+      <div class="gv-form-group">
+        <UiSlider v-model="addRelationForm.weight" label="权重" :min="0" :max="10" :marks="strengthMarks" :format-value="(v: number) => `当前值: ${v}`" />
+      </div>
       <template #footer>
         <UiButton variant="secondary" @click="addRelationDialogVisible = false">取消</UiButton>
         <UiButton variant="primary" @click="handleAddRelation" :loading="adding">确定</UiButton>
@@ -275,6 +299,24 @@
       </template>
     </UiModal>
 
+    <!-- ===== 来源分块查看器 Modal ===== -->
+    <UiModal v-model="chunkViewerVisible" :title="chunkViewerTitle" size="lg">
+      <div class="gv-chunk-viewer">
+        <div v-for="item in chunkViewerItems" :key="item.id" class="gv-chunk-card">
+          <div class="gv-chunk-card__head">
+            <span class="gv-chunk-card__id">{{ item.id }}</span>
+          </div>
+          <div v-if="item.loading" class="gv-chunk-card__state">加载中…</div>
+          <div v-else-if="item.error" class="gv-chunk-card__state gv-chunk-card__state--error">{{ item.error }}</div>
+          <pre v-else class="gv-chunk-card__body">{{ item.content }}</pre>
+        </div>
+        <div v-if="chunkViewerItems.length === 0" class="gv-chunk-card__state">暂无分块</div>
+      </div>
+      <template #footer>
+        <UiButton variant="secondary" @click="chunkViewerVisible = false">关闭</UiButton>
+      </template>
+    </UiModal>
+
     <!-- ===== 确认对话框 ===== -->
     <UiConfirm
       v-model:show="confirmVisible"
@@ -287,19 +329,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
 import 'vis-network/styles/vis-network.css'
 import { graphApi } from '@/api/graph'
+import { knowledgeApi } from '@/api/knowledge'
 import type {
   GraphData,
   AddNodeRequest,
   AddRelationRequest,
   UpdateNodeRequest,
   UpdateRelationRequest,
-  RelationTypeOption
+  RelationTypeOption,
+  NodeDetailResponse,
+  GraphStatsResponse
 } from '@/types'
 
 import { toastSuccess, toastError, toastWarning } from '@/utils/toast'
@@ -327,6 +372,7 @@ interface RelationDisplay {
   to?: string
   source?: string
   target?: string
+  chunk_ids?: string[]
 }
 
 interface VisNode {
@@ -351,6 +397,7 @@ interface VisEdge {
   type?: string
   source?: string
   target?: string
+  chunk_ids?: string[]
 }
 
 interface VisGraphData {
@@ -362,8 +409,21 @@ interface VisGraphData {
 // State
 // ========================================
 
+// props：既可作为独立路由页（读 route.params.kbId），也可作为知识库详情页内的图谱 Tab 嵌入
+// - kbId：外部直接指定知识库 ID（嵌入模式）；不传则回退到路由参数
+// - embedded：嵌入模式，去掉整页 full-bleed 负边距/底部状态栏，适配 tab 容器
+// - active：嵌入在 v-show tab 中时用于控制何时首次加载（避免 display:none 下容器 0×0）
+const props = withDefaults(defineProps<{
+  kbId?: string
+  embedded?: boolean
+  active?: boolean
+}>(), {
+  embedded: false,
+  active: true
+})
+
 const route = useRoute()
-const kbId = ref<string>(route.params.kbId as string)
+const kbId = ref<string>(props.kbId || (route.params.kbId as string))
 
 const graphContainer = ref<HTMLElement>()
 const searchInputRef = ref<HTMLInputElement>()
@@ -376,11 +436,19 @@ const nodeRelations = ref<RelationDisplay[]>([])
 
 const detailDrawerVisible = ref(false)
 
+// 图谱统计（真实值，来自后端 /graph/stats）
+const stats = ref<GraphStatsResponse | null>(null)
+
 const addNodeDialogVisible = ref(false)
 const addNodeForm = ref({ name: '', entity_type: 'concept', attributesStr: '' })
 
 const addRelationDialogVisible = ref(false)
-const addRelationForm = ref({ source: '', target: '', type: 'relates', strength: 5 })
+const addRelationForm = ref({ source: '', target: '', type: 'relates', strength: 5, weight: 5 })
+
+// 分块查看器（实体/关系 → 来源分块）
+const chunkViewerVisible = ref(false)
+const chunkViewerTitle = ref('')
+const chunkViewerItems = ref<{ id: string; loading: boolean; content: string; error: string }[]>([])
 
 const adding = ref(false)
 const deleting = ref(false)
@@ -401,6 +469,9 @@ const confirmMessage = ref('')
 const confirmCallback = ref<(() => void) | null>(null)
 
 let network: any = null
+// 提升到模块作用域，供 mergeNeighbors 在下钻时向画布增量注入新节点/边
+let nodesDataSet: any = null
+let edgesDataSet: any = null
 
 // ========================================
 // Computed
@@ -590,10 +661,16 @@ function initGraph() {
   }
 
   try {
-    const nodesDataSet = new DataSet(graphData.value.nodes)
-    const edgesDataSet = new DataSet(graphData.value.edges)
+    nodesDataSet = new DataSet(graphData.value.nodes)
+    edgesDataSet = new DataSet(graphData.value.edges)
 
     network = new Network(container, { nodes: nodesDataSet, edges: edgesDataSet }, options)
+
+    // 稳定完成后关闭 physics：forceAtlas2 稳定后若继续模拟会持续占用主线程，
+    // 表现为进入图谱页后整个标签页卡顿、无法切换其他页面。稳定后停掉即可。
+    network.once('stabilizationIterationsDone', () => {
+      if (network) network.setOptions({ physics: false })
+    })
 
     network.on('click', (params: any) => {
       if (params.nodes.length > 0) {
@@ -602,7 +679,7 @@ function initGraph() {
         if (node) {
           selectedNode.value = node
           detailDrawerVisible.value = true
-          loadNodeRelations(node.id)
+          loadNodeRelations(node)
         }
       }
     })
@@ -637,6 +714,18 @@ async function loadGraph() {
     toastError(`加载图谱失败: ${error?.message || error}`)
   } finally {
     loading.value = false
+  }
+  // 统计信息非关键路径，失败不阻塞图谱渲染
+  loadStats()
+}
+
+// 加载图谱统计（平均度/最大度/孤立节点/连通分量）
+async function loadStats() {
+  try {
+    const res = await graphApi.getStats(kbId.value)
+    stats.value = res.data || null
+  } catch {
+    stats.value = null
   }
 }
 
@@ -684,37 +773,122 @@ function convertToVisData(data: GraphData): VisGraphData {
       strength:    rel.strength || 0,
       type:        rel.type,
       source:      rel.source,
-      target:      rel.target
+      target:      rel.target,
+      chunk_ids:   rel.chunk_ids || []
     }
   })
 
   return { nodes, edges }
 }
 
-async function loadNodeRelations(nodeId: string) {
-  try {
-    const relations = graphData.value.edges.filter(
-      (edge: VisEdge) => edge.from === nodeId || edge.to === nodeId
-    )
+// 用已加载的本地边兜底展示关联关系（双向）
+function applyLocalRelations(nodeId: string) {
+  const relations = graphData.value.edges.filter(
+    (edge: VisEdge) => edge.from === nodeId || edge.to === nodeId
+  )
+  const getNodeName = (id: string) => {
+    const n = graphData.value.nodes.find(node => node.id === id)
+    return n?.label || id
+  }
+  nodeRelations.value = relations.map((rel: VisEdge) => ({
+    id:          rel.id,
+    label:       rel.label || rel.type,
+    type:        rel.type,
+    description: rel.description || '-',
+    strength:    rel.strength || 0,
+    from:        getNodeName(rel.from),
+    to:          getNodeName(rel.to),
+    source:      rel.source || getNodeName(rel.from),
+    target:      rel.target || getNodeName(rel.to),
+    chunk_ids:   rel.chunk_ids || []
+  }))
+}
 
-    const getNodeName = (id: string) => {
-      const n = graphData.value.nodes.find(node => node.id === id)
-      return n?.label || id
+// 下钻：把服务端返回的邻居/关系里画布上还没有的部分增量注入
+function mergeNeighbors(detail: NodeDetailResponse) {
+  if (!nodesDataSet || !edgesDataSet) return
+
+  const nodeById = new Map(graphData.value.nodes.map(n => [n.id, n]))
+  const nameToId = new Map(graphData.value.nodes.map(n => [n.label, n.id]))
+
+  const newNodes: VisNode[] = []
+  for (const nb of detail.neighbors || []) {
+    if (!nb || !nb.id) continue
+    if (nodeById.has(nb.id) || nameToId.has(nb.name)) continue
+    const et = nb.entity_type || 'Other'
+    const baseColor = getTypeColor(et)
+    const vn: VisNode = {
+      id: nb.id,
+      label: nb.name,
+      color: {
+        background: baseColor,
+        border: baseColor,
+        highlight: { background: '#9cb4cd', border: '#9cb4cd' },
+        hover: { background: baseColor, border: '#7f92a8' }
+      } as any,
+      size: 16,
+      attributes: nb.attributes || [],
+      chunks: nb.chunks || [],
+      entity_type: et
     }
+    newNodes.push(vn)
+    nodeById.set(nb.id, vn)
+    nameToId.set(nb.name, nb.id)
+  }
+  if (newNodes.length) {
+    graphData.value.nodes.push(...newNodes)
+    nodesDataSet.add(newNodes)
+  }
 
-    nodeRelations.value = relations.map((rel: VisEdge) => ({
+  const edgeIds = new Set(graphData.value.edges.map(e => e.id))
+  const newEdges: VisEdge[] = []
+  for (const rel of detail.relations || []) {
+    if (!rel || !rel.id || edgeIds.has(rel.id)) continue
+    const ve: VisEdge = {
+      id: rel.id,
+      from: nameToId.get(rel.source) || rel.source,
+      to: nameToId.get(rel.target) || rel.target,
+      label: rel.type,
+      width: 1,
+      description: rel.description || '',
+      strength: rel.strength || 0,
+      type: rel.type,
+      source: rel.source,
+      target: rel.target,
+      chunk_ids: rel.chunk_ids || []
+    }
+    newEdges.push(ve)
+    edgeIds.add(rel.id)
+  }
+  if (newEdges.length) {
+    graphData.value.edges.push(...newEdges)
+    edgesDataSet.add(newEdges)
+  }
+}
+
+// 点击节点：先本地兜底，再用服务端 1-hop 双向邻居作为权威结果，并把新邻居并入画布
+async function loadNodeRelations(node: VisNode) {
+  applyLocalRelations(node.id)
+  try {
+    const res = await graphApi.getNodeDetail(kbId.value, node.label)
+    const detail = res.data
+    if (!detail || !detail.node) return
+    mergeNeighbors(detail)
+    const rels = detail.relations || []
+    nodeRelations.value = rels.map(rel => ({
       id:          rel.id,
-      label:       rel.label || rel.type,
+      label:       rel.type,
       type:        rel.type,
       description: rel.description || '-',
       strength:    rel.strength || 0,
-      from:        getNodeName(rel.from),
-      to:          getNodeName(rel.to),
-      source:      rel.source || getNodeName(rel.from),
-      target:      rel.target || getNodeName(rel.to)
+      from:        rel.source,
+      to:          rel.target,
+      source:      rel.source,
+      target:      rel.target,
+      chunk_ids:   rel.chunk_ids || []
     }))
-  } catch (error: any) {
-    toastError('加载节点关系失败')
+  } catch {
+    // 服务端失败时保留本地兜底结果
   }
 }
 
@@ -774,7 +948,7 @@ async function handleAddNode() {
 }
 
 function showAddRelationDialog() {
-  addRelationForm.value = { source: '', target: '', type: 'relates', strength: 5 }
+  addRelationForm.value = { source: '', target: '', type: 'relates', strength: 5, weight: 5 }
   addRelationDialogVisible.value = true
 }
 
@@ -788,7 +962,8 @@ async function handleAddRelation() {
       source:   addRelationForm.value.source,
       target:   addRelationForm.value.target,
       type:     addRelationForm.value.type,
-      strength: addRelationForm.value.strength
+      strength: addRelationForm.value.strength,
+      weight:   addRelationForm.value.weight
     }
     const res = await graphApi.addRelation(kbId.value, data)
     if (res.data) {
@@ -874,6 +1049,45 @@ async function handleEditRelation() {
   } finally {
     editing.value = false
   }
+}
+
+// #3 清空整个图谱
+function handleClearGraph() {
+  if (!graphData.value.nodes?.length) { toastWarning('图谱已为空'); return }
+  confirmTitle.value = '清空图谱'
+  confirmMessage.value = '确定要清空整个图谱吗？将删除全部节点与关系，且不可恢复。'
+  confirmCallback.value = async () => {
+    try {
+      await graphApi.deleteGraph(kbId.value)
+      toastSuccess('图谱已清空')
+      detailDrawerVisible.value = false
+      selectedNode.value = null
+      await loadGraph()
+    } catch (error: any) {
+      toastError(error.message || '清空图谱失败')
+    }
+  }
+  confirmVisible.value = true
+}
+
+// #5 查看实体/关系的来源分块内容
+async function openChunkViewer(title: string, ids: string[]) {
+  const list = (ids || []).filter(Boolean)
+  if (list.length === 0) { toastWarning('暂无关联分块'); return }
+  chunkViewerTitle.value = title
+  chunkViewerItems.value = list.map(id => ({ id, loading: true, content: '', error: '' }))
+  chunkViewerVisible.value = true
+  await Promise.all(chunkViewerItems.value.map(async (item) => {
+    try {
+      const res = await knowledgeApi.getChunk(kbId.value, item.id)
+      item.content = res.data?.content || ''
+      if (!item.content) item.error = '（空内容）'
+    } catch (e: any) {
+      item.error = e?.message || '加载失败'
+    } finally {
+      item.loading = false
+    }
+  }))
 }
 
 function handleExport() {
@@ -976,11 +1190,36 @@ function fitGraph() {
 // Lifecycle
 // ========================================
 
-onMounted(async () => {
+let inited = false
+
+async function ensureInited() {
+  if (inited) return
   await nextTick()
-  if (!graphContainer.value) return
+  // 容器不可见（tab 未激活，display:none）时宽高为 0，vis-network 无法正确布局，
+  // 推迟到激活后再初始化。
+  if (!graphContainer.value || graphContainer.value.offsetParent === null) return
+  inited = true
   await loadGraph()
   await loadRelationTypes()
+}
+
+onMounted(async () => {
+  if (props.active) await ensureInited()
+})
+
+// 嵌入式 tab：从隐藏切到激活时首次加载
+watch(() => props.active, async (v) => {
+  if (v) await ensureInited()
+})
+
+// 外部切换知识库（嵌入模式）时重新加载
+watch(() => props.kbId, async (v) => {
+  if (!v) return
+  kbId.value = v
+  inited = false
+  detailDrawerVisible.value = false
+  selectedNode.value = null
+  if (props.active) await ensureInited()
 })
 
 onUnmounted(() => {
@@ -1006,6 +1245,15 @@ onUnmounted(() => {
      底色由壳层 .main-content 提供，不再叠一层半透明底 */
   height: calc(100% + 48px);
   overflow: hidden;
+}
+
+/* 嵌入知识库详情 tab：去掉整页 full-bleed 负边距，改为固定高度容器，
+   顶栏/画布正常排布，底部状态栏隐藏 */
+.gv-page--embedded {
+  margin: 0;
+  height: 640px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
 }
 
 /* ===== 顶部工具栏 ===== */
@@ -1585,5 +1833,75 @@ onUnmounted(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ===== 清空图谱按钮（危险态） ===== */
+.gv-icon-btn--danger:hover {
+  color: var(--color-danger);
+  background: rgba(192, 138, 138, 0.08);
+}
+
+/* ===== 分块链接（节点详情里可点的分块数） ===== */
+.gv-chunk-link {
+  border: none;
+  background: transparent;
+  color: var(--color-accent, #9cb4cd);
+  cursor: pointer;
+  padding: 0;
+  text-align: right;
+}
+
+.gv-chunk-link:hover {
+  text-decoration: underline;
+}
+
+/* ===== 来源分块查看器 ===== */
+.gv-chunk-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.gv-chunk-card {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+}
+
+.gv-chunk-card__head {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.gv-chunk-card__id {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.gv-chunk-card__state {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.gv-chunk-card__state--error {
+  color: var(--color-danger);
+}
+
+.gv-chunk-card__body {
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  max-height: 320px;
+  overflow-y: auto;
 }
 </style>

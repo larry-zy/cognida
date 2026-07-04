@@ -317,7 +317,55 @@ func (s *GraphService) CalculateDetailedStats(graph *GraphData) *DetailedGraphSt
 	}
 	stats.IsolatedNodes = isolatedCount
 
+	// 计算连通分量数（并查集，节点以 Name 为键，孤立节点各自成一个分量）
+	stats.ComponentCount = countConnectedComponents(graph)
+
 	return stats
+}
+
+// countConnectedComponents 用并查集统计图中连通分量数量。
+// 关系端点以节点 Name 关联；仅统计出现在 Node 列表中的节点所在分量，
+// 孤立节点（无任何关系）各自计为一个独立分量。
+func countConnectedComponents(graph *GraphData) int {
+	if len(graph.Node) == 0 {
+		return 0
+	}
+
+	parent := make(map[string]string, len(graph.Node))
+	var find func(string) string
+	find = func(x string) string {
+		p, ok := parent[x]
+		if !ok {
+			parent[x] = x
+			return x
+		}
+		if p != x {
+			parent[x] = find(p)
+		}
+		return parent[x]
+	}
+	union := func(a, b string) {
+		ra, rb := find(a), find(b)
+		if ra != rb {
+			parent[ra] = rb
+		}
+	}
+
+	// 先让每个节点自成一集
+	for _, node := range graph.Node {
+		find(node.Name)
+	}
+	// 按关系合并（端点名可能不在 Node 列表中，一并纳入以正确反映连通性）
+	for _, rel := range graph.Relation {
+		union(rel.Source, rel.Target)
+	}
+
+	// 仅统计真实节点所属的根，避免把游离端点名算成额外分量
+	roots := make(map[string]struct{}, len(graph.Node))
+	for _, node := range graph.Node {
+		roots[find(node.Name)] = struct{}{}
+	}
+	return len(roots)
 }
 
 // ========================================

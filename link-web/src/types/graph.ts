@@ -110,6 +110,7 @@ export interface AddRelationRequest {
   target: string
   type: string
   strength?: number
+  weight?: number
 }
 
 // 更新关系请求
@@ -122,7 +123,21 @@ export interface UpdateRelationRequest {
 // 节点详情响应
 export interface NodeDetailResponse {
   node: GraphNode
+  neighbors?: GraphNode[]
   relations: GraphRelation[]
+  degree?: number
+}
+
+// 图谱统计响应（对应后端 GraphStatsDTO）
+export interface GraphStatsResponse {
+  node_count: number
+  relation_count: number
+  avg_degree: number
+  avg_strength: number
+  avg_weight: number
+  max_degree: number
+  isolated_nodes: number
+  component_count: number
 }
 
 // 布局类型

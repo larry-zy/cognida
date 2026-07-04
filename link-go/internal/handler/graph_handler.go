@@ -46,7 +46,17 @@ func (h *GraphHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.graphService.GetGraphStats(c.Request.Context(), knowledgeBaseID)
+	tenantID := c.GetString("tenant_id")
+	if tenantID == "" {
+		tenantID = "1"
+	}
+
+	namespace := domainGraph.NameSpace{
+		TenantID:        tenantID,
+		KnowledgeBaseID: knowledgeBaseID,
+	}
+
+	stats, err := h.graphService.GetGraphStats(c.Request.Context(), namespace)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -257,25 +267,23 @@ func (h *GraphHandler) GetNodeDetail(c *gin.Context) {
 		KnowledgeBaseID: kbID,
 	}
 
-	// 搜索节点
-	graphData, err := h.graphService.SearchNode(c.Request.Context(), namespace, []string{nodeTitle})
+	// 轻量查询：以节点名为中心取 1-hop 双向邻居及关系（不加载全图）
+	result, err := h.graphService.GetNodeNeighbors(c.Request.Context(), namespace, nodeTitle)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
 	}
 
-	if len(graphData.Node) == 0 {
+	if result == nil || result.Node == nil {
 		NotFound(c, "节点未找到")
 		return
 	}
 
-	// 获取节点及其相关关系
-	node := graphData.Node[0]
-	relations := graphData.Relation
-
 	OK(c, gin.H{
-		"node":      node,
-		"relations": relations,
+		"node":      result.Node,
+		"neighbors": result.Neighbors,
+		"relations": result.Relations,
+		"degree":    result.Degree,
 	})
 }
 

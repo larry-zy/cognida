@@ -694,11 +694,39 @@ func (s *GraphService) GetKnowledgeByGraphNodes(ctx context.Context, kbID string
 }
 
 // GetGraphStats 获取图谱统计信息
-func (s *GraphService) GetGraphStats(ctx context.Context, kbID string) (*domain_knowledge.DetailedGraphStats, error) {
-	if s.graphQueryRepo == nil {
-		return nil, fmt.Errorf("GraphQueryRepository 未初始化")
+// 直接从图谱仓储加载完整图谱，用领域服务计算详细统计（平均度/最大度/孤立节点/连通分量等），
+// 不再依赖 graphQueryRepo 的占位实现（其返回全零）。
+func (s *GraphService) GetGraphStats(ctx context.Context, namespace domain_knowledge.NameSpace) (*GraphStatsDTO, error) {
+	graph, err := s.graphRepo.GetGraph(ctx, namespace)
+	if err != nil {
+		return nil, err
 	}
-	return s.graphQueryRepo.GetGraphStats(ctx, kbID)
+	if graph == nil {
+		graph = &domain_knowledge.GraphData{}
+	}
+
+	stats := s.domainService.CalculateDetailedStats(graph)
+	return &GraphStatsDTO{
+		NodeCount:      stats.NodeCount,
+		RelationCount:  stats.RelationCount,
+		AvgDegree:      stats.AvgDegree,
+		AvgStrength:    stats.AvgStrength,
+		AvgWeight:      stats.AvgWeight,
+		MaxDegree:      stats.MaxDegree,
+		IsolatedNodes:  stats.IsolatedNodes,
+		ComponentCount: stats.ComponentCount,
+	}, nil
+}
+
+// GetNodeNeighbors 获取节点的 1-hop 邻居（双向）及其关系（轻量查询，不加载全图）
+func (s *GraphService) GetNodeNeighbors(
+	ctx context.Context,
+	namespace domain_knowledge.NameSpace,
+	nodeName string,
+) (*domain_knowledge.NodeQueryResult, error) {
+	return s.graphRepo.GetNeighbors(ctx, namespace, nodeName, &domain_knowledge.RelationQueryOptions{
+		Limit: 200,
+	})
 }
 
 // CalculateRelationStatistics 计算关系统计信息（使用领域服务）

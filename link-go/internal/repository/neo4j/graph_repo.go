@@ -644,8 +644,10 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 		opts = &knowledge.RelationQueryOptions{Limit: 100}
 	}
 
+	// 中心节点必存在；关系用 OPTIONAL MATCH 双向匹配，孤立节点也能返回中心本身。
 	cypher := `
-		MATCH (n:Entity {name: $name, tenant_id: $tenantId, kb_id: $kbId})-[r:RELATION]->(m:Entity {tenant_id: $tenantId, kb_id: $kbId})
+		MATCH (n:Entity {name: $name, tenant_id: $tenantId, kb_id: $kbId})
+		OPTIONAL MATCH (n)-[r:RELATION]-(m:Entity {tenant_id: $tenantId, kb_id: $kbId})
 	`
 
 	params := map[string]interface{}{
@@ -654,61 +656,86 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 		"kbId":     namespace.KnowledgeBaseID,
 	}
 
-	// Add relation type filter
+	// 过滤条件需允许 r 为 NULL（保留中心节点），故整体以 (r IS NULL OR (...)) 包裹
+	filters := make([]string, 0, 2)
 	if len(opts.Types) > 0 {
-		cypher += " WHERE r.type IN $types"
+		filters = append(filters, "r.type IN $types")
 		params["types"] = opts.Types
 	}
-
-	// Add weight filter
 	if opts.MinWeight > 0 {
-		if len(opts.Types) > 0 {
-			cypher += " AND r.weight >= $minWeight"
-		} else {
-			cypher += " WHERE r.weight >= $minWeight"
-		}
+		filters = append(filters, "r.weight >= $minWeight")
 		params["minWeight"] = opts.MinWeight
+	}
+	if len(filters) > 0 {
+		cypher += " WHERE r IS NULL OR (" + strings.Join(filters, " AND ") + ")"
 	}
 
 	cypher += `
-		RETURN m.id as id, m.name as name, m.entity_type as entityType, m.chunks as chunks,
-		       r.id as relId, r.type as relType, r.strength as relStrength, r.weight as relWeight
+		RETURN n.id as centerId, n.entity_type as centerType, n.chunks as centerChunks, n.attributes as centerAttrs,
+		       m.id as id, m.name as name, m.entity_type as entityType, m.chunks as chunks,
+		       r.id as relId, r.type as relType, r.strength as relStrength, r.weight as relWeight, r.chunk_ids as relChunks,
+		       startNode(r).name as relSource, endNode(r).name as relTarget
 		ORDER BY relWeight DESC
 	`
 
-	if opts.Limit > 0 {
-		cypher += " LIMIT $limit"
-	}
+	// Cypher 要求 SKIP 在 LIMIT 之前，顺序不能颠倒
 	if opts.Offset > 0 {
 		cypher += " SKIP $offset"
+		params["offset"] = opts.Offset
 	}
-	params["limit"] = opts.Limit
-	params["offset"] = opts.Offset
+	if opts.Limit > 0 {
+		cypher += " LIMIT $limit"
+		params["limit"] = opts.Limit
+	}
 
 	result, err := session.Run(ctx, cypher, params)
 	if err != nil {
 		return nil, fmt.Errorf("查询邻居节点失败: %w", err)
 	}
 
+	center := &knowledge.GraphNode{Name: nodeName}
+	centerLoaded := false
 	neighbors := make([]*knowledge.GraphNode, 0)
 	relations := make([]*knowledge.GraphRelation, 0)
 	degree := 0
 
 	for result.Next(ctx) {
 		record := result.Record()
+
+		// 中心节点属性（每行相同，取一次）
+		if !centerLoaded {
+			center.ID = getStringValue(record, "centerId")
+			center.EntityType = getStringValue(record, "centerType")
+			var centerChunks []string
+			json.Unmarshal([]byte(getStringValue(record, "centerChunks")), &centerChunks)
+			center.Chunks = centerChunks
+			var centerAttrs []string
+			json.Unmarshal([]byte(getStringValue(record, "centerAttrs")), &centerAttrs)
+			center.Attributes = centerAttrs
+			centerLoaded = true
+		}
+
+		relID := getStringValue(record, "relId")
+		if relID == "" {
+			// 孤立节点：无关系行
+			continue
+		}
 		degree++
 
 		id := getStringValue(record, "id")
 		name := getStringValue(record, "name")
 		entityType := getStringValue(record, "entityType")
-		chunksStr := getStringValue(record, "chunks")
-		relID := getStringValue(record, "relId")
 		relType := getStringValue(record, "relType")
 		relStrength := getFloat64Value(record, "relStrength")
 		relWeight := getFloat64Value(record, "relWeight")
+		relSource := getStringValue(record, "relSource")
+		relTarget := getStringValue(record, "relTarget")
 
 		var chunks []string
-		json.Unmarshal([]byte(chunksStr), &chunks)
+		json.Unmarshal([]byte(getStringValue(record, "chunks")), &chunks)
+
+		var relChunks []string
+		json.Unmarshal([]byte(getStringValue(record, "relChunks")), &relChunks)
 
 		neighbors = append(neighbors, &knowledge.GraphNode{
 			ID:         id,
@@ -719,16 +746,17 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 
 		relations = append(relations, &knowledge.GraphRelation{
 			ID:       relID,
-			Source:   nodeName,
-			Target:   name,
+			Source:   relSource,
+			Target:   relTarget,
 			Type:     relType,
 			Strength: relStrength,
 			Weight:   relWeight,
+			ChunkIDs: relChunks,
 		})
 	}
 
 	return &knowledge.NodeQueryResult{
-		Node:      &knowledge.GraphNode{Name: nodeName},
+		Node:      center,
 		Neighbors: neighbors,
 		Relations: relations,
 		Degree:    degree,
