@@ -119,7 +119,9 @@ func main() {
 	// 初始化 Agent 注册中心
 	if app.AgentRegistry != nil && app.ChatConfig != nil && app.ChatConfig.APIKey != "" {
 		log.Println("🔧 初始化 Agent 注册中心...")
-		initializer := agentinit.NewInitializer(app.AgentRegistry)
+		// 注入消息仓储：Data Agent 据此从 messages 表回放会话历史，具备跨轮对话记忆
+		msgRepo := mysql.NewMessageRepository(db)
+		initializer := agentinit.NewInitializer(app.AgentRegistry, msgRepo)
 
 		// 创建 ToolModel
 		ctx := context.Background()

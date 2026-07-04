@@ -137,7 +137,8 @@ func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 
 	// 注册 Data Agent（单一 ReAct）与旧 PER Text2SQL，用于双跑对比。
 	// collabRegistry 传 nil：本用例只回归单 Agent 查/析闭环，不含子代理委派。
-	require.NoError(t, RegisterDataAgentPreset(ctx, registry, toolModel, nil))
+	// msgRepo 传 nil：本用例不校验多轮记忆，ContextBuilder 不装配。
+	require.NoError(t, RegisterDataAgentPreset(ctx, registry, toolModel, nil, nil))
 	require.NoError(t, text2sql.RegisterText2SQLAgent(ctx, registry, toolModel))
 
 	dataAgent := GetAgent()

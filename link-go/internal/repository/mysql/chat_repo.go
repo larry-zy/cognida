@@ -271,6 +271,30 @@ func (r *messageRepository) FindBySessionID(ctx context.Context, sessionID strin
 	return result, total, nil
 }
 
+// FindRecentBySessionID 取会话最近 limit 条消息：按时间倒序查库取最近 N 条，
+// 再反转为时间正序（最早在前）返回，供多轮对话记忆按顺序回放。
+func (r *messageRepository) FindRecentBySessionID(ctx context.Context, sessionID string, limit int) ([]*domain_conversation.Message, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	var models []*MessageModel
+	err := r.db.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Order("created_at DESC").
+		Limit(limit).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("查询最近消息失败: %w", err)
+	}
+
+	// 反转为时间正序（最早在前）
+	result := make([]*domain_conversation.Message, len(models))
+	for i, m := range models {
+		result[len(models)-1-i] = m.ToDomain()
+	}
+	return result, nil
+}
+
 // FindByRequestID 根据请求ID查找消息
 func (r *messageRepository) FindByRequestID(ctx context.Context, requestID string) (*domain_conversation.Message, error) {
 	var model MessageModel

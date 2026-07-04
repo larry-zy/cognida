@@ -169,6 +169,13 @@ func (m *mockMessageRepository) FindBySessionID(ctx context.Context, sessionID s
 	return m.messages, int64(len(m.messages)), nil
 }
 
+func (m *mockMessageRepository) FindRecentBySessionID(ctx context.Context, sessionID string, limit int) ([]*conversation.Message, error) {
+	if limit > 0 && len(m.messages) > limit {
+		return m.messages[len(m.messages)-limit:], nil
+	}
+	return m.messages, nil
+}
+
 func (m *mockMessageRepository) FindByRequestID(ctx context.Context, requestID string) (*conversation.Message, error) {
 	return nil, errors.New("not found")
 }

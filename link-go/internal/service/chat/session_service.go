@@ -85,35 +85,34 @@ func (s *SessionService) CreateSession(ctx context.Context, userID int64, req *C
 	return resp, nil
 }
 
-// GetSessionByID 根据ID获取会话（包含 RAG 配置）
-func (s *SessionService) GetSessionByID(ctx context.Context, id string) (*SessionResponse, error) {
-	// 从上下文获取用户ID，进行权限验证
-	userID, ok := ctx.Value("user_id").(int64)
-	if ok && userID > 0 {
-		// 验证会话是否属于该用户
-		session, err := s.sessionRepo.FindByID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		// 检查会话是否属于当前用户
-		if session.UserID != userID {
-			return nil, fmt.Errorf("无权访问该会话")
-		}
-		return s.buildSessionResponseWithRAG(ctx, session)
-	}
-
-	// 如果没有 user_id，则直接查询（兼容旧逻辑）
+// authorizeSession 获取会话并校验归属：ctx 内存在 user_id 且 >0 时，
+// 会话必须属于该用户，否则返回“无权访问”错误，统一防止越权读取/修改他人会话（IDOR）。
+// 未携带 user_id 的调用（如内部任务）退化为仅按 ID 查询，保持向后兼容。
+func (s *SessionService) authorizeSession(ctx context.Context, id string) (*conversation.Session, error) {
 	session, err := s.sessionRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	if userID, ok := ctx.Value("user_id").(int64); ok && userID > 0 {
+		if session.UserID != userID {
+			return nil, fmt.Errorf("无权访问该会话")
+		}
+	}
+	return session, nil
+}
 
+// GetSessionByID 根据ID获取会话（包含 RAG 配置）
+func (s *SessionService) GetSessionByID(ctx context.Context, id string) (*SessionResponse, error) {
+	session, err := s.authorizeSession(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	return s.buildSessionResponseWithRAG(ctx, session)
 }
 
 // GetSessionDetail 获取会话详情（包含消息和 RAG 配置）
 func (s *SessionService) GetSessionDetail(ctx context.Context, id string) (*SessionDetailResponse, error) {
-	session, err := s.sessionRepo.FindByID(ctx, id)
+	session, err := s.authorizeSession(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -187,10 +186,10 @@ func (s *SessionService) ListSessions(ctx context.Context, req *ListSessionsRequ
 
 // UpdateSession 更新会话（同时更新 RAG 配置）
 func (s *SessionService) UpdateSession(ctx context.Context, id string, req *UpdateSessionRequest) (*SessionResponse, error) {
-	// 获取现有会话
-	session, err := s.sessionRepo.FindByID(ctx, id)
+	// 获取现有会话并校验归属
+	session, err := s.authorizeSession(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("获取会话失败: %w", err)
+		return nil, err
 	}
 
 	// 更新字段
@@ -228,8 +227,10 @@ func (s *SessionService) UpdateSession(ctx context.Context, id string, req *Upda
 
 // DeleteSession 删除会话
 func (s *SessionService) DeleteSession(ctx context.Context, id string) error {
-	err := s.sessionRepo.Delete(ctx, id)
-	if err != nil {
+	if _, err := s.authorizeSession(ctx, id); err != nil {
+		return err
+	}
+	if err := s.sessionRepo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("删除会话失败: %w", err)
 	}
 	return nil
@@ -237,8 +238,10 @@ func (s *SessionService) DeleteSession(ctx context.Context, id string) error {
 
 // ArchiveSession 归档会话
 func (s *SessionService) ArchiveSession(ctx context.Context, id string) error {
-	err := s.sessionRepo.UpdateStatus(ctx, id, 0)
-	if err != nil {
+	if _, err := s.authorizeSession(ctx, id); err != nil {
+		return err
+	}
+	if err := s.sessionRepo.UpdateStatus(ctx, id, 0); err != nil {
 		return fmt.Errorf("归档会话失败: %w", err)
 	}
 	return nil
@@ -246,8 +249,10 @@ func (s *SessionService) ArchiveSession(ctx context.Context, id string) error {
 
 // ActivateSession 激活会话
 func (s *SessionService) ActivateSession(ctx context.Context, id string) error {
-	err := s.sessionRepo.UpdateStatus(ctx, id, 1)
-	if err != nil {
+	if _, err := s.authorizeSession(ctx, id); err != nil {
+		return err
+	}
+	if err := s.sessionRepo.UpdateStatus(ctx, id, 1); err != nil {
 		return fmt.Errorf("激活会话失败: %w", err)
 	}
 	return nil

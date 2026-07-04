@@ -31,6 +31,13 @@ func NewSessionHandler(
 	}
 }
 
+// identityContext 把认证身份（user_id/tenant_id）注入请求上下文，
+// 供 service 层做会话归属校验（防越权 IDOR）。所有按 ID 操作单个会话的处理器统一使用。
+func identityContext(c *gin.Context) context.Context {
+	ctx := context.WithValue(c.Request.Context(), "user_id", GetUserID(c))
+	return context.WithValue(ctx, "tenant_id", GetTenantID(c))
+}
+
 // CreateSession 创建会话
 func (h *SessionHandler) CreateSession(c *gin.Context) {
 	var req app_chat.CreateSessionRequest
@@ -57,7 +64,7 @@ func (h *SessionHandler) GetSession(c *gin.Context) {
 		return
 	}
 
-	result, err := h.sessionService.GetSessionByID(c.Request.Context(), id)
+	result, err := h.sessionService.GetSessionByID(identityContext(c), id)
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -74,7 +81,7 @@ func (h *SessionHandler) GetSessionDetail(c *gin.Context) {
 		return
 	}
 
-	result, err := h.sessionService.GetSessionDetail(c.Request.Context(), id)
+	result, err := h.sessionService.GetSessionDetail(identityContext(c), id)
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -101,11 +108,7 @@ func (h *SessionHandler) ListSessions(c *gin.Context) {
 		Status: status,
 	}
 
-	// 将 user_id 添加到 context（与 SessionService 使用的 key 一致）
-	userID := GetUserID(c)
-	ctx := context.WithValue(c.Request.Context(), "user_id", userID)
-
-	result, err := h.sessionService.ListSessions(ctx, req)
+	result, err := h.sessionService.ListSessions(identityContext(c), req)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -127,7 +130,7 @@ func (h *SessionHandler) UpdateSession(c *gin.Context) {
 		return
 	}
 
-	result, err := h.sessionService.UpdateSession(c.Request.Context(), id, &req)
+	result, err := h.sessionService.UpdateSession(identityContext(c), id, &req)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -144,7 +147,7 @@ func (h *SessionHandler) DeleteSession(c *gin.Context) {
 		return
 	}
 
-	if err := h.sessionService.DeleteSession(c.Request.Context(), id); err != nil {
+	if err := h.sessionService.DeleteSession(identityContext(c), id); err != nil {
 		InternalError(c, err.Error())
 		return
 	}
@@ -160,7 +163,7 @@ func (h *SessionHandler) ArchiveSession(c *gin.Context) {
 		return
 	}
 
-	if err := h.sessionService.ArchiveSession(c.Request.Context(), id); err != nil {
+	if err := h.sessionService.ArchiveSession(identityContext(c), id); err != nil {
 		InternalError(c, err.Error())
 		return
 	}
@@ -176,7 +179,7 @@ func (h *SessionHandler) ActivateSession(c *gin.Context) {
 		return
 	}
 
-	if err := h.sessionService.ActivateSession(c.Request.Context(), id); err != nil {
+	if err := h.sessionService.ActivateSession(identityContext(c), id); err != nil {
 		InternalError(c, err.Error())
 		return
 	}

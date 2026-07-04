@@ -25,6 +25,16 @@ import (
 	"link/internal/handler/sse"
 )
 
+// resolveRequestID 复用 TraceMiddleware 注入的 request_id，实现端到端链路一致：
+// HTTP → agent 编排 → gRPC 出站 → Python 共享同一 ID。仅当上游缺失（理论上不应发生，
+// 如非经中间件的内部调用）时才回退生成带前缀的新 ID，保留调用场景可读性。
+func resolveRequestID(ctx context.Context, prefix string) string {
+	if rid, ok := agentctx.GetRequestID(ctx); ok && rid != "" {
+		return rid
+	}
+	return fmt.Sprintf("%s-%s", prefix, uuid.New().String()[:8])
+}
+
 // genUIOption 控制流式过程中是否装配并下发生成式 UI（A2UI）契约。
 //
 // 渲染即工具（Phase 3）后，`ui` 事件的主路径是 render_ui 工具：agent 每次调用
@@ -198,6 +208,9 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 			sse.SendSSE(c.Writer, "done", gin.H{
 				"event":  "done",
 				"answer": sb.String(),
+				// 回传归属会话 ID：新会话首轮时前端据此绑定 currentSessionId，
+				// 使后续轮次复用同一会话（否则每轮都以空 session_id 新建会话，对话被拆散）。
+				"session_id": genUI.sessionID,
 			})
 			break
 		}
@@ -539,7 +552,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	// 主入口默认授予最小权限 read：写/ETL 类工具由硬工具门拦截，危险操作走
 	// pending-confirm 人工确认流，不在此直接放行。
 	ctx := agentctx.NewAgentContext(c.Request.Context(), session.ID, tenantID, userID, req.Query)
-	ctx = agentctx.WithRequestID(ctx, fmt.Sprintf("t2s-%s", uuid.New().String()[:8]))
+	ctx = agentctx.WithRequestID(ctx, resolveRequestID(c.Request.Context(), "t2s"))
 	ctx = agentctx.WithToolScope(ctx, "read")
 
 	// 执行流式聊天
@@ -553,8 +566,10 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	// 发送流式数据并收集内容（结构化 step 契约）；Text2SQL 开启生成式 UI 融合。
 	result := h.streamAgentChunks(c, chunkChan, genUIOption{compose: true, question: req.Query, sessionID: session.ID})
 
-	// 持久化：保存助手消息
-	if h.persistenceService != nil && result.Content != "" {
+	// 持久化：保存助手消息。
+	// 注意：不能只以 Content 非空为条件——Data Agent 可能只产出画布 UI（surfaces）或工具调用而无文本，
+	// 若据此跳过落库，会话重开时画布将丢失。因此只要有文本/工具调用/UI surface 任一产出即持久化。
+	if h.persistenceService != nil && (result.Content != "" || len(result.UISurfaces) > 0 || len(result.ToolCalls) > 0) {
 		assistantMsgID := fmt.Sprintf("msg-%s", uuid.New().String()[:8])
 		// 捕获需要的变量
 		sessionID := session.ID
@@ -747,7 +762,7 @@ func (h *AgentHandler) ConfirmOperation(c *gin.Context) {
 	ctx := agentctx.WithTenantID(c.Request.Context(), tenantID)
 	ctx = agentctx.WithSessionID(ctx, req.SessionID)
 	ctx = agentctx.WithUserID(ctx, GetUserID(c))
-	ctx = agentctx.WithRequestID(ctx, fmt.Sprintf("confirm-%s", uuid.New().String()[:8]))
+	ctx = agentctx.WithRequestID(ctx, resolveRequestID(c.Request.Context(), "confirm"))
 
 	switch action.Kind {
 	case operations.OpMutate:

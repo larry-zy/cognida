@@ -160,8 +160,11 @@ func (b *Builder) WithMemoryService(memoryService MemoryService) *Builder {
 
 // WithContextBuilder sets the context builder for this agent (Phase 6 - 协作上下文构建).
 // ContextBuilder 负责根据不同的协作模式构建 LLM 上下文。
+// 设置 ContextBuilder 即启用记忆分支（enableMemory），使 streamInternal 用装配后的
+// 多轮上下文替换默认的 [系统提示 + 当前问题]，从而具备跨轮对话记忆。
 func (b *Builder) WithContextBuilder(contextBuilder ContextBuilder) *Builder {
 	b.contextBuilder = contextBuilder
+	b.enableMemory = true
 	return b
 }
 

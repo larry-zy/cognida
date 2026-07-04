@@ -274,8 +274,15 @@ func generateMessageID() string {
 func generateSessionTitle(agentType, query string) string {
 	agentName := getAgentDisplayName(agentType)
 	query = strings.TrimSpace(query)
-	if len(query) > 30 {
-		query = string([]rune(query)[:30]) + "..."
+	// 空查询时用 agent 名作标题，避免生成 "[SQL查询] " 这样带空尾巴的标题。
+	if query == "" {
+		return agentName
+	}
+	// 按 rune 截断：不能用 len(query)（字节数）判断再按 rune 切片——中文查询字节数远大于
+	// rune 数，会命中 len>30 分支却在 []rune(query)[:30] 处越界 panic（如 15 个汉字=45 字节）。
+	runes := []rune(query)
+	if len(runes) > 30 {
+		query = string(runes[:30]) + "..."
 	}
 	return fmt.Sprintf("[%s] %s", agentName, query)
 }
@@ -426,16 +433,16 @@ func (s *AgentPersistenceService) SaveAssistantMessage(ctx context.Context, req 
 	}
 	log.Printf("[SaveAssistantMessage] Message saved successfully")
 
-	// 获取会话并更新消息计数
-	session, err := s.sessionRepo.FindByID(ctx, req.SessionID)
+	// 消息计数以实际落库行数为准（source of truth）：
+	// 流式路径 SaveUserMessage 不计数、SaveAssistantMessage 仅 +1 会漏计一半；改为按真实行数回填，
+	// 既修复漏计、自愈历史漂移，又规避并发下 read-modify-write（FindByID→Update）的竞态。
+	count, err := s.messageRepo.CountBySessionID(ctx, req.SessionID)
 	if err != nil {
-		log.Printf("[SaveAssistantMessage] ERROR finding session: %v", err)
-		return fmt.Errorf("failed to find session: %w", err)
+		log.Printf("[SaveAssistantMessage] ERROR counting messages: %v", err)
+		return fmt.Errorf("failed to count session messages: %w", err)
 	}
-
-	session.MessageCount += 1
-	if err := s.sessionRepo.Update(ctx, session); err != nil {
-		log.Printf("[SaveAssistantMessage] ERROR updating session: %v", err)
+	if err := s.sessionRepo.UpdateMessageCount(ctx, req.SessionID, int(count)); err != nil {
+		log.Printf("[SaveAssistantMessage] ERROR updating message count: %v", err)
 		return fmt.Errorf("failed to update session message count: %w", err)
 	}
 

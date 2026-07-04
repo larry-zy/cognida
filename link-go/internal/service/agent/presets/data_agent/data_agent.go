@@ -8,6 +8,8 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 
 	domainagent "link/internal/model/agent"
+	"link/internal/model/conversation"
+	"link/internal/service/agent/convcontext"
 	infraagent "link/internal/service/agent/framework"
 	toolregistry "link/internal/service/agent/tools"
 )
@@ -51,11 +53,13 @@ func collectCapabilityTools(ctx context.Context) []tool.BaseTool {
 // 以一个 ReAct 循环 Agent 承载查/析/渲/操四类能力，入口挂载意图路由 BeforeHook，
 // 循环受 maxIter + token 预算约束。collabRegistry 非 nil 时同时启用子代理委派
 // （delegate_to_agent + delegate_parallel，Phase 7 orchestrator-worker）。
+// msgRepo 非 nil 时启用跨轮对话记忆：从 messages 表回放会话历史，装配多轮上下文。
 func RegisterDataAgentPreset(
 	ctx context.Context,
 	registry domainagent.AgentRegistry,
 	toolModel model.ToolCallingChatModel,
 	collabRegistry *infraagent.CollaborationRegistry,
+	msgRepo conversation.MessageRepository,
 ) error {
 	if toolModel == nil {
 		return fmt.Errorf("data agent 预设需要 ToolCallingChatModel")
@@ -75,6 +79,10 @@ func RegisterDataAgentPreset(
 		Before(intentRoutingHook()).
 		WithMaxIterations(defaultMaxIter).
 		WithTokenBudget(defaultTokenBudget)
+	if msgRepo != nil {
+		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支
+		builder = builder.WithContextBuilder(convcontext.NewConversationContextBuilder(msgRepo))
+	}
 	if collabRegistry != nil {
 		// 指挥官持委派能力：复杂任务可拆解给数据域子代理（每次委派授予最小 scope）
 		builder = builder.WithCollaboration(collabRegistry, infraagent.EnableDelegate())

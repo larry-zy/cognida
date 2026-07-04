@@ -16,18 +16,27 @@ import (
 	"link/internal/service/agent/presets/text2sql"
 	toolregistry "link/internal/service/agent/tools"
 	"link/internal/model/agent"
+	"link/internal/model/conversation"
 )
 
 // Initializer Agent 初始化器
 type Initializer struct {
 	registry agent.AgentRegistry
+	// messageRepo 供 Data Agent 启用跨轮对话记忆（读 messages 表回放历史）；nil 时记忆退化。
+	messageRepo conversation.MessageRepository
 }
 
-// NewInitializer 创建初始化器
-func NewInitializer(registry agent.AgentRegistry) *Initializer {
-	return &Initializer{
+// NewInitializer 创建初始化器。
+// messageRepo 可选：传入后 Data Agent 具备跨轮对话记忆；不传则保持原有无记忆行为
+// （变参形式避免破坏既有测试构造调用）。
+func NewInitializer(registry agent.AgentRegistry, messageRepo ...conversation.MessageRepository) *Initializer {
+	init := &Initializer{
 		registry: registry,
 	}
+	if len(messageRepo) > 0 {
+		init.messageRepo = messageRepo[0]
+	}
+	return init
 }
 
 // Initialize 初始化所有 Agent
@@ -275,7 +284,7 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 	}
 	log.Printf("[Agent] ✓ Data sub-agents registered: %v", collabRegistry.List())
 
-	if err := dataagent.RegisterDataAgentPreset(ctx, init.registry, toolModel, collabRegistry); err != nil {
+	if err := dataagent.RegisterDataAgentPreset(ctx, init.registry, toolModel, collabRegistry, init.messageRepo); err != nil {
 		return err
 	}
 

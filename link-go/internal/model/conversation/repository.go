@@ -67,6 +67,10 @@ type MessageRepository interface {
 	// FindBySessionID 根据会话ID查找消息列表
 	FindBySessionID(ctx context.Context, sessionID string, req *ListMessagesRequest) ([]*Message, int64, error)
 
+	// FindRecentBySessionID 取会话最近 limit 条消息，返回按时间正序（最早在前），
+	// 供多轮对话记忆按对话顺序拼装 LLM 上下文。limit<=0 时由实现方使用默认上限。
+	FindRecentBySessionID(ctx context.Context, sessionID string, limit int) ([]*Message, error)
+
 	// FindByRequestID 根据请求ID查找消息
 	FindByRequestID(ctx context.Context, requestID string) (*Message, error)
 
