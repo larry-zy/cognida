@@ -825,10 +825,38 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	log.Printf("[KnowledgeStream] UserID: %d, TenantID: %d, KBIDs: %v, GraphEnabled: %v, KBScopeMode: %q, Query: %s",
 		userID, tenantID, req.KBIDs, req.GraphEnabled, req.KBScopeMode, req.Query)
 
+	// 准备会话并先落库用户消息（须在执行前，使记忆分支能回放到含本轮的历史，
+	// 且拿到规范化 session.ID 注入执行上下文）。与 Data Agent 主入口一致。
+	if h.persistenceService != nil {
+		session, err := h.persistenceService.PrepareSession(c.Request.Context(), &agentuc.PrepareSessionRequest{
+			AgentID:   req.AgentID,
+			SessionID: req.SessionID,
+			UserID:    userID,
+			TenantID:  tenantID,
+		})
+		if err != nil {
+			log.Printf("[KnowledgeStream] Prepare session failed: %v", err)
+			InternalError(c, err.Error())
+			return
+		}
+		req.SessionID = session.ID
+		userMsgID := fmt.Sprintf("msg-%s", uuid.New().String()[:8])
+		if err := h.persistenceService.SaveUserMessage(c.Request.Context(), &agentuc.SaveMessageRequest{
+			MessageID: userMsgID,
+			SessionID: session.ID,
+			Content:   req.Query,
+			UserID:    userID,
+		}); err != nil {
+			log.Printf("[KnowledgeStream] Save user message failed: %v", err) // 不中断
+		}
+	}
+
 	// 结构化透传：把租户/用户/知识库范围/图谱开关/选择模式注入 Go context，
 	// 供下游 Agent 工具层读取（scope 强制、多 KB 检索、图谱门控、agentic 选库），
 	// 替代旧的“文本前缀塞进 query”方案。
 	ctx := c.Request.Context()
+	// 注入会话 ID：RAG Agent 的记忆分支据此从 messages 表回放历史，支持多轮追问。
+	ctx = agentctx.WithSessionID(ctx, req.SessionID)
 	ctx = agentctx.WithTenantID(ctx, tenantID)
 	ctx = agentctx.WithUserID(ctx, userID)
 	ctx = agentctx.WithAllowedKBIDs(ctx, req.KBIDs)
@@ -853,33 +881,38 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 		return
 	}
 
-	// 发送流式数据并收集内容（结构化 step 契约）
-	result := h.streamAgentChunks(c, chunkChan, genUIOption{})
+	// 发送流式数据并收集内容（结构化 step 契约）；回传归属会话 ID 供前端绑定新会话。
+	result := h.streamAgentChunks(c, chunkChan, genUIOption{sessionID: req.SessionID})
 
-	// 持久化：保存用户消息和助手回复
-	if h.persistenceService != nil && result.Content != "" {
+	// 持久化：仅保存助手回复（用户消息已在执行前落库，避免重复）。
+	if h.persistenceService != nil && (result.Content != "" || len(result.UISurfaces) > 0 || len(result.ToolCalls) > 0) {
+		assistantMsgID := fmt.Sprintf("msg-%s", uuid.New().String()[:8])
+		sessionID := req.SessionID
 		content := result.Content
 		toolCalls := result.ToolCalls
 		steps := result.Steps
+		uiSurfaces := result.UISurfaces
 		go func() {
 			// 使用独立 context，避免 SSE 响应结束后请求 context 被取消导致落库失败
 			ctx := context.Background()
-			persistReq := &agentuc.ExecuteRequest{
-				AgentID:   "rag",
-				SessionID: req.SessionID,
-				Query:     req.Query,
-				UserID:    userID,
-				TenantID:  tenantID,
+			agentSteps := map[string]interface{}{
+				"session_id": sessionID,
+				"steps":      steps,
 			}
-			resp := &agentuc.ExecuteResponse{
+			if len(uiSurfaces) > 0 {
+				agentSteps["ui_surfaces"] = uiSurfaces
+			}
+			saveReq := &agentuc.SaveAssistantMessageRequest{
+				MessageID:  assistantMsgID,
+				SessionID:  sessionID,
 				Content:    content,
 				ToolCalls:  toolCalls,
-				AgentSteps: map[string]interface{}{"steps": steps},
+				AgentSteps: agentSteps,
+				TokenCount: 0,
 			}
-			// 使用持久化服务保存（异步）
-			_, _ = h.persistenceService.ExecuteWithContext(ctx, persistReq, func(ctx context.Context) (*agentuc.ExecuteResponse, error) {
-				return resp, nil
-			})
+			if err := h.persistenceService.SaveAssistantMessage(ctx, saveReq); err != nil {
+				log.Printf("[KnowledgeStream] Failed to save assistant message: %v", err)
+			}
 		}()
 	}
 }

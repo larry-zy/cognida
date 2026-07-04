@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
+	"link/internal/service/agent/convcontext"
 	infraagent "link/internal/service/agent/framework"
 	dataagent "link/internal/service/agent/presets/data_agent"
 	"link/internal/service/agent/presets/text2sql"
@@ -188,7 +189,7 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 	}
 
 	// 构建 RAG Agent
-	ragAgent, err := infraagent.New(nil).
+	ragBuilder := infraagent.New(nil).
 		Name("RAG助手").
 		Prompt(`你是一个严谨的知识库问答助手。回答问题必须基于知识库检索到的内容，不得编造。
 
@@ -217,8 +218,13 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 3. 答案简洁准确，必要时分点说明。`).
 		WithToolModel(toolModel).
 		Tools(agentTools...).
-		WithMaxIterations(5).
-		Build(ctx)
+		WithMaxIterations(5)
+	// 跨轮对话记忆：读 messages 表回放会话历史（与 UI 同源、只读不写），启用 framework 记忆分支，
+	// 使知识库助手支持"继续""那第二点呢"等依赖上文的追问。与 Data Agent 同一套基建。
+	if init.messageRepo != nil {
+		ragBuilder = ragBuilder.WithContextBuilder(convcontext.NewConversationContextBuilder(init.messageRepo))
+	}
+	ragAgent, err := ragBuilder.Build(ctx)
 
 	if err != nil {
 		return fmt.Errorf("构建 RAG Agent 失败: %w", err)
