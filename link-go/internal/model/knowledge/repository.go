@@ -88,6 +88,9 @@ type KnowledgeRepository interface {
 	// FindByFileHash find by file hash (deduplication)
 	FindByFileHash(ctx context.Context, tenantID int64, fileHash string) (*Knowledge, error)
 
+	// FindByFileHashInKB find non-deleted knowledge by file hash within a knowledge base (dedup scope)
+	FindByFileHashInKB(ctx context.Context, knowledgeBaseID string, fileHash string) (*Knowledge, error)
+
 	// UpdateTagID update tag ID
 	UpdateTagID(ctx context.Context, id string, tagID int64) error
 

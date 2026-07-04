@@ -196,6 +196,18 @@
         </div>
       </template>
 
+      <!-- 图谱 -->
+      <template #graph>
+        <div class="graph-section">
+          <GraphView
+            v-if="graphTabLoaded"
+            :kb-id="kbId"
+            embedded
+            :active="activeTab === 'graph'"
+          />
+        </div>
+      </template>
+
       <!-- 设置 -->
       <template #settings>
         <div class="settings-section" v-loading="settingsLoading">
@@ -245,17 +257,27 @@
     </UiTabs>
 
     <!-- 上传文档对话框 -->
-    <UiModal v-model="showUploadDialog" title="上传文档" size="md">
+    <UiModal v-model="showUploadDialog" title="上传文档" size="md" :mask-closable="!uploading" :close-on-esc="!uploading">
       <UiForm :model="uploadForm" label-position="left" label-width="100px">
         <UiFormItem label="文件">
           <UiText>{{ uploadForm.file?.name }}</UiText>
         </UiFormItem>
+        <UiFormItem v-if="uploading" label="进度">
+          <UiProgress
+            v-if="uploadStage === 'uploading'"
+            :percentage="uploadProgress"
+            :status="uploadProgress >= 100 ? 'success' : 'active'"
+          />
+          <UiProgress v-else :percentage="0" indeterminate />
+        </UiFormItem>
       </UiForm>
       <UiText type="info" size="sm" style="display: block; margin-top: 8px">
-        文档标题默认取文件名，分块规则沿用知识库创建时的配置。
+        <template v-if="uploadStage === 'hashing'">正在校验文件（防止重复上传）…</template>
+        <template v-else-if="uploadStage === 'uploading'">正在上传，请勿关闭页面…</template>
+        <template v-else>文档标题默认取文件名，分块规则沿用知识库创建时的配置。</template>
       </UiText>
       <template #footer>
-        <UiButton variant="secondary" @click="showUploadDialog = false">取消</UiButton>
+        <UiButton variant="secondary" @click="showUploadDialog = false" :disabled="uploading">取消</UiButton>
         <UiButton variant="primary" @click="uploadFile" :loading="uploading">
           上传
         </UiButton>
@@ -300,11 +322,13 @@ import {
   UiFormItem,
   UiSwitch,
   UiAlert,
-  UiSelect
+  UiSelect,
+  UiProgress
 } from '@/components'
 import toast from '@/utils/toast'
 import { ElMessageBox } from '@/utils/confirm'
 import { Upload, Search } from '@element-plus/icons-vue'
+import GraphView from './GraphView.vue'
 import { knowledgeApi } from '@/api/knowledge'
 import type {
   KnowledgeBase,
@@ -327,8 +351,13 @@ const detailTabs = [
   { key: 'documents', label: '文档' },
   { key: 'search', label: '检索' },
   { key: 'chunks', label: '分块' },
+  { key: 'graph', label: '图谱' },
   { key: 'settings', label: '设置' }
 ]
+
+// 图谱 tab 懒挂载：UiTabs 用 v-show 常驻所有面板，vis-network 在 display:none
+// 容器里会拿到 0×0 尺寸而无法布局，故首次切到图谱 tab 才挂载 GraphView。
+const graphTabLoaded = ref(false)
 
 // 文档表格列
 const documentColumns = [
@@ -358,6 +387,9 @@ const knowledgesLoading = ref(false)
 const knowledges = ref<Knowledge[]>([])
 const showUploadDialog = ref(false)
 const uploading = ref(false)
+// 上传进度（0-100）；-1 表示处于计算哈希/去重预检阶段（不确定进度）
+const uploadProgress = ref(0)
+const uploadStage = ref<'idle' | 'hashing' | 'uploading'>('idle')
 // 后端上传接口仅接收 file，标题/分块参数由服务端按知识库配置决定，故不再收集
 const uploadForm = reactive({
   file: null as File | null
@@ -547,6 +579,15 @@ function handleFileChange(e: Event) {
   input.value = ''
 }
 
+// 计算文件内容的 SHA-256 十六进制哈希（与后端一致，用于防止重传相同文件）
+async function computeFileHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 // 上传文件
 async function uploadFile() {
   if (!uploadForm.file) {
@@ -554,27 +595,51 @@ async function uploadFile() {
     return
   }
 
+  const file = uploadForm.file
   uploading.value = true
+  uploadStage.value = 'hashing'
+  uploadProgress.value = 0
   try {
-    const formData = new FormData()
-    formData.append('file', uploadForm.file)
+    // 1. 计算哈希并预检，命中则拒绝重传，不再上传字节
+    const fileHash = await computeFileHash(file)
+    const check = await knowledgeApi.checkFile(kbId.value, fileHash)
+    if (check.data?.duplicate) {
+      toast.warning(`该文件已存在于知识库中（${check.data.title || file.name}），请勿重复上传`)
+      return
+    }
 
-    const res = await knowledgeApi.uploadFile(kbId.value, formData)
+    // 2. 真正上传，实时上报进度
+    uploadStage.value = 'uploading'
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const res = await knowledgeApi.uploadFile(kbId.value, formData, (percent) => {
+      uploadProgress.value = percent
+    })
     if (res.data) {
       toast.success('文件上传成功，正在处理中...')
       showUploadDialog.value = false
       // 重置文件选择状态
       selectedFileName.value = ''
+      uploadForm.file = null
       if (fileInputRef.value) fileInputRef.value.value = ''
-      // 后端上传接口返回的 knowledge_id 为占位符 "pending"，并非真实文档 ID，
-      // 因此不能对它单独轮询。改为刷新列表，由 loadKnowledges 自动为
-      // pending/processing 的文档启动状态轮询。
+      // 后端已同步创建 processing 状态的文档记录并返回真实 ID，
+      // 刷新列表即可立即看到该文档，loadKnowledges 会为其启动状态轮询。
       await loadKnowledges()
     }
   } catch (error: any) {
-    toast.error(error.message || '上传失败')
+    // 后端在并发竞态下可能返回 409（预检后被他人抢先上传相同文件）
+    const resp = error?.response
+    if (resp?.status === 409) {
+      const dup = resp.data?.data
+      toast.warning(resp.data?.message || `该文件已存在于知识库中（${dup?.title || file.name}），请勿重复上传`)
+    } else {
+      toast.error(error.message || '上传失败')
+    }
   } finally {
     uploading.value = false
+    uploadStage.value = 'idle'
+    uploadProgress.value = 0
   }
 }
 
@@ -724,6 +789,9 @@ function handleTabChange(tabName: string | number) {
   } else if (tab === 'chunks' && chunks.value.length === 0) {
     // 首次切换到分块tab时，自动加载所有分块（不限定文档）
     loadAllChunks()
+  } else if (tab === 'graph') {
+    // 首次进入图谱 tab 时挂载 GraphView（容器此时可见，vis-network 能正确取到尺寸）
+    graphTabLoaded.value = true
   }
 }
 
@@ -759,6 +827,10 @@ onUnmounted(() => {
 .search-section,
 .chunks-section,
 .settings-section {
+  padding: 16px 0;
+}
+
+.graph-section {
   padding: 16px 0;
 }
 

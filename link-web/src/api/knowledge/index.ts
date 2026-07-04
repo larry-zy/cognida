@@ -60,16 +60,35 @@ export const knowledgeApi = {
 
   /**
    * 上传知识库文件
+   * @param onProgress 上传进度回调（0-100）
    */
-  uploadFile(kbId: string, formData: FormData) {
-    return http.post<{ knowledge_id: string; status: string; storage_size: number }>(
+  uploadFile(
+    kbId: string,
+    formData: FormData,
+    onProgress?: (percent: number) => void
+  ) {
+    return http.post<{ knowledge_id: string; status: string; title?: string }>(
       `/knowledge-bases/${kbId}/knowledge/file`,
       formData,
       {
         headers: {
           'Content-Type': 'multipart/form-data'
+        },
+        onUploadProgress: (e) => {
+          if (!onProgress || !e.total) return
+          onProgress(Math.round((e.loaded / e.total) * 100))
         }
       }
+    )
+  },
+
+  /**
+   * 上传前预检：文件是否已存在于知识库（防止重传相同文件）
+   */
+  checkFile(kbId: string, fileHash: string) {
+    return http.post<{ duplicate: boolean; knowledge_id?: string; title?: string }>(
+      `/knowledge-bases/${kbId}/knowledge/check`,
+      { file_hash: fileHash }
     )
   },
 

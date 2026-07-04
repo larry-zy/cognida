@@ -128,6 +128,11 @@ func InternalError(c *gin.Context, message string) {
 	c.JSON(http.StatusInternalServerError, Fail(http.StatusInternalServerError, message))
 }
 
+// Conflict 资源冲突响应（如重复上传），data 携带冲突详情供前端处理
+func Conflict(c *gin.Context, message string, data interface{}) {
+	c.JSON(http.StatusConflict, NewResponse(http.StatusConflict, message, data))
+}
+
 // ========================================
 // 请求绑定
 // ========================================

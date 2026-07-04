@@ -3,17 +3,23 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	app_kb "link/internal/service/knowledge"
-	domain_knowledge "link/internal/model/knowledge"
 	"link/internal/infrastructure/config"
+	domain_knowledge "link/internal/model/knowledge"
+	app_kb "link/internal/service/knowledge"
 )
 
 // ========================================
@@ -222,17 +228,17 @@ func (h *KnowledgeBaseHandler) GetKnowledgeList(c *gin.Context) {
 	items := make([]map[string]interface{}, len(result))
 	for i, k := range result {
 		items[i] = map[string]interface{}{
-			"id":           k.ID,
-			"kb_id":        k.KnowledgeBaseID,
-			"title":        k.Title,
-			"type":         k.Type,
-			"storage_size": k.StorageSize,
-			"file_path":    k.FilePath,
-			"parse_status": k.ParseStatus,
+			"id":            k.ID,
+			"kb_id":         k.KnowledgeBaseID,
+			"title":         k.Title,
+			"type":          k.Type,
+			"storage_size":  k.StorageSize,
+			"file_path":     k.FilePath,
+			"parse_status":  k.ParseStatus,
 			"enable_status": k.EnableStatus,
-			"chunk_count":  k.ChunkCount,
-			"created_at":   k.CreatedAt.Unix(),
-			"processed_at": FormatTime(k.ProcessedAt),
+			"chunk_count":   k.ChunkCount,
+			"created_at":    k.CreatedAt.Unix(),
+			"processed_at":  FormatTime(k.ProcessedAt),
 		}
 	}
 
@@ -245,7 +251,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeList(c *gin.Context) {
 // @Tags knowledge-base
 // @Router /api/v1/knowledge-bases/{kb_id}/knowledge/{knowledge_id} [delete]
 func (h *KnowledgeBaseHandler) DeleteKnowledge(c *gin.Context) {
-	knowledgeBaseID := c.Param("kb_id")
+	knowledgeBaseID := c.Param("id")
 	knowledgeID := c.Param("knowledge_id")
 
 	if knowledgeBaseID == "" {
@@ -257,7 +263,8 @@ func (h *KnowledgeBaseHandler) DeleteKnowledge(c *gin.Context) {
 		return
 	}
 
-	err := h.knowledgeBaseService.DeleteKnowledge(c.Request.Context(), knowledgeBaseID, knowledgeID)
+	tenantID := GetTenantID(c)
+	err := h.knowledgeBaseService.DeleteKnowledge(c.Request.Context(), knowledgeBaseID, knowledgeID, tenantID)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -296,6 +303,26 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 		return
 	}
 
+	// 计算文件内容哈希（SHA-256），用于防止重传相同文件
+	fileHash, err := hashUploadedFile(fileHeader)
+	if err != nil {
+		InternalError(c, "计算文件哈希失败: "+err.Error())
+		return
+	}
+
+	// 服务端权威去重校验：同一知识库内已存在相同内容的文件则拒绝
+	if dup, err := h.knowledgeBaseService.CheckDuplicateByHash(c.Request.Context(), knowledgeBaseID, fileHash); err != nil {
+		InternalError(c, "去重校验失败: "+err.Error())
+		return
+	} else if dup != nil {
+		Conflict(c, "该文件已存在于知识库中，请勿重复上传", map[string]interface{}{
+			"duplicate":    true,
+			"knowledge_id": dup.ID,
+			"title":        dup.Title,
+		})
+		return
+	}
+
 	// 生成唯一的文件名
 	ext := filepath.Ext(fileHeader.Filename)
 	savedFileName := fmt.Sprintf("%d_%d_%s%s", time.Now().Unix(), userID, knowledgeBaseID[:8], ext)
@@ -314,48 +341,146 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 		return
 	}
 
+	// 同步创建知识条目记录（状态 processing），上传成功后前端即可在列表中看到并轮询进度
+	knowledge, err := h.knowledgeBaseService.UploadDocument(
+		c.Request.Context(),
+		knowledgeBaseID,
+		tenantID,
+		userID,
+		fileHeader.Filename,
+		detectFileType(ext),
+		fileHeader.Size,
+		absFilePath,
+		fileHash,
+	)
+	if err != nil {
+		InternalError(c, "创建文档记录失败: "+err.Error())
+		return
+	}
+
 	// 使用 DocumentProcessorService 异步处理文档
 	// 创建独立的 context，避免 HTTP 请求返回后 context 被取消
 	asyncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	go func() {
 		defer cancel()
-		h.processDocumentWithUseCase(asyncCtx, knowledgeBaseID, tenantID, userID, fileHeader.Filename, absFilePath)
+		// goroutine 中的 panic 不会被 gin recovery 中间件捕获，必须自行兜底，否则整个进程崩溃
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[KnowledgeBaseHandler] Document processing panicked: %v\n%s", r, debug.Stack())
+				// panic 后同样将记录标记为失败，避免永远停留在 processing
+				h.markDocumentFailed(context.Background(), knowledge.ID)
+			}
+		}()
+		h.processDocumentWithUseCase(asyncCtx, knowledgeBaseID, tenantID, userID, fileHeader.Filename, absFilePath, knowledge.ID)
 	}()
 
 	OK(c, map[string]interface{}{
-		"knowledge_id": "pending",
-		"status":       "processing",
+		"knowledge_id": knowledge.ID,
+		"status":       knowledge.ParseStatus,
+		"title":        knowledge.Title,
 		"message":      "文档正在处理中",
 	})
 }
 
+// CheckKnowledgeFile 预检文件是否已存在于知识库（防止重传相同文件）
+// 前端在真正上传字节前调用，命中则不再传输文件内容
+// @Router /api/v1/knowledge-bases/{id}/knowledge/check [post]
+func (h *KnowledgeBaseHandler) CheckKnowledgeFile(c *gin.Context) {
+	knowledgeBaseID := c.Param("id")
+	if knowledgeBaseID == "" {
+		BadRequest(c, "知识库ID不能为空")
+		return
+	}
+
+	var body struct {
+		FileHash string `json:"file_hash"`
+	}
+	if !BindJSON(c, &body) {
+		return
+	}
+	if body.FileHash == "" {
+		BadRequest(c, "file_hash 不能为空")
+		return
+	}
+
+	dup, err := h.knowledgeBaseService.CheckDuplicateByHash(c.Request.Context(), knowledgeBaseID, body.FileHash)
+	if err != nil {
+		InternalError(c, "去重校验失败: "+err.Error())
+		return
+	}
+
+	result := map[string]interface{}{"duplicate": dup != nil}
+	if dup != nil {
+		result["knowledge_id"] = dup.ID
+		result["title"] = dup.Title
+	}
+	OK(c, result)
+}
+
+// hashUploadedFile 流式计算上传文件内容的 SHA-256 十六进制哈希
+func hashUploadedFile(fileHeader *multipart.FileHeader) (string, error) {
+	f, err := fileHeader.Open()
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// detectFileType 从扩展名推断文档类型
+func detectFileType(ext string) string {
+	e := strings.TrimPrefix(strings.ToLower(ext), ".")
+	if e == "" {
+		return "document"
+	}
+	return e
+}
+
+// markDocumentFailed 将文档记录标记为解析失败
+func (h *KnowledgeBaseHandler) markDocumentFailed(ctx context.Context, knowledgeID string) {
+	if knowledgeID == "" {
+		return
+	}
+	if err := h.knowledgeBaseService.UpdateParseStatus(ctx, knowledgeID, domain_knowledge.ParseStatusFailed, ""); err != nil {
+		log.Printf("[KnowledgeBaseHandler] Failed to mark document failed: %v", err)
+	}
+}
+
 // processDocumentWithUseCase 使用 UseCase 处理文档
-func (h *KnowledgeBaseHandler) processDocumentWithUseCase(ctx context.Context, knowledgeBaseID string, tenantID, userID int64, fileName, filePath string) {
+func (h *KnowledgeBaseHandler) processDocumentWithUseCase(ctx context.Context, knowledgeBaseID string, tenantID, userID int64, fileName, filePath, documentID string) {
 	// 获取知识库配置以确定分块策略和是否启用图谱
 	kb, err := h.knowledgeBaseService.FindByID(ctx, knowledgeBaseID)
 	if err != nil {
 		log.Printf("[KnowledgeBaseHandler] Failed to get KB: %v", err)
+		h.markDocumentFailed(ctx, documentID)
 		return
 	}
 
 	chunkingConfig := getChunkingConfig(kb)
 	graphEnabled := kb.Setting != nil && kb.Setting.GraphEnabled
 
-	// 构建处理请求
+	// 构建处理请求（复用同步创建的记录，避免重复建档）
 	req := &app_kb.ProcessDocumentRequest{
-		FilePath:      filePath,
-	 KnowledgeBaseID:          knowledgeBaseID,
-		Title:         fileName,
-		ChunkSize:     chunkingConfig.ChunkSize,
-		ChunkOverlap:  chunkingConfig.ChunkOverlap,
-		ChunkStrategy: chunkingConfig.Strategy,
-		GraphEnabled:  graphEnabled,
+		DocumentID:      documentID,
+		FilePath:        filePath,
+		KnowledgeBaseID: knowledgeBaseID,
+		Title:           fileName,
+		ChunkSize:       chunkingConfig.ChunkSize,
+		ChunkOverlap:    chunkingConfig.ChunkOverlap,
+		ChunkStrategy:   chunkingConfig.Strategy,
+		GraphEnabled:    graphEnabled,
 	}
 
 	// 调用 UseCase 处理
 	resp, err := h.documentProcessor.ProcessDocument(ctx, tenantID, userID, req)
 	if err != nil {
 		log.Printf("[KnowledgeBaseHandler] Document processing failed: %v", err)
+		h.markDocumentFailed(ctx, documentID)
 		return
 	}
 
@@ -435,15 +560,15 @@ func (h *KnowledgeBaseHandler) GetKnowledgeDetail(c *gin.Context) {
 	}
 
 	OK(c, map[string]interface{}{
-		"id":           knowledge.ID,
-		"kb_id":        knowledge.KnowledgeBaseID,
-		"title":        knowledge.Title,
-		"type":         knowledge.Type,
-		"description":  knowledge.Description,
-		"source":       knowledge.Source,
-		"parse_status": knowledge.ParseStatus,
+		"id":            knowledge.ID,
+		"kb_id":         knowledge.KnowledgeBaseID,
+		"title":         knowledge.Title,
+		"type":          knowledge.Type,
+		"description":   knowledge.Description,
+		"source":        knowledge.Source,
+		"parse_status":  knowledge.ParseStatus,
 		"enable_status": knowledge.EnableStatus,
-		"storage_size": knowledge.StorageSize,
+		"storage_size":  knowledge.StorageSize,
 		"chunk_count": func() int {
 			if knowledge.ChunkCount == nil {
 				return 0
@@ -521,13 +646,13 @@ func (h *KnowledgeBaseHandler) GetPendingKnowledgeList(c *gin.Context) {
 	items := make([]map[string]interface{}, len(result))
 	for i, k := range result {
 		items[i] = map[string]interface{}{
-			"id":           k.ID,
-			"kb_id":        k.KnowledgeBaseID,
-			"title":        k.Title,
-			"type":         k.Type,
-			"description":  k.Description,
-			"source":       k.Source,
-			"parse_status": k.ParseStatus,
+			"id":            k.ID,
+			"kb_id":         k.KnowledgeBaseID,
+			"title":         k.Title,
+			"type":          k.Type,
+			"description":   k.Description,
+			"source":        k.Source,
+			"parse_status":  k.ParseStatus,
 			"enable_status": k.EnableStatus,
 			"chunk_count": func() int {
 				if k.ChunkCount == nil {
@@ -543,9 +668,9 @@ func (h *KnowledgeBaseHandler) GetPendingKnowledgeList(c *gin.Context) {
 	}
 
 	OK(c, map[string]interface{}{
-		"items": items,
-		"total": total,
-		"page":  page,
+		"items":     items,
+		"total":     total,
+		"page":      page,
 		"page_size": pageSize,
 	})
 }
@@ -726,10 +851,10 @@ func (h *KnowledgeBaseHandler) DeleteChunk(c *gin.Context) {
 // @Router /api/v1/knowledge/search [post]
 func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 	var req struct {
-		KnowledgeBaseIDs    []string `json:"kb_ids" binding:"required"`
-		Query    string   `json:"query" binding:"required"`
-		TopK     int      `json:"top_k"`
-		MinScore float64  `json:"min_score"`
+		KnowledgeBaseIDs []string `json:"kb_ids" binding:"required"`
+		Query            string   `json:"query" binding:"required"`
+		TopK             int      `json:"top_k"`
+		MinScore         float64  `json:"min_score"`
 	}
 	if !BindJSON(c, &req) {
 		return
@@ -767,4 +892,3 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 		"items": items,
 	})
 }
-

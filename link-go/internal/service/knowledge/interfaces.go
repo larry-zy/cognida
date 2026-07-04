@@ -50,7 +50,7 @@ type KnowledgeBaseService interface {
 	GetKnowledgeList(ctx context.Context, kbID string, page, pageSize int, status string) ([]*domain_knowledge.Knowledge, int64, error)
 
 	// DeleteKnowledge deletes knowledge from a KB
-	DeleteKnowledge(ctx context.Context, kbID, knowledgeID string) error
+	DeleteKnowledge(ctx context.Context, kbID, knowledgeID string, tenantID int64) error
 
 	// GetChunks gets chunks for a KB
 	GetChunks(ctx context.Context, kbID string, page, pageSize int, knowledgeID string) ([]*domain_knowledge.Chunk, int64, error)
@@ -58,8 +58,14 @@ type KnowledgeBaseService interface {
 	// CreateChunk creates a chunk
 	CreateChunk(ctx context.Context, chunk *domain_knowledge.Chunk) error
 
-	// UploadDocument 上传文档文件
-	UploadDocument(ctx context.Context, kbID string, tenantID, userID int64, fileName, fileType string, fileSize int64, filePath string) (*domain_knowledge.Knowledge, error)
+	// UploadDocument 上传文档文件（同步创建记录，fileHash 用于防止重传相同文件）
+	UploadDocument(ctx context.Context, kbID string, tenantID, userID int64, fileName, fileType string, fileSize int64, filePath, fileHash string) (*domain_knowledge.Knowledge, error)
+
+	// CheckDuplicateByHash 在知识库范围内检查是否已存在相同文件（防止重传）；存在则返回已有文档
+	CheckDuplicateByHash(ctx context.Context, kbID, fileHash string) (*domain_knowledge.Knowledge, error)
+
+	// UpdateParseStatus 更新文档解析状态（如处理失败时标记 failed）
+	UpdateParseStatus(ctx context.Context, id, parseStatus, errorMessage string) error
 
 	// GetKnowledgeDetail 获取文档详情
 	GetKnowledgeDetail(ctx context.Context, kbID, knowledgeID string) (*domain_knowledge.Knowledge, error)

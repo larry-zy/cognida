@@ -4,12 +4,12 @@ package knowledge
 import (
 	"context"
 	"errors"
-	"strconv"
+	"fmt"
+	"log"
 	"time"
 
-	domain_knowledge "link/internal/model/knowledge"
 	"link/internal/infrastructure/id"
-	
+	domain_knowledge "link/internal/model/knowledge"
 )
 
 // ValidationError represents a validation error
@@ -39,7 +39,8 @@ type knowledgeBaseService struct {
 	knowledgeRepo domain_knowledge.KnowledgeRepository
 	chunkRepo     domain_knowledge.ChunkRepository
 	statsQuerier  domain_knowledge.KnowledgeStatsQuerier
-	vectorRepo domain_knowledge.VectorRepository
+	vectorRepo    domain_knowledge.VectorRepository
+	graphRepo     domain_knowledge.GraphRepository
 	idGenerator   id.IDGenerator
 }
 
@@ -51,6 +52,7 @@ func NewKnowledgeBaseService(
 	chunkRepo domain_knowledge.ChunkRepository,
 	statsQuerier domain_knowledge.KnowledgeStatsQuerier,
 	vectorRepo domain_knowledge.VectorRepository,
+	graphRepo domain_knowledge.GraphRepository,
 ) KnowledgeBaseService {
 	return &knowledgeBaseService{
 		kbRepo:        kbRepo,
@@ -58,7 +60,8 @@ func NewKnowledgeBaseService(
 		knowledgeRepo: knowledgeRepo,
 		chunkRepo:     chunkRepo,
 		statsQuerier:  statsQuerier,
-		vectorRepo: vectorRepo,
+		vectorRepo:    vectorRepo,
+		graphRepo:     graphRepo,
 		idGenerator:   id.NewIDGenerator(),
 	}
 }
@@ -124,10 +127,10 @@ func (s *knowledgeBaseService) CreateFromRequest(
 		}
 		chunkingConfig := s.buildChunkingConfig(req)
 		setting := &domain_knowledge.KnowledgeBaseSetting{
-		 KnowledgeBaseID:           kb.ID,
-			GraphEnabled:   req.GraphEnabled != nil && *req.GraphEnabled,
-			BM25Enabled:    &bm25Enabled,
-			ChunkingConfig: &chunkingConfig,
+			KnowledgeBaseID: kb.ID,
+			GraphEnabled:    req.GraphEnabled != nil && *req.GraphEnabled,
+			BM25Enabled:     &bm25Enabled,
+			ChunkingConfig:  &chunkingConfig,
 		}
 		if err := s.kbSettingRepo.Create(ctx, setting); err != nil {
 			return nil, err
@@ -261,7 +264,7 @@ func (s *knowledgeBaseService) GetStats(ctx context.Context, kbID string) (*doma
 	if s.statsQuerier == nil {
 		// Fallback: return empty stats
 		return &domain_knowledge.KnowledgeBaseStats{
-		 KnowledgeBaseID: kbID,
+			KnowledgeBaseID: kbID,
 		}, nil
 	}
 	return s.statsQuerier.GetStats(ctx, kbID)
@@ -329,8 +332,8 @@ func (s *knowledgeBaseService) GetKnowledgeListWithStatus(
 	return s.statsQuerier.GetKnowledgeListWithStatus(ctx, kbID, page, pageSize, statuses)
 }
 
-// DeleteKnowledge deletes knowledge from a KB (delegates to KnowledgeStatsQuerier)
-func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowledgeID string) error {
+// DeleteKnowledge deletes knowledge from a KB across all stores (MySQL + Milvus + Neo4j)
+func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowledgeID string, tenantID int64) error {
 	if s.statsQuerier == nil {
 		// Fallback: simple delete through knowledge repository
 		// Note: This won't delete chunks, so statsQuerier should be provided
@@ -342,17 +345,29 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 		return err
 	}
 
-	// Delete from Milvus (vectors)
+	// Delete from Milvus (vectors) —— 尽力而为，MySQL 已删除，向量删除失败不回滚。
+	// 注意：collection 名由 kbID 的前导数字派生（与写入侧 fmt.Sscanf 一致），
+	// KB ID 形如 "20260704...bfa0e3" 含十六进制字母，不能用 strconv.ParseInt（会整体失败）。
 	if s.vectorRepo != nil {
-		kbIDInt, err := strconv.ParseInt(kbID, 10, 64)
-		if err != nil {
-			return &ValidationError{Field: "kb_id", Message: "invalid knowledge base ID format"}
+		var kbIDInt int64
+		if kbID != "" {
+			fmt.Sscanf(kbID, "%d", &kbIDInt)
 		}
-		// Note: Vector deletion is asynchronous in Milvus, but we don't wait for it
-		// The deletion will be effective after Milvus compacts the data
 		if err := s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID); err != nil {
-			// Log error but don't fail the operation - MySQL deletion is done
-			// The vector data will be orphaned but won't affect search results after compaction
+			log.Printf("[KnowledgeBaseService] Warning: failed to delete vectors for knowledge %s: %v", knowledgeID, err)
+		}
+	}
+
+	// Delete from Neo4j (graph nodes/relations) —— 尽力而为。namespace 与写入侧
+	// document_processor_service.extractGraph 保持一致：TenantID 为字符串化的租户 ID。
+	if s.graphRepo != nil {
+		namespace := domain_knowledge.NameSpace{
+			TenantID:        fmt.Sprintf("%d", tenantID),
+			KnowledgeBaseID: kbID,
+			Knowledge:       knowledgeID,
+		}
+		if err := s.graphRepo.DeleteByKnowledgeID(ctx, namespace, knowledgeID); err != nil {
+			log.Printf("[KnowledgeBaseService] Warning: failed to delete graph data for knowledge %s: %v", knowledgeID, err)
 		}
 	}
 
@@ -368,10 +383,10 @@ func (s *knowledgeBaseService) GetChunks(
 ) ([]*domain_knowledge.Chunk, int64, error) {
 	// 使用仓储查询
 	query := &domain_knowledge.ChunkListQuery{
-	 KnowledgeBaseID:        kbID,
-		KnowledgeID: knowledgeID,
-		Page:        page,
-		PageSize:    pageSize,
+		KnowledgeBaseID: kbID,
+		KnowledgeID:     knowledgeID,
+		Page:            page,
+		PageSize:        pageSize,
 	}
 	return s.chunkRepo.FindByKnowledgeBaseID(ctx, kbID, query)
 }
@@ -385,34 +400,40 @@ func (s *knowledgeBaseService) CreateChunk(ctx context.Context, chunk *domain_kn
 // Document Upload and Processing
 // ========================================
 
-// UploadDocument 上传文档文件
+// UploadDocument 上传文档文件（同步创建记录，立即可在列表中显示）
 func (s *knowledgeBaseService) UploadDocument(
 	ctx context.Context,
 	kbID string,
 	tenantID, userID int64,
 	fileName, fileType string,
 	fileSize int64,
-	filePath string,
+	filePath, fileHash string,
 ) (*domain_knowledge.Knowledge, error) {
 	// 生成知识条目 ID
 	knowledgeID := s.idGenerator.Generate()
 
-	// 创建知识条目
+	docType := fileType
+	if docType == "" {
+		docType = "document"
+	}
+
+	// 创建知识条目：状态置为 processing，前端上传后即可在列表看到并轮询进度
 	now := time.Now()
 	knowledge := &domain_knowledge.Knowledge{
-		ID:           knowledgeID,
-		TenantID:     tenantID,
-	 KnowledgeBaseID:         kbID,
-		UserID:       userID,
-		Type:         "document",
-		Title:        fileName,
-		Source:       "upload",
-		ParseStatus:  domain_knowledge.ParseStatusPending,
-		EnableStatus: domain_knowledge.EnableStatusDisabled,
-		FilePath:     filePath,
-		StorageSize:  fileSize,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:              knowledgeID,
+		TenantID:        tenantID,
+		KnowledgeBaseID: kbID,
+		UserID:          userID,
+		Type:            docType,
+		Title:           fileName,
+		Source:          "upload",
+		ParseStatus:     domain_knowledge.ParseStatusProcessing,
+		EnableStatus:    domain_knowledge.EnableStatusDisabled,
+		FilePath:        filePath,
+		FileHash:        fileHash,
+		StorageSize:     fileSize,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
 	if err := s.knowledgeRepo.Create(ctx, knowledge); err != nil {
@@ -420,6 +441,19 @@ func (s *knowledgeBaseService) UploadDocument(
 	}
 
 	return knowledge, nil
+}
+
+// CheckDuplicateByHash 在知识库范围内检查是否已存在相同文件（防止重传相同文件）
+func (s *knowledgeBaseService) CheckDuplicateByHash(ctx context.Context, kbID, fileHash string) (*domain_knowledge.Knowledge, error) {
+	if fileHash == "" {
+		return nil, nil
+	}
+	return s.knowledgeRepo.FindByFileHashInKB(ctx, kbID, fileHash)
+}
+
+// UpdateParseStatus 更新文档解析状态
+func (s *knowledgeBaseService) UpdateParseStatus(ctx context.Context, id, parseStatus, errorMessage string) error {
+	return s.knowledgeRepo.UpdateParseStatus(ctx, id, parseStatus, errorMessage)
 }
 
 // GetKnowledgeDetail 获取文档详情
@@ -513,10 +547,10 @@ func (s *knowledgeBaseService) Search(
 	var allChunks []*domain_knowledge.Chunk
 	for _, kbID := range kbIDs {
 		chunks, _, err := s.chunkRepo.FindByKnowledgeBaseID(ctx, kbID, &domain_knowledge.ChunkListQuery{
-		 KnowledgeBaseID:      kbID,
-			IsEnabled: boolPtr(true),
-			Page:      1,
-			PageSize:  topK * len(kbIDs), // 获取足够的结果用于过滤
+			KnowledgeBaseID: kbID,
+			IsEnabled:       boolPtr(true),
+			Page:            1,
+			PageSize:        topK * len(kbIDs), // 获取足够的结果用于过滤
 		})
 		if err != nil {
 			continue
@@ -628,12 +662,12 @@ func (s *knowledgeBaseService) ToSettingResponse(setting *domain_knowledge.Knowl
 	}
 
 	return &KnowledgeBaseSettingResponse{
-		ID:             setting.ID,
+		ID:              setting.ID,
 		KnowledgeBaseID: setting.KnowledgeBaseID,
-		GraphEnabled:   setting.GraphEnabled,
-		BM25Enabled:    bm25Enabled,
-		ChunkingConfig: chunkingConfig,
-		SettingsJSON:   settingsJSON,
-		UpdatedAt:      setting.UpdatedAt.Unix(),
+		GraphEnabled:    setting.GraphEnabled,
+		BM25Enabled:     bm25Enabled,
+		ChunkingConfig:  chunkingConfig,
+		SettingsJSON:    settingsJSON,
+		UpdatedAt:       setting.UpdatedAt.Unix(),
 	}
 }

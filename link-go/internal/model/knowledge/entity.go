@@ -133,6 +133,7 @@ type Knowledge struct {
 	ParseStatus  string
 	EnableStatus string
 	FilePath     string
+	FileHash     string
 	StorageSize  int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

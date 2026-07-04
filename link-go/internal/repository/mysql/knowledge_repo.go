@@ -231,6 +231,26 @@ func (r *knowledgeRepository) FindByFileHash(ctx context.Context, tenantID int64
 	return model.ToDomain(), nil
 }
 
+// FindByFileHashInKB 在指定知识库范围内根据文件哈希查找未删除条目（防止重传相同文件）
+func (r *knowledgeRepository) FindByFileHashInKB(ctx context.Context, knowledgeBaseID string, fileHash string) (*domain_knowledge.Knowledge, error) {
+	if fileHash == "" {
+		return nil, nil
+	}
+	var model KnowledgeModel
+	err := r.db.WithContext(ctx).
+		Where("knowledge_base_id = ? AND file_hash = ?", knowledgeBaseID, fileHash).
+		First(&model).Error
+
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询知识条目失败: %w", err)
+	}
+
+	return model.ToDomain(), nil
+}
+
 // UpdateTagID 更新知识条目的标签ID
 func (r *knowledgeRepository) UpdateTagID(ctx context.Context, id string, tagID int64) error {
 	return r.db.WithContext(ctx).Model(&KnowledgeModel{}).

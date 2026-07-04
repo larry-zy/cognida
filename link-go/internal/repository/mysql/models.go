@@ -88,7 +88,7 @@ type KnowledgeModel struct {
 	ID           string     `gorm:"primaryKey;type:varchar(36)"`
 	TenantID     int64      `gorm:"not null;index:idx_tenant_kb,priority:1"`
 	TagID        *int64     `gorm:"default:NULL"`
-	KnowledgeBaseID   string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id"`
+	KnowledgeBaseID   string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id;index:idx_kb_filehash,priority:1"`
 	UserID       int64      `gorm:"not null;index:idx_user_id"`
 	Type         string     `gorm:"type:varchar(50);not null"`
 	Title        string     `gorm:"type:varchar(255);not null"`
@@ -97,6 +97,7 @@ type KnowledgeModel struct {
 	ParseStatus  string     `gorm:"type:varchar(50);default:'unprocessed';index:idx_status"`
 	EnableStatus string     `gorm:"type:varchar(50);default:'enabled';index:idx_status"`
 	FilePath     string     `gorm:"type:text"`
+	FileHash     string     `gorm:"type:varchar(64);index:idx_kb_filehash,priority:2"`
 	StorageSize  int64      `gorm:"default:0"`
 	CreatedAt    time.Time  `gorm:"autoCreateTime"`
 	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
@@ -125,6 +126,7 @@ func (m *KnowledgeModel) ToDomain() *domain_knowledge.Knowledge {
 		ParseStatus:  m.ParseStatus,
 		EnableStatus: m.EnableStatus,
 		FilePath:     m.FilePath,
+		FileHash:     m.FileHash,
 		StorageSize:  m.StorageSize,
 		CreatedAt:    m.CreatedAt,
 		UpdatedAt:    m.UpdatedAt,
@@ -148,6 +150,7 @@ func (m *KnowledgeModel) FromDomain(entity *domain_knowledge.Knowledge) *Knowled
 	m.ParseStatus = entity.ParseStatus
 	m.EnableStatus = entity.EnableStatus
 	m.FilePath = entity.FilePath
+	m.FileHash = entity.FileHash
 	m.StorageSize = entity.StorageSize
 	m.CreatedAt = entity.CreatedAt
 	m.UpdatedAt = entity.UpdatedAt
@@ -171,6 +174,7 @@ func (m *KnowledgeModel) FromDomainForCreate(entity *domain_knowledge.Knowledge)
 	m.ParseStatus = entity.ParseStatus
 	m.EnableStatus = entity.EnableStatus
 	m.FilePath = entity.FilePath
+	m.FileHash = entity.FileHash
 	m.StorageSize = entity.StorageSize
 	// 只复制非零时间戳
 	if !entity.CreatedAt.IsZero() {

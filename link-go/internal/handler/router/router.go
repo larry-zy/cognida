@@ -227,6 +227,8 @@ func (r *Router) setupKBRoutes(api *gin.RouterGroup) {
 		// 知识库文档管理
 		kbs.GET("/:id/knowledge", r.knowledgeBaseHandler.GetKnowledgeList)
 		kbs.POST("/:id/knowledge/file", r.knowledgeBaseHandler.UploadKnowledgeFile)
+		// 上传前预检：文件是否已存在（防止重传相同文件）
+		kbs.POST("/:id/knowledge/check", r.knowledgeBaseHandler.CheckKnowledgeFile)
 		// pending 路由必须在 :kid 之前，因为 pending 会被当作 :kid 匹配
 		kbs.GET("/:id/knowledge/pending", r.knowledgeBaseHandler.GetPendingKnowledgeList)
 		kbs.GET("/:id/knowledge/pending/status", r.knowledgeBaseHandler.GetPendingKnowledgeList)
