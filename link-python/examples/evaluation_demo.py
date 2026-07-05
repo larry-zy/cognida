@@ -3,7 +3,6 @@
 import asyncio
 import json
 
-from services.evaluation.runner import EvaluationRunner, EvaluationConfig
 from services.evaluation.graders import get_grader, list_graders
 from services.evaluation.strategies import get_strategy
 
@@ -93,66 +92,10 @@ async def demo_conditional_strategy():
     print(f"评分结果: {result['scores']}")
 
 
-async def demo_full_evaluation():
-    """演示完整评测流程。"""
-    print("\n=== 完整评测流程示例 ===")
-
-    config = EvaluationConfig(
-        top_k=5,
-        retrieval_metrics=["precision", "recall", "ndcg"],
-        generation_metrics=["rouge_1", "rouge_l", "bleu_4"],
-        enable_semantic=True,
-        enable_llm_judge=False,
-        include_qa_results=True,
-    )
-
-    runner = EvaluationRunner(config)
-
-    # 准备好接收进度
-    progress_count = [0]
-
-    async def track_progress(progress):
-        progress_count[0] += 1
-        print(f"  [{progress.stage}] {progress.current}/{progress.total} - {progress.message} ({progress.percentage:.1f}%)")
-
-    print("开始评测...")
-    result = await runner.run(
-        dataset_id="default",
-        knowledge_base_id="test_kb",
-        model_id="test_model",
-        progress_callback=track_progress,
-    )
-
-    print(f"\n评测完成!")
-    print(f"评测 ID: {result.evaluation_id}")
-    print(f"成功: {result.success_count}/{result.total_count}")
-    print(f"失败: {result.failed_count}")
-
-    if result.retrieval:
-        print(f"\n检索指标:")
-        print(f"  Precision: {result.retrieval.precision:.4f}")
-        print(f"  Recall: {result.retrieval.recall:.4f}")
-        print(f"  NDCG: {result.retrieval.ndcg:.4f}")
-
-    if result.generation:
-        print(f"\n生成指标:")
-        print(f"  ROUGE-1: {result.generation.rouge_1:.4f}")
-        print(f"  ROUGE-L: {result.generation.rouge_l:.4f}")
-        print(f"  BLEU-4: {result.generation.bleu_4:.4f}")
-
-    if result.semantic:
-        print(f"\n语义指标:")
-        print(f"  相似度: {result.semantic.similarity:.4f}")
-        print(f"  最小: {result.semantic.min_similarity:.4f}")
-        print(f"  最大: {result.semantic.max_similarity:.4f}")
-
-    print(f"\n共接收 {progress_count[0]} 个进度更新")
-
-
 async def main():
     """主函数。"""
     print("=" * 60)
-    print("Python 评测服务使用示例")
+    print("Python 评测服务使用示例（无状态 compute：评分器 / 策略）")
     print("=" * 60)
 
     await demo_list_graders()
@@ -160,7 +103,6 @@ async def main():
     await demo_zero_shot_strategy()
     await demo_ensemble_strategy()
     await demo_conditional_strategy()
-    await demo_full_evaluation()
 
     print("\n" + "=" * 60)
     print("所有示例运行完成！")

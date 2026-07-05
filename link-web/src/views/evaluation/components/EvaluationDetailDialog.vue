@@ -28,41 +28,19 @@
         </UiDescriptions>
       </div>
 
-      <!-- 整体评测指标 -->
-      <div class="detail-section" v-if="aggregateMetrics">
+      <!-- 整体评测指标（任务级聚合，注册表驱动动态渲染，兼容固定字段；
+           = 各 QA 行动态 scores 均值 ∪ 后端 detail.metrics 扁平聚合，
+           开发者新增 grader 自动出现，无需改前端） -->
+      <div class="detail-section" v-if="showAggregate">
         <h4>整体评测指标</h4>
         <div class="metrics-grid">
           <div class="metric-item">
             <div class="metric-label">成功率</div>
-            <div class="metric-value">{{ aggregateMetrics.successRate.toFixed(1) }}%</div>
+            <div class="metric-value">{{ successRate.toFixed(1) }}%</div>
           </div>
-          <div v-if="aggregateMetrics.rouge1 !== null" class="metric-item">
-            <div class="metric-label">ROUGE-1 (平均)</div>
-            <div class="metric-value">{{ (aggregateMetrics.rouge1 * 100).toFixed(2) }}%</div>
-          </div>
-          <div v-if="aggregateMetrics.rougeL !== null" class="metric-item">
-            <div class="metric-label">ROUGE-L (平均)</div>
-            <div class="metric-value">{{ (aggregateMetrics.rougeL * 100).toFixed(2) }}%</div>
-          </div>
-          <div v-if="aggregateMetrics.bleu1 !== null" class="metric-item">
-            <div class="metric-label">BLEU-1 (平均)</div>
-            <div class="metric-value">{{ (aggregateMetrics.bleu1 * 100).toFixed(2) }}%</div>
-          </div>
-          <div v-if="aggregateMetrics.precision !== null" class="metric-item">
-            <div class="metric-label">Precision (平均)</div>
-            <div class="metric-value">{{ (aggregateMetrics.precision * 100).toFixed(2) }}%</div>
-          </div>
-          <div v-if="aggregateMetrics.recall !== null" class="metric-item">
-            <div class="metric-label">Recall (平均)</div>
-            <div class="metric-value">{{ (aggregateMetrics.recall * 100).toFixed(2) }}%</div>
-          </div>
-          <div v-if="aggregateMetrics.llmScore !== null" class="metric-item">
-            <div class="metric-label">LLM 评分 (平均)</div>
-            <div class="metric-value">{{ aggregateMetrics.llmScore.toFixed(2) }}</div>
-          </div>
-          <div v-if="aggregateMetrics.semanticSim !== null" class="metric-item">
-            <div class="metric-label">语义相似度 (平均)</div>
-            <div class="metric-value">{{ (aggregateMetrics.semanticSim * 100).toFixed(2) }}%</div>
+          <div v-for="entry in aggregateEntries" :key="entry.key" class="metric-item">
+            <div class="metric-label">{{ entry.label }}</div>
+            <div class="metric-value">{{ entry.text }}</div>
           </div>
         </div>
       </div>
@@ -70,83 +48,6 @@
       <!-- QA 结果 -->
       <div class="detail-section" v-if="detail.qa_results && detail.qa_results.length > 0">
         <QaResultTable :results="detail.qa_results" />
-      </div>
-
-      <!-- 检索指标（任务级聚合，来自 detail.metrics 扁平契约） -->
-      <div v-if="hasRetrievalMetrics" class="detail-section">
-        <h4>检索指标</h4>
-        <div class="metrics-grid">
-          <div v-if="detail.metrics?.precision != null" class="metric-item">
-            <div class="metric-label">Precision</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.precision) }}</div>
-          </div>
-          <div v-if="detail.metrics?.recall != null" class="metric-item">
-            <div class="metric-label">Recall</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.recall) }}</div>
-          </div>
-          <div v-if="detail.metrics?.ndcg != null" class="metric-item">
-            <div class="metric-label">NDCG</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.ndcg) }}</div>
-          </div>
-          <div v-if="detail.metrics?.mrr != null" class="metric-item">
-            <div class="metric-label">MRR</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.mrr) }}</div>
-          </div>
-          <div v-if="detail.metrics?.map != null" class="metric-item">
-            <div class="metric-label">MAP</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.map) }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 生成指标（任务级聚合，来自 detail.metrics 扁平契约） -->
-      <div v-if="hasGenerationMetrics" class="detail-section">
-        <h4>生成指标</h4>
-        <div class="metrics-grid">
-          <div v-if="detail.metrics?.bleu_1 != null" class="metric-item">
-            <div class="metric-label">BLEU-1</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.bleu_1) }}</div>
-          </div>
-          <div v-if="detail.metrics?.bleu_2 != null" class="metric-item">
-            <div class="metric-label">BLEU-2</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.bleu_2) }}</div>
-          </div>
-          <div v-if="detail.metrics?.bleu_4 != null" class="metric-item">
-            <div class="metric-label">BLEU-4</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.bleu_4) }}</div>
-          </div>
-          <div v-if="detail.metrics?.rouge_1 != null" class="metric-item">
-            <div class="metric-label">ROUGE-1</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.rouge_1) }}</div>
-          </div>
-          <div v-if="detail.metrics?.rouge_2 != null" class="metric-item">
-            <div class="metric-label">ROUGE-2</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.rouge_2) }}</div>
-          </div>
-          <div v-if="detail.metrics?.rouge_l != null" class="metric-item">
-            <div class="metric-label">ROUGE-L</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.rouge_l) }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- RAG 专属指标（忠实度/上下文相关性/噪声比） -->
-      <div v-if="hasRagMetrics" class="detail-section">
-        <h4>RAG 专属指标</h4>
-        <div class="metrics-grid">
-          <div v-if="detail.metrics?.faithfulness != null" class="metric-item">
-            <div class="metric-label">忠实度</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.faithfulness) }}</div>
-          </div>
-          <div v-if="detail.metrics?.context_relevance != null" class="metric-item">
-            <div class="metric-label">上下文相关性</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.context_relevance) }}</div>
-          </div>
-          <div v-if="detail.metrics?.noise_ratio != null" class="metric-item">
-            <div class="metric-label">噪声比例</div>
-            <div class="metric-value">{{ formatPercent(detail.metrics.noise_ratio) }}</div>
-          </div>
-        </div>
       </div>
 
       <!-- 运行中状态 -->
@@ -181,7 +82,7 @@ import {
   UiButton
 } from '@/components'
 import QaResultTable from './QaResultTable.vue'
-import { formatTime, formatPercent, type AggregateMetrics } from '../evaluation-config'
+import { formatTime, taskAggregateEntries, taskSuccessRate } from '../evaluation-config'
 import {
   EvaluationStatusType,
   EvaluationStatusText,
@@ -191,7 +92,6 @@ import {
 const props = defineProps<{
   modelValue: boolean
   detail: EvaluationDetail | null
-  aggregateMetrics: AggregateMetrics | null
 }>()
 
 const emit = defineEmits<{
@@ -205,24 +105,16 @@ const visible = computed({
   set: (v: boolean) => emit('update:modelValue', v)
 })
 
-/** 任务级检索指标是否存在任意值 */
-const hasRetrievalMetrics = computed(() => {
-  const m = props.detail?.metrics
-  return !!m && (m.precision != null || m.recall != null || m.ndcg != null || m.mrr != null || m.map != null)
-})
+/** 任务级聚合指标条目（动态：per-QA 均值 ∪ 后端扁平聚合） */
+const aggregateEntries = computed(() => taskAggregateEntries(props.detail))
 
-/** 任务级生成指标是否存在任意值 */
-const hasGenerationMetrics = computed(() => {
-  const m = props.detail?.metrics
-  return !!m && (m.bleu_1 != null || m.bleu_2 != null || m.bleu_4 != null ||
-    m.rouge_1 != null || m.rouge_2 != null || m.rouge_l != null)
-})
+/** 任务成功率（百分比数值） */
+const successRate = computed(() => taskSuccessRate(props.detail))
 
-/** RAG 专属指标是否存在任意值 */
-const hasRagMetrics = computed(() => {
-  const m = props.detail?.metrics
-  return !!m && (m.faithfulness != null || m.context_relevance != null || m.noise_ratio != null)
-})
+/** 有任意聚合指标或已有 QA 结果时展示整体指标区块 */
+const showAggregate = computed(
+  () => aggregateEntries.value.length > 0 || (props.detail?.qa_results?.length ?? 0) > 0
+)
 
 function handleClose() {
   emit('close')

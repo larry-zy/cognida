@@ -10,9 +10,8 @@ from ...graders.base import (
     GraderMode,
     GraderScore,
     MetricType,
-    register_grader,
 )
-from ...graders.registry import register_grader_class
+from ...graders.registry import register_grader, register_grader_class
 
 
 # ============================================================

@@ -115,18 +115,6 @@ export const EVALUATION_TYPE_OPTIONS = [
   { value: 'agent', label: 'Agent 评测' }
 ]
 
-/** 聚合指标（详情对话框顶部整体指标卡片） */
-export interface AggregateMetrics {
-  rouge1: number | null
-  rougeL: number | null
-  bleu1: number | null
-  precision: number | null
-  recall: number | null
-  llmScore: number | null
-  semanticSim: number | null
-  successRate: number
-}
-
 /** 计算任务进度百分比 */
 export function getProgress(task: EvaluationTask): number {
   if (task.total_count === 0) return 0
@@ -165,6 +153,7 @@ export const METRIC_DISPLAY: Record<string, { label: string; percent: boolean }>
   rouge_2: { label: 'ROUGE-2', percent: true },
   rouge_l: { label: 'ROUGE-L', percent: true },
   bleu_1: { label: 'BLEU-1', percent: true },
+  bleu_2: { label: 'BLEU-2', percent: true },
   bleu_4: { label: 'BLEU-4', percent: true },
   precision: { label: 'Precision', percent: true },
   recall: { label: 'Recall', percent: true },
@@ -178,6 +167,7 @@ export const METRIC_DISPLAY: Record<string, { label: string; percent: boolean }>
   semantic_relevance: { label: '语义相关性', percent: true },
   llm_score: { label: 'LLM Score', percent: false },
   llm_judge: { label: 'LLM 裁判', percent: false },
+  llm_judge_score: { label: 'LLM 评分', percent: false },
   llm_factual: { label: '事实正确性', percent: false },
   llm_safety: { label: '内容安全性', percent: false },
   exact_match: { label: '精确匹配', percent: true },
@@ -219,16 +209,75 @@ export interface MetricEntry {
   text: string
 }
 
+/** 将指标 map 转为展示条目：未知指标回退原始名并按百分比展示。 */
+function scoresToEntries(scores: Record<string, number>): MetricEntry[] {
+  return Object.entries(scores).map(([key, value]) => {
+    const disp = METRIC_DISPLAY[key] ?? { label: key, percent: true }
+    const text = disp.percent ? (value * 100).toFixed(2) + '%' : value.toFixed(2)
+    return { key, label: disp.label, text }
+  })
+}
+
 /**
  * 从一行结果提取用于展示的指标条目：优先动态 scores map，兼容固定字段。
  * 供结果详情按 map 动态渲染，开发者新增指标自动出现。
  */
 export function metricEntries(row: Record<string, unknown>): MetricEntry[] {
-  return Object.entries(mergedScores(row)).map(([key, value]) => {
-    const disp = METRIC_DISPLAY[key] ?? { label: key, percent: true }
-    const text = disp.percent ? (value * 100).toFixed(2) + '%' : value.toFixed(2)
-    return { key, label: disp.label, text }
-  })
+  return scoresToEntries(mergedScores(row))
+}
+
+/** 任务级聚合的最小结构（避免耦合完整 EvaluationDetail 类型）。 */
+export interface TaskAggregateSource {
+  qa_results?: unknown[]
+  metrics?: unknown
+  total_count?: number
+  success_count?: number
+}
+
+/**
+ * 任务级聚合指标 map：各 QA 行动态指标（mergedScores）取均值，
+ * 再叠加后端 detail.metrics 扁平契约（任务级权威聚合，覆盖同名项）。
+ * 开发者在后端新增 grader → per-QA scores 自动带出 → 此处自动出现，无需改前端。
+ */
+export function taskAggregateScores(
+  detail: TaskAggregateSource | null | undefined
+): Record<string, number> {
+  const merged: Record<string, number> = {}
+  const results = (detail?.qa_results ?? []) as Array<Record<string, unknown>>
+  if (results.length > 0) {
+    const sums: Record<string, number> = {}
+    const counts: Record<string, number> = {}
+    for (const row of results) {
+      for (const [k, v] of Object.entries(mergedScores(row))) {
+        sums[k] = (sums[k] ?? 0) + v
+        counts[k] = (counts[k] ?? 0) + 1
+      }
+    }
+    for (const k of Object.keys(sums)) merged[k] = sums[k] / counts[k]
+  }
+  const m = detail?.metrics
+  if (m && typeof m === 'object') {
+    for (const [k, v] of Object.entries(m as Record<string, unknown>)) {
+      if (typeof v === 'number') merged[k] = v
+    }
+  }
+  return merged
+}
+
+/** 任务级聚合指标展示条目（注册表驱动动态渲染，兼容固定字段）。 */
+export function taskAggregateEntries(
+  detail: TaskAggregateSource | null | undefined
+): MetricEntry[] {
+  return scoresToEntries(taskAggregateScores(detail))
+}
+
+/** 任务成功率（百分比数值）。 */
+export function taskSuccessRate(
+  detail: TaskAggregateSource | null | undefined
+): number {
+  const total = Number(detail?.total_count ?? 0)
+  const success = Number(detail?.success_count ?? 0)
+  return total > 0 ? (success / total) * 100 : 0
 }
 
 /** 读取单个指标数值（动态 scores 优先，回退固定字段），空值返回 null。 */

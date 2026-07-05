@@ -8,14 +8,13 @@ import { ElMessageBox } from '@/utils/confirm'
 import { evaluationApi } from '@/api/evaluation'
 import { knowledgeApi } from '@/api/knowledge'
 import { modelApi } from '@/api/model'
-import { connectTaskProgress, type SSEClient } from '@/utils/sse'
+import { connectTaskProgress, type SSEConnection } from '@/utils/sse'
 import type {
   EvaluationTask,
   EvaluationDetail,
   CreateEvaluationRequest,
   SSEProgressEvent
 } from '@/types'
-import type { AggregateMetrics } from '../evaluation-config'
 
 export function useEvaluationList() {
   const loading = ref(false)
@@ -26,7 +25,7 @@ export function useEvaluationList() {
   const chatModels = ref<Array<Record<string, any>>>([])
   const currentDetail = ref<EvaluationDetail | null>(null)
 
-  const sseClient = ref<SSEClient | null>(null)
+  const sseClient = ref<SSEConnection | null>(null)
 
   // ---------- 派生数据 ----------
   const stats = computed(() => ({
@@ -36,31 +35,8 @@ export function useEvaluationList() {
     failed: evaluations.value.filter(t => t.status === 'failed').length
   }))
 
-  const aggregateMetrics = computed<AggregateMetrics | null>(() => {
-    const results = currentDetail.value?.qa_results
-    if (!results || results.length === 0) return null
-
-    const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0)
-    const avg = (arr: number[]) => (arr.length > 0 ? sum(arr) / arr.length : 0)
-    const safeNum = (v: unknown) => (v == null ? NaN : Number(v))
-    const pick = (key: string) =>
-      results.map((r: Record<string, unknown>) => safeNum(r[key])).filter(n => !isNaN(n))
-    const avgOrNull = (arr: number[]) => (arr.length > 0 ? avg(arr) : null)
-
-    return {
-      rouge1: avgOrNull(pick('rouge_1')),
-      rougeL: avgOrNull(pick('rouge_l')),
-      bleu1: avgOrNull(pick('bleu_1')),
-      precision: avgOrNull(pick('precision')),
-      recall: avgOrNull(pick('recall')),
-      llmScore: avgOrNull(pick('llm_score')),
-      semanticSim: avgOrNull(pick('semantic_similarity')),
-      successRate:
-        results.length > 0
-          ? (results.filter((r: Record<string, unknown>) => r.success).length / results.length) * 100
-          : 0
-    }
-  })
+  // 任务级聚合指标改由 EvaluationDetailDialog 依据 detail 动态计算
+  // （注册表驱动，见 evaluation-config.ts taskAggregate*），此处不再预聚合。
 
   // ---------- 数据加载 ----------
   async function loadEvaluations() {
@@ -256,7 +232,6 @@ export function useEvaluationList() {
     currentDetail,
     // computed
     stats,
-    aggregateMetrics,
     // actions
     loadAll,
     loadEvaluations,

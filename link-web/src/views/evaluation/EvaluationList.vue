@@ -35,7 +35,6 @@
     <EvaluationDetailDialog
       v-model="showDetailDialog"
       :detail="currentDetail"
-      :aggregate-metrics="aggregateMetrics"
       @close="disconnectSSE"
       @refresh="refreshCurrentDetail"
     />
@@ -65,7 +64,6 @@ const {
   chatModels,
   currentDetail,
   stats,
-  aggregateMetrics,
   loadAll,
   submitEvaluation,
   viewDetail,
