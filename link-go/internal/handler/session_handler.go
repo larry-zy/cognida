@@ -47,7 +47,7 @@ func (h *SessionHandler) CreateSession(c *gin.Context) {
 
 	userID := GetUserID(c)
 
-	result, err := h.sessionService.CreateSession(c.Request.Context(), userID, &req)
+	result, err := h.sessionService.CreateSession(identityContext(c), userID, &req)
 	if err != nil {
 		InternalError(c, err.Error())
 		return

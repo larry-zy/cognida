@@ -33,9 +33,12 @@ type Router struct {
 	guardrailHandler     *handler.GuardrailHandler
 	evaluationHandler    *handler.EvaluationHandler
 	qualityHandler       *handler.QualityHandler
+	dataSourceHandler    *handler.DataSourceHandler
+	auditHandler         *handler.AuditHandler
 	webHandler           *web.Handler
 	authMiddleware       *middleware.AuthMiddleware
 	tenantMiddleware     *middleware.TenantMiddleware
+	auditMiddleware      *middleware.AuditMiddleware
 }
 
 // NewRouter 创建路由器
@@ -56,10 +59,13 @@ func NewRouter(
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
 	qualityHandler *handler.QualityHandler,
+	dataSourceHandler *handler.DataSourceHandler,
+	auditHandler *handler.AuditHandler,
 	webHandler *web.Handler,
 	// Middleware
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
+	auditMiddleware *middleware.AuditMiddleware,
 ) *Router {
 	gin.SetMode(gin.ReleaseMode)
 
@@ -68,6 +74,8 @@ func NewRouter(
 	engine.Use(middleware.Recovery())
 	engine.Use(middleware.Logger())
 	engine.Use(middleware.Trace())
+	// 审计须在 Trace 之后：复用其注入的 request_id 为每个业务请求留痕（异步落库）。
+	engine.Use(auditMiddleware.Apply())
 
 	return &Router{
 		engine:               engine,
@@ -86,9 +94,12 @@ func NewRouter(
 		guardrailHandler:     guardrailHandler,
 		evaluationHandler:    evaluationHandler,
 		qualityHandler:       qualityHandler,
+		dataSourceHandler:    dataSourceHandler,
+		auditHandler:         auditHandler,
 		webHandler:           webHandler,
 		authMiddleware:       authMiddleware,
 		tenantMiddleware:     tenantMiddleware,
+		auditMiddleware:      auditMiddleware,
 	}
 }
 
@@ -122,6 +133,8 @@ func (r *Router) Setup() {
 			r.setupAgentRoutes(auth)
 			r.setupEvaluationRoutes(auth)
 			r.setupQualityRoutes(auth)
+			r.setupDataSourceRoutes(auth)
+			r.setupAuditRoutes(auth)
 		}
 
 		// 需要认证 + 租户的路由
@@ -450,6 +463,39 @@ func (r *Router) setupQualityRoutes(api *gin.RouterGroup) {
 		quality.GET("/records", r.qualityHandler.ListRecords)
 		quality.GET("/records/:id", r.qualityHandler.GetRecord)
 		quality.DELETE("/records/:id", r.qualityHandler.DeleteRecord)
+	}
+}
+
+// setupDataSourceRoutes 设置外部数据源管理路由
+func (r *Router) setupDataSourceRoutes(api *gin.RouterGroup) {
+	ds := api.Group("/datasources")
+	{
+		// CRUD
+		ds.GET("", r.dataSourceHandler.List)
+		ds.POST("", r.dataSourceHandler.Create)
+		ds.GET("/:id", r.dataSourceHandler.Get)
+		ds.PUT("/:id", r.dataSourceHandler.Update)
+		ds.DELETE("/:id", r.dataSourceHandler.Delete)
+
+		// 测试连接（表单配置或已存 id，临时连接不进缓存）
+		ds.POST("/test", r.dataSourceHandler.TestConnection)
+
+		// schema 探查
+		ds.GET("/:id/tables", r.dataSourceHandler.ListTables)
+		ds.GET("/:id/tables/:table", r.dataSourceHandler.DescribeTable)
+	}
+}
+
+// setupAuditRoutes 设置请求审计查询路由（只读）
+func (r *Router) setupAuditRoutes(api *gin.RouterGroup) {
+	if r.auditHandler == nil {
+		return
+	}
+	audit := api.Group("/audit-logs")
+	{
+		audit.GET("", r.auditHandler.ListAuditLogs)
+		audit.GET("/stats", r.auditHandler.GetAuditStats)
+		audit.GET("/:id", r.auditHandler.GetAuditLog)
 	}
 }
 

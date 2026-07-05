@@ -15,6 +15,9 @@ type KnowledgeBaseRepository interface {
 	// FindByID find by ID
 	FindByID(ctx context.Context, id string) (*KnowledgeBase, error)
 
+	// FindByIDForTenant find by ID scoped to tenant（租户纵深防御：WHERE id=? AND tenant_id=?，不匹配返回 not found）
+	FindByIDForTenant(ctx context.Context, id string, tenantID int64) (*KnowledgeBase, error)
+
 	// FindByTenantID find by tenant ID
 	FindByTenantID(ctx context.Context, tenantID int64, page, pageSize int) ([]*KnowledgeBase, int64, error)
 

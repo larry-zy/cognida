@@ -76,6 +76,8 @@ func main() {
 		&mysqlrepo.QualityCheckRecordModel{},
 		// Data Agent 操作审计
 		&mysqlrepo.OperationAuditModel{},
+		// 外部数据源注册表
+		&mysqlrepo.DataSourceModel{},
 	}
 
 	if err := db.AutoMigrate(models...); err != nil {

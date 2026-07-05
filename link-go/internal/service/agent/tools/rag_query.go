@@ -11,19 +11,6 @@ import (
 // RAG 查询工具
 // ========================================
 
-// 全局 RAG 服务实例
-var ragService RAGQueryService
-
-// InitRAGQueryTool 初始化 RAG 查询工具
-func InitRAGQueryTool(service RAGQueryService) {
-	ragService = service
-}
-
-// SetRAGService 设置 RAG 服务（用于测试）
-func SetRAGService(service RAGQueryService) {
-	ragService = service
-}
-
 // RAGQueryRequest RAG 查询请求
 type RAGQueryRequest struct {
 	// Query 查询内容
@@ -35,8 +22,8 @@ type RAGQueryRequest struct {
 	// RetrievalMode 检索模式：vector(向量)、bm25(关键词)、hybrid(混合)
 	RetrievalMode string `json:"retrieval_mode" jsonschema:"description=检索模式：vector/bm25/hybrid，默认hybrid"`
 
-	// MinScore 最小相似度阈值，默认0.7
-	MinScore float64 `json:"min_score" jsonschema:"description=最小相似度阈值，范围0-1，默认0.7"`
+	// MinScore 最小相似度阈值，默认0.5（与系统检索默认一致）
+	MinScore float64 `json:"min_score" jsonschema:"description=最小相似度阈值（余弦），范围0-1，默认0.5"`
 
 	// EnableRerank 是否启用重排序，默认false
 	EnableRerank bool `json:"enable_rerank" jsonschema:"description=是否启用重排序，默认false"`
@@ -124,8 +111,11 @@ type DocumentChunk struct {
 }
 
 // NewRAGQueryTool 创建 RAG 查询工具
-// 使用基类 TypedBaseTool 实现类型安全
-func NewRAGQueryTool() *TypedBaseTool[RAGQueryRequest, RAGQueryResult] {
+// 使用基类 TypedBaseTool 实现类型安全；svc RAG 服务（可为 nil）经参数注入。
+func NewRAGQueryTool(svc RAGQueryService) *TypedBaseTool[RAGQueryRequest, RAGQueryResult] {
+	handler := func(ctx context.Context, req *RAGQueryRequest) (*RAGQueryResult, error) {
+		return ragQuery(ctx, req, svc)
+	}
 	return NewTypedBaseTool("rag_query",
 		`使用 RAG（检索增强生成）技术从知识库文档中查询信息。
 
@@ -159,12 +149,12 @@ func NewRAGQueryTool() *TypedBaseTool[RAGQueryRequest, RAGQueryResult] {
 - retrieval_mode: 检索模式（默认hybrid）
 - enable_hyde: 是否启用 HyDE（默认false）
 - enable_query_rewrite: 是否查询重写（默认false）`,
-		ragQuery,
+		handler,
 	)
 }
 
 // ragQuery 执行 RAG 查询
-func ragQuery(ctx context.Context, req *RAGQueryRequest) (*RAGQueryResult, error) {
+func ragQuery(ctx context.Context, req *RAGQueryRequest, ragService RAGQueryService) (*RAGQueryResult, error) {
 	startTime := time.Now()
 
 	// 1. 参数验证
@@ -180,7 +170,7 @@ func ragQuery(ctx context.Context, req *RAGQueryRequest) (*RAGQueryResult, error
 		req.TopK = 20
 	}
 	if req.MinScore <= 0 {
-		req.MinScore = 0.7
+		req.MinScore = 0.5
 	}
 	if req.RetrievalMode == "" {
 		req.RetrievalMode = "hybrid"
@@ -231,26 +221,4 @@ func ragQuery(ctx context.Context, req *RAGQueryRequest) (*RAGQueryResult, error
 	result.OptimizationApplied["multi_hop"] = req.EnableMultiHop
 
 	return result, nil
-}
-
-// ========================================
-// 工具工厂
-// ========================================
-
-// RAGToolFactory RAG 工具工厂
-type RAGToolFactory struct {
-	service RAGQueryService
-}
-
-// NewRAGToolFactory 创建 RAG 工具工厂
-func NewRAGToolFactory(service RAGQueryService) *RAGToolFactory {
-	return &RAGToolFactory{
-		service: service,
-	}
-}
-
-// CreateTool 创建工具
-func (f *RAGToolFactory) CreateTool() *TypedBaseTool[RAGQueryRequest, RAGQueryResult] {
-	InitRAGQueryTool(f.service)
-	return NewRAGQueryTool()
 }

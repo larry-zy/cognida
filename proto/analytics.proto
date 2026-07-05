@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+package analytics;
+
+option go_package = "link/api/proto/analytics";
+
+// 数据分析服务
+service AnalyticsService {
+    // ===== 统计计算 =====
+    rpc ComputeMetrics(MetricsRequest) returns (MetricsResponse);
+
+    // ===== 趋势分析 =====
+    rpc AnalyzeTrend(TrendRequest) returns (TrendResponse);
+
+    // ===== 洞察发现 =====
+    rpc DiscoverInsights(InsightRequest) returns (InsightResponse);
+}
+
+// ===== 统计计算相关 =====
+
+message MetricsRequest {
+    DataFrame data = 1;
+    repeated MetricConfig metrics = 2;
+}
+
+message MetricConfig {
+    MetricType type = 1;
+    string column = 2;
+    map<string, string> params = 3;
+}
+
+enum MetricType {
+    UNKNOWN = 0;
+    // 描述统计
+    COUNT = 1;
+    SUM = 2;
+    MEAN = 3;
+    MEDIAN = 4;
+    STD = 5;
+    VAR = 6;
+    MIN = 7;
+    MAX = 8;
+    Q25 = 9;
+    Q50 = 10;
+    Q75 = 11;
+    IQR = 12;
+    SKEWNESS = 13;
+    KURTOSIS = 14;
+    // 分位数
+    PERCENTILE = 15;
+    // 相关性
+    CORRELATION = 16;
+    // 假设检验
+    T_TEST = 17;
+    CHI_SQUARE = 18;
+}
+
+message MetricsResponse {
+    bool success = 1;
+    repeated MetricResult results = 2;
+    string error = 3;
+}
+
+message MetricResult {
+    string name = 1;
+    double value = 2;
+    map<string, double> details = 3;
+    string string_value = 4;  // 用于非数值结果
+}
+
+// ===== 趋势分析相关 =====
+
+message TrendRequest {
+    DataFrame data = 1;
+    string value_column = 2;    // 要分析的数值列
+    TrendOptions options = 3;
+}
+
+message TrendOptions {
+    int32 period = 1;           // 季节周期（可选）
+    bool forecast = 2;          // 是否预测
+    int32 forecast_steps = 3;   // 预测步数
+}
+
+message TrendResponse {
+    bool success = 1;
+    TrendResult trend = 2;
+    SeasonalityResult seasonality = 3;
+    repeated double forecast = 4;  // 预测值
+    string error = 5;
+}
+
+message TrendResult {
+    string direction = 1;       // up, down, flat
+    string strength = 2;        // strong, moderate, weak
+    double slope = 3;
+    double r_squared = 4;
+    double p_value = 5;
+    double ci_lower = 6;        // 置信区间下限
+    double ci_upper = 7;        // 置信区间上限
+}
+
+message SeasonalityResult {
+    bool has_seasonality = 1;
+    int32 period = 2;
+    double strength = 3;
+    repeated double seasonal = 4;    // 季节性成分
+    repeated double trend = 5;       // 趋势成分
+    repeated double residual = 6;    // 残差
+}
+
+// ===== 洞察发现相关 =====
+
+message InsightRequest {
+    DataFrame data = 1;
+    InsightOptions options = 2;
+}
+
+message InsightOptions {
+    bool include_trend = 1;         // 包含趋势洞察
+    bool include_anomaly = 2;       // 包含异常洞察
+    bool include_correlation = 3;   // 包含相关性洞察
+    double correlation_threshold = 4;  // 相关性阈值 (默认 0.7)
+    string anomaly_method = 5;      // 异常检测方法: iqr, zscore
+    double anomaly_threshold = 6;   // 异常阈值 (默认 3.0 for zscore)
+}
+
+message InsightResponse {
+    bool success = 1;
+    repeated Insight insights = 2;
+    string error = 3;
+}
+
+message Insight {
+    string type = 1;                // trend_up, trend_down, anomaly_spike, anomaly_dip, correlation
+    string severity = 2;            // high, medium, low
+    string title = 3;
+    string description = 4;
+    double confidence = 5;
+    map<string, string> evidence = 6;     // 证据数据
+    repeated string recommendations = 7;  // 建议
+    repeated string affected_metrics = 8; // 影响的指标
+}
+
+// ===== 通用数据结构 =====
+
+message DataFrame {
+    repeated string columns = 1;    // 列名
+    repeated Row rows = 2;          // 行数据
+    int32 row_count = 3;
+    int32 col_count = 4;
+}
+
+message Row {
+    repeated string values = 1;     // 字符串形式存储所有值
+}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // ========================================
@@ -32,7 +33,7 @@ type SkillRegistry interface {
 	ListByCategory(category string) []*Skill
 
 	// Search 搜索 Skill（基于关键词匹配）
- Search(query string) []*SkillMatchResult
+	Search(query string) []*SkillMatchResult
 
 	// MatchForTask 根据任务描述匹配最相关的 Skill
 	MatchForTask(task string, limit int) []*SkillMatchResult
@@ -234,11 +235,11 @@ func (r *skillRegistry) GetInfo(name string) (*SkillInfo, bool) {
 	}
 
 	return &SkillInfo{
-		Name:          skill.Name,
-		Description:   skill.Description,
-		WhenToUse:     skill.WhenToUse,
-		Tags:          skill.Tags,
-		Category:      skill.Category,
+		Name:           skill.Name,
+		Description:    skill.Description,
+		WhenToUse:      skill.WhenToUse,
+		Tags:           skill.Tags,
+		Category:       skill.Category,
 		IsPureGuidance: skill.IsPureGuidance(),
 	}, true
 }
@@ -345,6 +346,37 @@ func (r *skillRegistry) calculateRelevance(skill *Skill, queryLower string, term
 		}
 	}
 
+	// 7. CJK 二元字（bigram）重叠
+	// 中文等 CJK 文本无空格，strings.Fields 无法分词（整句坍缩为单一 term），上面基于词的
+	// 匹配对中文查询几乎恒为 0。这里改用相邻 CJK 字符组成的 bigram 与 Skill 的
+	// 名称/描述/使用时机/标签做子串重叠度量，使中文查询能真正命中中文 Skill 文案。
+	if qb := cjkBigrams(queryLower); len(qb) > 0 {
+		haystack := strings.ToLower(skill.Name) + " " + descLower + " " +
+			strings.ToLower(skill.WhenToUse) + " " + strings.ToLower(strings.Join(skill.Tags, " "))
+		matched := 0
+		for _, bg := range qb {
+			if strings.Contains(haystack, bg) {
+				matched++
+			}
+		}
+		if matched > 0 {
+			// 长中文查询含大量填充词，纯 matched/len(qb) 覆盖率会被稀释到阈值以下。
+			// 改取「覆盖率」与「饱和计数」的较大者：短聚焦查询靠覆盖率，长查询靠
+			// 少量强内容 bigram（如 数据/查询/分析）命中即饱和——3 个强命中即视为强信号。
+			coverage := float64(matched) / float64(len(qb))
+			satCount := float64(matched) / 3.0
+			if satCount > 1.0 {
+				satCount = 1.0
+			}
+			signal := coverage
+			if satCount > signal {
+				signal = satCount
+			}
+			score += signal * 0.7
+			reasons = append(reasons, fmt.Sprintf("cjk overlap (%d/%d bigrams)", matched, len(qb)))
+		}
+	}
+
 	// 标准化分数到 0-1 范围
 	if score > 1.0 {
 		score = 1.0
@@ -358,6 +390,31 @@ func (r *skillRegistry) calculateRelevance(skill *Skill, queryLower string, term
 // ========================================
 // 辅助函数
 // ========================================
+
+// isCJKRune 判定是否为 CJK 表意文字（含扩展区与兼容区），用于对无空格文本做 bigram 切分。
+func isCJKRune(r rune) bool {
+	return unicode.Is(unicode.Han, r)
+}
+
+// cjkBigrams 从文本中提取去重后的相邻 CJK 字符二元组（bigram）。
+// 仅对连续 CJK 字符成对取样（遇到非 CJK 字符即断开），因此中英混排文本里的英文词
+// 不会被误切；英文侧仍由基于空格分词的 term 逻辑覆盖。返回值已去重、全小写。
+func cjkBigrams(s string) []string {
+	runes := []rune(s)
+	seen := make(map[string]struct{})
+	var out []string
+	for i := 0; i+1 < len(runes); i++ {
+		if isCJKRune(runes[i]) && isCJKRune(runes[i+1]) {
+			bg := string(runes[i : i+2])
+			if _, dup := seen[bg]; dup {
+				continue
+			}
+			seen[bg] = struct{}{}
+			out = append(out, bg)
+		}
+	}
+	return out
+}
 
 // removeString 从字符串切片中移除指定元素
 func removeString(slice []string, s string) []string {

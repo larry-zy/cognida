@@ -59,8 +59,11 @@ type DataExportResult struct {
 	LatencyMs int64 `json:"latency_ms"`
 }
 
-// NewDataExportTool 创建导出工具。
-func NewDataExportTool() *TypedBaseTool[DataExportRequest, DataExportResult] {
+// NewDataExportTool 创建导出工具；o 操作工具依赖（结果存储/审计/导出目录）经参数注入。
+func NewDataExportTool(o *opTools) *TypedBaseTool[DataExportRequest, DataExportResult] {
+	handler := func(ctx context.Context, req *DataExportRequest) (*DataExportResult, error) {
+		return o.dataExport(ctx, req)
+	}
 	return NewTypedBaseTool("data_export",
 		`把结果集导出为文件（CSV/Excel）。
 
@@ -73,18 +76,18 @@ func NewDataExportTool() *TypedBaseTool[DataExportRequest, DataExportResult] {
 - result_id: 结果集引用（必需）
 - format: csv 或 excel（可选，默认 csv）
 - filename: 文件名，不含扩展名（可选）`,
-		dataExport,
+		handler,
 	)
 }
 
 // dataExport 按 result_id 导出文件。白名单安全操作：自动执行，无需人机确认。
-func dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult, error) {
+func (o *opTools) dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult, error) {
 	startTime := time.Now()
 
 	if req.ResultID == "" {
 		return nil, fmt.Errorf("result_id 不能为空")
 	}
-	if resultStore == nil {
+	if o.resultStore == nil {
 		return nil, fmt.Errorf("结果存储未启用，无法导出")
 	}
 
@@ -98,7 +101,7 @@ func dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult,
 
 	// 归属校验：只允许导出本会话的结果集
 	owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx))
-	stored, err := resultStore.Get(ctx, owner, req.ResultID)
+	stored, err := o.resultStore.Get(ctx, owner, req.ResultID)
 	if err != nil {
 		var msg string
 		switch err {
@@ -109,7 +112,7 @@ func dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult,
 		default:
 			return nil, fmt.Errorf("读取结果存储失败: %w", err)
 		}
-		recordAudit(ctx, operations.OpExport, req.ResultID, "", "",
+		o.recordAudit(ctx, operations.OpExport, req.ResultID, "", "",
 			operations.StatusRejected, msg, map[string]interface{}{"format": format})
 		return &DataExportResult{
 			Status:    operations.StatusRejected,
@@ -119,7 +122,7 @@ func dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult,
 	}
 
 	// 导出目录
-	dir := opConfig.ExportDir
+	dir := o.cfg.ExportDir
 	if dir == "" {
 		dir = filepath.Join(os.TempDir(), "link-agent-exports")
 	}
@@ -143,7 +146,7 @@ func dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult,
 		err = writeXLSX(filePath, stored.Columns, stored.Rows)
 	}
 	if err != nil {
-		recordAudit(ctx, operations.OpExport, req.ResultID, "", "",
+		o.recordAudit(ctx, operations.OpExport, req.ResultID, "", "",
 			operations.StatusFailed, err.Error(), map[string]interface{}{"format": format})
 		return nil, fmt.Errorf("导出失败: %w", err)
 	}
@@ -152,7 +155,7 @@ func dataExport(ctx context.Context, req *DataExportRequest) (*DataExportResult,
 	if fi, statErr := os.Stat(filePath); statErr == nil {
 		size = fi.Size()
 	}
-	recordAudit(ctx, operations.OpExport, filePath, "", "",
+	o.recordAudit(ctx, operations.OpExport, filePath, "", "",
 		operations.StatusSuccess, fmt.Sprintf("导出 %d 行 → %s", len(stored.Rows), filePath),
 		map[string]interface{}{"result_id": req.ResultID, "format": format, "row_count": len(stored.Rows), "size_bytes": size})
 

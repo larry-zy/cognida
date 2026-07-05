@@ -58,16 +58,24 @@ _registry_ready = False
 
 
 def _ensure_registry():
-    """确保全局评分器注册表已初始化(幂等)。"""
+    """确保全局评分器注册表已初始化(幂等)。
+
+    单个 grader 加载失败由 registry.discover_* 内部记录 warning 并跳过；
+    initialize 整体失败必须记录日志且不固化 ready——否则注册表为空却
+    永远显示"就绪"，下次调用也不会重试。
+    """
     global _registry_ready
     registry = get_global_registry()
     if not _registry_ready:
         try:
             registry.initialize()
-        except Exception:
-            # 部分 grader 加载失败不应阻断已成功注册的指标
-            pass
-        _registry_ready = True
+            _registry_ready = True
+        except Exception as e:
+            from core import get_logger
+            get_logger(__name__).error(
+                "Grader registry initialization failed",
+                error=str(e),
+            )
     return registry
 
 # 创建 FastAPI 应用
@@ -85,6 +93,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 请求 ID 透传（最外层）：从 Go 传入的 X-Request-ID 绑定到日志上下文并回写响应头
+from core.request_context import RequestIDMiddleware  # noqa: E402
+
+app.add_middleware(RequestIDMiddleware)
 
 
 # ============================================================

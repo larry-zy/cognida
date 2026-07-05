@@ -3,12 +3,13 @@ package dataagent
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	gormmysql "gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
 	domainagent "link/internal/model/agent"
 	infraagent "link/internal/service/agent/framework"
@@ -98,17 +99,6 @@ func TestSubAgentSpecs_MinimalToolsets(t *testing.T) {
 // RegisterDataSubAgents 集成注册（fake 工具 + fake 模型）
 // ========================================
 
-// stubTool 只提供 Info/InvokableRun 的注册占位工具。
-type stubTool struct{ name string }
-
-func (t *stubTool) Info(_ context.Context) (*schema.ToolInfo, error) {
-	return &schema.ToolInfo{Name: t.name, Desc: "stub " + t.name}, nil
-}
-
-func (t *stubTool) InvokableRun(_ context.Context, _ string, _ ...tool.Option) (string, error) {
-	return fmt.Sprintf("ok:%s", t.name), nil
-}
-
 // stubToolModel 满足 ToolCallingChatModel 的空实现。
 type stubToolModel struct{}
 
@@ -126,27 +116,35 @@ func (m *stubToolModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatMo
 	return m, nil
 }
 
-// ensureStubTools 把子代理所需工具名注册进全局工具表（幂等）。
-func ensureStubTools(t *testing.T, names ...string) {
+// newTestRegistry 构造一个仅注入 sqlmock 库连接的工具注册表：
+// 子代理最小工具集（get_schema/sql_execute/data_analysis/sql_mutate/etl_run/
+// data_export/render_ui）均无需可选依赖即注册，足以覆盖按名解析与治理目录登记。
+func newTestRegistry(t *testing.T) *toolregistry.ToolRegistry {
 	t.Helper()
-	for _, name := range names {
-		if _, ok := toolregistry.GetTool(name); ok {
-			continue
-		}
-		if err := toolregistry.GlobalRegistry.Register("test", &stubTool{name: name}); err != nil {
-			t.Fatalf("注册桩工具 %s 失败: %v", name, err)
-		}
+	sqlDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
 	}
+	t.Cleanup(func() { sqlDB.Close() })
+	gdb, err := gorm.Open(gormmysql.New(gormmysql.Config{
+		Conn: sqlDB, SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("gorm open: %v", err)
+	}
+	reg, err := toolregistry.NewToolRegistry(toolregistry.ToolDeps{SQLDB: gdb})
+	if err != nil {
+		t.Fatalf("构造工具注册表: %v", err)
+	}
+	return reg
 }
 
 // TestRegisterDataSubAgents_GovernanceCatalog 全量注册后治理目录与上下文模式正确落表。
 func TestRegisterDataSubAgents_GovernanceCatalog(t *testing.T) {
-	ensureStubTools(t,
-		"get_schema", "sql_execute", "data_analysis",
-		"sql_mutate", "etl_run", "data_export", "render_ui")
+	reg := newTestRegistry(t)
 
 	collab := infraagent.NewCollaborationRegistry()
-	if err := RegisterDataSubAgents(context.Background(), collab, &stubToolModel{}); err != nil {
+	if err := RegisterDataSubAgents(context.Background(), collab, &stubToolModel{}, reg); err != nil {
 		t.Fatalf("注册数据域子代理失败: %v", err)
 	}
 
@@ -180,10 +178,14 @@ func TestRegisterDataSubAgents_GovernanceCatalog(t *testing.T) {
 
 // TestRegisterDataSubAgents_RequiresDeps 缺依赖直接报错（宁拒不猜）。
 func TestRegisterDataSubAgents_RequiresDeps(t *testing.T) {
-	if err := RegisterDataSubAgents(context.Background(), nil, &stubToolModel{}); err == nil {
+	reg := newTestRegistry(t)
+	if err := RegisterDataSubAgents(context.Background(), nil, &stubToolModel{}, reg); err == nil {
 		t.Fatalf("缺协作注册表应报错")
 	}
-	if err := RegisterDataSubAgents(context.Background(), infraagent.NewCollaborationRegistry(), nil); err == nil {
+	if err := RegisterDataSubAgents(context.Background(), infraagent.NewCollaborationRegistry(), nil, reg); err == nil {
 		t.Fatalf("缺 ToolCallingChatModel 应报错")
+	}
+	if err := RegisterDataSubAgents(context.Background(), infraagent.NewCollaborationRegistry(), &stubToolModel{}, nil); err == nil {
+		t.Fatalf("缺工具注册表应报错")
 	}
 }

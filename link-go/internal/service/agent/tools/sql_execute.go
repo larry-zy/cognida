@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
 	agentctx "link/internal/model/agent"
+	model_datasource "link/internal/model/datasource"
 	"link/internal/service/agent/resultstore"
 )
 
@@ -23,8 +25,8 @@ type SQLExecuteRequest struct {
 	// SQL 要执行的 SQL 语句
 	SQL string `json:"sql" jsonschema:"required,description=要执行的SELECT查询语句"`
 
-	// DatabaseID 数据库ID（可选，默认使用租户默认库）
-	DatabaseID string `json:"database_id" jsonschema:"description=数据库ID，可选"`
+	// DatabaseID 数据源ID（可选）。空=当前业务库（或会话选定的数据源）；非空=已注册外部数据源 ID
+	DatabaseID string `json:"database_id" jsonschema:"description=数据源ID，可选。空为当前库，非空为已注册外部数据源ID"`
 
 	// MaxRows 最大返回行数（默认100，最大1000）
 	MaxRows int `json:"max_rows" jsonschema:"description=最大返回行数，默认100，最大1000"`
@@ -64,29 +66,12 @@ type SQLExecuteResult struct {
 	ExecutedSQL string `json:"executed_sql,omitempty"`
 }
 
-// 全局 DB（通过 init 设置）
-var sqlDB *gorm.DB
-
-// 全局 Result Store（通过 InitResultStore 注入；未注入时结果不落库，仅回样本）
-var resultStore resultstore.Store
-
-// InitSQLExecuteTool 初始化 SQL 执行工具
-func InitSQLExecuteTool(db *gorm.DB) {
-	sqlDB = db
-}
-
-// InitResultStore 注入 Result Store（组合根调用，与 InitSQLExecuteTool 对称）。
-func InitResultStore(s resultstore.Store) {
-	resultStore = s
-}
-
-// GetResultStore 取当前 Result Store（供 handler 层做 UI 回调按引用取数）。
-func GetResultStore() resultstore.Store {
-	return resultStore
-}
-
-// NewSQLExecuteTool 创建 SQL 执行工具
-func NewSQLExecuteTool() *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
+// NewSQLExecuteTool 创建 SQL 执行工具。
+// 依赖经参数注入：db 业务库、dsp 外部数据源提供者（可为 nil）、rs 结果存储（可为 nil）。
+func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store) *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
+	handler := func(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult, error) {
+		return sqlExecute(ctx, req, db, dsp, rs)
+	}
 	return NewTypedBaseTool("sql_execute",
 		`执行只读 SQL 查询。
 
@@ -98,14 +83,14 @@ func NewSQLExecuteTool() *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
 
 参数：
 - sql: SQL 语句（必需）
-- database_id: 数据库ID（可选）
+- database_id: 数据源ID（可选，空为当前库，非空为已注册外部数据源）
 - max_rows: 最大行数（可选，默认100）`,
-		sqlExecute,
+		handler,
 	)
 }
 
 // sqlExecute 执行 SQL 查询
-func sqlExecute(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult, error) {
+func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store) (*SQLExecuteResult, error) {
 	startTime := time.Now()
 
 	// 参数验证
@@ -113,8 +98,11 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult,
 		return nil, fmt.Errorf("sql 不能为空")
 	}
 
-	if sqlDB == nil {
-		return nil, fmt.Errorf("数据库未初始化")
+	// 数据源路由：空 → 业务库（或会话选定数据源）；非空 → 已注册外部数据源。
+	// 只读校验/强制 LIMIT/超时对两条路径同等生效。
+	target, err := resolveQueryTarget(ctx, req.DatabaseID, businessDB, dsp)
+	if err != nil {
+		return nil, err
 	}
 
 	// 设置默认值
@@ -138,8 +126,12 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult,
 	defer cancel()
 
 	// 执行查询
-	rows, err := sqlDB.WithContext(queryCtx).Raw(execSQL).Rows()
+	rows, err := target.db.QueryContext(queryCtx, execSQL)
 	if err != nil {
+		if target.external {
+			// 外部数据源错误不透传底层细节（可能含主机/账号信息）
+			return nil, fmt.Errorf("外部数据源查询执行失败: %w", err)
+		}
 		return nil, fmt.Errorf("查询执行失败: %w", err)
 	}
 	defer rows.Close()
@@ -174,6 +166,13 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult,
 		}
 		rowData = append(rowData, row)
 	}
+	// 迭代中途出错（网络/游标）不得静默返回部分结果
+	if err := rows.Err(); err != nil {
+		if target.external {
+			return nil, fmt.Errorf("外部数据源读取结果失败: %w", err)
+		}
+		return nil, fmt.Errorf("读取结果行失败: %w", err)
+	}
 
 	// 检查结果数量
 	warning := ""
@@ -188,8 +187,8 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult,
 		Rows:    rowData,
 	}
 	resultID := ""
-	if resultStore != nil {
-		id, err := resultStore.Put(ctx, result, resultstore.DefaultTTL)
+	if rs != nil {
+		id, err := rs.Put(ctx, result, resultstore.DefaultTTL)
 		if err != nil {
 			// 落库失败不阻断查询，降级为仅回样本（下游按引用取数会失败并提示重跑）
 			warning = strings.TrimSpace(warning + " 结果暂存失败，未生成 result_id")
@@ -253,13 +252,9 @@ func validateSQL(sqlStr string) error {
 		return fmt.Errorf("不能包含 /* */ 注释")
 	}
 
-	// 检查多语句
-	if strings.Contains(sqlStr, ";") {
-		// 允许末尾分号
-		trimmed := strings.TrimRight(sqlStr, "; ")
-		if trimmed != sqlStr {
-			return fmt.Errorf("不能包含多语句")
-		}
+	// 检查多语句：去掉末尾分号后仍含分号即拒绝（fail-closed，字符串字面量里的分号也拒绝）
+	if strings.Contains(strings.TrimRight(sqlStr, "; \t\n"), ";") {
+		return fmt.Errorf("不能包含多语句")
 	}
 
 	return nil
@@ -274,12 +269,12 @@ func ensureLimit(sqlStr string, maxRows int) string {
 		return fmt.Sprintf("%s LIMIT %d", sqlStr, maxRows)
 	}
 
-	// 检查 LIMIT 是否超过最大值
+	// 检查 LIMIT 是否超过最大值：解析失败或超上限一律压到 maxRows
 	re := regexp.MustCompile(`\bLIMIT\s+(\d+)`)
 	matches := re.FindStringSubmatch(sqlStr)
 	if len(matches) > 1 {
-		limitStr := matches[1]
-		if len(limitStr) > 4 { // 超过 9999
+		limitVal, err := strconv.Atoi(matches[1])
+		if err != nil || limitVal > maxRows {
 			sqlStr = re.ReplaceAllString(sqlStr, fmt.Sprintf("LIMIT %d", maxRows))
 		}
 	}

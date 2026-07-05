@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { http } from '@/utils/request'
+import { http, resetAuthFailure } from '@/utils/request'
 import type { LoginRequest, RegisterRequest, AuthResponse, UserInfo, Tenant } from '@/types'
 import { storage } from '@/utils/security'
 
@@ -59,6 +59,9 @@ export const useAuthStore = defineStore('auth', () => {
         refreshToken.value = refresh_token
         user.value = userData
 
+        // 重新登录成功：复位「登录已过期」一次性提示，后续过期仍能提示并跳转
+        resetAuthFailure()
+
         // 保存到本地存储
         storage.set('token', accessToken)
         storage.set('refresh_token', refresh_token)
@@ -109,8 +112,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 刷新Token
-  async function refreshAccessToken() {
+  // 并发 401 单飞：多个请求同时收到 401 时共享同一次 refresh，
+  // 避免并发刷新互相顶掉对方的新 refresh_token
+  let refreshInflight: Promise<boolean> | null = null
+
+  // 刷新Token（单飞入口）
+  function refreshAccessToken(): Promise<boolean> {
+    if (refreshInflight) return refreshInflight
+    refreshInflight = doRefreshAccessToken().finally(() => {
+      refreshInflight = null
+    })
+    return refreshInflight
+  }
+
+  // 实际执行刷新
+  async function doRefreshAccessToken() {
     if (!refreshToken.value) return false
 
     try {

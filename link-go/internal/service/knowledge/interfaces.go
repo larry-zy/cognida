@@ -19,11 +19,11 @@ type KnowledgeBaseService interface {
 	// CreateFromRequest 从 DTO 创建知识库（ID 在服务层生成）
 	CreateFromRequest(ctx context.Context, req *CreateKnowledgeBaseRequest, tenantID, userID int64) (*domain_knowledge.KnowledgeBase, error)
 
-	// FindByID finds a knowledge base by ID
-	FindByID(ctx context.Context, id string) (*domain_knowledge.KnowledgeBase, error)
+	// FindByID finds a knowledge base by ID（tenantID 强制归属校验，跨租户返回 not found）
+	FindByID(ctx context.Context, id string, tenantID int64) (*domain_knowledge.KnowledgeBase, error)
 
-	// FindByIDWithSettings finds a knowledge base with settings loaded
-	FindByIDWithSettings(ctx context.Context, id string) (*domain_knowledge.KnowledgeBase, error)
+	// FindByIDWithSettings finds a knowledge base with settings loaded（tenantID 强制归属校验）
+	FindByIDWithSettings(ctx context.Context, id string, tenantID int64) (*domain_knowledge.KnowledgeBase, error)
 
 	// FindByTenantID lists knowledge bases for a tenant
 	FindByTenantID(ctx context.Context, tenantID int64, page, pageSize int) ([]*domain_knowledge.KnowledgeBase, int64, error)
@@ -31,29 +31,29 @@ type KnowledgeBaseService interface {
 	// Update updates a knowledge base
 	Update(ctx context.Context, kb *domain_knowledge.KnowledgeBase) error
 
-	// UpdateFromRequest 从 DTO 更新知识库
-	UpdateFromRequest(ctx context.Context, id string, req *UpdateKnowledgeBaseRequest) (*domain_knowledge.KnowledgeBase, error)
+	// UpdateFromRequest 从 DTO 更新知识库（tenantID 强制归属校验）
+	UpdateFromRequest(ctx context.Context, id string, tenantID int64, req *UpdateKnowledgeBaseRequest) (*domain_knowledge.KnowledgeBase, error)
 
 	// UpdateWithSettings updates a knowledge base and its settings
 	UpdateWithSettings(ctx context.Context, kb *domain_knowledge.KnowledgeBase, setting *domain_knowledge.KnowledgeBaseSetting) error
 
-	// Delete soft deletes a knowledge base
-	Delete(ctx context.Context, id string) error
+	// Delete soft deletes a knowledge base（tenantID 强制归属校验）
+	Delete(ctx context.Context, id string, tenantID int64) error
 
 	// Exists checks if a knowledge base exists
 	Exists(ctx context.Context, id string) (bool, error)
 
-	// GetStats gets statistics for a knowledge base
-	GetStats(ctx context.Context, kbID string) (*domain_knowledge.KnowledgeBaseStats, error)
+	// GetStats gets statistics for a knowledge base（tenantID 强制归属校验）
+	GetStats(ctx context.Context, kbID string, tenantID int64) (*domain_knowledge.KnowledgeBaseStats, error)
 
-	// GetKnowledgeList gets knowledge list for a KB
-	GetKnowledgeList(ctx context.Context, kbID string, page, pageSize int, status string) ([]*domain_knowledge.Knowledge, int64, error)
+	// GetKnowledgeList gets knowledge list for a KB（tenantID 强制归属校验）
+	GetKnowledgeList(ctx context.Context, kbID string, tenantID int64, page, pageSize int, status string) ([]*domain_knowledge.Knowledge, int64, error)
 
 	// DeleteKnowledge deletes knowledge from a KB
 	DeleteKnowledge(ctx context.Context, kbID, knowledgeID string, tenantID int64) error
 
-	// GetChunks gets chunks for a KB
-	GetChunks(ctx context.Context, kbID string, page, pageSize int, knowledgeID string) ([]*domain_knowledge.Chunk, int64, error)
+	// GetChunks gets chunks for a KB（tenantID 强制归属校验）
+	GetChunks(ctx context.Context, kbID string, tenantID int64, page, pageSize int, knowledgeID string) ([]*domain_knowledge.Chunk, int64, error)
 
 	// CreateChunk creates a chunk
 	CreateChunk(ctx context.Context, chunk *domain_knowledge.Chunk) error
@@ -61,32 +61,32 @@ type KnowledgeBaseService interface {
 	// UploadDocument 上传文档文件（同步创建记录，fileHash 用于防止重传相同文件）
 	UploadDocument(ctx context.Context, kbID string, tenantID, userID int64, fileName, fileType string, fileSize int64, filePath, fileHash string) (*domain_knowledge.Knowledge, error)
 
-	// CheckDuplicateByHash 在知识库范围内检查是否已存在相同文件（防止重传）；存在则返回已有文档
-	CheckDuplicateByHash(ctx context.Context, kbID, fileHash string) (*domain_knowledge.Knowledge, error)
+	// CheckDuplicateByHash 在知识库范围内检查是否已存在相同文件（防止重传）；存在则返回已有文档（tenantID 强制归属校验）
+	CheckDuplicateByHash(ctx context.Context, kbID string, tenantID int64, fileHash string) (*domain_knowledge.Knowledge, error)
 
 	// UpdateParseStatus 更新文档解析状态（如处理失败时标记 failed）
 	UpdateParseStatus(ctx context.Context, id, parseStatus, errorMessage string) error
 
-	// GetKnowledgeDetail 获取文档详情
-	GetKnowledgeDetail(ctx context.Context, kbID, knowledgeID string) (*domain_knowledge.Knowledge, error)
+	// GetKnowledgeDetail 获取文档详情（tenantID 强制归属校验）
+	GetKnowledgeDetail(ctx context.Context, kbID string, tenantID int64, knowledgeID string) (*domain_knowledge.Knowledge, error)
 
-	// GetKnowledgeStatus 获取文档处理状态
-	GetKnowledgeStatus(ctx context.Context, kbID, knowledgeID string) (*domain_knowledge.Knowledge, error)
+	// GetKnowledgeStatus 获取文档处理状态（tenantID 强制归属校验）
+	GetKnowledgeStatus(ctx context.Context, kbID string, tenantID int64, knowledgeID string) (*domain_knowledge.Knowledge, error)
 
-	// GetKnowledgeListWithStatus 获取指定状态列表的知识条目
-	GetKnowledgeListWithStatus(ctx context.Context, kbID string, page, pageSize int, statuses []string) ([]*domain_knowledge.Knowledge, int64, error)
+	// GetKnowledgeListWithStatus 获取指定状态列表的知识条目（tenantID 强制归属校验）
+	GetKnowledgeListWithStatus(ctx context.Context, kbID string, tenantID int64, page, pageSize int, statuses []string) ([]*domain_knowledge.Knowledge, int64, error)
 
-	// GetChunkDetail 获取分块详情
-	GetChunkDetail(ctx context.Context, kbID, chunkID string) (*domain_knowledge.Chunk, error)
+	// GetChunkDetail 获取分块详情（tenantID 强制归属校验）
+	GetChunkDetail(ctx context.Context, kbID string, tenantID int64, chunkID string) (*domain_knowledge.Chunk, error)
 
-	// UpdateChunk 更新分块
-	UpdateChunk(ctx context.Context, kbID, chunkID string, content *string) (*domain_knowledge.Chunk, error)
+	// UpdateChunk 更新分块（tenantID 强制归属校验）
+	UpdateChunk(ctx context.Context, kbID string, tenantID int64, chunkID string, content *string) (*domain_knowledge.Chunk, error)
 
-	// DeleteChunk 删除分块
-	DeleteChunk(ctx context.Context, kbID, chunkID string) error
+	// DeleteChunk 删除分块（tenantID 强制归属校验）
+	DeleteChunk(ctx context.Context, kbID string, tenantID int64, chunkID string) error
 
-	// Search 搜索知识库
-	Search(ctx context.Context, kbIDs []string, query string, topK int, minScore float64) ([]*domain_knowledge.Chunk, error)
+	// Search 搜索知识库（仅在属于 tenantID 的知识库内检索，越权 kbID 被静默剔除）
+	Search(ctx context.Context, kbIDs []string, tenantID int64, query string, topK int, minScore float64) ([]*domain_knowledge.Chunk, error)
 
 	// ToResponse converts a domain entity to response DTO
 	ToResponse(entity *domain_knowledge.KnowledgeBase) *KnowledgeBaseResponse

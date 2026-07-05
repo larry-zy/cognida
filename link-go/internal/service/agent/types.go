@@ -21,6 +21,11 @@ type AgenticRAGRequest struct {
 	// KBScopeMode 知识库选择模式：manual(手动,默认)/hybrid(结合)/auto(智能)。
 	// manual=范围由 KBIDs 锁定；hybrid=KBIDs 为候选池，AI 经 kb_route 自选；auto=忽略 KBIDs，AI 从租户全部已启用库自选。
 	KBScopeMode string `json:"kb_scope_mode,omitempty"`
+
+	// DatasourceID 会话选定的外部数据源 ID（Data Agent/text2sql）。
+	// 空=当前业务库（向后兼容）；非空=查询类工具默认路由到该已注册外部数据源，
+	// 且会话内屏蔽 sql_mutate/etl_run（外部数据源只读）。
+	DatasourceID string `json:"datasource_id,omitempty"`
 }
 
 // AgentOptions Agent 选项

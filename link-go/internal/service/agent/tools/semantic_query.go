@@ -18,30 +18,6 @@ import (
 	"link/internal/service/agent/termgrounding"
 )
 
-// 全局语义模型仓储（通过 InitSemanticTools 注入；未注入时工具报告未启用并回退词法）。
-var semanticRepo semantic.Repository
-
-// 全局受信查询缓存（通过 InitSemanticCache 注入；未注入时不缓存，每次经引擎生成）。
-var semanticQueryCache semanticcache.Cache
-
-// 全局术语接地器（通过 InitTermGrounding 注入图谱端口；未注入时仅用模型内同义词接地）。
-var termGrounder = termgrounding.NewGrounder(nil)
-
-// InitSemanticTools 注入语义模型仓储（组合根调用，与 InitSQLExecuteTool 对称）。
-func InitSemanticTools(repo semantic.Repository) {
-	semanticRepo = repo
-}
-
-// InitSemanticCache 注入受信查询缓存（组合根调用；与 InitResultStore 对称）。
-func InitSemanticCache(c semanticcache.Cache) {
-	semanticQueryCache = c
-}
-
-// InitTermGrounding 注入知识图谱端口以增强术语接地（组合根调用；port 为 nil 时仅用模型内同义词）。
-func InitTermGrounding(port termgrounding.GraphPort) {
-	termGrounder = termgrounding.NewGrounder(port)
-}
-
 // ========================================
 // semantic_models：受治理指标/维度目录（grounding 面）
 // ========================================
@@ -82,8 +58,11 @@ type SemanticModelsResult struct {
 	Note   string              `json:"note,omitempty"`
 }
 
-// NewSemanticModelsTool 创建语义模型目录工具。
-func NewSemanticModelsTool() *TypedBaseTool[SemanticModelsRequest, SemanticModelsResult] {
+// NewSemanticModelsTool 创建语义模型目录工具；repo 语义仓储（可为 nil）经参数注入。
+func NewSemanticModelsTool(repo semantic.Repository) *TypedBaseTool[SemanticModelsRequest, SemanticModelsResult] {
+	handler := func(ctx context.Context, req *SemanticModelsRequest) (*SemanticModelsResult, error) {
+		return semanticModels(ctx, req, repo)
+	}
 	return NewTypedBaseTool("semantic_models",
 		`列出受治理的指标语义模型目录（指标 + 维度 + 口径 + 同义词）。
 
@@ -92,11 +71,11 @@ func NewSemanticModelsTool() *TypedBaseTool[SemanticModelsRequest, SemanticModel
 
 拿到目录后，用 semantic_query 提交结构化取数请求（指定 metrics/dimensions 的语义名）。
 若目标不在目录中，改用 get_schema + sql_execute 走词法 NL2SQL。`,
-		semanticModels,
+		handler,
 	)
 }
 
-func semanticModels(ctx context.Context, req *SemanticModelsRequest) (*SemanticModelsResult, error) {
+func semanticModels(ctx context.Context, req *SemanticModelsRequest, semanticRepo semantic.Repository) (*SemanticModelsResult, error) {
 	if semanticRepo == nil {
 		return &SemanticModelsResult{Note: "语义层未启用，请改用 get_schema 走词法 NL2SQL"}, nil
 	}
@@ -202,8 +181,11 @@ type SemanticQueryResult struct {
 	Note string `json:"note,omitempty"`
 }
 
-// NewSemanticQueryTool 创建结构化取数工具。
-func NewSemanticQueryTool() *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
+// NewSemanticQueryTool 创建结构化取数工具；repo 语义仓储、cache 受信缓存、grounder 术语接地器经参数注入（均可为 nil）。
+func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
+	handler := func(ctx context.Context, req *SemanticQueryRequest) (*SemanticQueryResult, error) {
+		return semanticQuery(ctx, req, repo, cache)
+	}
 	return NewTypedBaseTool("semantic_query",
 		`按受治理的指标语义模型生成 SQL（NL2Semantics 查询主路径）。
 
@@ -220,11 +202,11 @@ func NewSemanticQueryTool() *TypedBaseTool[SemanticQueryRequest, SemanticQueryRe
 - metrics / dimensions: 语义名列表
 - filters: [{field, op, values}]，op ∈ = != > >= < <= like in
 - order_by: [{field, desc}]；limit: 行数上限`,
-		semanticQuery,
+		handler,
 	)
 }
 
-func semanticQuery(ctx context.Context, req *SemanticQueryRequest) (*SemanticQueryResult, error) {
+func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache) (*SemanticQueryResult, error) {
 	if semanticRepo == nil {
 		return &SemanticQueryResult{
 			Covered:      false,
@@ -236,7 +218,7 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest) (*SemanticQue
 	}
 	tenantID := agentctx.MustGetTenantID(ctx)
 
-	bundle, note, err := resolveBundle(ctx, tenantID, req.Model)
+	bundle, note, err := resolveBundle(ctx, tenantID, req.Model, semanticRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +288,7 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest) (*SemanticQue
 
 // resolveBundle 解析目标语义模型：指定名则精确取；未指定且恰有一个生效模型则自动选用；
 // 无生效模型返回 (nil, note, nil)（触发回退），多个未指定则返回 (nil, note, nil) 并提示指定。
-func resolveBundle(ctx context.Context, tenantID int64, name string) (*semantic.ModelBundle, string, error) {
+func resolveBundle(ctx context.Context, tenantID int64, name string, semanticRepo semantic.Repository) (*semantic.ModelBundle, string, error) {
 	if n := strings.TrimSpace(name); n != "" {
 		b, err := semanticRepo.GetActiveModel(ctx, tenantID, n)
 		if err != nil {
@@ -373,8 +355,11 @@ type GroundTermsResult struct {
 	Note          string `json:"note,omitempty"`
 }
 
-// NewGroundTermsTool 创建术语接地工具。
-func NewGroundTermsTool() *TypedBaseTool[GroundTermsRequest, GroundTermsResult] {
+// NewGroundTermsTool 创建术语接地工具；repo 语义仓储、grounder 术语接地器经参数注入（均可为 nil）。
+func NewGroundTermsTool(repo semantic.Repository, grounder *termgrounding.Grounder) *TypedBaseTool[GroundTermsRequest, GroundTermsResult] {
+	handler := func(ctx context.Context, req *GroundTermsRequest) (*GroundTermsResult, error) {
+		return groundTerms(ctx, req, repo, grounder)
+	}
 	return NewTypedBaseTool("ground_terms",
 		`把用户口语中的业务术语接地到受治理的指标/维度语义名（意图识别消歧）。
 
@@ -387,11 +372,11 @@ func NewGroundTermsTool() *TypedBaseTool[GroundTermsRequest, GroundTermsResult] 
 参数：
 - model: 语义模型名（可选）
 - terms: 业务术语列表`,
-		groundTerms,
+		handler,
 	)
 }
 
-func groundTerms(ctx context.Context, req *GroundTermsRequest) (*GroundTermsResult, error) {
+func groundTerms(ctx context.Context, req *GroundTermsRequest, semanticRepo semantic.Repository, termGrounder *termgrounding.Grounder) (*GroundTermsResult, error) {
 	if semanticRepo == nil {
 		return &GroundTermsResult{Note: "语义层未启用，无法接地，请改用 get_schema 走词法 NL2SQL"}, nil
 	}
@@ -400,7 +385,7 @@ func groundTerms(ctx context.Context, req *GroundTermsRequest) (*GroundTermsResu
 	}
 	tenantID := agentctx.MustGetTenantID(ctx)
 
-	bundle, note, err := resolveBundle(ctx, tenantID, req.Model)
+	bundle, note, err := resolveBundle(ctx, tenantID, req.Model, semanticRepo)
 	if err != nil {
 		return nil, err
 	}

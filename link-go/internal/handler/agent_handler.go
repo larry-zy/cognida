@@ -16,6 +16,7 @@ import (
 	agentctx "link/internal/model/agent"
 	"link/internal/model/agent/operations"
 	agentuc "link/internal/service/agent"
+	"link/internal/service/agent/agentstate"
 	"link/internal/service/agent/genui"
 	"link/internal/service/agent/pendingaction"
 	dataagent "link/internal/service/agent/presets/data_agent"
@@ -52,6 +53,22 @@ type genUIOption struct {
 // Agent Handler
 // ========================================
 
+// agentToolGateway 是 handler 侧访问工具注册表能力的窄接口（决策A）：组合根经
+// SetToolGateway 注入具体 *tools.ToolRegistry，handler 只依赖这几个 confirm-resume /
+// UI 取数 / schema 查询所需方法，不再经包级默认槽位（default.go）读取，也不泄露
+// 整个 ToolRegistry 具体类型到 handler 层。
+type agentToolGateway interface {
+	ResultStore() resultstore.Store
+	PendingStore() pendingaction.Store
+	UIBinding() uibinding.Store
+	// SessionState 按 (tenant, session) 装配会话态门面（薄门面 AgentState）：
+	// UI 回调等会话态读写经它统一 owner 归属，替代散在各处的手拼 OwnerKey + 直取 store。
+	SessionState(tenantID int64, sessionID string) *agentstate.AgentState
+	ExecuteConfirmedMutation(ctx context.Context, action *pendingaction.PendingAction) (*ragtool.SQLMutateResult, error)
+	RecordUnsupportedConfirmKind(ctx context.Context, action *pendingaction.PendingAction)
+	FetchSchema(ctx context.Context, databaseID, tableName string) (*ragtool.GetSchemaResult, error)
+}
+
 // AgentHandler Agent 处理器
 type AgentHandler struct {
 	executeUseCase       *agentuc.ExecuteService
@@ -59,6 +76,9 @@ type AgentHandler struct {
 	configUseCase         *agentuc.ConfigService
 	progressUseCase       *agentuc.ProgressService
 	persistenceService   *agentuc.AgentPersistenceService
+	// toolGateway 由组合根注入（SetToolGateway）：confirm-resume / UI 取数 / schema 查询
+	// 经它访问工具注册表能力。未注入时相关端点返回未初始化错误（nil-guard）。
+	toolGateway agentToolGateway
 }
 
 // NewAgentHandler 创建 Agent Handler
@@ -76,6 +96,11 @@ func NewAgentHandler(
 		progressUseCase:    progressUseCase,
 		persistenceService: persistenceService,
 	}
+}
+
+// SetToolGateway 注入工具注册表网关，由组合根（cmd/server）在构造 ToolRegistry 后调用一次。
+func (h *AgentHandler) SetToolGateway(gw agentToolGateway) {
+	h.toolGateway = gw
 }
 
 // ========================================
@@ -192,7 +217,21 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 	var uiSurfaces []*genui.UISpec
 	var sqlOutput, analysisOutput string // 捕获真实工具输出，供旧路径 genUI 兜底融合
 
-	for chunk := range chunkChan {
+	// 客户端断开（request ctx 取消）即停止消费与下发；上游发送端同样以该 ctx 终止生成。
+	ctx := c.Request.Context()
+
+	for {
+		var chunk *agentuc.ChatChunkDTO
+		var ok bool
+		select {
+		case chunk, ok = <-chunkChan:
+			if !ok {
+				return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces}
+			}
+		case <-ctx.Done():
+			return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces}
+		}
+
 		if chunk.Done {
 			// 兜底路径：未产生任何 render_ui surface 时才做 done 前一次性拼装。
 			if genUI.compose && len(uiSurfaces) == 0 {
@@ -554,6 +593,9 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	ctx := agentctx.NewAgentContext(c.Request.Context(), session.ID, tenantID, userID, req.Query)
 	ctx = agentctx.WithRequestID(ctx, resolveRequestID(c.Request.Context(), "t2s"))
 	ctx = agentctx.WithToolScope(ctx, "read")
+	// 会话数据源上下文：非空时查询类工具默认路由到该外部数据源，
+	// 且 sql_mutate/etl_run 被硬拒（外部数据源只读）。空=当前业务库（向后兼容）。
+	ctx = agentctx.WithDatasourceID(ctx, req.DatasourceID)
 
 	// 执行流式聊天
 	chunkChan, err := h.executeUseCase.ExecuteStream(ctx, &req)
@@ -632,7 +674,11 @@ func (h *AgentHandler) GetUISurfacePage(c *gin.Context) {
 		return
 	}
 
-	bindingStore := uibinding.GetStore()
+	if h.toolGateway == nil {
+		InternalError(c, "工具注册表未注入")
+		return
+	}
+	bindingStore := h.toolGateway.UIBinding()
 	if bindingStore == nil {
 		InternalError(c, "交互绑定存储未启用")
 		return
@@ -659,14 +705,16 @@ func (h *AgentHandler) GetUISurfacePage(c *gin.Context) {
 		return
 	}
 
-	store := ragtool.GetResultStore()
+	// 经会话态门面按 owner(tenant:session) 读回结果集：门面统一归属键，UI 回调
+	// 不再手拼 OwnerKey + 直取 ResultStore。
+	st := h.toolGateway.SessionState(binding.TenantID, binding.SessionID)
+	store := st.Results()
 	if store == nil {
 		InternalError(c, "结果存储未启用")
 		return
 	}
 
-	owner := resultstore.OwnerKey(binding.TenantID, binding.SessionID)
-	result, err := store.Get(c.Request.Context(), owner, binding.ResultID)
+	result, err := store.Get(c.Request.Context(), st.OwnerKey(), binding.ResultID)
 	if err != nil {
 		// Result Store TTL 过期（或归属异常）：大数据降级占位（4.7）
 		OK(c, gin.H{"status": "data_expired", "message": "数据已过期，可重跑"})
@@ -736,7 +784,11 @@ func (h *AgentHandler) ConfirmOperation(c *gin.Context) {
 		return
 	}
 
-	store := ragtool.GetPendingActionStore()
+	if h.toolGateway == nil {
+		InternalError(c, "工具注册表未注入")
+		return
+	}
+	store := h.toolGateway.PendingStore()
 	if store == nil {
 		InternalError(c, "待确认操作存储未启用")
 		return
@@ -766,7 +818,7 @@ func (h *AgentHandler) ConfirmOperation(c *gin.Context) {
 
 	switch action.Kind {
 	case operations.OpMutate:
-		result, execErr := ragtool.ExecuteConfirmedMutation(ctx, action)
+		result, execErr := h.toolGateway.ExecuteConfirmedMutation(ctx, action)
 		if execErr != nil {
 			InternalError(c, execErr.Error())
 			return
@@ -774,7 +826,7 @@ func (h *AgentHandler) ConfirmOperation(c *gin.Context) {
 		OK(c, result)
 	default:
 		// pending action 消费即失效：进不了执行分支也必须留痕，防静默丢弃
-		ragtool.RecordUnsupportedConfirmKind(ctx, action)
+		h.toolGateway.RecordUnsupportedConfirmKind(ctx, action)
 		BadRequest(c, fmt.Sprintf("不支持的待确认操作类型: %s", action.Kind))
 	}
 }
@@ -791,7 +843,13 @@ func (h *AgentHandler) GetDatabaseSchema(c *gin.Context) {
 
 	log.Printf("[GetDatabaseSchema] database_id=%q table_name=%q", databaseID, tableName)
 
-	result, err := ragtool.FetchSchema(c.Request.Context(), databaseID, tableName)
+	if h.toolGateway == nil {
+		InternalError(c, "工具注册表未注入")
+		return
+	}
+	// database_id 非空时按外部数据源路由，需要租户上下文做归属校验
+	ctx := agentctx.WithTenantID(c.Request.Context(), GetTenantID(c))
+	result, err := h.toolGateway.FetchSchema(ctx, databaseID, tableName)
 	if err != nil {
 		log.Printf("[GetDatabaseSchema] Error: %v", err)
 		InternalError(c, fmt.Sprintf("查询数据库 schema 失败: %v", err))

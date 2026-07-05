@@ -147,14 +147,20 @@ func (s *knowledgeBaseService) buildChunkingConfig(req *CreateKnowledgeBaseReque
 	return "{}"
 }
 
-// FindByID finds a knowledge base by ID
-func (s *knowledgeBaseService) FindByID(ctx context.Context, id string) (*domain_knowledge.KnowledgeBase, error) {
-	return s.kbRepo.FindByID(ctx, id)
+// requireKB 强制校验知识库归属（防跨租户 IDOR）：
+// SQL 层 WHERE id=? AND tenant_id=?，跨租户与不存在统一返回“知识库不存在”，不泄露资源存在性。
+func (s *knowledgeBaseService) requireKB(ctx context.Context, kbID string, tenantID int64) (*domain_knowledge.KnowledgeBase, error) {
+	return s.kbRepo.FindByIDForTenant(ctx, kbID, tenantID)
 }
 
-// FindByIDWithSettings finds a knowledge base with settings loaded
-func (s *knowledgeBaseService) FindByIDWithSettings(ctx context.Context, id string) (*domain_knowledge.KnowledgeBase, error) {
-	kb, err := s.kbRepo.FindByID(ctx, id)
+// FindByID finds a knowledge base by ID（tenantID 强制归属校验）
+func (s *knowledgeBaseService) FindByID(ctx context.Context, id string, tenantID int64) (*domain_knowledge.KnowledgeBase, error) {
+	return s.requireKB(ctx, id, tenantID)
+}
+
+// FindByIDWithSettings finds a knowledge base with settings loaded（tenantID 强制归属校验）
+func (s *knowledgeBaseService) FindByIDWithSettings(ctx context.Context, id string, tenantID int64) (*domain_knowledge.KnowledgeBase, error) {
+	kb, err := s.requireKB(ctx, id, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,14 +188,15 @@ func (s *knowledgeBaseService) Update(ctx context.Context, kb *domain_knowledge.
 	return s.kbRepo.Update(ctx, kb)
 }
 
-// UpdateFromRequest 从 DTO 更新知识库
+// UpdateFromRequest 从 DTO 更新知识库（tenantID 强制归属校验）
 func (s *knowledgeBaseService) UpdateFromRequest(
 	ctx context.Context,
 	id string,
+	tenantID int64,
 	req *UpdateKnowledgeBaseRequest,
 ) (*domain_knowledge.KnowledgeBase, error) {
-	// 获取现有实体
-	kb, err := s.kbRepo.FindByID(ctx, id)
+	// 获取现有实体（强制归属校验）
+	kb, err := s.requireKB(ctx, id, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,8 +256,11 @@ func (s *knowledgeBaseService) UpdateWithSettings(ctx context.Context, kb *domai
 	return nil
 }
 
-// Delete soft deletes a knowledge base
-func (s *knowledgeBaseService) Delete(ctx context.Context, id string) error {
+// Delete soft deletes a knowledge base（tenantID 强制归属校验）
+func (s *knowledgeBaseService) Delete(ctx context.Context, id string, tenantID int64) error {
+	if _, err := s.requireKB(ctx, id, tenantID); err != nil {
+		return err
+	}
 	return s.kbRepo.Delete(ctx, id)
 }
 
@@ -259,8 +269,11 @@ func (s *knowledgeBaseService) Exists(ctx context.Context, id string) (bool, err
 	return s.kbRepo.Exists(ctx, id)
 }
 
-// GetStats gets statistics for a knowledge base (delegates to KnowledgeStatsQuerier)
-func (s *knowledgeBaseService) GetStats(ctx context.Context, kbID string) (*domain_knowledge.KnowledgeBaseStats, error) {
+// GetStats gets statistics for a knowledge base (delegates to KnowledgeStatsQuerier)（tenantID 强制归属校验）
+func (s *knowledgeBaseService) GetStats(ctx context.Context, kbID string, tenantID int64) (*domain_knowledge.KnowledgeBaseStats, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, err
+	}
 	if s.statsQuerier == nil {
 		// Fallback: return empty stats
 		return &domain_knowledge.KnowledgeBaseStats{
@@ -270,13 +283,17 @@ func (s *knowledgeBaseService) GetStats(ctx context.Context, kbID string) (*doma
 	return s.statsQuerier.GetStats(ctx, kbID)
 }
 
-// GetKnowledgeList gets knowledge list for a KB (delegates to KnowledgeStatsQuerier)
+// GetKnowledgeList gets knowledge list for a KB (delegates to KnowledgeStatsQuerier)（tenantID 强制归属校验）
 func (s *knowledgeBaseService) GetKnowledgeList(
 	ctx context.Context,
 	kbID string,
+	tenantID int64,
 	page, pageSize int,
 	status string,
 ) ([]*domain_knowledge.Knowledge, int64, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, 0, err
+	}
 	if s.statsQuerier == nil {
 		// Fallback: use knowledge repository
 		query := &domain_knowledge.KnowledgeListQuery{
@@ -288,13 +305,17 @@ func (s *knowledgeBaseService) GetKnowledgeList(
 	return s.statsQuerier.GetKnowledgeList(ctx, kbID, page, pageSize, status)
 }
 
-// GetKnowledgeListWithStatus gets knowledge list with multiple statuses for a KB
+// GetKnowledgeListWithStatus gets knowledge list with multiple statuses for a KB（tenantID 强制归属校验）
 func (s *knowledgeBaseService) GetKnowledgeListWithStatus(
 	ctx context.Context,
 	kbID string,
+	tenantID int64,
 	page, pageSize int,
 	statuses []string,
 ) ([]*domain_knowledge.Knowledge, int64, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, 0, err
+	}
 	if s.statsQuerier == nil {
 		// Fallback: use knowledge repository with filter
 		query := &domain_knowledge.KnowledgeListQuery{
@@ -334,6 +355,10 @@ func (s *knowledgeBaseService) GetKnowledgeListWithStatus(
 
 // DeleteKnowledge deletes knowledge from a KB across all stores (MySQL + Milvus + Neo4j)
 func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowledgeID string, tenantID int64) error {
+	// 强制归属校验：知识库必须属于当前租户
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return err
+	}
 	if s.statsQuerier == nil {
 		// Fallback: simple delete through knowledge repository
 		// Note: This won't delete chunks, so statsQuerier should be provided
@@ -374,13 +399,17 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 	return nil
 }
 
-// GetChunks gets chunks for a KB
+// GetChunks gets chunks for a KB（tenantID 强制归属校验）
 func (s *knowledgeBaseService) GetChunks(
 	ctx context.Context,
 	kbID string,
+	tenantID int64,
 	page, pageSize int,
 	knowledgeID string,
 ) ([]*domain_knowledge.Chunk, int64, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, 0, err
+	}
 	// 使用仓储查询
 	query := &domain_knowledge.ChunkListQuery{
 		KnowledgeBaseID: kbID,
@@ -409,6 +438,11 @@ func (s *knowledgeBaseService) UploadDocument(
 	fileSize int64,
 	filePath, fileHash string,
 ) (*domain_knowledge.Knowledge, error) {
+	// 强制归属校验：知识库必须属于当前租户
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, err
+	}
+
 	// 生成知识条目 ID
 	knowledgeID := s.idGenerator.Generate()
 
@@ -443,8 +477,11 @@ func (s *knowledgeBaseService) UploadDocument(
 	return knowledge, nil
 }
 
-// CheckDuplicateByHash 在知识库范围内检查是否已存在相同文件（防止重传相同文件）
-func (s *knowledgeBaseService) CheckDuplicateByHash(ctx context.Context, kbID, fileHash string) (*domain_knowledge.Knowledge, error) {
+// CheckDuplicateByHash 在知识库范围内检查是否已存在相同文件（防止重传相同文件）（tenantID 强制归属校验）
+func (s *knowledgeBaseService) CheckDuplicateByHash(ctx context.Context, kbID string, tenantID int64, fileHash string) (*domain_knowledge.Knowledge, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, err
+	}
 	if fileHash == "" {
 		return nil, nil
 	}
@@ -456,8 +493,12 @@ func (s *knowledgeBaseService) UpdateParseStatus(ctx context.Context, id, parseS
 	return s.knowledgeRepo.UpdateParseStatus(ctx, id, parseStatus, errorMessage)
 }
 
-// GetKnowledgeDetail 获取文档详情
-func (s *knowledgeBaseService) GetKnowledgeDetail(ctx context.Context, kbID, knowledgeID string) (*domain_knowledge.Knowledge, error) {
+// GetKnowledgeDetail 获取文档详情（tenantID 强制归属校验）
+func (s *knowledgeBaseService) GetKnowledgeDetail(ctx context.Context, kbID string, tenantID int64, knowledgeID string) (*domain_knowledge.Knowledge, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, err
+	}
+
 	knowledge, err := s.knowledgeRepo.FindByID(ctx, knowledgeID)
 	if err != nil {
 		return nil, err
@@ -471,17 +512,21 @@ func (s *knowledgeBaseService) GetKnowledgeDetail(ctx context.Context, kbID, kno
 	return knowledge, nil
 }
 
-// GetKnowledgeStatus 获取文档处理状态
-func (s *knowledgeBaseService) GetKnowledgeStatus(ctx context.Context, kbID, knowledgeID string) (*domain_knowledge.Knowledge, error) {
-	return s.GetKnowledgeDetail(ctx, kbID, knowledgeID)
+// GetKnowledgeStatus 获取文档处理状态（tenantID 强制归属校验）
+func (s *knowledgeBaseService) GetKnowledgeStatus(ctx context.Context, kbID string, tenantID int64, knowledgeID string) (*domain_knowledge.Knowledge, error) {
+	return s.GetKnowledgeDetail(ctx, kbID, tenantID, knowledgeID)
 }
 
 // ========================================
 // Chunk Operations
 // ========================================
 
-// GetChunkDetail 获取分块详情
-func (s *knowledgeBaseService) GetChunkDetail(ctx context.Context, kbID, chunkID string) (*domain_knowledge.Chunk, error) {
+// GetChunkDetail 获取分块详情（tenantID 强制归属校验）
+func (s *knowledgeBaseService) GetChunkDetail(ctx context.Context, kbID string, tenantID int64, chunkID string) (*domain_knowledge.Chunk, error) {
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return nil, err
+	}
+
 	chunk, err := s.chunkRepo.FindByID(ctx, chunkID)
 	if err != nil {
 		return nil, err
@@ -495,13 +540,15 @@ func (s *knowledgeBaseService) GetChunkDetail(ctx context.Context, kbID, chunkID
 	return chunk, nil
 }
 
-// UpdateChunk 更新分块
+// UpdateChunk 更新分块（tenantID 强制归属校验）
 func (s *knowledgeBaseService) UpdateChunk(
 	ctx context.Context,
-	kbID, chunkID string,
+	kbID string,
+	tenantID int64,
+	chunkID string,
 	content *string,
 ) (*domain_knowledge.Chunk, error) {
-	chunk, err := s.GetChunkDetail(ctx, kbID, chunkID)
+	chunk, err := s.GetChunkDetail(ctx, kbID, tenantID, chunkID)
 	if err != nil {
 		return nil, err
 	}
@@ -520,10 +567,10 @@ func (s *knowledgeBaseService) UpdateChunk(
 	return chunk, nil
 }
 
-// DeleteChunk 删除分块
-func (s *knowledgeBaseService) DeleteChunk(ctx context.Context, kbID, chunkID string) error {
-	// 先验证分块是否存在且属于指定知识库
-	_, err := s.GetChunkDetail(ctx, kbID, chunkID)
+// DeleteChunk 删除分块（tenantID 强制归属校验）
+func (s *knowledgeBaseService) DeleteChunk(ctx context.Context, kbID string, tenantID int64, chunkID string) error {
+	// 先验证分块是否存在且属于指定知识库（含租户归属校验）
+	_, err := s.GetChunkDetail(ctx, kbID, tenantID, chunkID)
 	if err != nil {
 		return err
 	}
@@ -535,10 +582,11 @@ func (s *knowledgeBaseService) DeleteChunk(ctx context.Context, kbID, chunkID st
 // Search Operations
 // ========================================
 
-// Search 搜索知识库
+// Search 搜索知识库（仅在属于 tenantID 的知识库内检索，越权 kbID 被静默剔除）
 func (s *knowledgeBaseService) Search(
 	ctx context.Context,
 	kbIDs []string,
+	tenantID int64,
 	query string,
 	topK int,
 	minScore float64,
@@ -546,6 +594,10 @@ func (s *knowledgeBaseService) Search(
 	// 获取启用的分块
 	var allChunks []*domain_knowledge.Chunk
 	for _, kbID := range kbIDs {
+		// 归属校验：不属于当前租户的 kbID 直接跳过，不返回其内容
+		if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+			continue
+		}
 		chunks, _, err := s.chunkRepo.FindByKnowledgeBaseID(ctx, kbID, &domain_knowledge.ChunkListQuery{
 			KnowledgeBaseID: kbID,
 			IsEnabled:       boolPtr(true),

@@ -16,11 +16,13 @@ import (
 // ========================================
 
 // skillInvokeTool skill_invoke 工具实现
-type skillInvokeTool struct{}
+type skillInvokeTool struct {
+	reg *ToolRegistry
+}
 
-// NewSkillInvokeTool 创建 skill_invoke 工具
-func NewSkillInvokeTool() (tool.InvokableTool, error) {
-	return &skillInvokeTool{}, nil
+// NewSkillInvokeTool 创建 skill_invoke 工具；reg 工具注册表经参数注入，用于按名查找并调用工具。
+func NewSkillInvokeTool(reg *ToolRegistry) (tool.InvokableTool, error) {
+	return &skillInvokeTool{reg: reg}, nil
 }
 
 // Info 返回工具信息
@@ -79,8 +81,8 @@ func (t *skillInvokeTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		}
 	}
 
-	// 从全局注册表获取工具
-	toolImpl, ok := GlobalRegistry.Get(toolName)
+	// 从注册表获取工具
+	toolImpl, ok := t.reg.Get(toolName)
 	if !ok {
 		return "", fmt.Errorf("tool not found: %s", toolName)
 	}
@@ -159,11 +161,13 @@ func (t *skillInvokeTool) selectToolForTask(task string) string {
 // ========================================
 
 // skillListTool skill_list 工具实现
-type skillListTool struct{}
+type skillListTool struct {
+	reg *ToolRegistry
+}
 
-// NewSkillListTool 创建 skill_list 工具
-func NewSkillListTool() (tool.InvokableTool, error) {
-	return &skillListTool{}, nil
+// NewSkillListTool 创建 skill_list 工具；reg 工具注册表经参数注入，用于列举可用工具。
+func NewSkillListTool(reg *ToolRegistry) (tool.InvokableTool, error) {
+	return &skillListTool{reg: reg}, nil
 }
 
 // Info 返回工具信息
@@ -202,14 +206,14 @@ func (t *skillListTool) InvokableRun(ctx context.Context, argumentsInJSON string
 
 	if hasCategory && category != "" {
 		// 按分类获取工具
-		for _, toolName := range GlobalRegistry.ListToolsByGroup(category) {
-			if info, ok := GlobalRegistry.GetToolInfo(toolName); ok {
+		for _, toolName := range t.reg.ListToolsByGroup(category) {
+			if info, ok := t.reg.GetToolInfo(toolName); ok {
 				tools = append(tools, info)
 			}
 		}
 	} else {
 		// 获取所有工具
-		tools = GlobalRegistry.ListToolInfo()
+		tools = t.reg.ListToolInfo()
 	}
 
 	// 构造结果

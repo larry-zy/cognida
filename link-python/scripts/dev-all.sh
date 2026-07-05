@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# 一键并行启动 Python 三服务:
+# 一键并行启动 Python 四服务:
 #   - gRPC 主服务  (端口 50051, 含数据分析 50053)  -> grpc_service.server
-#   - HTTP/FastAPI (端口 8000)                     -> main.py
+#   - HTTP/FastAPI (端口 8000)                     -> main.py (基础服务)
+#   - 评测服务      (端口 18888)                    -> services.evaluation.fastapi_app
 #   - MCP 服务     (端口 3000)                      -> mcp_service.server
+#
+# 说明: 评测 HTTP 服务是独立 FastAPI 应用(compute-metrics / graders 目录),
+#       Go 侧经 PYTHON_EVALUATION_ENDPOINT(默认 http://localhost:18888) 调用。
+#       此前该服务未纳入启动脚本, 导致 :18888 无人监听、Go 调用 graders/
+#       compute-metrics 直接连接被拒(500)。
 #
 # 用法:  bash scripts/dev-all.sh
 # 停止:  Ctrl+C (会优雅终止全部子进程)
@@ -70,15 +76,16 @@ echo "========================================"
 
 start grpc uv run python -m grpc_service.server
 start http uv run python main.py
+start eval uv run uvicorn services.evaluation.fastapi_app:app --host 0.0.0.0 --port 18888
 start mcp  uv run python -m mcp_service.server
 
 echo ""
-echo "端口:  gRPC=50051(+分析 50053)   HTTP=8000   MCP=3000"
+echo "端口:  gRPC=50051(+分析 50053)   HTTP=8000    评测=18888   MCP=3000"
 echo "按 Ctrl+C 停止全部。以下为三服务实时日志:"
 echo "----------------------------------------"
 
 # tail 也纳入 PIDS, 退出时一并清理
-tail -n +1 -f "$LOG_DIR/grpc.log" "$LOG_DIR/http.log" "$LOG_DIR/mcp.log" &
+tail -n +1 -f "$LOG_DIR/grpc.log" "$LOG_DIR/http.log" "$LOG_DIR/eval.log" "$LOG_DIR/mcp.log" &
 PIDS+=("$!")
 NAMES+=("tail")
 

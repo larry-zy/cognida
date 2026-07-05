@@ -99,6 +99,31 @@ type JWTConfig struct {
 	RefreshTokenExpire int
 }
 
+// jwtSecretMinLen JWT 密钥最小长度（字节）。HS256 下短密钥可被离线爆破后自签合法 token。
+const jwtSecretMinLen = 32
+
+// jwtPlaceholderSecrets 已知占位密钥，出现即视为未配置
+var jwtPlaceholderSecrets = map[string]bool{
+	"your-secret-key":                           true,
+	"your-secret-key-change-me":                 true,
+	"your-secret-key-change-this-in-production": true,
+}
+
+// Validate 校验 JWT 密钥强度（fail-closed）：
+// 缺失、等于占位符、长度不足 32 字节时返回错误，启动装配处应据此 log.Fatal。
+func (c *JWTConfig) Validate() error {
+	if c == nil || c.Secret == "" {
+		return fmt.Errorf("JWT_SECRET 未配置：请在环境变量中设置至少 %d 字节的随机密钥（如 openssl rand -hex 32）", jwtSecretMinLen)
+	}
+	if jwtPlaceholderSecrets[c.Secret] {
+		return fmt.Errorf("JWT_SECRET 为占位符，禁止使用：请替换为至少 %d 字节的随机密钥", jwtSecretMinLen)
+	}
+	if len(c.Secret) < jwtSecretMinLen {
+		return fmt.Errorf("JWT_SECRET 长度不足：%d 字节 < 最小 %d 字节", len(c.Secret), jwtSecretMinLen)
+	}
+	return nil
+}
+
 // ChatConfig 聊天配置
 type ChatConfig struct {
 	Source    common.ModelSource // 模型源: local/remote
@@ -351,7 +376,8 @@ func LoadJWTConfig() *JWTConfig {
 	_ = godotenv.Load(envPath)
 
 	return &JWTConfig{
-		Secret:             getEnv("JWT_SECRET", "your-secret-key"),
+		// 无默认密钥：缺失由 Validate() 在启动装配处 fail-closed
+		Secret:             getEnv("JWT_SECRET", ""),
 		AccessTokenExpire:  getEnvAsInt("JWT_ACCESS_TOKEN_EXPIRE", 86400),   // 24小时
 		RefreshTokenExpire: getEnvAsInt("JWT_REFRESH_TOKEN_EXPIRE", 604800), // 7天
 	}

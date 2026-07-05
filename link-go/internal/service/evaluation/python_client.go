@@ -10,7 +10,16 @@ import (
 	"net/http"
 	neturl "net/url"
 	"time"
+
+	agentctx "link/internal/model/agent"
 )
+
+// setTraceHeaders 将 request_id 透传到 Python 评测服务，实现跨进程链路追踪。
+func setTraceHeaders(ctx context.Context, req *http.Request) {
+	if rid, ok := agentctx.GetRequestID(ctx); ok && rid != "" {
+		req.Header.Set("X-Request-ID", rid)
+	}
+}
 
 const (
 	// DefaultTimeout 默认 HTTP 超时
@@ -86,6 +95,7 @@ func (c *PythonEvaluationClient) computeMetrics(ctx context.Context, req *Comput
 			return nil, fmt.Errorf("create request failed: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		setTraceHeaders(ctx, httpReq)
 
 		resp, err := c.httpClient.Do(httpReq)
 		if err != nil {
@@ -135,6 +145,7 @@ func (c *PythonEvaluationClient) ListGraders(ctx context.Context, evalType strin
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)
 	}
+	setTraceHeaders(ctx, httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -175,6 +186,7 @@ func (c *PythonEvaluationClient) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create health check request failed: %w", err)
 	}
+	setTraceHeaders(ctx, req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

@@ -67,8 +67,12 @@ type RenderUIResult struct {
 	UISpec *genui.UISpec `json:"ui_spec"`
 }
 
-// NewRenderUITool 创建 render_ui 工具。
-func NewRenderUITool() *TypedBaseTool[RenderUIRequest, RenderUIResult] {
+// NewRenderUITool 创建 render_ui 工具；rs 结果存储、ui 绑定存储（均可为 nil）经参数注入。
+// ui 由组合根经 ToolDeps.UIBinding 显式传入，取代原 uibinding 包级单例读取。
+func NewRenderUITool(rs resultstore.Store, ui uibinding.Store) *TypedBaseTool[RenderUIRequest, RenderUIResult] {
+	handler := func(ctx context.Context, req *RenderUIRequest) (*RenderUIResult, error) {
+		return renderUI(ctx, req, rs, ui)
+	}
 	return NewTypedBaseTool("render_ui",
 		fmt.Sprintf(`把查询/分析结果渲染成交互式 UI 面板，立即推送给用户（可多次调用，每次一个独立面板）。
 
@@ -85,22 +89,22 @@ func NewRenderUITool() *TypedBaseTool[RenderUIRequest, RenderUIResult] {
 - /meta/<键>        → row_count / truncated / result_id 等元信息
 
 校验失败（非法 result_id / 越界 Pointer / 目录外组件）会返回错误，请修正后重试。`, genui.Catalog),
-		renderUI,
+		handler,
 	)
 }
 
 // renderUI 执行渲染：取数 → 装配 DataModel → 组装/校验 UISpec。
-func renderUI(ctx context.Context, req *RenderUIRequest) (*RenderUIResult, error) {
+func renderUI(ctx context.Context, req *RenderUIRequest, rs resultstore.Store, ui uibinding.Store) (*RenderUIResult, error) {
 	if req.ResultID == "" {
 		return nil, fmt.Errorf("result_id 不能为空：请先用 sql_execute 等工具取数，再用其返回的 result_id 渲染")
 	}
-	if resultStore == nil {
+	if rs == nil {
 		return nil, fmt.Errorf("结果存储未启用，无法按 result_id 渲染")
 	}
 
 	// 1. 按引用取数（含归属校验：跨会话读取拒绝）
 	owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx))
-	result, err := resultStore.Get(ctx, owner, req.ResultID)
+	result, err := rs.Get(ctx, owner, req.ResultID)
 	if errors.Is(err, resultstore.ErrNotFound) {
 		return nil, fmt.Errorf("result_id %q 不存在或已过期，请重新执行查询后再渲染", req.ResultID)
 	}
@@ -145,7 +149,7 @@ func renderUI(ctx context.Context, req *RenderUIRequest) (*RenderUIResult, error
 	// 5. 交互绑定状态：surface ↔ result_id + token 落 Redis（会话 TTL），
 	//    支撑 Filter/Pagination 等组件回调路由；token 经 Meta 随规格下发前端。
 	//    绑定存储未注入/写失败不阻断渲染，仅降级为无交互回调。
-	if bs := uibinding.GetStore(); bs != nil {
+	if ui != nil {
 		binding := &uibinding.Binding{
 			Surface:   spec.Surface,
 			TenantID:  agentctx.MustGetTenantID(ctx),
@@ -153,7 +157,7 @@ func renderUI(ctx context.Context, req *RenderUIRequest) (*RenderUIResult, error
 			ResultID:  req.ResultID,
 			Token:     uibinding.NewToken(),
 		}
-		if err := bs.Put(ctx, binding, uibinding.DefaultTTL); err == nil {
+		if err := ui.Put(ctx, binding, uibinding.DefaultTTL); err == nil {
 			dm.Meta["surface_token"] = binding.Token
 		}
 	}

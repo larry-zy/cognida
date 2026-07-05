@@ -3,26 +3,29 @@
  * 替代 Element Plus 的 ElMessage
  */
 
-import { createApp, h } from 'vue'
+import { createApp, h, ref, type Ref } from 'vue'
 import UiToast from '@/components/ui/UiToast.vue'
 
-let appInstance: any = null
+// 用模板 ref 捕获 UiToast 暴露的 addToast：app.mount() 返回的是根包装组件代理，
+// 并不透出子组件 expose 的方法（会得到 undefined 导致 toast.* 抛错）。
+let toastApi: Ref<{ addToast: (o: ToastOptions) => void } | null> | null = null
 let container: HTMLElement | null = null
 
 function ensureInstance() {
-  if (!appInstance) {
+  if (!toastApi) {
     container = document.createElement('div')
     document.body.appendChild(container)
 
+    const apiRef = ref<{ addToast: (o: ToastOptions) => void } | null>(null)
     const app = createApp({
       render() {
-        return h(UiToast)
+        return h(UiToast, { ref: apiRef })
       }
     })
-
-    appInstance = app.mount(container)
+    app.mount(container)
+    toastApi = apiRef
   }
-  return appInstance
+  return toastApi.value
 }
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
@@ -51,7 +54,7 @@ function show(arg1: string | ToastOptions, type?: ToastType, title?: string): vo
     options = arg1
   }
 
-  instance.addToast(options)
+  instance?.addToast(options)
 }
 
 export const toastSuccess = (message: string, title?: string) => show(message, 'success', title)

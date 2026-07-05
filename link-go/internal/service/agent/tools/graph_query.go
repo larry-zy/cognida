@@ -14,19 +14,6 @@ import (
 // 图谱查询工具
 // ========================================
 
-// 全局图谱服务实例
-var graphService GraphQueryService
-
-// InitGraphQueryTool 初始化图谱查询工具
-func InitGraphQueryTool(service GraphQueryService) {
-	graphService = service
-}
-
-// SetGraphService 设置图谱服务（用于测试）
-func SetGraphService(service GraphQueryService) {
-	graphService = service
-}
-
 // GraphQueryRequest 图谱查询请求
 type GraphQueryRequest struct {
 	// Query 查询内容
@@ -135,8 +122,11 @@ type PathStep struct {
 	Direction string `json:"direction"`
 }
 
-// NewGraphQueryTool 创建图谱查询工具
-func NewGraphQueryTool() *TypedBaseTool[GraphQueryRequest, GraphQueryResult] {
+// NewGraphQueryTool 创建图谱查询工具；svc 图谱服务（可为 nil）经参数注入。
+func NewGraphQueryTool(svc GraphQueryService) *TypedBaseTool[GraphQueryRequest, GraphQueryResult] {
+	handler := func(ctx context.Context, req *GraphQueryRequest) (*GraphQueryResult, error) {
+		return graphQuery(ctx, req, svc)
+	}
 	return NewTypedBaseTool("graph_query",
 		`使用知识图谱进行关系查询，查找实体之间的关联关系。
 
@@ -168,12 +158,12 @@ func NewGraphQueryTool() *TypedBaseTool[GraphQueryRequest, GraphQueryResult] {
 - top_k: 返回结果数量（可选，默认5）
 - depth: 查询深度/跳数（可选，默认2，最大3）
 - include_path: 是否返回完整路径（可选，默认false）`,
-		graphQuery,
+		handler,
 	)
 }
 
 // graphQuery 执行图谱查询
-func graphQuery(ctx context.Context, req *GraphQueryRequest) (*GraphQueryResult, error) {
+func graphQuery(ctx context.Context, req *GraphQueryRequest, graphService GraphQueryService) (*GraphQueryResult, error) {
 	startTime := time.Now()
 
 	// 1. 参数验证
@@ -224,28 +214,6 @@ func graphQuery(ctx context.Context, req *GraphQueryRequest) (*GraphQueryResult,
 	result.Query = req.Query
 
 	return result, nil
-}
-
-// ========================================
-// 工具工厂
-// ========================================
-
-// GraphToolFactory 图谱工具工厂
-type GraphToolFactory struct {
-	service GraphQueryService
-}
-
-// NewGraphToolFactory 创建图谱工具工厂
-func NewGraphToolFactory(service GraphQueryService) *GraphToolFactory {
-	return &GraphToolFactory{
-		service: service,
-	}
-}
-
-// CreateTool 创建工具
-func (f *GraphToolFactory) CreateTool() *TypedBaseTool[GraphQueryRequest, GraphQueryResult] {
-	InitGraphQueryTool(f.service)
-	return NewGraphQueryTool()
 }
 
 // ========================================

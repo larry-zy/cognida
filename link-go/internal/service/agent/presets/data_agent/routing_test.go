@@ -2,9 +2,30 @@ package dataagent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 )
+
+// stubModel 是 BaseChatModel 的测试桩：Generate 返回预置内容或错误。
+type stubModel struct {
+	content string
+	err     error
+}
+
+func (m *stubModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return schema.AssistantMessage(m.content, nil), nil
+}
+
+func (m *stubModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, errors.New("not implemented")
+}
 
 func TestClassifyIntent(t *testing.T) {
 	cases := []struct {
@@ -47,7 +68,8 @@ func TestClassifyIntent_AttributionBeatsTrend(t *testing.T) {
 
 // 路由 Hook 应把对应 playbook 注入到用户消息之前，且保留原始问题。
 func TestIntentRoutingHook_InjectsPlaybook(t *testing.T) {
-	hook := intentRoutingHook()
+	// nil 分类模型 → 走词法兜底，判定确定可测。
+	hook := intentRoutingHook(nil)
 	msg := "最近半年的销售额趋势如何"
 	_, routed, err := hook(context.Background(), msg)
 	if err != nil {
@@ -61,6 +83,84 @@ func TestIntentRoutingHook_InjectsPlaybook(t *testing.T) {
 	}
 	if !strings.HasPrefix(routed, playbookTrend) {
 		t.Errorf("playbook should be prepended before the question")
+	}
+}
+
+// LLM 分类：合法输出（含带前后缀）应正确解析并映射到 playbook 与 ambiguous 标注。
+func TestClassifyIntentLLM_Parses(t *testing.T) {
+	cases := []struct {
+		name      string
+		content   string
+		want      Intent
+		ambiguous bool
+	}{
+		{"精确", "attribution", IntentAttribution, false},
+		{"带空白", "  trend\n", IntentTrend, false},
+		{"带前缀", "intent: report", IntentReport, false},
+		{"中文夹带", "归因(attribution)", IntentAttribution, false},
+		{"歧义置标注", "ambiguous", IntentAmbiguous, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := ClassifyIntentLLM(context.Background(), &stubModel{content: c.content}, "随便一句")
+			if !ok {
+				t.Fatalf("expected ok for %q", c.content)
+			}
+			if got.Intent != c.want {
+				t.Errorf("ClassifyIntentLLM(%q).Intent = %v, want %v", c.content, got.Intent, c.want)
+			}
+			if got.Playbook == "" {
+				t.Errorf("decision should carry a playbook")
+			}
+			if got.Ambiguous != c.ambiguous {
+				t.Errorf("Ambiguous = %v, want %v", got.Ambiguous, c.ambiguous)
+			}
+		})
+	}
+}
+
+// LLM 分类：模型缺失/出错/输出非法时返回 ok=false，交由词法兜底。
+func TestClassifyIntentLLM_FallbackSignals(t *testing.T) {
+	if _, ok := ClassifyIntentLLM(context.Background(), nil, "查询订单"); ok {
+		t.Errorf("nil model should return ok=false")
+	}
+	if _, ok := ClassifyIntentLLM(context.Background(), &stubModel{err: errors.New("boom")}, "查询订单"); ok {
+		t.Errorf("model error should return ok=false")
+	}
+	if _, ok := ClassifyIntentLLM(context.Background(), &stubModel{content: "不知道"}, "查询订单"); ok {
+		t.Errorf("unparseable output should return ok=false")
+	}
+	if _, ok := ClassifyIntentLLM(context.Background(), &stubModel{content: "trend"}, "   "); ok {
+		t.Errorf("empty message should return ok=false")
+	}
+}
+
+// 路由 Hook：LLM 命中时应注入 LLM 判定对应的 playbook（此处 attribution）。
+func TestIntentRoutingHook_UsesLLM(t *testing.T) {
+	hook := intentRoutingHook(&stubModel{content: "attribution"})
+	// 消息本身词法上像「取数」，验证走的是 LLM 判定而非词法。
+	msg := "查一下这个指标"
+	_, routed, err := hook(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("hook err: %v", err)
+	}
+	if !strings.HasPrefix(routed, playbookAttribution) {
+		t.Errorf("routed message should use LLM-classified attribution playbook, got: %s", routed)
+	}
+	if !strings.Contains(routed, msg) {
+		t.Errorf("routed message must preserve the original question")
+	}
+}
+
+// 路由 Hook：LLM 输出非法时回退词法（此消息词法判为趋势）。
+func TestIntentRoutingHook_FallsBackToLexical(t *testing.T) {
+	hook := intentRoutingHook(&stubModel{content: "garbage"})
+	_, routed, err := hook(context.Background(), "最近半年的销售额趋势如何")
+	if err != nil {
+		t.Fatalf("hook err: %v", err)
+	}
+	if !strings.HasPrefix(routed, playbookTrend) {
+		t.Errorf("should fall back to lexical trend playbook, got: %s", routed)
 	}
 }
 

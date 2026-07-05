@@ -27,8 +27,8 @@ import (
 	mysqlrepo "link/internal/repository/mysql"
 )
 
-// setupOperationIntegration 连接真实 DB，准备源表与配置注入。
-func setupOperationIntegration(t *testing.T) (*gorm.DB, *mysqlrepo.OperationAuditRepository, context.Context) {
+// setupOperationIntegration 连接真实 DB，准备源表并装配 *opTools 依赖载体。
+func setupOperationIntegration(t *testing.T) (*opTools, *gorm.DB, *mysqlrepo.OperationAuditRepository, context.Context) {
 	t.Helper()
 	dsn := os.Getenv("MYSQL_DSN")
 	if dsn == "" {
@@ -58,20 +58,18 @@ func setupOperationIntegration(t *testing.T) (*gorm.DB, *mysqlrepo.OperationAudi
 	t.Cleanup(func() { db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", source)) })
 
 	auditRepo := mysqlrepo.NewOperationAuditRepository(db)
-	oldCfg := opConfig
-	InitOperationTools(OperationConfig{
+	o := &opTools{cfg: OperationConfig{
 		DB:                 db,
 		Audit:              auditRepo,
 		Pending:            pendingaction.NewMemoryStore(),
 		RedlineTables:      []string{"users", "tenants"},
 		DangerRowThreshold: 2, // 低阈值便于触发危险分级
 		ExportDir:          t.TempDir(),
-	})
-	t.Cleanup(func() { opConfig = oldCfg })
+	}}
 
 	ctx := agentctx.WithTenantID(context.Background(), 990)
 	ctx = agentctx.WithSessionID(ctx, "sess-op-it")
-	return db, auditRepo, ctx
+	return o, db, auditRepo, ctx
 }
 
 // countSourceRows 源表当前行数。
@@ -95,10 +93,10 @@ func lastAuditRow(t *testing.T, db *gorm.DB) *mysqlrepo.OperationAuditModel {
 }
 
 func TestOperationIntegration_MutateDryRunSuspendsAndResumes(t *testing.T) {
-	db, _, ctx := setupOperationIntegration(t)
+	o, db, _, ctx := setupOperationIntegration(t)
 
 	// 影响 3 行 ≥ 阈值 2 → 事务回滚 + 暂停；源表必须原样
-	res, err := sqlMutate(ctx, &SQLMutateRequest{
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{
 		SQL:            "UPDATE it_op_source SET gmv = gmv * 2",
 		IdempotencyKey: "it-danger-1",
 	})
@@ -119,11 +117,11 @@ func TestOperationIntegration_MutateDryRunSuspendsAndResumes(t *testing.T) {
 
 	// 人工确认后恢复执行
 	owner := operationOwner(ctx)
-	action, err := opConfig.Pending.Consume(ctx, owner, res.PendingActionID, res.ConfirmToken)
+	action, err := o.cfg.Pending.Consume(ctx, owner, res.PendingActionID, res.ConfirmToken)
 	if err != nil {
 		t.Fatalf("consume: %v", err)
 	}
-	confirmed, err := ExecuteConfirmedMutation(ctx, action)
+	confirmed, err := o.ExecuteConfirmedMutation(ctx, action)
 	if err != nil {
 		t.Fatalf("confirmed execute: %v", err)
 	}
@@ -139,7 +137,7 @@ func TestOperationIntegration_MutateDryRunSuspendsAndResumes(t *testing.T) {
 	}
 
 	// 幂等去重：同键再次提交不再写库
-	dup, err := sqlMutate(ctx, &SQLMutateRequest{
+	dup, err := o.sqlMutate(ctx, &SQLMutateRequest{
 		SQL:            "UPDATE it_op_source SET gmv = gmv * 2",
 		IdempotencyKey: "it-danger-1",
 	})
@@ -156,9 +154,9 @@ func TestOperationIntegration_MutateDryRunSuspendsAndResumes(t *testing.T) {
 }
 
 func TestOperationIntegration_MutateSafeCommit(t *testing.T) {
-	db, _, ctx := setupOperationIntegration(t)
+	o, db, _, ctx := setupOperationIntegration(t)
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{
 		SQL:            "UPDATE it_op_source SET region = '华中' WHERE id = 1",
 		IdempotencyKey: "it-safe-1",
 	})
@@ -179,14 +177,14 @@ func TestOperationIntegration_MutateSafeCommit(t *testing.T) {
 }
 
 func TestOperationIntegration_ETLDerivesWithoutTouchingSource(t *testing.T) {
-	db, _, ctx := setupOperationIntegration(t)
+	o, db, _, ctx := setupOperationIntegration(t)
 
 	target := "agent_etl_it_regions"
 	db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", target))
 	t.Cleanup(func() { db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", target)) })
 
 	before := countSourceRows(t, db)
-	res, err := etlRun(ctx, &ETLRunRequest{
+	res, err := o.etlRun(ctx, &ETLRunRequest{
 		TargetTable: target,
 		SQL:         "SELECT region, SUM(gmv) AS total FROM it_op_source GROUP BY region",
 	})
@@ -212,7 +210,7 @@ func TestOperationIntegration_ETLDerivesWithoutTouchingSource(t *testing.T) {
 	}
 
 	// 前缀违规被拒且留痕
-	rej, err := etlRun(ctx, &ETLRunRequest{TargetTable: "it_op_source_copy", SQL: "SELECT 1"})
+	rej, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "it_op_source_copy", SQL: "SELECT 1"})
 	if err != nil {
 		t.Fatalf("etl reject: %v", err)
 	}
@@ -225,9 +223,9 @@ func TestOperationIntegration_ETLDerivesWithoutTouchingSource(t *testing.T) {
 }
 
 func TestOperationIntegration_RedlineRejectedAndAudited(t *testing.T) {
-	db, _, ctx := setupOperationIntegration(t)
+	o, db, _, ctx := setupOperationIntegration(t)
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{
 		SQL:            "DELETE FROM users WHERE id = 999999",
 		IdempotencyKey: "it-redline-1",
 	})

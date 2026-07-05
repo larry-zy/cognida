@@ -29,6 +29,25 @@ const service: AxiosInstance = axios.create({
   }
 })
 
+// 认证失效统一处理（一次性）：并发 401 下多个等待者共享同一次 refresh 失败后，
+// 只弹一次「登录已过期」、只跳一次登录页；成功登录后由 stores/auth 调 resetAuthFailure() 复位。
+let authFailureHandled = false
+
+export function resetAuthFailure() {
+  authFailureHandled = false
+}
+
+export function handleAuthFailure() {
+  const authStore = useAuthStore()
+  authStore.clearAuth()
+  if (authFailureHandled) return
+  authFailureHandled = true
+  ElMessage.error('登录已过期，请重新登录')
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login'
+  }
+}
+
 // 请求拦截器
 service.interceptors.request.use(
   (config) => {
@@ -64,14 +83,32 @@ service.interceptors.response.use(
     // 成功响应，直接返回（message 可能是 "success" 等提示信息）
     return res
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     const authStore = useAuthStore()
 
-    // 处理401未授权错误
+    // 处理401未授权错误：先 refresh 重放一次（store 内单飞），
+    // 不再无条件 logout；refresh 自身 401 或重放仍 401 才清理并跳登录
     if (error.response?.status === 401) {
-      authStore.logout()
-      ElMessage.error('登录已过期，请重新登录')
-      return Promise.reject(error)
+      const cfg = error.config as (AxiosRequestConfig & { _retried?: boolean }) | undefined
+
+      const failAuth = () => {
+        handleAuthFailure()
+        return Promise.reject(error)
+      }
+
+      // refresh 接口自身 401，或已重放过一次：登录态确实失效
+      if (!cfg || cfg.url?.includes('/auth/refresh') || cfg._retried) {
+        return failAuth()
+      }
+
+      const refreshed = await authStore.refreshAccessToken()
+      if (!refreshed) {
+        return failAuth()
+      }
+
+      // 重放原请求（新 token 由请求拦截器注入）
+      cfg._retried = true
+      return service(cfg)
     }
 
     // 处理403禁止访问错误

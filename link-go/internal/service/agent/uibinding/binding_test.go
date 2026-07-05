@@ -76,14 +76,5 @@ func TestMemoryStore_EmptySurfaceRejected(t *testing.T) {
 	}
 }
 
-// TestSetGetStore 包级单例注入。
-func TestSetGetStore(t *testing.T) {
-	old := GetStore()
-	defer SetStore(old)
-
-	s := NewMemoryStore()
-	SetStore(s)
-	if GetStore() != Store(s) {
-		t.Error("SetStore/GetStore 不一致")
-	}
-}
+// 注：原 TestSetGetStore（包级单例 SetStore/GetStore 往返）已随单例删除移除——
+// 绑定存储改由组合根经 tools.ToolDeps.UIBinding 显式注入（架构加固 Phase 6）。

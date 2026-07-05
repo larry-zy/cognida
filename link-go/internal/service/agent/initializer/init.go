@@ -11,28 +11,35 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
+	"link/internal/model/agent"
+	"link/internal/model/conversation"
 	"link/internal/service/agent/convcontext"
 	infraagent "link/internal/service/agent/framework"
 	dataagent "link/internal/service/agent/presets/data_agent"
 	"link/internal/service/agent/presets/text2sql"
+	"link/internal/service/agent/skills"
 	toolregistry "link/internal/service/agent/tools"
-	"link/internal/model/agent"
-	"link/internal/model/conversation"
 )
 
 // Initializer Agent 初始化器
 type Initializer struct {
-	registry agent.AgentRegistry
+	// registry 是声明式 Agent 注册表：RegisterSpec 按 AgentSpec 构建实例并登记元信息，
+	// 取代了此前各包的 Set*Agent 单例 + GetAgentByID switch。
+	registry *infraagent.SpecRegistry
+	// tools 是注入的工具注册表：各 Agent 构建时按名/分组解析工具，取代 tools 包级默认槽位。
+	tools *toolregistry.ToolRegistry
 	// messageRepo 供 Data Agent 启用跨轮对话记忆（读 messages 表回放历史）；nil 时记忆退化。
 	messageRepo conversation.MessageRepository
 }
 
 // NewInitializer 创建初始化器。
+// tools 为注入的工具注册表（组合根构造后传入），各 Agent 构建时经它解析工具。
 // messageRepo 可选：传入后 Data Agent 具备跨轮对话记忆；不传则保持原有无记忆行为
 // （变参形式避免破坏既有测试构造调用）。
-func NewInitializer(registry agent.AgentRegistry, messageRepo ...conversation.MessageRepository) *Initializer {
+func NewInitializer(registry *infraagent.SpecRegistry, tools *toolregistry.ToolRegistry, messageRepo ...conversation.MessageRepository) *Initializer {
 	init := &Initializer{
 		registry: registry,
+		tools:    tools,
 	}
 	if len(messageRepo) > 0 {
 		init.messageRepo = messageRepo[0]
@@ -44,6 +51,14 @@ func NewInitializer(registry agent.AgentRegistry, messageRepo ...conversation.Me
 // chatModel: LLM 模型，支持 ChatModel 或 ToolCallingChatModel
 func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
 	log.Println("[========== Agent 初始化开始 ============]")
+
+	// 先加载 Skill 定义到全局注册表，再注册各 Agent——保证所有 Agent 构建时
+	// AutoInjectHook / 硬工具门都能匹配到已加载的 Skill。加载失败不阻断启动（降级为无 Skill）。
+	if err := skills.InitializeFromEnv(); err != nil {
+		log.Printf("⚠️  Skill 系统初始化失败（降级为无 Skill 运行）: %v", err)
+	} else {
+		log.Printf("[Agent] ✓ Skill 系统就绪，已加载 %d 个技能", len(skills.ListAllSkills()))
+	}
 
 	// 0. 注册默认 Agent（优先）
 	if err := init.registerDefaultAgent(ctx, chatModel); err != nil {
@@ -74,6 +89,12 @@ func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
 	return nil
 }
 
+// skillTools 返回注入注册表中 "skill" 分组的工具（skill_list/skill_invoke/skill_match），
+// 供各 Agent 在渐进式披露下按需加载技能完整指导（Level 2）。分组为空时返回 nil（安全降级）。
+func (init *Initializer) skillTools() []tool.BaseTool {
+	return init.tools.GetByGroup("skill")
+}
+
 // registerDefaultAgent 注册默认 Agent（带工具支持）
 func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any) error {
 	// 类型断言：获取 ToolCallingChatModel 以支持工具调用
@@ -84,24 +105,38 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 		return fmt.Errorf("invalid model type: expected ToolCallingChatModel for default agent")
 	}
 
-	// 从全局注册表获取工具
-	var tools []tool.BaseTool
-
-	// 添加 web_search 工具
-	if t, ok := toolregistry.GetTool("web_search"); ok {
-		tools = append(tools, t)
+	// 元信息中的工具清单（存在即列出）
+	toolsList := "web_search"
+	if _, ok := init.tools.Get("sql_execute"); ok {
+		toolsList += ", sql_execute"
 	}
 
-	// 添加 sql_execute 工具（取代旧的 data_query）
-	if t, ok := toolregistry.GetTool("sql_execute"); ok {
-		tools = append(tools, t)
-		log.Println("[Agent] ✓ sql_execute 工具已添加")
-	}
+	spec := infraagent.AgentSpec{
+		ID:          "default",
+		Name:        "默认助手",
+		Description: "默认对话 Agent，支持工具调用",
+		Type:        agent.AgentTypeNormal,
+		Metadata: map[string]string{
+			"builtin": "true",
+			"version": "1.0.0",
+			"tools":   toolsList,
+		},
+		Build: func(ctx context.Context) (infraagent.Agent, error) {
+			// 从注入注册表获取工具
+			var tools []tool.BaseTool
+			if t, ok := init.tools.Get("web_search"); ok {
+				tools = append(tools, t)
+			}
+			if t, ok := init.tools.Get("sql_execute"); ok {
+				tools = append(tools, t)
+			}
+			// 挂载 skill 工具（skill_invoke 等），支持 LLM 按需加载技能完整指导（Level 2）
+			tools = append(tools, init.skillTools()...)
 
-	// 构建默认 Agent（带工具能力）
-	builder := infraagent.New(nil).
-		Name("默认助手").
-		Prompt(`你是一个有帮助的 AI 助手。
+			// 构建默认 Agent（带工具能力）。system prompt 追加技能目录（Level 1 渐进式披露）。
+			builder := infraagent.New(nil).
+				Name("默认助手").
+				Prompt(skills.AugmentPromptWithCatalog(`你是一个有帮助的 AI 助手。
 
 你的任务：
 - 回答用户的各种问题
@@ -111,46 +146,20 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 
 可用工具：
 - web_search: 网络搜索，获取最新信息
-- sql_execute: 数据库查询，执行只读 SQL 查询`).
-		WithToolModel(toolModel).
-		WithMaxIterations(5) // 支持多轮工具调用
-
-	if len(tools) > 0 {
-		builder = builder.Tools(tools...)
-	}
-
-	defaultAgent, err := builder.Build(ctx)
-
-	if err != nil {
-		return fmt.Errorf("构建默认 Agent 失败: %w", err)
-	}
-
-	// 构建工具列表字符串
-	toolsList := "web_search"
-	if _, ok := toolregistry.GetTool("sql_execute"); ok {
-		toolsList += ", sql_execute"
-	}
-
-	// 注册到注册中心
-	def := &agent.AgentDefinition{
-		ID:          "default",
-		Name:        "默认助手",
-		Description: "默认对话 Agent，支持工具调用",
-		Type:        agent.AgentTypeNormal,
-		Status:      agent.AgentStatusIdle,
-		Metadata: map[string]string{
-			"builtin": "true",
-			"version": "1.0.0",
-			"tools":   toolsList,
+- sql_execute: 数据库查询，执行只读 SQL 查询`)).
+				WithToolModel(toolModel).
+				Before(skills.AutoInjectHook(skills.FallbackInjectThreshold)). // 兜底：极高置信命中才词法注入，否则交由 LLM+skill_invoke
+				WithMaxIterations(5)                                           // 支持多轮工具调用
+			if len(tools) > 0 {
+				builder = builder.Tools(tools...)
+			}
+			return builder.Build(ctx)
 		},
 	}
 
-	if err := init.registry.Register(ctx, def); err != nil {
+	if err := init.registry.RegisterSpec(ctx, spec); err != nil {
 		return err
 	}
-
-	// 存储 Agent 实例
-	SetDefaultAgent(defaultAgent)
 
 	log.Println("[Agent] ✓ Default agent registered: id=default, type=normal")
 	return nil
@@ -158,26 +167,9 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 
 // registerRAGAgent 注册 RAG Agent
 func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) error {
-	// 从全局注册表获取工具：
-	// rag_query（文档检索）为核心；kb_list（查看可用知识库）与 graph_query（关系检索，受图谱开关门控）为增强。
-	ragTool, ok := toolregistry.GetTool("rag_query")
-	if !ok || ragTool == nil {
+	// rag_query 为核心工具，注册前先校验其存在（必需依赖 fail-fast）。
+	if ragTool, ok := init.tools.Get("rag_query"); !ok || ragTool == nil {
 		return fmt.Errorf("获取 RAG 工具失败: rag_query 未注册")
-	}
-
-	agentTools := []tool.BaseTool{ragTool}
-	boundNames := []string{"rag_query"}
-	if kbListTool, ok := toolregistry.GetTool("kb_list"); ok && kbListTool != nil {
-		agentTools = append(agentTools, kbListTool)
-		boundNames = append(boundNames, "kb_list")
-	}
-	if kbRouteTool, ok := toolregistry.GetTool("kb_route"); ok && kbRouteTool != nil {
-		agentTools = append(agentTools, kbRouteTool)
-		boundNames = append(boundNames, "kb_route")
-	}
-	if graphTool, ok := toolregistry.GetTool("graph_query"); ok && graphTool != nil {
-		agentTools = append(agentTools, graphTool)
-		boundNames = append(boundNames, "graph_query")
 	}
 
 	// 尝试将 chatModel 转换为 ToolCallingChatModel
@@ -188,10 +180,61 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 		return fmt.Errorf("chatModel 不支持工具调用，RAG Agent 需要 ToolCallingChatModel")
 	}
 
-	// 构建 RAG Agent
+	// 元信息中的工具清单：核心 rag_query + 已注册的增强工具（存在即列出）。
+	boundNames := []string{"rag_query"}
+	for _, name := range []string{"kb_list", "kb_route", "graph_query"} {
+		if t, ok := init.tools.Get(name); ok && t != nil {
+			boundNames = append(boundNames, name)
+		}
+	}
+
+	spec := infraagent.AgentSpec{
+		ID:          "agent-rag-001",
+		Name:        "rag_assistant",
+		Description: "RAG 检索助手：在用户选定的知识库范围内检索文档，可选开启图谱增强进行关系检索",
+		Type:        agent.AgentTypeAgenticRAG,
+		Metadata: map[string]string{
+			"version": "1.0.0",
+			"tools":   strings.Join(boundNames, ","),
+		},
+		Build: func(ctx context.Context) (infraagent.Agent, error) {
+			return init.buildRAGAgent(ctx, toolModel)
+		},
+	}
+
+	if err := init.registry.RegisterSpec(ctx, spec); err != nil {
+		return err
+	}
+
+	log.Println("[Agent] ✓ RAG agent registered: id=agent-rag-001, type=agentic_rag")
+	return nil
+}
+
+// buildRAGAgent 装配 RAG Agent 实例：按名取工具（核心 rag_query + 增强 kb_*/graph_query）→ 建 Agent。
+func (init *Initializer) buildRAGAgent(ctx context.Context, toolModel model.ToolCallingChatModel) (infraagent.Agent, error) {
+	// rag_query（文档检索）为核心；kb_list（查看可用知识库）与 graph_query（关系检索，受图谱开关门控）为增强。
+	ragTool, ok := init.tools.Get("rag_query")
+	if !ok || ragTool == nil {
+		return nil, fmt.Errorf("获取 RAG 工具失败: rag_query 未注册")
+	}
+
+	agentTools := []tool.BaseTool{ragTool}
+	if kbListTool, ok := init.tools.Get("kb_list"); ok && kbListTool != nil {
+		agentTools = append(agentTools, kbListTool)
+	}
+	if kbRouteTool, ok := init.tools.Get("kb_route"); ok && kbRouteTool != nil {
+		agentTools = append(agentTools, kbRouteTool)
+	}
+	if graphTool, ok := init.tools.Get("graph_query"); ok && graphTool != nil {
+		agentTools = append(agentTools, graphTool)
+	}
+	// 挂载 skill 工具，支持按需加载技能完整指导（Level 2）
+	agentTools = append(agentTools, init.skillTools()...)
+
+	// 构建 RAG Agent。system prompt 追加技能目录（Level 1 渐进式披露）。
 	ragBuilder := infraagent.New(nil).
 		Name("RAG助手").
-		Prompt(`你是一个严谨的知识库问答助手。回答问题必须基于知识库检索到的内容，不得编造。
+		Prompt(skills.AugmentPromptWithCatalog(`你是一个严谨的知识库问答助手。回答问题必须基于知识库检索到的内容，不得编造。
 
 【检索范围与选择模式】
 - 检索范围受「知识库选择模式」约束，共三种：手动(manual) / 结合(hybrid) / 智能(auto)。
@@ -215,9 +258,10 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 【回答要求】
 1. 先检索、后作答；优先 rag_query，关系类问题在图谱开启时用 graph_query。
 2. 基于检索结果作答，标注信息来源；检索不到相关信息时如实告知，不要编造。
-3. 答案简洁准确，必要时分点说明。`).
+3. 答案简洁准确，必要时分点说明。`)).
 		WithToolModel(toolModel).
 		Tools(agentTools...).
+		Before(skills.AutoInjectHook(skills.FallbackInjectThreshold)). // 兜底：极高置信命中才词法注入，否则交由 LLM+skill_invoke
 		WithMaxIterations(5)
 	// 跨轮对话记忆：读 messages 表回放会话历史（与 UI 同源、只读不写），启用 framework 记忆分支，
 	// 使知识库助手支持"继续""那第二点呢"等依赖上文的追问。与 Data Agent 同一套基建。
@@ -225,33 +269,10 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 		ragBuilder = ragBuilder.WithContextBuilder(convcontext.NewConversationContextBuilder(init.messageRepo))
 	}
 	ragAgent, err := ragBuilder.Build(ctx)
-
 	if err != nil {
-		return fmt.Errorf("构建 RAG Agent 失败: %w", err)
+		return nil, fmt.Errorf("构建 RAG Agent 失败: %w", err)
 	}
-
-	// 注册到注册中心
-	def := &agent.AgentDefinition{
-		ID:          "agent-rag-001",
-		Name:        "rag_assistant",
-		Description: "RAG 检索助手：在用户选定的知识库范围内检索文档，可选开启图谱增强进行关系检索",
-		Type:        agent.AgentTypeAgenticRAG,
-		Status:      agent.AgentStatusIdle,
-		Metadata: map[string]string{
-			"version": "1.0.0",
-			"tools":   strings.Join(boundNames, ","),
-		},
-	}
-
-	if err := init.registry.Register(ctx, def); err != nil {
-		return err
-	}
-
-	// 存储 Agent 实例
-	SetRAGAgent(ragAgent)
-
-	log.Println("[Agent] ✓ RAG agent registered: id=agent-rag-001, type=agentic_rag")
-	return nil
+	return ragAgent, nil
 }
 
 // registerText2SQLAgent 注册 Text2SQL Agent (Plan-Execute-Reflect 模式)
@@ -264,8 +285,8 @@ func (init *Initializer) registerText2SQLAgent(ctx context.Context, chatModel an
 		return fmt.Errorf("invalid model type: expected ToolCallingChatModel")
 	}
 
-	// 使用新的 PER 模式注册
-	if err := text2sql.RegisterText2SQLAgent(ctx, init.registry, toolModel); err != nil {
+	// 声明式注册：预设自带 Build 工厂装配 PER 管道（含历史别名 agent-text2sql-001）。
+	if err := init.registry.RegisterSpec(ctx, text2sql.Spec(toolModel, init.tools)); err != nil {
 		return err
 	}
 
@@ -282,15 +303,9 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 		return fmt.Errorf("invalid model type: expected ToolCallingChatModel")
 	}
 
-	// Phase 7：先注册数据域子代理（orchestrator-worker 协作注册表 + 治理目录），
-	// 再把注册表交给指挥官启用委派能力。
-	collabRegistry := infraagent.NewCollaborationRegistry()
-	if err := dataagent.RegisterDataSubAgents(ctx, collabRegistry, toolModel); err != nil {
-		return fmt.Errorf("注册数据域子代理失败: %w", err)
-	}
-	log.Printf("[Agent] ✓ Data sub-agents registered: %v", collabRegistry.List())
-
-	if err := dataagent.RegisterDataAgentPreset(ctx, init.registry, toolModel, collabRegistry, init.messageRepo); err != nil {
+	// 声明式注册：预设 Build 工厂内部装配子代理协作注册表 + ReAct 内核 + 委派能力，
+	// msgRepo 非 nil 时启用跨轮对话记忆。
+	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools)); err != nil {
 		return err
 	}
 
@@ -308,134 +323,34 @@ func (init *Initializer) registerChatAgent(ctx context.Context, chatModel any) e
 		return fmt.Errorf("invalid model type: expected BaseChatModel")
 	}
 
-	// 构建简单聊天 Agent
-	chatAgent, err := infraagent.New(baseModel).
-		Name("聊天助手").
-		Prompt(`你是一个友好的 AI 助手。
+	spec := infraagent.AgentSpec{
+		ID:          "agent-chat-001",
+		Name:        "chat_assistant",
+		Description: "友好聊天助手，可以回答各类问题",
+		Type:        agent.AgentTypeNormal,
+		Metadata: map[string]string{
+			"version": "1.0.0",
+			"tools":   "",
+		},
+		Build: func(ctx context.Context) (infraagent.Agent, error) {
+			// 构建简单聊天 Agent
+			return infraagent.New(baseModel).
+				Name("聊天助手").
+				Prompt(`你是一个友好的 AI 助手。
 
 你的任务：
 - 回答用户的各种问题
 - 提供帮助和建议
 - 保持对话友好和连贯`).
-		Build(ctx)
-
-	if err != nil {
-		return fmt.Errorf("构建 Chat Agent 失败: %w", err)
-	}
-
-	// 注册到注册中心
-	def := &agent.AgentDefinition{
-		ID:          "agent-chat-001",
-		Name:        "chat_assistant",
-		Description: "友好聊天助手，可以回答各类问题",
-		Type:        agent.AgentTypeNormal,
-		Status:      agent.AgentStatusIdle,
-		Metadata: map[string]string{
-			"version": "1.0.0",
-			"tools":   "",
+				Before(skills.AutoInjectHook(0)). // 命中 Skill 时自动注入其指导内容
+				Build(ctx)
 		},
 	}
 
-	if err := init.registry.Register(ctx, def); err != nil {
+	if err := init.registry.RegisterSpec(ctx, spec); err != nil {
 		return err
 	}
 
-	// 存储 Agent 实例
-	SetChatAgent(chatAgent)
-
 	log.Println("[Agent] ✓ Chat agent registered: id=agent-chat-001, type=normal")
 	return nil
-}
-
-// ========================================
-// Agent 实例存储（单例模式）
-// ========================================
-
-var (
-	defaultAgentInstance    infraagent.Agent
-	ragAgentInstance        infraagent.Agent
-	text2sqlAgentInstance   infraagent.Agent
-	chatAgentInstance       infraagent.Agent
-)
-
-// SetDefaultAgent 设置默认 Agent 实例
-func SetDefaultAgent(agent infraagent.Agent) {
-	defaultAgentInstance = agent
-}
-
-// GetDefaultAgent 获取默认 Agent 实例
-func GetDefaultAgent() infraagent.Agent {
-	return defaultAgentInstance
-}
-
-// SetRAGAgent 设置 RAG Agent 实例
-func SetRAGAgent(agent infraagent.Agent) {
-	ragAgentInstance = agent
-}
-
-// GetRAGAgent 获取 RAG Agent 实例
-func GetRAGAgent() infraagent.Agent {
-	return ragAgentInstance
-}
-
-// SetChatAgent 设置聊天 Agent 实例
-func SetChatAgent(agent infraagent.Agent) {
-	chatAgentInstance = agent
-}
-
-// GetChatAgent 获取聊天 Agent 实例
-func GetChatAgent() infraagent.Agent {
-	return chatAgentInstance
-}
-
-// GetText2SQLAgent 获取 Text2SQL Agent 实例
-// 优先返回新的 PER 模式 Agent
-func GetText2SQLAgent() infraagent.Agent {
-	// 优先返回新版本的 PER Agent
-	if agent := text2sql.GetAgent(); agent != nil {
-		return agent
-	}
-	// 降级到旧版本
-	return text2sqlAgentInstance
-}
-
-// SetText2SQLAgent 设置 Text2SQL Agent 实例
-func SetText2SQLAgent(agent infraagent.Agent) {
-	text2sqlAgentInstance = agent
-}
-
-// ========================================
-// Agent 获取器（用于 Orchestrator）
-// ========================================
-
-// GetAgentByID 根据 agentID 获取对应的 Agent 实例
-// 用于 Orchestrator 动态获取 Agent
-func GetAgentByID(agentID string) (infraagent.Agent, bool) {
-	switch agentID {
-	case "default":
-		if defaultAgentInstance != nil {
-			return defaultAgentInstance, true
-		}
-	case "agent-rag-001":
-		if ragAgentInstance != nil {
-			return ragAgentInstance, true
-		}
-	case "agent-text2sql-per", "agent-text2sql-001":
-		// 优先返回 PER 模式 Agent
-		if agent := text2sql.GetAgent(); agent != nil {
-			return agent, true
-		}
-		if text2sqlAgentInstance != nil {
-			return text2sqlAgentInstance, true
-		}
-	case "agent-chat-001":
-		if chatAgentInstance != nil {
-			return chatAgentInstance, true
-		}
-	case dataagent.DataAgentID:
-		if agent := dataagent.GetAgent(); agent != nil {
-			return agent, true
-		}
-	}
-	return nil, false
 }

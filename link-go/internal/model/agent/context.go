@@ -37,6 +37,8 @@ var (
 	KBScopeModeKey = contextKey("kb_scope_mode")
 	// RouteSelectionKey Agent 在会话内经 kb_route 声明的聚焦知识库 key（*RouteSelection 指针）
 	RouteSelectionKey = contextKey("kb_route_selection")
+	// DatasourceIDKey 会话选定的外部数据源 ID key（string，空表示当前业务库）
+	DatasourceIDKey = contextKey("datasource_id")
 )
 
 // 知识库选择模式常量。
@@ -248,6 +250,29 @@ func MustGetKBScopeMode(ctx context.Context) string {
 	default:
 		return KBScopeModeManual
 	}
+}
+
+// ========================================
+// DatasourceID 传递辅助函数（会话数据源上下文）
+// ========================================
+
+// WithDatasourceID 将会话选定的外部数据源 ID 注入到 Go context 中。
+// 查询类工具（get_schema/sql_execute）在请求未显式传 database_id 时以此为默认值；
+// 空字符串等同未设置（当前业务库，向后兼容）。
+func WithDatasourceID(ctx context.Context, datasourceID string) context.Context {
+	return context.WithValue(ctx, DatasourceIDKey, datasourceID)
+}
+
+// GetDatasourceID 从 Go context 中获取会话数据源 ID
+func GetDatasourceID(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(DatasourceIDKey).(string)
+	return id, ok
+}
+
+// MustGetDatasourceID 获取会话数据源 ID，未设置则返回空字符串（当前业务库）
+func MustGetDatasourceID(ctx context.Context) string {
+	id, _ := GetDatasourceID(ctx)
+	return id
 }
 
 // ========================================

@@ -10,7 +10,18 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	agentframework "link/internal/service/agent/framework"
 )
+
+// newSkillTestRegistry 构造一个空的 *ToolRegistry 供 skill 工具测试注入，
+// 绕过 NewToolRegistry 的全量注册流程与依赖校验，仅保留 Register/Unregister/查询能力。
+func newSkillTestRegistry() *ToolRegistry {
+	return &ToolRegistry{
+		core:   agentframework.NewToolRegistry(),
+		groups: make(map[string][]string),
+	}
+}
 
 // mockInvokableTool 模拟一个可调用工具，用于验证 skill_invoke 的路由逻辑
 type mockInvokableTool struct {
@@ -36,19 +47,19 @@ func (m *mockInvokableTool) InvokableRun(ctx context.Context, argumentsInJSON st
 // ========================================
 
 func TestNewSkillInvokeTool(t *testing.T) {
-	tl, err := NewSkillInvokeTool()
+	tl, err := NewSkillInvokeTool(newSkillTestRegistry())
 	assert.NoError(t, err)
 	assert.NotNil(t, tl)
 }
 
 func TestNewSkillListTool(t *testing.T) {
-	tl, err := NewSkillListTool()
+	tl, err := NewSkillListTool(newSkillTestRegistry())
 	assert.NoError(t, err)
 	assert.NotNil(t, tl)
 }
 
 func TestSkillInvokeTool_Info(t *testing.T) {
-	tl, err := NewSkillInvokeTool()
+	tl, err := NewSkillInvokeTool(newSkillTestRegistry())
 	require.NoError(t, err)
 
 	info, err := tl.Info(context.Background())
@@ -59,7 +70,7 @@ func TestSkillInvokeTool_Info(t *testing.T) {
 }
 
 func TestSkillListTool_Info(t *testing.T) {
-	tl, err := NewSkillListTool()
+	tl, err := NewSkillListTool(newSkillTestRegistry())
 	require.NoError(t, err)
 
 	info, err := tl.Info(context.Background())
@@ -74,7 +85,7 @@ func TestSkillListTool_Info(t *testing.T) {
 
 func TestSkillInvokeTool_InvokableRun(t *testing.T) {
 	t.Run("缺少 task 参数返回错误", func(t *testing.T) {
-		tl, err := NewSkillInvokeTool()
+		tl, err := NewSkillInvokeTool(newSkillTestRegistry())
 		require.NoError(t, err)
 
 		_, err = tl.InvokableRun(context.Background(), `{}`)
@@ -83,7 +94,7 @@ func TestSkillInvokeTool_InvokableRun(t *testing.T) {
 	})
 
 	t.Run("指定的工具不存在返回错误", func(t *testing.T) {
-		tl, err := NewSkillInvokeTool()
+		tl, err := NewSkillInvokeTool(newSkillTestRegistry())
 		require.NoError(t, err)
 
 		req := `{"task":"do something","tool_name":"nonexistent_tool"}`
@@ -93,11 +104,12 @@ func TestSkillInvokeTool_InvokableRun(t *testing.T) {
 	})
 
 	t.Run("路由到已注册的工具并返回其输出", func(t *testing.T) {
+		reg := newSkillTestRegistry()
 		mock := &mockInvokableTool{name: "mock_skill_tool", result: "mock output"}
-		require.NoError(t, GlobalRegistry.Register("test", mock))
-		defer GlobalRegistry.Unregister("mock_skill_tool")
+		require.NoError(t, reg.Register("test", mock))
+		defer reg.Unregister("mock_skill_tool")
 
-		tl, err := NewSkillInvokeTool()
+		tl, err := NewSkillInvokeTool(reg)
 		require.NoError(t, err)
 
 		req := `{"task":"do something","tool_name":"mock_skill_tool","parameters":"{\"k\":\"v\"}"}`
@@ -112,11 +124,12 @@ func TestSkillInvokeTool_InvokableRun(t *testing.T) {
 // ========================================
 
 func TestSkillListTool_InvokableRun(t *testing.T) {
+	reg := newSkillTestRegistry()
 	mock := &mockInvokableTool{name: "mock_list_tool", desc: "a mock tool"}
-	require.NoError(t, GlobalRegistry.Register("test", mock))
-	defer GlobalRegistry.Unregister("mock_list_tool")
+	require.NoError(t, reg.Register("test", mock))
+	defer reg.Unregister("mock_list_tool")
 
-	tl, err := NewSkillListTool()
+	tl, err := NewSkillListTool(reg)
 	require.NoError(t, err)
 
 	result, err := tl.InvokableRun(context.Background(), `{}`)

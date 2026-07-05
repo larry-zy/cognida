@@ -52,8 +52,11 @@ type ETLRunResult struct {
 	LatencyMs int64 `json:"latency_ms"`
 }
 
-// NewETLRunTool 创建 ETL 派生工具。
-func NewETLRunTool() *TypedBaseTool[ETLRunRequest, ETLRunResult] {
+// NewETLRunTool 创建 ETL 派生工具；o 操作工具依赖（写库/审计/结果存储）经参数注入。
+func NewETLRunTool(o *opTools) *TypedBaseTool[ETLRunRequest, ETLRunResult] {
+	handler := func(ctx context.Context, req *ETLRunRequest) (*ETLRunResult, error) {
+		return o.etlRun(ctx, req)
+	}
 	return NewTypedBaseTool("etl_run",
 		`把查询结果物化为派生表（ETL）。
 
@@ -68,24 +71,28 @@ func NewETLRunTool() *TypedBaseTool[ETLRunRequest, ETLRunResult] {
 - sql: SELECT 输入源（可选）
 - result_id: 结果集引用输入源（可选）
 - replace: 目标已存在时是否替换（可选，默认 false）`,
-		etlRun,
+		handler,
 	)
 }
 
 // etlRun 执行 ETL 派生：前缀强校验 → 输入源解析 → 物化新表。
-func etlRun(ctx context.Context, req *ETLRunRequest) (*ETLRunResult, error) {
+func (o *opTools) etlRun(ctx context.Context, req *ETLRunRequest) (*ETLRunResult, error) {
 	startTime := time.Now()
 
-	if opConfig.DB == nil {
+	// 外部数据源会话红线：ETL 派生只面向业务库，外部数据源会话一律拒绝
+	if dsID := agentctx.MustGetDatasourceID(ctx); dsID != "" {
+		return nil, fmt.Errorf("当前会话选择了外部数据源（%s），外部数据源为只读，禁止 ETL 派生", dsID)
+	}
+	if o.cfg.DB == nil {
 		return nil, fmt.Errorf("写库未初始化（etl_run 不可用）")
 	}
-	if opConfig.Audit == nil {
+	if o.cfg.Audit == nil {
 		return nil, fmt.Errorf("操作审计未启用，ETL 操作被禁止")
 	}
 
 	// 1) 目标名前缀强校验（红线：只派生新对象，不碰原始表；拒绝也留痕）
 	if err := validateETLTarget(req.TargetTable); err != nil {
-		recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
+		o.recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
 			operations.StatusRejected, err.Error(), map[string]interface{}{"result_id": req.ResultID})
 		return &ETLRunResult{
 			Status:    operations.StatusRejected,
@@ -105,9 +112,9 @@ func etlRun(ctx context.Context, req *ETLRunRequest) (*ETLRunResult, error) {
 
 	// 3) 目标表已存在的处理（replace 只可能删 agent_etl_ 前缀表，前缀已校验）
 	if req.Replace {
-		if err := opConfig.DB.WithContext(execCtx).Exec(
+		if err := o.cfg.DB.WithContext(execCtx).Exec(
 			fmt.Sprintf("DROP TABLE IF EXISTS `%s`", req.TargetTable)).Error; err != nil {
-			recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
+			o.recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
 				operations.StatusFailed, err.Error(), nil)
 			return nil, fmt.Errorf("替换旧派生表失败: %w", err)
 		}
@@ -118,18 +125,18 @@ func etlRun(ctx context.Context, req *ETLRunRequest) (*ETLRunResult, error) {
 	var err error
 	if hasSQL {
 		source = "sql"
-		rowCount, err = etlFromSQL(execCtx, req.TargetTable, req.SQL)
+		rowCount, err = o.etlFromSQL(execCtx, req.TargetTable, req.SQL)
 	} else {
 		source = "result_id:" + req.ResultID
-		rowCount, err = etlFromResultID(execCtx, ctx, req.TargetTable, req.ResultID)
+		rowCount, err = o.etlFromResultID(execCtx, ctx, req.TargetTable, req.ResultID)
 	}
 	if err != nil {
-		recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
+		o.recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
 			operations.StatusFailed, err.Error(), map[string]interface{}{"source": source})
 		return nil, err
 	}
 
-	recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
+	o.recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
 		operations.StatusSuccess, fmt.Sprintf("派生 %d 行", rowCount),
 		map[string]interface{}{"source": source, "row_count": rowCount, "replace": req.Replace})
 
@@ -144,25 +151,25 @@ func etlRun(ctx context.Context, req *ETLRunRequest) (*ETLRunResult, error) {
 
 // etlFromSQL 用 SELECT 物化派生表：CREATE TABLE agent_etl_x AS (SELECT …)。
 // 源 SQL 沿用只读校验（仅 SELECT/WITH），保证绝不写源表。
-func etlFromSQL(execCtx context.Context, target, sourceSQL string) (int64, error) {
+func (o *opTools) etlFromSQL(execCtx context.Context, target, sourceSQL string) (int64, error) {
 	if err := validateSQL(sourceSQL); err != nil {
 		return 0, fmt.Errorf("输入源 SQL 校验失败（仅允许 SELECT）: %w", err)
 	}
 	trimmed := strings.TrimRight(strings.TrimSpace(sourceSQL), "; \t\n")
 	ddl := fmt.Sprintf("CREATE TABLE `%s` AS (%s)", target, trimmed)
-	if err := opConfig.DB.WithContext(execCtx).Exec(ddl).Error; err != nil {
+	if err := o.cfg.DB.WithContext(execCtx).Exec(ddl).Error; err != nil {
 		return 0, fmt.Errorf("派生表创建失败: %w", err)
 	}
-	return countTableRows(execCtx, target)
+	return o.countTableRows(execCtx, target)
 }
 
 // etlFromResultID 从 Result Store 取本会话结果集并物化为派生表。
-func etlFromResultID(execCtx, ownerCtx context.Context, target, resultID string) (int64, error) {
-	if resultStore == nil {
+func (o *opTools) etlFromResultID(execCtx, ownerCtx context.Context, target, resultID string) (int64, error) {
+	if o.resultStore == nil {
 		return 0, fmt.Errorf("结果存储未启用，无法按 result_id 派生，请改用 sql 输入源")
 	}
 	owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ownerCtx), agentctx.MustGetSessionID(ownerCtx))
-	stored, err := resultStore.Get(ownerCtx, owner, resultID)
+	stored, err := o.resultStore.Get(ownerCtx, owner, resultID)
 	if err != nil {
 		switch err {
 		case resultstore.ErrNotFound:
@@ -183,13 +190,13 @@ func etlFromResultID(execCtx, ownerCtx context.Context, target, resultID string)
 		colDefs = append(colDefs, fmt.Sprintf("`%s` %s", col, inferColumnType(col, stored.Rows)))
 	}
 	ddl := fmt.Sprintf("CREATE TABLE `%s` (%s)", target, strings.Join(colDefs, ", "))
-	if err := opConfig.DB.WithContext(execCtx).Exec(ddl).Error; err != nil {
+	if err := o.cfg.DB.WithContext(execCtx).Exec(ddl).Error; err != nil {
 		return 0, fmt.Errorf("派生表创建失败: %w", err)
 	}
 
 	// 批量插入
 	if len(stored.Rows) > 0 {
-		if err := insertRows(execCtx, target, stored.Columns, stored.Rows); err != nil {
+		if err := o.insertRows(execCtx, target, stored.Columns, stored.Rows); err != nil {
 			return 0, fmt.Errorf("派生表写入失败: %w", err)
 		}
 	}
@@ -216,7 +223,7 @@ func inferColumnType(col string, rows []map[string]interface{}) string {
 }
 
 // insertRows 按批插入行（每批 200 行，参数化绑定防注入）。
-func insertRows(execCtx context.Context, target string, columns []string, rows []map[string]interface{}) error {
+func (o *opTools) insertRows(execCtx context.Context, target string, columns []string, rows []map[string]interface{}) error {
 	const batchSize = 200
 	quoted := make([]string, len(columns))
 	for i, c := range columns {
@@ -242,7 +249,7 @@ func insertRows(execCtx context.Context, target string, columns []string, rows [
 		// 此处标识符不可参数化，故用字符串拼接组装（等价于原 fmt.Sprintf，安全性不变）。
 		stmt := "INSERT INTO `" + target + "` (" + strings.Join(quoted, ", ") +
 			") VALUES " + strings.Join(placeholders, ", ")
-		if err := opConfig.DB.WithContext(execCtx).Exec(stmt, args...).Error; err != nil {
+		if err := o.cfg.DB.WithContext(execCtx).Exec(stmt, args...).Error; err != nil {
 			return err
 		}
 	}
@@ -250,9 +257,9 @@ func insertRows(execCtx context.Context, target string, columns []string, rows [
 }
 
 // countTableRows 统计派生表行数。
-func countTableRows(execCtx context.Context, table string) (int64, error) {
+func (o *opTools) countTableRows(execCtx context.Context, table string) (int64, error) {
 	var count int64
-	if err := opConfig.DB.WithContext(execCtx).
+	if err := o.cfg.DB.WithContext(execCtx).
 		Raw("SELECT COUNT(*) FROM `" + table + "`").Scan(&count).Error; err != nil {
 		return 0, fmt.Errorf("统计派生表行数失败: %w", err)
 	}

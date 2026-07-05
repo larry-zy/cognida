@@ -50,8 +50,8 @@ func (f *fakeAuditRepo) lastAudit(t *testing.T) *operations.OperationAudit {
 	return f.records[len(f.records)-1]
 }
 
-// setupOperationTest 构造 sqlmock DB + 假审计 + 内存 pending store，并注入 opConfig。
-func setupOperationTest(t *testing.T) (sqlmock.Sqlmock, *fakeAuditRepo, *pendingaction.MemoryStore, context.Context) {
+// setupOperationTest 构造 sqlmock DB + 假审计 + 内存 pending store，装配成 *opTools 依赖载体。
+func setupOperationTest(t *testing.T) (*opTools, sqlmock.Sqlmock, *fakeAuditRepo, *pendingaction.MemoryStore, context.Context) {
 	t.Helper()
 
 	db, mock, err := sqlmock.New()
@@ -69,20 +69,18 @@ func setupOperationTest(t *testing.T) (sqlmock.Sqlmock, *fakeAuditRepo, *pending
 	audit := &fakeAuditRepo{}
 	pending := pendingaction.NewMemoryStore()
 
-	oldCfg := opConfig
-	InitOperationTools(OperationConfig{
+	o := &opTools{cfg: OperationConfig{
 		DB:                 gormDB,
 		Audit:              audit,
 		Pending:            pending,
 		RedlineTables:      []string{"users", "tenants"},
 		DangerRowThreshold: 100,
 		ExportDir:          t.TempDir(),
-	})
-	t.Cleanup(func() { opConfig = oldCfg })
+	}}
 
 	ctx := agentctx.WithTenantID(context.Background(), 1)
 	ctx = agentctx.WithSessionID(ctx, "sess-op")
-	return mock, audit, pending, ctx
+	return o, mock, audit, pending, ctx
 }
 
 // ========================================
@@ -163,9 +161,9 @@ func TestValidateETLTarget(t *testing.T) {
 // ========================================
 
 func TestSQLMutate_RejectDDL(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
+	o, _, audit, _, ctx := setupOperationTest(t)
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "DROP TABLE orders", IdempotencyKey: "k-ddl"})
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "DROP TABLE orders", IdempotencyKey: "k-ddl"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -180,9 +178,9 @@ func TestSQLMutate_RejectDDL(t *testing.T) {
 }
 
 func TestSQLMutate_RejectRedlineTable(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
+	o, _, audit, _, ctx := setupOperationTest(t)
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM users WHERE id = 1", IdempotencyKey: "k-red"})
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM users WHERE id = 1", IdempotencyKey: "k-red"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -195,7 +193,7 @@ func TestSQLMutate_RejectRedlineTable(t *testing.T) {
 }
 
 func TestSQLMutate_IdempotentDuplicate(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
+	o, _, audit, _, ctx := setupOperationTest(t)
 	audit.prior = &operations.OperationAudit{
 		IdempotencyKey: "k-dup",
 		Target:         "orders",
@@ -204,7 +202,7 @@ func TestSQLMutate_IdempotentDuplicate(t *testing.T) {
 	}
 
 	// 幂等命中：不应有任何 DB 交互（sqlmock 未设置期望，若交互会报错）
-	res, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET a = 1", IdempotencyKey: "k-dup"})
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET a = 1", IdempotencyKey: "k-dup"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -214,14 +212,14 @@ func TestSQLMutate_IdempotentDuplicate(t *testing.T) {
 }
 
 func TestSQLMutate_SafeCommit(t *testing.T) {
-	mock, audit, _, ctx := setupOperationTest(t)
+	o, mock, audit, _, ctx := setupOperationTest(t)
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE orders SET status = 'done' WHERE id = 5")).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectCommit()
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET status = 'done' WHERE id = 5", IdempotencyKey: "k-ok"})
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET status = 'done' WHERE id = 5", IdempotencyKey: "k-ok"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -238,7 +236,7 @@ func TestSQLMutate_SafeCommit(t *testing.T) {
 }
 
 func TestSQLMutate_DangerThresholdSuspends(t *testing.T) {
-	mock, audit, pending, ctx := setupOperationTest(t)
+	o, mock, audit, pending, ctx := setupOperationTest(t)
 
 	// 影响 250 行 ≥ 阈值 100 → 回滚 + 暂停
 	mock.ExpectBegin()
@@ -246,7 +244,7 @@ func TestSQLMutate_DangerThresholdSuspends(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 250))
 	mock.ExpectRollback()
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM orders WHERE created_at < '2020-01-01'", IdempotencyKey: "k-danger"})
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM orders WHERE created_at < '2020-01-01'", IdempotencyKey: "k-danger"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -278,15 +276,15 @@ func TestSQLMutate_DangerThresholdSuspends(t *testing.T) {
 }
 
 func TestSQLMutate_DangerWithoutPendingStoreRejects(t *testing.T) {
-	mock, audit, _, ctx := setupOperationTest(t)
-	opConfig.Pending = nil // 宁拒不闯
+	o, mock, audit, _, ctx := setupOperationTest(t)
+	o.cfg.Pending = nil // 宁拒不闯
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM orders")).
 		WillReturnResult(sqlmock.NewResult(0, 500))
 	mock.ExpectRollback()
 
-	res, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM orders", IdempotencyKey: "k-nopending"})
+	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM orders", IdempotencyKey: "k-nopending"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -299,8 +297,8 @@ func TestSQLMutate_DangerWithoutPendingStoreRejects(t *testing.T) {
 }
 
 func TestSQLMutate_MissingIdempotencyKey(t *testing.T) {
-	_, _, _, ctx := setupOperationTest(t)
-	if _, err := sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET a = 1"}); err == nil {
+	o, _, _, _, ctx := setupOperationTest(t)
+	if _, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET a = 1"}); err == nil {
 		t.Fatalf("expected error without idempotency_key")
 	}
 }
@@ -310,9 +308,9 @@ func TestSQLMutate_MissingIdempotencyKey(t *testing.T) {
 // ========================================
 
 func TestETLRun_RejectBadPrefix(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
+	o, _, audit, _, ctx := setupOperationTest(t)
 
-	res, err := etlRun(ctx, &ETLRunRequest{TargetTable: "orders_backup", SQL: "SELECT * FROM orders"})
+	res, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "orders_backup", SQL: "SELECT * FROM orders"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -325,20 +323,20 @@ func TestETLRun_RejectBadPrefix(t *testing.T) {
 }
 
 func TestETLRun_SourceExclusive(t *testing.T) {
-	_, _, _, ctx := setupOperationTest(t)
+	o, _, _, _, ctx := setupOperationTest(t)
 
-	if _, err := etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x"}); err == nil {
+	if _, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x"}); err == nil {
 		t.Fatalf("expected error when no source given")
 	}
-	if _, err := etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x", SQL: "SELECT 1", ResultID: "rs_1"}); err == nil {
+	if _, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x", SQL: "SELECT 1", ResultID: "rs_1"}); err == nil {
 		t.Fatalf("expected error when both sources given")
 	}
 }
 
 func TestETLRun_RejectNonSelectSource(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
+	o, _, audit, _, ctx := setupOperationTest(t)
 
-	_, err := etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x", SQL: "DELETE FROM orders"})
+	_, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x", SQL: "DELETE FROM orders"})
 	if err == nil || !strings.Contains(err.Error(), "SELECT") {
 		t.Fatalf("expected SELECT-only source error, got %v", err)
 	}
@@ -348,14 +346,14 @@ func TestETLRun_RejectNonSelectSource(t *testing.T) {
 }
 
 func TestETLRun_FromSQL(t *testing.T) {
-	mock, audit, _, ctx := setupOperationTest(t)
+	o, mock, audit, _, ctx := setupOperationTest(t)
 
 	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE `agent_etl_sales` AS (SELECT region, gmv FROM sales)")).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM `agent_etl_sales`")).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
 
-	res, err := etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_sales", SQL: "SELECT region, gmv FROM sales"})
+	res, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_sales", SQL: "SELECT region, gmv FROM sales"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -371,14 +369,11 @@ func TestETLRun_FromSQL(t *testing.T) {
 }
 
 func TestETLRun_FromResultID_CrossSessionRejected(t *testing.T) {
-	_, _, _, ctx := setupOperationTest(t)
-
-	oldStore := resultStore
-	resultStore = resultstore.NewMemoryStore()
-	t.Cleanup(func() { resultStore = oldStore })
+	o, _, _, _, ctx := setupOperationTest(t)
+	o.resultStore = resultstore.NewMemoryStore()
 
 	// 结果集属于其他会话
-	id, err := resultStore.Put(ctx, &resultstore.Result{
+	id, err := o.resultStore.Put(ctx, &resultstore.Result{
 		Owner:   resultstore.OwnerKey(2, "other"),
 		Columns: []string{"a"},
 		Rows:    []map[string]interface{}{{"a": 1}},
@@ -387,7 +382,7 @@ func TestETLRun_FromResultID_CrossSessionRejected(t *testing.T) {
 		t.Fatalf("put: %v", err)
 	}
 
-	_, err = etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x", ResultID: id})
+	_, err = o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_x", ResultID: id})
 	if err == nil || !strings.Contains(err.Error(), "不属于当前会话") {
 		t.Fatalf("expected cross-session rejection, got %v", err)
 	}
@@ -397,14 +392,12 @@ func TestETLRun_FromResultID_CrossSessionRejected(t *testing.T) {
 // data_export
 // ========================================
 
-// setupExportStore 注入内存 Result Store 并放入一份结果集。
-func setupExportStore(t *testing.T, ctx context.Context) string {
+// setupExportStore 为 o 注入内存 Result Store 并放入一份结果集。
+func setupExportStore(t *testing.T, o *opTools, ctx context.Context) string {
 	t.Helper()
-	oldStore := resultStore
-	resultStore = resultstore.NewMemoryStore()
-	t.Cleanup(func() { resultStore = oldStore })
+	o.resultStore = resultstore.NewMemoryStore()
 
-	id, err := resultStore.Put(ctx, &resultstore.Result{
+	id, err := o.resultStore.Put(ctx, &resultstore.Result{
 		Owner:   resultstore.OwnerKey(1, "sess-op"),
 		Columns: []string{"month", "gmv"},
 		Rows: []map[string]interface{}{
@@ -419,10 +412,10 @@ func setupExportStore(t *testing.T, ctx context.Context) string {
 }
 
 func TestDataExport_CSV(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
-	id := setupExportStore(t, ctx)
+	o, _, audit, _, ctx := setupOperationTest(t)
+	id := setupExportStore(t, o, ctx)
 
-	res, err := dataExport(ctx, &DataExportRequest{ResultID: id, Format: "csv"})
+	res, err := o.dataExport(ctx, &DataExportRequest{ResultID: id, Format: "csv"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -449,10 +442,10 @@ func TestDataExport_CSV(t *testing.T) {
 }
 
 func TestDataExport_Excel(t *testing.T) {
-	_, _, _, ctx := setupOperationTest(t)
-	id := setupExportStore(t, ctx)
+	o, _, _, _, ctx := setupOperationTest(t)
+	id := setupExportStore(t, o, ctx)
 
-	res, err := dataExport(ctx, &DataExportRequest{ResultID: id, Format: "excel", Filename: "报表 2026"})
+	res, err := o.dataExport(ctx, &DataExportRequest{ResultID: id, Format: "excel", Filename: "报表 2026"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -465,19 +458,16 @@ func TestDataExport_Excel(t *testing.T) {
 }
 
 func TestDataExport_CrossSessionRejected(t *testing.T) {
-	_, audit, _, ctx := setupOperationTest(t)
+	o, _, audit, _, ctx := setupOperationTest(t)
+	o.resultStore = resultstore.NewMemoryStore()
 
-	oldStore := resultStore
-	resultStore = resultstore.NewMemoryStore()
-	t.Cleanup(func() { resultStore = oldStore })
-
-	id, _ := resultStore.Put(ctx, &resultstore.Result{
+	id, _ := o.resultStore.Put(ctx, &resultstore.Result{
 		Owner:   resultstore.OwnerKey(9, "someone-else"),
 		Columns: []string{"a"},
 		Rows:    []map[string]interface{}{{"a": 1}},
 	}, resultstore.DefaultTTL)
 
-	res, err := dataExport(ctx, &DataExportRequest{ResultID: id})
+	res, err := o.dataExport(ctx, &DataExportRequest{ResultID: id})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,13 +480,10 @@ func TestDataExport_CrossSessionRejected(t *testing.T) {
 }
 
 func TestDataExport_NotFound(t *testing.T) {
-	_, _, _, ctx := setupOperationTest(t)
+	o, _, _, _, ctx := setupOperationTest(t)
+	o.resultStore = resultstore.NewMemoryStore()
 
-	oldStore := resultStore
-	resultStore = resultstore.NewMemoryStore()
-	t.Cleanup(func() { resultStore = oldStore })
-
-	res, err := dataExport(ctx, &DataExportRequest{ResultID: "rs_missing"})
+	res, err := o.dataExport(ctx, &DataExportRequest{ResultID: "rs_missing"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

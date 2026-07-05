@@ -4,28 +4,11 @@ package tools
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	agentctx "link/internal/model/agent"
 	domain_knowledge "link/internal/model/knowledge"
 )
-
-// ========================================
-// 包级依赖管理
-// ========================================
-
-var (
-	kbRepoInstance domain_knowledge.KnowledgeBaseRepository
-	kbRepoOnce     sync.Once
-)
-
-// InitKnowledgeBaseTool 初始化知识库工具的依赖
-func InitKnowledgeBaseTool(repo domain_knowledge.KnowledgeBaseRepository) {
-	kbRepoOnce.Do(func() {
-		kbRepoInstance = repo
-	})
-}
 
 // getTenantIDFromContext 从上下文获取租户ID（统一使用 model/agent 的类型化 key）
 func getTenantIDFromContext(ctx context.Context) (int64, error) {
@@ -67,8 +50,11 @@ type KbInfo struct {
 	Selectable bool `json:"selectable"`
 }
 
-// NewKbListTool 创建知识库列表工具
-func NewKbListTool() *TypedBaseTool[KbListRequest, KbListResult] {
+// NewKbListTool 创建知识库列表工具；repo 知识库仓储（可为 nil）经参数注入。
+func NewKbListTool(repo domain_knowledge.KnowledgeBaseRepository) *TypedBaseTool[KbListRequest, KbListResult] {
+	handler := func(ctx context.Context, req *KbListRequest) (*KbListResult, error) {
+		return kbList(ctx, req, repo)
+	}
 	return NewTypedBaseTool(
 		"kb_list",
 		`获取当前租户下的所有知识库列表，并返回当前的知识库选择模式（mode）与每个库是否可被聚焦（selectable）。
@@ -87,12 +73,12 @@ func NewKbListTool() *TypedBaseTool[KbListRequest, KbListResult] {
 
 参数：
 - status: 状态筛选，可选值: all/enabled/disabled，默认 all`,
-		kbList,
+		handler,
 	)
 }
 
 // kbList 执行知识库列表查询
-func kbList(ctx context.Context, req *KbListRequest) (*KbListResult, error) {
+func kbList(ctx context.Context, req *KbListRequest, kbRepoInstance domain_knowledge.KnowledgeBaseRepository) (*KbListResult, error) {
 	startTime := time.Now()
 
 	status := req.Status

@@ -1,8 +1,12 @@
-# Python 评测服务文档
+# Python 评测指标计算文档
 
 ## 概述
 
-Python 评测服务提供完整的 RAG/LLM 系统评测能力，支持：
+> **边界**：评测**流程编排在 Go worker**（跑哪些样本、顺序、检索、生成、进度、状态、聚合、落库）。
+> Python 只提供**无状态的指标计算**——给定 reference/hypothesis 直接算分，不持有流程与状态。
+> 通信见 [跨服务通信规则](../../docs/cross-service-communication.md)。
+
+Python 侧提供的算分能力：
 
 - **检索指标**: Precision, Recall, NDCG, MRR, MAP
 - **生成指标**: ROUGE-1/2/L, BLEU-1/2/4
@@ -14,7 +18,7 @@ Python 评测服务提供完整的 RAG/LLM 系统评测能力，支持：
 
 ```
 services/evaluation/
-├── datasets/           # 数据集管理
+├── datasets/           # 数据集管理（供计算取参考数据）
 │   ├── manager.py     # 数据集加载器
 │   └── data/          # 数据集文件
 ├── graders/           # 评分器系统
@@ -22,60 +26,30 @@ services/evaluation/
 │   ├── registry.py    # 评分器注册表
 │   ├── builtin/       # 内置评分器
 │   └── custom/        # 自定义评分器
-├── metrics/           # 基础指标计算
-├── strategies/        # 评测策略
-├── runner.py          # 评测运行器
-└── service.py         # gRPC 服务
+├── metrics/           # 无状态指标计算（核心）
+├── strategies/        # 评分策略（组合评分器）
+└── fastapi_app.py     # 无状态 compute 薄壳（HTTP :18888）
 ```
 
-## gRPC 接口
+> 注：原 `runner.py`（评测状态机）与 `service.py`（`ExecuteEvaluation` gRPC 编排）已删除——
+> 那是与 Go worker 重复的第二套编排引擎，且 Go 从未调用它。评测编排现由 Go 唯一权威承担。
 
-### ExecuteEvaluation
+## HTTP 接口（无状态 compute，:18888）
 
-流式执行评测任务。
+Go worker 在编排评测流程时，按需调用以下无状态端点取回指标结果。
 
-```protobuf
-message EvaluationRequest {
-  string dataset_id = 1;
-  string knowledge_base_id = 2;
-  string model_id = 3;
-  EvaluationConfig config = 4;
-}
+### POST /api/v1/evaluation/compute-metrics
 
-message EvaluationResponse {
-  oneof {
-    Progress progress = 1;
-    EvaluationResult result = 2;
-    Error error = 3;
-  } response;
-}
-```
+给定一批 `reference/hypothesis`（+可选 question/context），返回各评测族的指标分数。
+无状态：进来一次算一次，不涉及数据集拉取、检索、进度或落库。
 
-### ListGraders
+### GET /api/v1/evaluation/graders?eval_type=
 
-列出可用的评分器。
+列出某评测类型（generation/retrieval/semantic/rag/llm_judge）下可用的评分器。
 
-```protobuf
-message ListGradersRequest {
-  string type = 1;
-}
+### GET /health
 
-message ListGradersResponse {
-  repeated GraderInfo graders = 1;
-}
-```
-
-### ListDatasets
-
-列出可用的数据集。
-
-```protobuf
-message ListDatasetsRequest {}
-
-message ListDatasetsResponse {
-  repeated DatasetInfo datasets = 1;
-}
-```
+健康检查。
 
 ## 数据集格式
 
@@ -226,75 +200,35 @@ ENABLE_SEMANTIC=true
 ENABLE_LLM_JUDGE=false
 ```
 
-### EvaluationConfig
-
-```python
-from services.evaluation.runner import EvaluationConfig
-
-config = EvaluationConfig(
-    top_k=5,
-    retrieval_metrics=["precision", "recall", "ndcg"],
-    generation_metrics=["rouge_1", "rouge_l", "bleu_4"],
-    enable_semantic=True,
-    enable_llm_judge=False,
-    include_qa_results=True,
-    max_concurrent=10,
-)
-```
-
 ## 使用示例
 
-### 完整评测流程
+### 无状态算分（Python 内直接调用）
 
 ```python
-import asyncio
-from services.evaluation.runners import EvaluationRunner, EvaluationConfig
+from services.evaluation.metrics import GenerationMetrics, SemanticMetrics
 
-async def main():
-    config = EvaluationConfig(
-        top_k=5,
-        enable_semantic=True,
-    )
+# 给定一对 参考答案/生成答案，直接算分——不涉及数据集拉取、检索、进度或落库
+gen = GenerationMetrics.compute(reference="参考答案", hypothesis="生成答案")
+print(f"ROUGE-1: {gen.rouge_1:.4f}")
 
-    runner = EvaluationRunner(config)
-
-    result = await runner.run(
-        dataset_id="default",
-        knowledge_base_id="my_kb",
-        model_id="gpt-4",
-    )
-
-    print(f"评测完成: {result.success_count}/{result.total_count} 成功")
-    print(f"ROUGE-1: {result.generation.rouge_1:.4f}")
-    print(f"语义相似度: {result.semantic.similarity:.4f}")
-
-asyncio.run(main())
+sem = SemanticMetrics.compute(reference="参考答案", hypothesis="生成答案")
+print(f"语义相似度: {sem.similarity:.4f}")
 ```
 
-### gRPC 客户端
+### Go worker 经 HTTP 取分（编排在 Go）
 
 ```python
-import grpc
-from proto import evaluation_pb2, evaluation_pb2_grpc
+# 等价的 HTTP 调用形态（Go 侧 python_client.go 即如此）
+import httpx
 
-channel = grpc.insecure_channel("localhost:50051")
-stub = evaluation_pb2_grpc.EvaluationServiceStub(channel)
-
-# 创建请求
-request = evaluation_pb2.EvaluationRequest(
-    dataset_id="default",
-    knowledge_base_id="my_kb",
-    model_id="gpt-4",
+resp = httpx.post(
+    "http://localhost:18888/api/v1/evaluation/compute-metrics",
+    json={
+        "eval_type": "rag",
+        "items": [{"reference": "参考答案", "hypothesis": "生成答案", "question": "问题"}],
+    },
 )
-
-# 流式获取响应
-for response in stub.ExecuteEvaluation(request):
-    if response.HasField("progress"):
-        print(f"进度: {response.progress.message}")
-    elif response.HasField("result"):
-        print(f"结果: {response.result}")
-    elif response.HasField("error"):
-        print(f"错误: {response.error.message}")
+print(resp.json())  # 各评测族指标分数；Go 负责聚合/进度/落库
 ```
 
 ## 可用评分器列表

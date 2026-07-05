@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudwego/eino/components/tool"
+
 	agentctx "link/internal/model/agent"
 	modeltools "link/internal/model/agent/tools"
 	"link/internal/service/agent/resultstore"
@@ -26,16 +28,18 @@ func (m *mockInvoker) Invoke(ctx interface{}, skillName string, params map[strin
 	return m.result, m.err
 }
 
-// withInvoker 临时替换全局注入器，测试后还原。
-func withInvoker(t *testing.T, inv MCPInvoker) {
+// newAnalysisTool 用显式注入的调用器与结果存储构造 data_analysis 工具（取代包级全局）。
+func newAnalysisTool(t *testing.T, inv MCPInvoker, rs resultstore.Store) tool.InvokableTool {
 	t.Helper()
-	prev := dataAnalysisInvoker
-	dataAnalysisInvoker = inv
-	t.Cleanup(func() { dataAnalysisInvoker = prev })
+	tl, err := NewDataAnalysisTool(inv, rs)
+	if err != nil {
+		t.Fatalf("NewDataAnalysisTool: %v", err)
+	}
+	return tl
 }
 
 func TestDataAnalysisTool_Info(t *testing.T) {
-	tool, err := NewDataAnalysisTool()
+	tool, err := NewDataAnalysisTool(&mockInvoker{}, nil)
 	if err != nil {
 		t.Fatalf("NewDataAnalysisTool: %v", err)
 	}
@@ -55,9 +59,7 @@ func TestDataAnalysisTool_Success(t *testing.T) {
 			Data:    map[string]interface{}{"row_count": 6},
 		},
 	}
-	withInvoker(t, inv)
-
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, inv, nil)
 	args := `{"analysis_type":"describe","data":{"columns":["a"],"rows":[[1],[2]]},"options":{"columns":["a"]}}`
 	out, err := tool.InvokableRun(context.Background(), args)
 	if err != nil {
@@ -91,8 +93,7 @@ func TestDataAnalysisTool_Success(t *testing.T) {
 }
 
 func TestDataAnalysisTool_UnknownType(t *testing.T) {
-	withInvoker(t, &mockInvoker{})
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, &mockInvoker{}, nil)
 	args := `{"analysis_type":"bogus","data":{"columns":["a"],"rows":[[1]]}}`
 	out, err := tool.InvokableRun(context.Background(), args)
 	if err != nil {
@@ -106,8 +107,7 @@ func TestDataAnalysisTool_UnknownType(t *testing.T) {
 }
 
 func TestDataAnalysisTool_MissingAnalysisType(t *testing.T) {
-	withInvoker(t, &mockInvoker{})
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, &mockInvoker{}, nil)
 	// 缺参属调用方错误：非致命 failResult 让 LLM 自纠，而非终止 ReAct 循环
 	out, err := tool.InvokableRun(context.Background(), `{"data":{"columns":["a"],"rows":[[1]]}}`)
 	if err != nil {
@@ -121,8 +121,7 @@ func TestDataAnalysisTool_MissingAnalysisType(t *testing.T) {
 }
 
 func TestDataAnalysisTool_MissingData(t *testing.T) {
-	withInvoker(t, &mockInvoker{})
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, &mockInvoker{}, nil)
 	out, err := tool.InvokableRun(context.Background(), `{"analysis_type":"describe"}`)
 	if err != nil {
 		t.Fatalf("missing data should not be fatal: %v", err)
@@ -135,8 +134,7 @@ func TestDataAnalysisTool_MissingData(t *testing.T) {
 }
 
 func TestDataAnalysisTool_NoInvoker(t *testing.T) {
-	withInvoker(t, nil)
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, nil, nil)
 	args := `{"analysis_type":"describe","data":{"columns":["a"],"rows":[[1]]}}`
 	out, err := tool.InvokableRun(context.Background(), args)
 	if err != nil {
@@ -150,8 +148,7 @@ func TestDataAnalysisTool_NoInvoker(t *testing.T) {
 }
 
 func TestDataAnalysisTool_InvokeError(t *testing.T) {
-	withInvoker(t, &mockInvoker{err: errors.New("connection refused")})
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, &mockInvoker{err: errors.New("connection refused")}, nil)
 	args := `{"analysis_type":"trend","data":{"columns":["a"],"rows":[[1]]},"options":{"value_col":"a"}}`
 	out, err := tool.InvokableRun(context.Background(), args)
 	if err != nil {
@@ -171,19 +168,17 @@ func TestDataAnalysisTool_InvokeError(t *testing.T) {
 // 命名能力路由 + result_id 引用取数 + 归因信封（任务 4a.1 / 4a.3 / 4a.5）
 // ========================================
 
-// setupAnalysisStore 注入内存 Result Store，返回带租户/会话的 ctx。测试后还原单例。
-func setupAnalysisStore(t *testing.T) context.Context {
+// setupAnalysisStore 构造内存 Result Store，返回带租户/会话的 ctx 与该存储。
+func setupAnalysisStore(t *testing.T) (context.Context, resultstore.Store) {
 	t.Helper()
-	prev := resultStore
-	t.Cleanup(func() { resultStore = prev })
-	InitResultStore(resultstore.NewMemoryStore())
-	return agentctx.WithSessionID(agentctx.WithTenantID(context.Background(), 1), "sess-da")
+	rs := resultstore.NewMemoryStore()
+	return agentctx.WithSessionID(agentctx.WithTenantID(context.Background(), 1), "sess-da"), rs
 }
 
-// putRows 预置一份行集，返回 result_id。
-func putRows(t *testing.T, ctx context.Context, owner string) string {
+// putRows 向指定存储预置一份行集，返回 result_id。
+func putRows(t *testing.T, ctx context.Context, rs resultstore.Store, owner string) string {
 	t.Helper()
-	id, err := resultStore.Put(ctx, &resultstore.Result{
+	id, err := rs.Put(ctx, &resultstore.Result{
 		Owner:   owner,
 		Columns: []string{"month", "region", "gmv"},
 		Rows: []map[string]interface{}{
@@ -210,8 +205,7 @@ func TestDataAnalysisTool_NamedCapabilityRouting(t *testing.T) {
 	}
 	for _, c := range cases {
 		inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
-		withInvoker(t, inv)
-		tool, _ := NewDataAnalysisTool()
+		tool := newAnalysisTool(t, inv, nil)
 		args := `{"analysis_type":"` + c.analysisType + `","data":[{"a":1}]}`
 		if _, err := tool.InvokableRun(context.Background(), args); err != nil {
 			t.Fatalf("%s: %v", c.analysisType, err)
@@ -224,12 +218,11 @@ func TestDataAnalysisTool_NamedCapabilityRouting(t *testing.T) {
 
 // result_id 引用取数：解析行集后以 records 数组传给 Python。
 func TestDataAnalysisTool_ResultIDResolved(t *testing.T) {
-	ctx := setupAnalysisStore(t)
-	id := putRows(t, ctx, resultstore.OwnerKey(1, "sess-da"))
+	ctx, rs := setupAnalysisStore(t)
+	id := putRows(t, ctx, rs, resultstore.OwnerKey(1, "sess-da"))
 	inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
-	withInvoker(t, inv)
 
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, inv, rs)
 	args := `{"analysis_type":"trend","result_id":"` + id + `","options":{"value_col":"gmv"}}`
 	if _, err := tool.InvokableRun(ctx, args); err != nil {
 		t.Fatalf("InvokableRun: %v", err)
@@ -249,9 +242,8 @@ func TestDataAnalysisTool_ResultIDResolved(t *testing.T) {
 
 // result_id 不存在/已过期 → 非致命错误，供 Agent 自纠。
 func TestDataAnalysisTool_ResultIDNotFound(t *testing.T) {
-	ctx := setupAnalysisStore(t)
-	withInvoker(t, &mockInvoker{})
-	tool, _ := NewDataAnalysisTool()
+	ctx, rs := setupAnalysisStore(t)
+	tool := newAnalysisTool(t, &mockInvoker{}, rs)
 	out, err := tool.InvokableRun(ctx, `{"analysis_type":"trend","result_id":"res_missing"}`)
 	if err != nil {
 		t.Fatalf("should be non-fatal: %v", err)
@@ -268,10 +260,9 @@ func TestDataAnalysisTool_ResultIDNotFound(t *testing.T) {
 
 // 跨会话引用应被拒绝（越权防护）。
 func TestDataAnalysisTool_ResultIDCrossSession(t *testing.T) {
-	ctx := setupAnalysisStore(t)
-	id := putRows(t, ctx, resultstore.OwnerKey(2, "other-session"))
-	withInvoker(t, &mockInvoker{})
-	tool, _ := NewDataAnalysisTool()
+	ctx, rs := setupAnalysisStore(t)
+	id := putRows(t, ctx, rs, resultstore.OwnerKey(2, "other-session"))
+	tool := newAnalysisTool(t, &mockInvoker{}, rs)
 	out, err := tool.InvokableRun(ctx, `{"analysis_type":"trend","result_id":"`+id+`"}`)
 	if err != nil {
 		t.Fatalf("should be non-fatal: %v", err)
@@ -288,11 +279,7 @@ func TestDataAnalysisTool_ResultIDCrossSession(t *testing.T) {
 
 // Result Store 未启用时按 result_id 取数 → 非致命错误提示改传 data。
 func TestDataAnalysisTool_ResultIDNoStore(t *testing.T) {
-	prev := resultStore
-	resultStore = nil
-	t.Cleanup(func() { resultStore = prev })
-	withInvoker(t, &mockInvoker{})
-	tool, _ := NewDataAnalysisTool()
+	tool := newAnalysisTool(t, &mockInvoker{}, nil)
 	out, err := tool.InvokableRun(context.Background(), `{"analysis_type":"trend","result_id":"res_x"}`)
 	if err != nil {
 		t.Fatalf("should be non-fatal: %v", err)
@@ -337,14 +324,12 @@ func attributionResultData() map[string]interface{} {
 
 // 归因成功：drivers 落 Result Store 得新 result_id，信封含洞察/口径/置信/下钻（任务 4a.3）。
 func TestDataAnalysisTool_AttributionEnvelope(t *testing.T) {
-	ctx := setupAnalysisStore(t)
-	srcID := putRows(t, ctx, resultstore.OwnerKey(1, "sess-da"))
-	withInvoker(t, &mockInvoker{result: &modeltools.SkillInvokeResult{
+	ctx, rs := setupAnalysisStore(t)
+	srcID := putRows(t, ctx, rs, resultstore.OwnerKey(1, "sess-da"))
+	tool := newAnalysisTool(t, &mockInvoker{result: &modeltools.SkillInvokeResult{
 		Success: true,
 		Data:    attributionResultData(),
-	}})
-
-	tool, _ := NewDataAnalysisTool()
+	}}, rs)
 	args := `{"analysis_type":"attribution","result_id":"` + srcID + `","options":{"value_col":"gmv","period_col":"month"}}`
 	out, err := tool.InvokableRun(ctx, args)
 	if err != nil {
@@ -360,7 +345,7 @@ func TestDataAnalysisTool_AttributionEnvelope(t *testing.T) {
 	if newID == "" {
 		t.Fatal("expected drivers result_id in envelope")
 	}
-	stored, err := resultStore.Get(ctx, resultstore.OwnerKey(1, "sess-da"), newID)
+	stored, err := rs.Get(ctx, resultstore.OwnerKey(1, "sess-da"), newID)
 	if err != nil {
 		t.Fatalf("drivers result not retrievable: %v", err)
 	}
@@ -400,12 +385,11 @@ func TestDataAnalysisTool_AttributionEnvelope(t *testing.T) {
 
 // 归因失败时不拼装信封（无 result_id / insight）。
 func TestDataAnalysisTool_AttributionFailureNoEnvelope(t *testing.T) {
-	_ = setupAnalysisStore(t)
-	withInvoker(t, &mockInvoker{result: &modeltools.SkillInvokeResult{
+	_, rs := setupAnalysisStore(t)
+	tool := newAnalysisTool(t, &mockInvoker{result: &modeltools.SkillInvokeResult{
 		Success: false,
 		Error:   "缺少必需参数: value_col",
-	}})
-	tool, _ := NewDataAnalysisTool()
+	}}, rs)
 	out, err := tool.InvokableRun(context.Background(), `{"analysis_type":"attribution","data":[{"a":1}]}`)
 	if err != nil {
 		t.Fatalf("InvokableRun: %v", err)

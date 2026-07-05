@@ -44,6 +44,10 @@ func (m *mockKBRepo) FindByID(ctx context.Context, id string) (*knowledge.Knowle
 	return &knowledge.KnowledgeBase{ID: id, Name: "mock kb"}, nil
 }
 
+func (m *mockKBRepo) FindByIDForTenant(ctx context.Context, id string, tenantID int64) (*knowledge.KnowledgeBase, error) {
+	return &knowledge.KnowledgeBase{ID: id, TenantID: tenantID, Name: "mock kb"}, nil
+}
+
 func (m *mockKBRepo) FindByTenantID(ctx context.Context, tenantID int64, page, pageSize int) ([]*knowledge.KnowledgeBase, int64, error) {
 	return []*knowledge.KnowledgeBase{}, 0, nil
 }

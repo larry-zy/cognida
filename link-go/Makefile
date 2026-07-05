@@ -1,6 +1,6 @@
 # Makefile for Link Project
 
-.PHONY: help test test-unit test-integration test-all test-coverage clean build run deps lint fmt grpc-gen
+.PHONY: help test test-unit test-integration test-all test-coverage clean build run deps lint fmt grpc-gen proto proto-check
 
 # Variables
 GO := go
@@ -112,13 +112,23 @@ test-watch:
 ci: deps fmt lint test-quick
 	@echo "CI pipeline completed successfully!"
 
-# Generate gRPC code from proto files
-grpc-gen:
-	@echo "Generating gRPC code..."
-	@which protoc > /dev/null || (echo "protoc not installed. Please install protoc." && exit 1)
-	@which protoc-gen-go > /dev/null || (echo "protoc-gen-go not installed. Run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest" && exit 1)
-	@which protoc-gen-go-grpc > /dev/null || (echo "protoc-gen-go-grpc not installed. Run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest" && exit 1)
-	protoc --go_out=. --go_opt=paths=source_relative \
-	       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-	       api/proto/*.proto
-	@echo "gRPC code generation complete!"
+# 从单一源生成 protobuf/gRPC 代码（架构加固 Phase 4，任务 4.4）
+# 唯一权威 .proto 在仓库根 proto/；buf 按 buf.gen.yaml 回生成到 link-go/api/proto 与
+# link-python/proto 既有路径，消费方 import 零改动。需先装 buf：brew install bufbuild/buf/buf
+proto:
+	@echo "Generating protobuf/gRPC stubs via buf (single source: ../proto)..."
+	@which buf > /dev/null || (echo "buf not installed. Run: brew install bufbuild/buf/buf" && exit 1)
+	cd .. && buf lint && buf generate
+	@echo "Proto generation complete!"
+
+# CI 一致性门（架构加固 Phase 4，任务 4.8）：回生成后两处生成目录须与提交一致，
+# 否则说明 .proto 改了却没重新生成/提交。
+proto-check:
+	@echo "Checking proto codegen is up to date..."
+	@which buf > /dev/null || (echo "buf not installed. Run: brew install bufbuild/buf/buf" && exit 1)
+	cd .. && buf generate && git diff --exit-code -- link-go/api/proto link-python/proto \
+		|| (echo "❌ 生成物与 proto/ 不一致，请运行 make proto 后提交" && exit 1)
+	@echo "✅ Proto codegen 一致"
+
+# 兼容旧入口：原 protoc 直连 api/proto 手抄源已废弃（Phase 4 单一源收敛），委托给 buf。
+grpc-gen: proto

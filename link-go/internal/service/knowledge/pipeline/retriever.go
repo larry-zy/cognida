@@ -299,9 +299,12 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 	go func() {
 		defer wg.Done()
 		vectorResp, err := r.VectorRetrieve(ctx, tenantID, kbID, query, &domainrag.RetrieveOptions{
-			TopK:          opts.TopK * 2,
-			RetrievalMode: "vector",
-			RerankEnabled: false,
+			TopK: opts.TopK * 2,
+			// 相似度阈值只对向量分量有意义（余弦分数量纲）；在此分量侧过滤，
+			// 融合后的 RRF 分数量纲不同（约 0.01~0.03），不能再套用该阈值。
+			SimilarityThreshold: opts.SimilarityThreshold,
+			RetrievalMode:       "vector",
+			RerankEnabled:       false,
 		})
 		if err == nil {
 			mu.Lock()
@@ -347,8 +350,10 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 		ResultCount: len(fusedResults),
 	})
 
-	// 应用相似度阈值
-	filtered := r.filterByThreshold(fusedResults, opts.SimilarityThreshold)
+	// 注意：不再对融合结果套用 SimilarityThreshold。RRF 分数量纲（约 0.01~0.03）
+	// 与余弦相似度阈值（0.5~0.7）不同，若在此过滤会误删全部命中导致检索恒为空。
+	// 阈值已在向量分量侧按余弦量纲正确应用。
+	filtered := fusedResults
 
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {

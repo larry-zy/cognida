@@ -6,7 +6,9 @@ package framework
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -126,7 +128,7 @@ type AfterHook func(ctx context.Context, resp *Response) error
 // agentImpl is the default implementation of Agent.
 type agentImpl struct {
 	name        string
-	model       model.BaseChatModel // 使用 BaseChatModel（ChatModel 已废弃）
+	model       model.BaseChatModel        // 使用 BaseChatModel（ChatModel 已废弃）
 	toolModel   model.ToolCallingChatModel // 用于工具调用
 	prompt      string
 	tools       []tool.BaseTool
@@ -137,9 +139,9 @@ type agentImpl struct {
 	tokenBudget int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
 
 	// Memory 和 Context Builder 支持
-	memoryService   MemoryService // 记忆服务接口
-	contextBuilder  ContextBuilder  // 上下文构建器接口
-	enableMemory    bool            // 是否启用记忆功能
+	memoryService  MemoryService  // 记忆服务接口
+	contextBuilder ContextBuilder // 上下文构建器接口
+	enableMemory   bool           // 是否启用记忆功能
 }
 
 // New creates a new Builder for constructing an Agent.
@@ -150,67 +152,348 @@ func New(chatModel model.BaseChatModel) *Builder {
 	}
 }
 
-// Chat implements Agent.Chat with tool calling support.
-func (a *agentImpl) Chat(ctx context.Context, message string) (*Response, error) {
-	// 获取会话 ID
-	sessionID, _ := domainagent.GetSessionID(ctx)
-
-	// 如果启用了记忆且有上下文构建器，使用 ContextBuilder 构建上下文
-	if a.enableMemory && a.contextBuilder != nil && sessionID != "" {
-		return a.chatWithMemory(ctx, message, sessionID)
-	}
-
-	// Execute before hooks
+// preProcess 统一前置流程：beforeHooks + middleware.Before。
+// 记忆分支与非记忆分支都必须经过（旧实现记忆分支提前 return，绕过全部 hooks/middleware）。
+func (a *agentImpl) preProcess(ctx context.Context, message string) (context.Context, string, error) {
 	for _, hook := range a.beforeHooks {
 		var err error
 		ctx, message, err = hook(ctx, message)
 		if err != nil {
-			return nil, err
+			return ctx, message, err
 		}
 	}
-
-	// Execute middleware before
 	for _, mw := range a.middleware {
 		var err error
 		ctx, message, err = mw.Before(ctx, message)
 		if err != nil {
-			return nil, err
+			return ctx, message, err
 		}
 	}
-
-	// 如果有工具且支持工具调用，使用工具调用模式
-	if len(a.tools) > 0 && a.toolModel != nil {
-		return a.chatWithTools(ctx, message)
-	}
-
-	// 普通聊天模式
-	return a.chatWithoutTools(ctx, message)
+	return ctx, message, nil
 }
 
-// chatWithMemory 使用记忆功能的聊天，支持工具调用
-func (a *agentImpl) chatWithMemory(ctx context.Context, message string, sessionID string) (*Response, error) {
-	// 1. 获取协作上下文（如果有）
-	collabCtx, hasCollabCtx := domainagent.GetCollaborationContext(ctx)
+// ========================================
+// 统一执行主干（Phase 3）
+//
+// Chat 与 Stream 共用唯一执行主干 run(ctx, req, sink)，由三组可插拔组件组合而成：
+//   - MemoryStrategy：buildInitialMessages（读入口，含协作构建）+ persistResult（写出口，落库/摘要）
+//   - ToolLoop：execLoop（ReAct 循环，token 预算 + wind-down）+ handleToolCall（单次工具调用）
+//   - StreamSink：execSink 抽象输出侧差异——bufferedSink 累积为 *Response；streamSink 即时下发 *Chunk
+//
+// 由此收敛旧的 6 个 chatWithMemoryAndTools/chatWithMemoryOnly/chatWithTools/chatWithoutTools/
+// streamWithTools/streamWithoutTools 变体为单一路径；memory×tool×stream 各组合行为一致（愈合）。
+// ========================================
 
-	// 2. 先同步保存用户消息到记忆，确保上下文能包含它
-	if a.memoryService != nil {
-		userMsg := &memory.Message{
-			ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			SessionID: sessionID,
-			Type:      memory.MessageTypeUser,
-			Role:      "user",
-			Content:   message,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		// 同步保存，确保后续 LoadHistory 能取到
-		_ = a.memoryService.SaveMessage(ctx, userMsg)
+// runRequest 是一次执行的输入：message 为 hook 处理后的消息（仅进本轮 prompt），
+// rawMessage 为用户原始输入（持久化到跨轮记忆），sessionID 为会话标识。
+type runRequest struct {
+	message    string
+	rawMessage string
+	sessionID  string
+}
+
+// Chat implements Agent.Chat with tool calling support.
+func (a *agentImpl) Chat(ctx context.Context, message string) (*Response, error) {
+	sessionID, _ := domainagent.GetSessionID(ctx)
+
+	// 统一前置流程：先于分支判断执行，记忆分支不再绕过。
+	// rawMessage 保留 hook 处理前的原始输入：hook 注入的 playbook 等只进本轮 prompt，
+	// 跨轮记忆持久化的是用户原话。
+	rawMessage := message
+	ctx, message, err := a.preProcess(ctx, message)
+	if err != nil {
+		return nil, err
 	}
 
-	// 3. 构建上下文请求
+	return a.run(ctx, runRequest{message: message, rawMessage: rawMessage, sessionID: sessionID}, &bufferedSink{a: a})
+}
+
+// Stream implements Agent.Stream with full tool calling support.
+func (a *agentImpl) Stream(ctx context.Context, message string) (<-chan *Chunk, error) {
+	// 提前检查模型是否可用
+	if a.model == nil && a.toolModel == nil {
+		return nil, fmt.Errorf("agent: no chat model available for streaming")
+	}
+
+	ch := make(chan *Chunk, 16)
+
+	sessionID, _ := domainagent.GetSessionID(ctx)
+
+	// 统一前置流程（与 Chat 共用）：beforeHooks + middleware.Before。
+	// rawMessage 保留 hook 处理前的原始输入，跨轮记忆持久化用户原话。
+	rawMessage := message
+	ctx, message, err := a.preProcess(ctx, message)
+	if err != nil {
+		close(ch)
+		return nil, err
+	}
+
+	go a.runStream(ctx, runRequest{message: message, rawMessage: rawMessage, sessionID: sessionID}, ch)
+
+	return ch, nil
+}
+
+// runStream 在独立 goroutine 中驱动流式主干，负责 close(ch)。
+func (a *agentImpl) runStream(ctx context.Context, req runRequest, ch chan *Chunk) {
+	defer close(ch)
+	_, _ = a.run(ctx, req, &streamSink{a: a, ch: ch})
+}
+
+// run 是唯一执行主干：pre-processing 已在入口完成。
+// MemoryStrategy(buildInitialMessages/persistResult) + ToolLoop(execLoop) + StreamSink(sink) 三组件组合。
+func (a *agentImpl) run(ctx context.Context, req runRequest, sink execSink) (*Response, error) {
+	if !sink.start(ctx) {
+		return nil, nil // 下游已断开（streaming）
+	}
+
+	if a.model == nil && a.toolModel == nil {
+		err := fmt.Errorf("agent: no chat model available")
+		sink.fail(ctx, err)
+		return nil, err
+	}
+
+	// MemoryStrategy：构建初始消息 + 落库本轮用户消息。
+	messages, rc := a.buildInitialMessages(ctx, req)
+
+	response := &Response{
+		ToolCalls: make([]*ToolCall, 0),
+		Metadata:  make(map[string]interface{}),
+	}
+	hasTools := len(a.tools) > 0 && a.toolModel != nil
+
+	// ToolLoop：统一 ReAct（token 预算 + wind-down）/ 单轮生成。
+	res, err := a.execLoop(ctx, messages, hasTools, sink, response)
+	if err != nil {
+		sink.fail(ctx, err)
+		return nil, err
+	}
+	if res.aborted {
+		return nil, nil // 流式下游断开，静默终止
+	}
+
+	response.Content = res.content
+
+	// MemoryStrategy：落库助手响应 + 更新协作摘要（仅记忆激活时）。
+	a.persistResult(ctx, rc, messages, res.content)
+
+	a.fillMetadata(response.Metadata, rc, hasTools, res)
+
+	if err := sink.finish(ctx, response); err != nil {
+		return response, err
+	}
+	return response, nil
+}
+
+// ========================================
+// StreamSink：输出侧差异抽象
+// ========================================
+
+// execSink 抽象「一次执行主干」的输出侧差异：
+// bufferedSink 累积为 *Response（Chat）；streamSink 即时下发 *Chunk（Stream）。
+// 主干 run 只依赖本接口，不再为 chat/stream × memory × tools 维护多份变体。
+type execSink interface {
+	// start 发出起始信号。streaming 发 start 事件；buffered 空实现。
+	// 返回 false 表示下游已断开（streaming），主干应静默终止。
+	start(ctx context.Context) bool
+
+	// generate 产出一轮完整的 assistant 消息。
+	// streaming 实现边收边下发 content 增量，收满后 ConcatMessages 合并返回；
+	// buffered 实现直接 Generate。aborted=true 表示下游断开（streaming）。
+	generate(ctx context.Context, m model.BaseChatModel, msgs []*schema.Message, iteration int) (msg *schema.Message, aborted bool, err error)
+
+	// onToolCall / onToolResult 下发工具事件。buffered 空实现返回 true。
+	// 返回 false 表示下游断开。
+	onToolCall(ctx context.Context, ev *ToolCallInStream) bool
+	onToolResult(ctx context.Context, ev *ToolCallInStream, iteration int) bool
+
+	// fail 终态错误。streaming 发 error 事件；buffered 空实现（错误经 run 返回值上抛）。
+	fail(ctx context.Context, err error)
+
+	// finish 终态成功。buffered 执行 middleware.After + afterHooks（对 *Response 收尾）；
+	// streaming 发 end 事件。
+	finish(ctx context.Context, response *Response) error
+}
+
+// bufferedSink 是 Chat 的输出侧：累积为完整 *Response，收尾时跑 middleware.After + afterHooks。
+type bufferedSink struct{ a *agentImpl }
+
+func (s *bufferedSink) start(context.Context) bool { return true }
+
+func (s *bufferedSink) generate(ctx context.Context, m model.BaseChatModel, msgs []*schema.Message, _ int) (*schema.Message, bool, error) {
+	msg, err := m.Generate(ctx, msgs)
+	return msg, false, err
+}
+
+func (s *bufferedSink) onToolCall(context.Context, *ToolCallInStream) bool        { return true }
+func (s *bufferedSink) onToolResult(context.Context, *ToolCallInStream, int) bool { return true }
+func (s *bufferedSink) fail(context.Context, error)                              {}
+
+// finish 在 buffered 路径执行 middleware.After（逆序）+ afterHooks。
+// 注意：流式路径正文已逐块下发、无完整 *Response 可供事后变换，故 After/afterHooks
+// 仅在此收敛（Phase 3 刻意保留的输出侧边界，不做愈合）。
+func (s *bufferedSink) finish(ctx context.Context, response *Response) error {
+	for i := len(s.a.middleware) - 1; i >= 0; i-- {
+		if err := s.a.middleware[i].After(ctx, response); err != nil {
+			return err
+		}
+	}
+	for _, hook := range s.a.afterHooks {
+		if err := hook(ctx, response); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// streamSink 是 Stream 的输出侧：把每一步即时下发为 *Chunk 事件。
+type streamSink struct {
+	a  *agentImpl
+	ch chan *Chunk
+}
+
+func (s *streamSink) start(ctx context.Context) bool {
+	return sendChunk(ctx, s.ch, &Chunk{Metadata: map[string]interface{}{"event": "start"}})
+}
+
+// generate 流式生成：内容分块即时下发，收满整条流后 ConcatMessages 合并返回。
+func (s *streamSink) generate(ctx context.Context, m model.BaseChatModel, msgs []*schema.Message, iteration int) (*schema.Message, bool, error) {
+	reader, err := m.Stream(ctx, msgs)
+	if err != nil {
+		return nil, false, err
+	}
+	defer reader.Close()
+
+	var chunks []*schema.Message
+	for {
+		chunk, recvErr := reader.Recv()
+		if recvErr != nil {
+			// io.EOF 是正常结束；其余是真实错误（网络中断等），必须上报而非静默截断。
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			return nil, false, recvErr
+		}
+		if chunk == nil {
+			break
+		}
+		chunks = append(chunks, chunk)
+
+		// 内容分块即时下发以保证流式 UX；reasoning/tool_call 分块留待整流合并。
+		if chunk.Content != "" {
+			if !sendChunk(ctx, s.ch, &Chunk{
+				Content: chunk.Content,
+				Metadata: map[string]interface{}{
+					"event":     string(EventContent),
+					"iteration": iteration,
+				},
+			}) {
+				return nil, true, nil // 客户端已断开
+			}
+		}
+	}
+
+	if len(chunks) == 0 {
+		return &schema.Message{Role: schema.Assistant}, false, nil
+	}
+
+	// 收满整条流后再合并，得到完整 content / reasoning_content / tool_calls。
+	// eino 流式协议下 tool_calls 以 delta 分块到达（按 Index 合并、参数分片拼接），
+	// 绝不能只取首个带 tool_calls 的分块——否则参数残缺、assistant.tool_calls 与随后
+	// 追加的 tool 消息数目错位，触发 "insufficient tool messages following tool_calls" 400。
+	merged, concatErr := schema.ConcatMessages(chunks)
+	if concatErr != nil {
+		return nil, false, fmt.Errorf("合并流式响应失败: %w", concatErr)
+	}
+	return merged, false, nil
+}
+
+func (s *streamSink) onToolCall(ctx context.Context, ev *ToolCallInStream) bool {
+	return sendChunk(ctx, s.ch, &Chunk{
+		Metadata: map[string]interface{}{
+			"event":     string(EventToolCall),
+			"tool_call": ev,
+		},
+	})
+}
+
+func (s *streamSink) onToolResult(ctx context.Context, ev *ToolCallInStream, iteration int) bool {
+	return sendChunk(ctx, s.ch, &Chunk{
+		Metadata: map[string]interface{}{
+			"event":     string(EventToolResult),
+			"tool_call": ev,
+			"iteration": iteration,
+		},
+	})
+}
+
+func (s *streamSink) fail(ctx context.Context, err error) {
+	sendChunk(ctx, s.ch, &Chunk{
+		Done: true,
+		Metadata: map[string]interface{}{
+			"event": string(EventError),
+			"error": err.Error(),
+		},
+	})
+}
+
+// finish 发送 end 事件，并从 response.Metadata 透传 iterations/terminated_by/partial。
+func (s *streamSink) finish(ctx context.Context, response *Response) error {
+	meta := map[string]interface{}{"event": string(EventEnd)}
+	if it, ok := response.Metadata["iterations"]; ok {
+		meta["iterations"] = it
+	}
+	if tb, ok := response.Metadata["terminated_by"]; ok {
+		meta["terminated_by"] = tb
+		if tb == TerminatedByMaxIter {
+			meta["max_reached"] = true
+		}
+	}
+	if p, ok := response.Metadata["partial"]; ok {
+		meta["partial"] = p
+	}
+	sendChunk(ctx, s.ch, &Chunk{Done: true, Metadata: meta})
+	return nil
+}
+
+// ========================================
+// MemoryStrategy：上下文构建（读）+ 落库/摘要（写）
+// ========================================
+
+// runContext 承载一次执行的记忆态，贯穿主干用于后续落库/摘要与元数据填充。
+type runContext struct {
+	sessionID    string
+	hasCollab    bool
+	collabCtx    *domainagent.CollaborationContext
+	builtCtx     *memory.BuildContext // 记忆构建成功时非 nil；仅用于元数据
+	memoryActive bool
+}
+
+// buildInitialMessages 是 MemoryStrategy 的读入口：构建初始消息列表并落库本轮用户消息。
+// 记忆未激活 → [System(prompt), User(message)]；激活 → 经 ContextBuilder 构建（按协作模式，
+// 愈合：无论 chat/stream 均走 BuildForCollaboration），失败降级到默认消息。
+func (a *agentImpl) buildInitialMessages(ctx context.Context, req runRequest) ([]*schema.Message, *runContext) {
+	rc := &runContext{
+		sessionID:    req.sessionID,
+		memoryActive: a.enableMemory && a.contextBuilder != nil && req.sessionID != "",
+	}
+
+	def := []*schema.Message{
+		schema.SystemMessage(a.prompt),
+		schema.UserMessage(req.message),
+	}
+	if !rc.memoryActive {
+		return def, rc
+	}
+
+	// 获取协作上下文（如果有）
+	collabCtx, hasCollab := domainagent.GetCollaborationContext(ctx)
+	rc.hasCollab = hasCollab
+	rc.collabCtx = collabCtx
+
+	// 构建上下文请求（CurrentMessage 用处理后的消息，Builder 会将其追加到 prompt 末尾）
 	buildReq := &memory.BuildContextRequest{
-		SessionID:      sessionID,
-		CurrentMessage: message,
+		SessionID:      req.sessionID,
+		CurrentMessage: req.message,
 		Config: &memory.ContextBuilderConfig{
 			SystemPrompt:  a.prompt,
 			MaxTokens:     4000,
@@ -218,156 +501,76 @@ func (a *agentImpl) chatWithMemory(ctx context.Context, message string, sessionI
 		},
 	}
 
-	// 4. 根据协作上下文模式构建
 	var builtCtx *memory.BuildContext
 	var err error
-
-	if hasCollabCtx {
-		// 使用协作上下文模式
-		builtCtx, err = a.contextBuilder.BuildForCollaboration(
-			ctx,
-			buildReq,
-			string(collabCtx.Mode),
-			collabCtx.ContextLimit,
-		)
+	if hasCollab {
+		builtCtx, err = a.contextBuilder.BuildForCollaboration(ctx, buildReq, string(collabCtx.Mode), collabCtx.ContextLimit)
 	} else {
-		// 默认模式
 		builtCtx, err = a.contextBuilder.Build(ctx, buildReq)
 	}
 
-	if err != nil {
-		// 降级到简单模式
-		if len(a.tools) > 0 && a.toolModel != nil {
-			return a.chatWithTools(ctx, message)
+	// 同步持久化本轮用户消息：存 rawMessage（用户原话），不存 hook 注入后的版本。
+	// 必须放在 Build 之后：Build 已把处理后的 CurrentMessage 追加到 prompt 末尾，
+	// 若先落库，历史里的 raw 与末尾的 processed 内容不同、去重失效，用户问题会在 prompt 出现两遍。
+	if a.memoryService != nil {
+		userMsg := &memory.Message{
+			ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
+			SessionID: req.sessionID,
+			Type:      memory.MessageTypeUser,
+			Role:      "user",
+			Content:   req.rawMessage,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
-		return a.chatWithoutTools(ctx, message)
+		_ = a.memoryService.SaveMessage(ctx, userMsg)
 	}
 
-	// 5. 构建 Eino 消息列表（包含历史对话）
-	messages := make([]*schema.Message, 0)
+	if err != nil || builtCtx == nil {
+		return def, rc // 降级到简单模式（builtCtx 保持 nil）
+	}
+	rc.builtCtx = builtCtx
+
+	// 构建 Eino 消息列表（包含历史对话）
+	messages := make([]*schema.Message, 0, len(builtCtx.Messages))
 	for _, msg := range builtCtx.Messages {
-		// 转换角色类型
-		var role schema.RoleType
-		switch msg.Role {
-		case "system":
-			role = schema.System
-		case "user":
-			role = schema.User
-		case "assistant":
-			role = schema.Assistant
-		default:
-			role = schema.User
-		}
 		messages = append(messages, &schema.Message{
-			Role:    role,
+			Role:    roleOf(msg.Role),
 			Content: msg.Content,
 		})
 	}
-
-	// 6. 如果有工具且支持工具调用，使用工具调用模式
-	if len(a.tools) > 0 && a.toolModel != nil {
-		return a.chatWithMemoryAndTools(ctx, messages, sessionID, hasCollabCtx, collabCtx)
-	}
-
-	// 7. 普通聊天模式（无工具）
-	return a.chatWithMemoryOnly(ctx, messages, sessionID, builtCtx, hasCollabCtx, collabCtx)
+	return messages, rc
 }
 
-// chatWithMemoryAndTools 使用记忆功能 + 工具调用的聊天
-func (a *agentImpl) chatWithMemoryAndTools(ctx context.Context, messages []*schema.Message, sessionID string, hasCollabCtx bool, collabCtx *domainagent.CollaborationContext) (*Response, error) {
-	response := &Response{
-		ToolCalls: make([]*ToolCall, 0),
-		Metadata: map[string]interface{}{
-			"with_memory": true,
-			"with_tools":  true,
-		},
+// roleOf 把记忆消息的字符串角色转换为 Eino RoleType（未知角色回退为 user）。
+func roleOf(role string) schema.RoleType {
+	switch role {
+	case "system":
+		return schema.System
+	case "user":
+		return schema.User
+	case "assistant":
+		return schema.Assistant
+	default:
+		return schema.User
 	}
+}
 
-	// 提取所有工具的 ToolInfo
-	toolInfos := make([]*schema.ToolInfo, 0, len(a.tools))
-	for _, t := range a.tools {
-		info, infoErr := t.Info(ctx)
-		if infoErr != nil {
-			continue // 跳过无法获取信息的工具
-		}
-		toolInfos = append(toolInfos, info)
-	}
-
-	// 将工具绑定到模型
-	var boundModel model.ToolCallingChatModel
-	if len(toolInfos) > 0 {
-		var bindErr error
-		boundModel, bindErr = a.toolModel.WithTools(toolInfos)
-		if bindErr != nil {
-			return nil, fmt.Errorf("bind tools to model failed: %w", bindErr)
-		}
-	} else {
-		boundModel = a.toolModel
-	}
-
-	// 迭代处理（可能需要多轮工具调用）
-	for i := 0; i < a.maxIter; i++ {
-		// 生成响应（包含历史消息）
-		resp, err := boundModel.Generate(ctx, messages)
-		if err != nil {
-			return nil, fmt.Errorf("generate with memory failed: %w", err)
-		}
-
-		// 检查是否有工具调用
-		if len(resp.ToolCalls) == 0 {
-			// 没有工具调用，返回最终回复
-			response.Content = resp.Content
-			response.Metadata["iterations"] = i + 1
-			break
-		}
-
-		// 处理工具调用
-		for _, tc := range resp.ToolCalls {
-			toolCall := &ToolCall{
-				Name: tc.Function.Name,
-			}
-
-			// 解析参数
-			var args map[string]interface{}
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-					toolCall.Error = fmt.Errorf("invalid arguments: %w", err)
-					toolCall.Input = nil
-				} else {
-					toolCall.Input = args
-				}
-			}
-
-			// 执行工具
-			output, err := a.invokeTool(ctx, tc)
-			if err != nil {
-				toolCall.Error = err
-				toolCall.Output = fmt.Sprintf("Error: %v", err)
-			} else {
-				toolCall.Output = output
-			}
-
-			response.ToolCalls = append(response.ToolCalls, toolCall)
-
-			// 添加工具响应消息到历史
-			messages = append(messages, &schema.Message{
-				Role:      schema.Assistant,
-				Content:   "",
-				ToolCalls: []schema.ToolCall{tc},
-			})
-
-			messages = append(messages, schema.ToolMessage(compactObservation(toolCall.Output), tc.ID))
-		}
+// persistResult 是 MemoryStrategy 的写出口：落库助手响应并更新协作摘要。
+// 仅记忆激活时生效（与旧记忆分支一致；非记忆分支从不触碰记忆/摘要）。
+// 愈合：无论 chat/stream、有无工具，记忆激活即统一落库 + 更新摘要。
+func (a *agentImpl) persistResult(ctx context.Context, rc *runContext, messages []*schema.Message, content string) {
+	if !rc.memoryActive {
+		return
 	}
 
 	// 保存助手响应到记忆
-	if a.memoryService != nil && response.Content != "" {
+	if a.memoryService != nil && content != "" {
 		assistantMsg := &memory.Message{
 			ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			SessionID: sessionID,
+			SessionID: rc.sessionID,
 			Type:      memory.MessageTypeAssistant,
 			Role:      "assistant",
-			Content:   response.Content,
+			Content:   content,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -375,121 +578,62 @@ func (a *agentImpl) chatWithMemoryAndTools(ctx context.Context, messages []*sche
 	}
 
 	// 更新协作摘要
-	if hasCollabCtx {
-		newSummary := collabCtx.Summary
-		if newSummary == "" {
-			newSummary = fmt.Sprintf("User: ... (history)\nAssistant: %s", truncateString(response.Content, 200))
-		} else {
-			newSummary += fmt.Sprintf("\nAssistant: %s", truncateString(response.Content, 200))
-		}
-		collabCtx.UpdateSummary(newSummary)
-
-		if a.memoryService != nil {
-			go a.memoryService.UpdateSummary(context.Background(), sessionID, newSummary)
-		}
-	}
-
-	// 执行中间件和钩子
-	for i := len(a.middleware) - 1; i >= 0; i-- {
-		if err := a.middleware[i].After(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	for _, hook := range a.afterHooks {
-		if err := hook(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	return response, nil
-}
-
-// chatWithMemoryOnly 仅使用记忆功能（无工具）的聊天
-func (a *agentImpl) chatWithMemoryOnly(ctx context.Context, messages []*schema.Message, sessionID string, builtCtx *memory.BuildContext, hasCollabCtx bool, collabCtx *domainagent.CollaborationContext) (*Response, error) {
-	// 确定使用的模型
-	var chatModel interface {
-		Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error)
-	}
-
-	if a.model != nil {
-		chatModel = a.model
-	} else if a.toolModel != nil {
-		chatModel = a.toolModel
-	} else {
-		return nil, fmt.Errorf("agent: no chat model available")
-	}
-
-	resp, err := chatModel.Generate(ctx, messages)
-	if err != nil {
-		return nil, err
-	}
-
-	response := &Response{
-		Content: resp.Content,
-		Metadata: map[string]interface{}{
-			"role":              string(resp.Role),
-			"context_tokens":     builtCtx.Metadata.TotalTokens,
-			"history_messages":   len(builtCtx.History),
-			"with_memory":        true,
-		},
-	}
-
-	// 保存助手响应到记忆
-	if a.memoryService != nil {
-		assistantMsg := &memory.Message{
-			ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			SessionID: sessionID,
-			Type:      memory.MessageTypeAssistant,
-			Role:      "assistant",
-			Content:   resp.Content,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		go a.memoryService.SaveMessage(context.Background(), assistantMsg)
-	}
-
-	// 更新协作摘要
-	if hasCollabCtx {
+	if rc.hasCollab && rc.collabCtx != nil {
 		// 获取最后一条用户消息
 		lastUserMsg := ""
-		if len(messages) > 0 {
-			for i := len(messages) - 1; i >= 0; i-- {
-				if messages[i].Role == schema.User {
-					lastUserMsg = truncateString(messages[i].Content, 100)
-					break
-				}
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == schema.User {
+				lastUserMsg = truncateString(messages[i].Content, 100)
+				break
 			}
 		}
 
-		newSummary := collabCtx.Summary
+		newSummary := rc.collabCtx.Summary
 		if newSummary == "" {
-			newSummary = fmt.Sprintf("User: %s\nAssistant: %s", lastUserMsg, truncateString(resp.Content, 200))
+			newSummary = fmt.Sprintf("User: %s\nAssistant: %s", lastUserMsg, truncateString(content, 200))
 		} else {
-			newSummary += fmt.Sprintf("\nUser: %s\nAssistant: %s", lastUserMsg, truncateString(resp.Content, 200))
+			newSummary += fmt.Sprintf("\nUser: %s\nAssistant: %s", lastUserMsg, truncateString(content, 200))
 		}
-		collabCtx.UpdateSummary(newSummary)
+		rc.collabCtx.UpdateSummary(newSummary)
 
 		if a.memoryService != nil {
-			go a.memoryService.UpdateSummary(context.Background(), sessionID, newSummary)
+			// 分离 ctx（不随请求取消）但携带租户：首建摘要行需要 tenant_id，
+			// 裸 context.Background() 会把 tenant_id=0 永久写入。
+			tenantID, _ := domainagent.GetTenantID(ctx)
+			bgCtx := domainagent.WithTenantID(context.Background(), tenantID)
+			go a.memoryService.UpdateSummary(bgCtx, rc.sessionID, newSummary)
 		}
 	}
-
-	// 执行中间件和钩子
-	for i := len(a.middleware) - 1; i >= 0; i-- {
-		if err := a.middleware[i].After(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	for _, hook := range a.afterHooks {
-		if err := hook(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	return response, nil
 }
+
+// fillMetadata 汇总响应元数据（愈合后各组合统一键位）。
+func (a *agentImpl) fillMetadata(meta map[string]interface{}, rc *runContext, hasTools bool, res execResult) {
+	if rc.memoryActive {
+		meta["with_memory"] = true
+	}
+	if rc.builtCtx != nil && rc.builtCtx.Metadata != nil {
+		meta["context_tokens"] = rc.builtCtx.Metadata.TotalTokens
+		meta["history_messages"] = len(rc.builtCtx.History)
+	}
+	if hasTools {
+		meta["with_tools"] = true
+	}
+	meta["iterations"] = res.iterations
+	meta["tokens_used"] = res.tokensUsed
+	if res.terminatedBy != "" {
+		meta["terminated_by"] = res.terminatedBy
+	}
+	if res.partial {
+		meta["partial"] = true
+	}
+	if res.role != "" {
+		meta["role"] = res.role
+	}
+}
+
+// ========================================
+// ToolLoop：ReAct 执行循环（token 预算 + wind-down）
+// ========================================
 
 // ReAct 循环终止原因（写入 Response.Metadata["terminated_by"]）。
 const (
@@ -521,20 +665,45 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// chatWithTools 执行带工具调用的聊天
-func (a *agentImpl) chatWithTools(ctx context.Context, message string) (*Response, error) {
-	// 构建消息
-	messages := []*schema.Message{
-		schema.SystemMessage(a.prompt),
-		schema.UserMessage(message),
+// execResult 汇总一次执行循环的产物，供 run 落库与填充元数据。
+type execResult struct {
+	content      string
+	iterations   int
+	tokensUsed   int
+	terminatedBy string
+	partial      bool
+	role         string
+	aborted      bool // 流式下游断开
+}
+
+// execLoop 是 ToolLoop 的核心：无工具时单轮生成；有工具时跑 ReAct 循环。
+// 愈合：ReAct 循环的 token 预算前/后置检查与 wind-down 收尾对所有组合（含 memory+tools、streaming）统一生效。
+func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, hasTools bool, sink execSink, response *Response) (execResult, error) {
+	if !hasTools {
+		// 确定使用的模型：优先 model，回退 toolModel。
+		var chatModel model.BaseChatModel
+		if a.model != nil {
+			chatModel = a.model
+		} else {
+			chatModel = a.toolModel
+		}
+
+		msg, aborted, err := sink.generate(ctx, chatModel, messages, 1)
+		if err != nil {
+			return execResult{}, err
+		}
+		if aborted {
+			return execResult{aborted: true}, nil
+		}
+		res := execResult{iterations: 1, tokensUsed: usageTotalTokens(msg)}
+		if msg != nil {
+			res.content = msg.Content
+			res.role = string(msg.Role)
+		}
+		return res, nil
 	}
 
-	response := &Response{
-		ToolCalls: make([]*ToolCall, 0),
-		Metadata:  make(map[string]interface{}),
-	}
-
-	// 提取所有工具的 ToolInfo
+	// 提取所有工具的 ToolInfo 并绑定到模型。
 	toolInfos := make([]*schema.ToolInfo, 0, len(a.tools))
 	for _, t := range a.tools {
 		info, infoErr := t.Info(ctx)
@@ -543,182 +712,172 @@ func (a *agentImpl) chatWithTools(ctx context.Context, message string) (*Respons
 		}
 		toolInfos = append(toolInfos, info)
 	}
-
-	// 将工具绑定到模型
-	var boundModel model.ToolCallingChatModel
+	var boundModel model.ToolCallingChatModel = a.toolModel
 	if len(toolInfos) > 0 {
-		var bindErr error
-		boundModel, bindErr = a.toolModel.WithTools(toolInfos)
+		bound, bindErr := a.toolModel.WithTools(toolInfos)
 		if bindErr != nil {
-			return nil, fmt.Errorf("bind tools to model failed: %w", bindErr)
+			return execResult{}, fmt.Errorf("bind tools to model failed: %w", bindErr)
 		}
-	} else {
-		boundModel = a.toolModel
+		boundModel = bound
 	}
 
 	// 迭代处理（可能需要多轮工具调用）。
 	// ReAct 循环受 maxIter 与 token 预算共同约束：任一到达上限即终止并收尾。
-	tokensUsed := 0
-	terminatedBy := ""
+	var res execResult
 	naturalFinish := false // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
 	for i := 0; i < a.maxIter; i++ {
 		// token 预算前置检查：预算已耗尽则不再发起新一轮生成。
-		if a.tokenBudget > 0 && tokensUsed >= a.tokenBudget {
-			terminatedBy = TerminatedByTokenBudget
-			response.Metadata["iterations"] = i
+		if a.tokenBudget > 0 && res.tokensUsed >= a.tokenBudget {
+			res.terminatedBy = TerminatedByTokenBudget
+			res.iterations = i
 			break
 		}
 
-		// 生成响应
-		resp, err := boundModel.Generate(ctx, messages)
+		msg, aborted, err := sink.generate(ctx, boundModel, messages, i+1)
 		if err != nil {
-			return nil, fmt.Errorf("generate failed: %w", err)
+			return execResult{}, err
 		}
-		tokensUsed += usageTotalTokens(resp)
+		if aborted {
+			return execResult{aborted: true}, nil
+		}
+		res.tokensUsed += usageTotalTokens(msg)
 
 		// 检查是否有工具调用
-		if len(resp.ToolCalls) == 0 {
+		if len(msg.ToolCalls) == 0 {
 			// 没有工具调用，模型主动收尾（Content 可能为空，但仍属自然结束，不应误判为达上限）
-			response.Content = resp.Content
-			response.Metadata["iterations"] = i + 1
+			res.content = msg.Content
+			res.role = string(msg.Role)
+			res.iterations = i + 1
 			naturalFinish = true
 			break
 		}
 
+		// assistant 轮整体只入队一次：保留 msg 自带的 reasoning_content 与全部 tool_calls，
+		// 满足 DeepSeek V4 thinking "工具调用轮必须原样回传 reasoning_content" 的约束，
+		// 同时避免把并行工具调用拆成多条畸形 assistant 消息。
+		messages = append(messages, msg)
+
 		// 处理工具调用
-		for _, tc := range resp.ToolCalls {
-			toolCall := &ToolCall{
-				Name: tc.Function.Name,
+		for _, tc := range msg.ToolCalls {
+			obs, ok := a.handleToolCall(ctx, tc, i+1, sink, response)
+			if !ok {
+				return execResult{aborted: true}, nil
 			}
-
-			// 解析参数
-			var args map[string]interface{}
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-					toolCall.Error = fmt.Errorf("invalid arguments: %w", err)
-					toolCall.Input = nil
-				} else {
-					toolCall.Input = args
-				}
-			}
-
-			// 执行工具
-			output, err := a.invokeTool(ctx, tc)
-			if err != nil {
-				toolCall.Error = err
-				toolCall.Output = fmt.Sprintf("Error: %v", err)
-			} else {
-				toolCall.Output = output
-			}
-
-			response.ToolCalls = append(response.ToolCalls, toolCall)
-
-			// 添加工具响应消息
-			messages = append(messages, &schema.Message{
-				Role:      schema.Assistant,
-				Content:   "",
-				ToolCalls: []schema.ToolCall{tc},
-			})
-
-			messages = append(messages, schema.ToolMessage(compactObservation(toolCall.Output), tc.ID))
+			messages = append(messages, obs)
 		}
 
 		// 本轮工具执行后再判预算：耗尽则标记终止，交由下方 wind-down 收尾。
-		if a.tokenBudget > 0 && tokensUsed >= a.tokenBudget {
-			terminatedBy = TerminatedByTokenBudget
-			response.Metadata["iterations"] = i + 1
+		if a.tokenBudget > 0 && res.tokensUsed >= a.tokenBudget {
+			res.terminatedBy = TerminatedByTokenBudget
+			res.iterations = i + 1
 			break
 		}
 	}
 
 	// 循环耗尽 maxIter 却未自然收尾（最后一步仍是工具调用）→ 标记 max_iter。
 	// 以 naturalFinish 判定而非 Content==""：模型主动收尾但返回空内容时仍属自然结束。
-	if !naturalFinish && terminatedBy == "" {
-		terminatedBy = TerminatedByMaxIter
+	if !naturalFinish && res.terminatedBy == "" {
+		res.terminatedBy = TerminatedByMaxIter
+		res.iterations = a.maxIter
 	}
 
 	// wind-down：因达到 maxIter 或预算耗尽而被动终止（非自然收尾）时，做一次「无工具」收尾生成，
 	// 让模型基于已观察到的结果（Scratchpad/result_id 信封）给出部分结论，而非返回空串。
-	if !naturalFinish && terminatedBy != "" {
+	if !naturalFinish && res.terminatedBy != "" {
 		windMsgs := append(messages, schema.SystemMessage(windDownPrompt))
-		if final, ferr := a.toolModel.Generate(ctx, windMsgs); ferr == nil && final != nil {
-			response.Content = final.Content
-			tokensUsed += usageTotalTokens(final)
+		final, aborted, ferr := sink.generate(ctx, a.toolModel, windMsgs, res.iterations+1)
+		if aborted {
+			return execResult{aborted: true}, nil
 		}
-		response.Metadata["partial"] = true
-	}
-
-	if terminatedBy != "" {
-		response.Metadata["terminated_by"] = terminatedBy
-	}
-	response.Metadata["tokens_used"] = tokensUsed
-
-	// Execute middleware after
-	for i := len(a.middleware) - 1; i >= 0; i-- {
-		if err := a.middleware[i].After(ctx, response); err != nil {
-			return response, err
+		if ferr == nil && final != nil {
+			res.content = final.Content
+			res.role = string(final.Role)
+			res.tokensUsed += usageTotalTokens(final)
 		}
+		res.partial = true
 	}
 
-	// Execute after hooks
-	for _, hook := range a.afterHooks {
-		if err := hook(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	return response, nil
+	return res, nil
 }
 
-// chatWithoutTools 执行不带工具调用的聊天
-func (a *agentImpl) chatWithoutTools(ctx context.Context, message string) (*Response, error) {
-	// 确定使用的模型：优先使用 model，回退到 toolModel
-	var chatModel interface {
-		Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error)
+// handleToolCall 执行单个工具调用：解析参数 → 下发工具事件（streaming）→ 执行 → 记录 ToolCall
+// → 返回追加到历史的观察消息。ok=false 表示下游断开（streaming）。
+// 愈合：参数不可解析时合成错误观察、不执行工具（原 buffered 变体会带残缺参数执行）；
+// 无论解析成败都追加一条 tool 消息，保证 assistant.tool_calls 与 tool 消息严格 1:1。
+func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iteration int, sink execSink, response *Response) (*schema.Message, bool) {
+	toolCall := &ToolCall{Name: tc.Function.Name}
+
+	// 解析参数
+	var args map[string]interface{}
+	parseErr := false
+	if tc.Function.Arguments != "" {
+		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+			toolCall.Error = fmt.Errorf("invalid arguments: %w", err)
+			toolCall.Input = nil
+			parseErr = true
+		} else {
+			toolCall.Input = args
+		}
 	}
 
-	if a.model != nil {
-		chatModel = a.model
-	} else if a.toolModel != nil {
-		chatModel = a.toolModel
+	// 参数不可解析：合成错误观察，不执行工具。仍须为该 tool_call 追加一条 tool 消息，
+	// 保证 assistant.tool_calls 与 tool 消息严格 1:1，杜绝下一轮生成因悬空
+	// tool_call 触发 "insufficient tool messages following tool_calls" 400。
+	if parseErr {
+		if !sink.onToolCall(ctx, &ToolCallInStream{
+			ID:     tc.ID,
+			Name:   tc.Function.Name,
+			Status: "error",
+			Error:  fmt.Sprintf("参数解析失败: %v", toolCall.Error),
+		}) {
+			return nil, false
+		}
+		toolCall.Output = fmt.Sprintf("Error: 参数解析失败: %v", toolCall.Error)
+		response.ToolCalls = append(response.ToolCalls, toolCall)
+		return schema.ToolMessage(compactObservation(toolCall.Output), tc.ID), true
+	}
+
+	// 发送工具调用事件（buffered 空实现）
+	if !sink.onToolCall(ctx, &ToolCallInStream{
+		ID:     tc.ID,
+		Name:   tc.Function.Name,
+		Input:  args,
+		Status: "calling",
+	}) {
+		return nil, false
+	}
+
+	// 执行工具
+	output, execErr := a.invokeTool(ctx, tc)
+
+	// 组装工具结果事件
+	resultEvent := &ToolCallInStream{
+		ID:     tc.ID,
+		Name:   tc.Function.Name,
+		Input:  args,
+		Status: "success",
+		Output: output,
+	}
+	if execErr != nil {
+		toolCall.Error = execErr
+		toolCall.Output = fmt.Sprintf("Error: %v", execErr)
+		resultEvent.Status = "error"
+		resultEvent.Error = execErr.Error()
 	} else {
-		return nil, fmt.Errorf("agent: no chat model available")
+		toolCall.Output = output
 	}
 
-	// Build messages
-	messages := []*schema.Message{
-		schema.SystemMessage(a.prompt),
-		schema.UserMessage(message),
+	if !sink.onToolResult(ctx, resultEvent, iteration) {
+		return nil, false
 	}
+	response.ToolCalls = append(response.ToolCalls, toolCall)
 
-	// Generate response
-	resp, err := chatModel.Generate(ctx, messages)
-	if err != nil {
-		return nil, err
+	// 追加该 tool_call 对应的结果消息
+	obs := output
+	if execErr != nil {
+		obs = fmt.Sprintf("Error: %v", execErr)
 	}
-
-	response := &Response{
-		Content: resp.Content,
-		Metadata: map[string]interface{}{
-			"role": string(resp.Role),
-		},
-	}
-
-	// Execute middleware after
-	for i := len(a.middleware) - 1; i >= 0; i-- {
-		if err := a.middleware[i].After(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	// Execute after hooks
-	for _, hook := range a.afterHooks {
-		if err := hook(ctx, response); err != nil {
-			return response, err
-		}
-	}
-
-	return response, nil
+	return schema.ToolMessage(compactObservation(obs), tc.ID), true
 }
 
 // invokeTool 执行单个工具调用
@@ -761,9 +920,11 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (s
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
-				if err.Error() == "EOF" {
+				// errors.Is 而非字符串比较：包装过的 io.EOF 也能识别为正常结束
+				if errors.Is(err, io.EOF) {
 					break
 				}
+				stream.Close()
 				return "", fmt.Errorf("recv failed: %w", err)
 			}
 			result.WriteString(chunk)
@@ -775,404 +936,14 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (s
 	}
 }
 
-// Stream implements Agent.Stream with full tool calling support.
-func (a *agentImpl) Stream(ctx context.Context, message string) (<-chan *Chunk, error) {
-	// 提前检查模型是否可用
-	if a.model == nil && a.toolModel == nil {
-		return nil, fmt.Errorf("agent: no chat model available for streaming")
-	}
-
-	ch := make(chan *Chunk, 16)
-
-	// 获取会话 ID
-	sessionID, _ := domainagent.GetSessionID(ctx)
-
-	// Execute before hooks
-	for _, hook := range a.beforeHooks {
-		var err error
-		ctx, message, err = hook(ctx, message)
-		if err != nil {
-			close(ch)
-			return nil, err
-		}
-	}
-
-	// Execute middleware before
-	for _, mw := range a.middleware {
-		var err error
-		ctx, message, err = mw.Before(ctx, message)
-		if err != nil {
-			close(ch)
-			return nil, err
-		}
-	}
-
-	// 启动流式处理 goroutine
-	go a.streamInternal(ctx, message, sessionID, ch)
-
-	return ch, nil
-}
-
-// streamInternal 内部流式处理逻辑
-func (a *agentImpl) streamInternal(ctx context.Context, message string, sessionID string, ch chan *Chunk) {
-	defer close(ch)
-
-	// 发送开始事件
-	ch <- &Chunk{
-		Content: "",
-		Done:    false,
-		Metadata: map[string]interface{}{
-			"event": "start",
-		},
-	}
-
-	// 构建初始消息
-	messages := []*schema.Message{
-		schema.SystemMessage(a.prompt),
-		schema.UserMessage(message),
-	}
-
-	// 如果启用记忆且有上下文构建器，使用记忆模式
-	if a.enableMemory && a.contextBuilder != nil && sessionID != "" {
-		// 先保存用户消息
-		if a.memoryService != nil {
-			userMsg := &memory.Message{
-				ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-				SessionID: sessionID,
-				Type:      memory.MessageTypeUser,
-				Role:      "user",
-				Content:   message,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			}
-			_ = a.memoryService.SaveMessage(ctx, userMsg)
-		}
-
-		// 构建上下文
-		buildReq := &memory.BuildContextRequest{
-			SessionID:      sessionID,
-			CurrentMessage: message,
-			Config: &memory.ContextBuilderConfig{
-				SystemPrompt:  a.prompt,
-				MaxTokens:     4000,
-				ReserveTokens: 1000,
-			},
-		}
-
-		builtCtx, err := a.contextBuilder.Build(ctx, buildReq)
-		if err == nil {
-			// 重建消息列表
-			messages = make([]*schema.Message, 0)
-			for _, msg := range builtCtx.Messages {
-				var role schema.RoleType
-				switch msg.Role {
-				case "system":
-					role = schema.System
-				case "user":
-					role = schema.User
-				case "assistant":
-					role = schema.Assistant
-				default:
-					role = schema.User
-				}
-				messages = append(messages, &schema.Message{
-					Role:    role,
-					Content: msg.Content,
-				})
-			}
-		}
-	}
-
-	// 如果没有工具或不支持工具调用，使用简单流式模式
-	if len(a.tools) == 0 || a.toolModel == nil {
-		a.streamWithoutTools(ctx, messages, ch)
-		return
-	}
-
-	// 完整的流式 + 工具调用模式
-	a.streamWithTools(ctx, messages, sessionID, ch)
-}
-
-// streamWithTools 流式处理带工具调用的响应
-func (a *agentImpl) streamWithTools(ctx context.Context, messages []*schema.Message, sessionID string, ch chan *Chunk) {
-	// 提取所有工具的 ToolInfo
-	toolInfos := make([]*schema.ToolInfo, 0, len(a.tools))
-	for _, t := range a.tools {
-		info, infoErr := t.Info(ctx)
-		if infoErr != nil {
-			continue
-		}
-		toolInfos = append(toolInfos, info)
-	}
-
-	// 将工具绑定到模型
-	var boundModel model.ToolCallingChatModel
-	if len(toolInfos) > 0 {
-		var bindErr error
-		boundModel, bindErr = a.toolModel.WithTools(toolInfos)
-		if bindErr != nil {
-			ch <- &Chunk{
-				Content: "",
-				Done:    true,
-				Metadata: map[string]interface{}{
-					"event": string(EventError),
-					"error": fmt.Sprintf("绑定工具失败: %v", bindErr),
-				},
-			}
-			return
-		}
-	} else {
-		boundModel = a.toolModel
-	}
-
-	// 迭代处理多轮工具调用
-	for iteration := 0; iteration < a.maxIter; iteration++ {
-		// 流式生成响应
-		streamReader, err := boundModel.Stream(ctx, messages)
-		if err != nil {
-			ch <- &Chunk{
-				Content: "",
-				Done:    true,
-				Metadata: map[string]interface{}{
-					"event": string(EventError),
-					"error": fmt.Sprintf("生成失败: %v", err),
-				},
-			}
-			return
-		}
-
-		// 使用 defer 确保 streamReader 被关闭（只关闭一次）
-// 收集完整响应和工具调用
-			defer streamReader.Close()
-		var contentBuilder strings.Builder
-		var toolCallsInChunk []schema.ToolCall
-		var hasToolCalls bool
-
-		for {
-			chunk, err := streamReader.Recv()
-			if err != nil {
-				// 流结束（包括 EOF）
-				break
-			}
-
-			if chunk == nil {
-				break
-			}
-
-			// 检查是否有工具调用
-			if len(chunk.ToolCalls) > 0 {
-				hasToolCalls = true
-				toolCallsInChunk = chunk.ToolCalls
-				break
-			}
-
-			// 累积内容
-			if chunk.Content != "" {
-				contentBuilder.WriteString(chunk.Content)
-				// 发送内容块
-				ch <- &Chunk{
-					Content: chunk.Content,
-					Done:    false,
-					Metadata: map[string]interface{}{
-						"event":    string(EventContent),
-						"iteration": iteration + 1,
-					},
-				}
-			}
-		}
-
-		// 如果没有工具调用，说明是最终响应
-		if !hasToolCalls {
-			// 保存助手响应到记忆
-			if sessionID != "" && a.memoryService != nil && contentBuilder.Len() > 0 {
-				assistantMsg := &memory.Message{
-					ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-					SessionID: sessionID,
-					Type:      memory.MessageTypeAssistant,
-					Role:      "assistant",
-					Content:   contentBuilder.String(),
-					CreatedAt: time.Now(),
-					UpdatedAt: time.Now(),
-				}
-				go a.memoryService.SaveMessage(context.Background(), assistantMsg)
-			}
-
-			// 发送结束事件
-			ch <- &Chunk{
-				Content: "",
-				Done:    true,
-				Metadata: map[string]interface{}{
-					"event":      string(EventEnd),
-					"iterations": iteration + 1,
-				},
-			}
-			return
-		}
-
-		// 处理工具调用
-		for _, tc := range toolCallsInChunk {
-			// 解析参数
-			var args map[string]interface{}
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-					ch <- &Chunk{
-						Content: "",
-						Done:    false,
-						Metadata: map[string]interface{}{
-							"event": string(EventToolCall),
-							"tool_call": &ToolCallInStream{
-								ID:     tc.ID,
-								Name:   tc.Function.Name,
-								Status: "error",
-								Error:  fmt.Sprintf("参数解析失败: %v", err),
-							},
-						},
-					}
-					continue
-				}
-			}
-
-			// 发送工具调用事件
-			ch <- &Chunk{
-				Content: "",
-				Done:    false,
-				Metadata: map[string]interface{}{
-					"event": string(EventToolCall),
-					"tool_call": &ToolCallInStream{
-						ID:     tc.ID,
-						Name:   tc.Function.Name,
-						Input:  args,
-						Status: "calling",
-					},
-				},
-			}
-
-			// 执行工具
-			output, execErr := a.invokeTool(ctx, tc)
-
-			// 发送工具结果事件
-			resultEvent := &ToolCallInStream{
-				ID:     tc.ID,
-				Name:   tc.Function.Name,
-				Input:  args,
-				Status: "success",
-				Output: output,
-			}
-
-			if execErr != nil {
-				resultEvent.Status = "error"
-				resultEvent.Error = execErr.Error()
-			}
-
-			ch <- &Chunk{
-				Content: "",
-				Done:    false,
-				Metadata: map[string]interface{}{
-					"event":      string(EventToolResult),
-					"tool_call":  resultEvent,
-					"iteration":  iteration + 1,
-				},
-			}
-
-			// 添加工具调用和结果到消息历史
-			toolOutput := output
-			if execErr != nil {
-				toolOutput = fmt.Sprintf("Error: %v", execErr)
-			}
-
-			messages = append(messages, &schema.Message{
-				Role:      schema.Assistant,
-				Content:   "",
-				ToolCalls: []schema.ToolCall{tc},
-			})
-
-			messages = append(messages, schema.ToolMessage(compactObservation(toolOutput), tc.ID))
-		}
-	}
-
-	// 达到最大迭代次数
-	ch <- &Chunk{
-		Content: "",
-		Done:    true,
-		Metadata: map[string]interface{}{
-			"event":       string(EventEnd),
-			"max_reached": true,
-			"iterations":  a.maxIter,
-		},
-	}
-}
-
-// streamWithoutTools 流式处理不带工具调用的响应
-func (a *agentImpl) streamWithoutTools(ctx context.Context, messages []*schema.Message, ch chan *Chunk) {
-	// 确定使用的模型
-	var streamModel interface {
-		Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error)
-	}
-
-	if a.model != nil {
-		streamModel = a.model
-	} else if a.toolModel != nil {
-		streamModel = a.toolModel
-	} else {
-		ch <- &Chunk{
-			Content: "",
-			Done:    true,
-			Metadata: map[string]interface{}{
-				"event": "error",
-				"error": "no chat model available",
-			},
-		}
-		return
-	}
-
-	streamReader, err := streamModel.Stream(ctx, messages)
-	if err != nil {
-		ch <- &Chunk{
-			Content: "",
-			Done:    true,
-			Metadata: map[string]interface{}{
-				"event": "error",
-				"error": err.Error(),
-			},
-		}
-		return
-	}
-
-	defer streamReader.Close()
-
-	for {
-		chunk, err := streamReader.Recv()
-		if err != nil {
-			ch <- &Chunk{
-				Content: "",
-				Done:    true,
-				Metadata: map[string]interface{}{
-					"event": "error",
-					"error": err.Error(),
-				},
-			}
-			return
-		}
-
-		if chunk == nil {
-			ch <- &Chunk{
-				Content: "",
-				Done:    true,
-				Metadata: map[string]interface{}{
-					"event": "end",
-				},
-			}
-			return
-		}
-
-		ch <- &Chunk{
-			Content: chunk.Content,
-			Done:    false,
-			Metadata: map[string]interface{}{
-				"event": "content",
-				"role":  string(chunk.Role),
-			},
-		}
+// sendChunk 遵守 ctx 取消的下游发送：客户端断开（ctx.Done）后不再发送，
+// 返回 false 通知调用方终止上游生成，避免 goroutine 阻塞在 ch<- 上泄漏。
+func sendChunk(ctx context.Context, ch chan<- *Chunk, c *Chunk) bool {
+	select {
+	case ch <- c:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 

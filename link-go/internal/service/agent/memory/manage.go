@@ -3,13 +3,15 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
-	"link/internal/model/memory"
+	agentctx "link/internal/model/agent"
 	domainllm "link/internal/model/llm"
+	"link/internal/model/memory"
 	redisStore "link/internal/repository/redis"
 )
 
@@ -304,22 +306,66 @@ func (s *MemoryService) BuildContext(ctx context.Context, req *memory.BuildConte
 	return s.contextBuilder.Build(ctx, req)
 }
 
-// UpdateSummary 更新会话摘要
+// summaryCacheTTL 会话摘要缓存 TTL（与消息缓存一致）
+const summaryCacheTTL = 2 * time.Hour
+
+// UpdateSummary 更新会话摘要（write-through：先落 MySQL，再写 Redis 缓存）。
+// 旧实现只写 Redis，TTL 过期或 Redis 重启即丢失跨轮记忆。
 func (s *MemoryService) UpdateSummary(ctx context.Context, sessionID string, summary string) error {
-	// 创建或更新摘要
-	// 使用 Redis 存储摘要，设置与消息相同的 TTL
-	key := s.buildSummaryKey(sessionID)
-	return s.cache.Set(ctx, key, summary, 2*time.Hour)
+	now := time.Now()
+	latest, err := s.repo.LoadLatestSummary(ctx, sessionID)
+	switch {
+	case err == nil:
+		// 已有摘要：滚动更新内容
+		latest.Content = summary
+		latest.TimeRangeEnd = now
+		latest.UpdatedAt = now
+		if err := s.repo.UpdateSummary(ctx, latest); err != nil {
+			return fmt.Errorf("持久化会话摘要失败: %w", err)
+		}
+	case errors.Is(err, memory.ErrSummaryNotFound):
+		// 首个摘要：新建
+		tenantID, _ := agentctx.GetTenantID(ctx)
+		if err := s.repo.SaveSummary(ctx, &memory.Summary{
+			ID:             generateID(),
+			SessionID:      sessionID,
+			TenantID:       tenantID,
+			Content:        summary,
+			TimeRangeStart: now,
+			TimeRangeEnd:   now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}); err != nil {
+			return fmt.Errorf("持久化会话摘要失败: %w", err)
+		}
+	default:
+		return fmt.Errorf("加载最新摘要失败: %w", err)
+	}
+
+	// Redis 仅作缓存层：写失败不影响主流程（下次 GetSummary 回源 MySQL）
+	_ = s.cache.Set(ctx, s.buildSummaryKey(sessionID), summary, summaryCacheTTL)
+	return nil
 }
 
-// GetSummary 获取会话摘要
+// GetSummary 获取会话摘要（Cache-Aside：缓存未命中回源 MySQL 并回填）。
+// 区分 miss（返回 "", nil）与 error（返回 err）——旧实现把所有缓存错误都吞成空摘要。
 func (s *MemoryService) GetSummary(ctx context.Context, sessionID string) (string, error) {
 	key := s.buildSummaryKey(sessionID)
 	summary, err := s.cache.Get(ctx, key)
-	if err != nil {
-		return "", nil // 不存在返回空字符串，不报错
+	if err == nil {
+		return summary, nil
 	}
-	return summary, nil
+	// redis.Nil 是缓存 miss；其他缓存错误同样降级回源（MySQL 是事实来源）
+	latest, repoErr := s.repo.LoadLatestSummary(ctx, sessionID)
+	if repoErr != nil {
+		if errors.Is(repoErr, memory.ErrSummaryNotFound) {
+			return "", nil // 真 miss：该会话尚无摘要
+		}
+		return "", fmt.Errorf("回源加载摘要失败: %w", repoErr)
+	}
+	// 回填缓存（失败忽略）
+	_ = s.cache.Set(ctx, key, latest.Content, summaryCacheTTL)
+	return latest.Content, nil
 }
 
 // buildSummaryKey 构建摘要缓存键

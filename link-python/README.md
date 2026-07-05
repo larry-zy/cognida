@@ -1,6 +1,8 @@
 # link-python
 
-Python 工具服务 - 通过 gRPC 为 Go 服务提供文档处理、评测、数据分析等能力增强。
+Python 工具服务 - 为 Go 服务提供文档处理、评测指标计算、数据分析等**无状态计算**能力增强。
+
+> **边界**：Python 只做「计算」，不做「编排」。评测的流程编排（跑哪些样本、顺序、进度、状态、落库）由 Go worker 权威承担；Python 仅提供无状态的指标计算（给一对 reference/hypothesis 算分），经 FastAPI :18888 供 Go 按需调用。文档解析、OCR、分块、URL 抓取等经 gRPC (:50051) 提供。
 
 ## 架构定位
 
@@ -20,20 +22,22 @@ Python 工具服务 - 通过 gRPC 为 Go 服务提供文档处理、评测、数
 │  └──────────────┘  └──────────────┘  └──────────────┘     │
 │                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ URL 内容获取  │  │ 评测服务     │  │ 数据分析     │     │
-│  │ Playwright   │  │ RAG/LLM评测  │  │ 统计/趋势洞察 │     │
+│  │ URL 内容获取  │  │ 评测指标计算 │  │ 数据分析     │     │
+│  │ Playwright   │  │ 无状态 compute│ │ 统计/趋势洞察 │     │
 │  └──────────────┘  └──────────────┘  └──────────────┘     │
 └─────────────────────────────────────────────────────────────┘
-  端口: 50051 (文档/评测)  |  50053 (数据分析)
+  端口: 50051 (文档 gRPC)  |  50053 (数据分析 gRPC)  |  18888 (评测计算 HTTP)
 ```
+
+> 通信选型见 [跨服务通信规则](../docs/cross-service-communication.md)：gRPC 为主通道（文档/分析等高性能大数据），HTTP :18888 仅用于评测的无状态指标计算与健康检查。
 
 ## 职责划分
 
 | 功能 | Go | Python |
 |------|-----|--------|
 | 任务编排、存储 | ✓ | |
-| 评测指标 (BLEU/ROUGE/NDCG) | ✓ | ✓ (增强) |
-| 评测执行 (LLM-as-Judge) | | ✓ |
+| 评测**编排**（流程/进度/状态/落库） | ✓ | |
+| 评测**指标计算** (BLEU/ROUGE/NDCG/语义/LLM-Judge) | | ✓ (无状态 compute) |
 | 文档解析 | | ✓ |
 | OCR 识别 | | ✓ |
 | 文本分块 | | ✓ |
@@ -114,15 +118,14 @@ service DocumentReaderService {
 }
 ```
 
-### 评测服务
+### 评测指标计算（HTTP :18888，无状态 compute）
 
-```protobuf
-service EvaluationService {
-    rpc ExecuteEvaluation(EvaluationRequest) returns (stream EvaluationResponse);
-    rpc ListGraders(ListGradersRequest) returns (ListGradersResponse);
-    rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
-    rpc GetDatasetInfo(GetDatasetInfoRequest) returns (GetDatasetInfoResponse);
-}
+评测**不经 gRPC 编排**。Python 仅暴露无状态的指标计算与评分器查询，供 Go worker 在编排评测流程时按需调用（`services/evaluation/fastapi_app.py`）：
+
+```
+POST /api/v1/evaluation/compute-metrics   # 给一批 reference/hypothesis，算 ROUGE/BLEU/NDCG/语义/LLM-Judge 分
+GET  /api/v1/evaluation/graders?eval_type= # 列出某评测类型可用评分器
+GET  /health                               # 健康检查
 ```
 
 ### 数据分析服务
@@ -145,9 +148,6 @@ service AnalyticsService {
 | `OCRBatch` | 批量 OCR 识别（流式） |
 | `ChunkDocument` | 文本分块 |
 | `FetchURL` | 获取 URL 内容（支持 JS 渲染） |
-| `ExecuteEvaluation` | 执行评测（流式返回进度） |
-| `ListGraders` | 列出可用评分器 |
-| `ListDatasets` | 列出可用数据集 |
 | `ComputeMetrics` | 计算统计指标（均值、标准差、分位数等） |
 | `AnalyzeTrend` | 分析数据趋势（方向、强度、季节性） |
 | `DiscoverInsights` | 发现数据洞察（趋势、异常、相关性） |
@@ -201,9 +201,11 @@ python examples/analytics_demo.py
 python scripts/generate_grpc.py
 ```
 
-## 评测服务
+## 评测指标计算
 
 详细文档请参阅 [docs/evaluation.md](docs/evaluation.md)
+
+> 评测**流程编排在 Go worker**；Python 仅提供下列**无状态**指标计算能力，不持有评测流程/进度/状态。
 
 ### 功能
 
@@ -213,27 +215,20 @@ python scripts/generate_grpc.py
 - **LLM-as-Judge**: 使用 LLM 作为评分器
 - **自定义评分器**: 插件式评分器系统
 
-### 使用示例
+### 使用示例（无状态算分）
 
 ```python
-from services.evaluation.runners import EvaluationRunner, EvaluationConfig
+from services.evaluation.metrics import GenerationMetrics, SemanticMetrics
 
-config = EvaluationConfig(
-    top_k=5,
-    enable_semantic=True,
-    enable_llm_judge=True,
-)
+# 给定一对 参考答案/生成答案，直接算分——不涉及数据集拉取、检索、进度或落库
+gen = GenerationMetrics.compute(reference="参考答案", hypothesis="生成答案")
+print(f"ROUGE-1: {gen.rouge_1:.4f}")
 
-runner = EvaluationRunner(config)
-result = await runner.run(
-    dataset_id="default",
-    knowledge_base_id="my_kb",
-    model_id="gpt-4",
-)
-
-print(f"ROUGE-1: {result.generation.rouge_1:.4f}")
-print(f"语义相似度: {result.semantic.similarity:.4f}")
+sem = SemanticMetrics.compute(reference="参考答案", hypothesis="生成答案")
+print(f"语义相似度: {sem.similarity:.4f}")
 ```
+
+Go worker 在编排评测流程时，经 `POST /api/v1/evaluation/compute-metrics`（:18888）批量取回这些分数。
 
 ## 数据分析服务
 
@@ -287,28 +282,20 @@ resp, _ := client.ParseDocument(ctx, &docreader.ParseRequest{
 })
 ```
 
-### 评测
+### 评测指标计算
+
+评测流程由 Go worker 编排；算分这一步经 HTTP :18888 调 Python（见 `internal/service/evaluation/python_client.go`）：
 
 ```go
-// 评测客户端
-conn, _ := grpc.Dial("localhost:50051", grpc.WithInsecure())
-client := evaluation.NewEvaluationServiceClient(conn)
-
-// 执行评测
-stream, _ := client.ExecuteEvaluation(ctx, &evaluation.EvaluationRequest{
-    DatasetId: "default",
-    KnowledgeBaseId: "my_kb",
-    ModelId: "gpt-4",
+// 无状态算分：Go worker 在编排每批样本时调用，取回指标结果
+client := evaluation.NewPythonClient(cfg) // baseURL = http://localhost:18888
+scores, err := client.ComputeMetrics(ctx, &evaluation.ComputeMetricsRequest{
+    EvalType: "rag",
+    Items: []evaluation.MetricItem{
+        {Reference: "参考答案", Hypothesis: "生成答案"},
+    },
 })
-
-// 接收流式响应
-for {
-    resp, err := stream.Recv()
-    if err == io.EOF {
-        break
-    }
-    // 处理进度/结果
-}
+// Go 负责：拉数据集、检索、生成、进度、状态、聚合与落库；Python 只回分数。
 ```
 
 ### 数据分析

@@ -46,10 +46,20 @@ func BuildToolPolicy(manager skills.SkillManager, message, scope string) *infraa
 
 // toolPolicyHook 返回硬工具门 BeforeHook：以原始用户消息匹配 skill（须挂在
 // intentRoutingHook 之前，避免 playbook 注入文本干扰匹配），装配策略后注入 ctx。
+//
+// 工具门策略（allowed/disallowed）沿用 skillPolicyRelevanceThreshold(0.5) 判定命中；
+// 而"是否自动注入指导内容"改走渐进式披露（方案 A）：技能选择主要交给 LLM（system prompt
+// 技能目录 + skill_invoke 工具），故仅在极高置信（FallbackInjectThreshold）时才把命中 skill
+// 暂存到 ctx，供末位 InjectFromContextHook 兜底注入。匹配只发生一次且基于原始消息，
+// 不受后续 playbook 改写污染。
 func toolPolicyHook() infraagent.BeforeHook {
 	return func(ctx context.Context, message string) (context.Context, string, error) {
 		scope := domainagent.MustGetToolScope(ctx)
 		policy := BuildToolPolicy(skills.GetGlobalManager(), message, scope)
-		return infraagent.WithToolPolicy(ctx, policy), message, nil
+		ctx = infraagent.WithToolPolicy(ctx, policy)
+		if skill, ok := skills.MatchTopSkill(message, skills.FallbackInjectThreshold); ok {
+			ctx = skills.ContextWithMatchedSkill(ctx, skill)
+		}
+		return ctx, message, nil
 	}
 }

@@ -6,6 +6,11 @@
 //     不引入 memory 子系统的 conversation_messages 第二套存储，避免双写与 UI 展示分叉。
 //   - 只读不写：消息落库仍由 handler 侧 persistence.go 承担（SaveUserMessage/SaveAssistantMessage），
 //     本构建器仅按会话装配 [系统提示 + 历史 + 当前问题] 供 LLM 使用，不做任何写入。
+//
+// 读/写路径边界（架构加固 Phase 6，见 agentstate 包门面）：本包是「跨轮记忆只读投影」
+// 读路径；UI 会话写入（chat.session：service/chat + model/conversation 落 messages）是写路径。
+// 二者以 messages 表为单一数据源、以本构建器的只读契约为分界——写路径落库、读路径回放，
+// 读投影不得反向改写会话写入状态，防止写路径污染读投影。
 package convcontext
 
 import (

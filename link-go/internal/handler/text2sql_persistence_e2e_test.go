@@ -49,9 +49,9 @@ func TestText2SQLPersistenceE2E(t *testing.T) {
 	setupText2SQLTestSchema(t, db)
 	defer cleanupText2SQLTestTables(t, db)
 
-	// 4. 初始化 SQL 工具
-	ragtool.InitSQLExecuteTool(db)
-	ragtool.InitGetSchemaTool(db)
+	// 4. 构造携真实 DB 的工具注册表（SQL 工具随构造注册）；经 Initializer 显式注入
+	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{SQLDB: db})
+	require.NoError(t, err, "构造工具注册表失败")
 
 	// 5. 创建 ChatModel
 	chatModel := setupTestChatModel(t)
@@ -62,7 +62,7 @@ func TestText2SQLPersistenceE2E(t *testing.T) {
 
 	// 6. 初始化 Text2SQL Agent
 	ctx := context.Background()
-	err = initE2EAgents(ctx, chatModel)
+	_, err = initE2EAgents(ctx, chatModel, reg)
 	require.NoError(t, err, "初始化 Agent 失败")
 
 	// 7. 创建 Router

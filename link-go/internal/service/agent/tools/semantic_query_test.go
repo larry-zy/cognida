@@ -9,6 +9,7 @@ import (
 	"link/internal/model/semantic"
 	"link/internal/service/agent/metricsql"
 	"link/internal/service/agent/semanticcache"
+	"link/internal/service/agent/termgrounding"
 )
 
 // stubSemanticRepo 是 semantic.Repository 打桩：只回单个生效模型的固定 bundle。
@@ -54,24 +55,21 @@ func salesBundle() *semantic.ModelBundle {
 	}
 }
 
-// withSemantic 在测试内装配全局仓储/缓存并注入租户上下文，返回还原函数。
-func withSemantic(t *testing.T, repo semantic.Repository, cache semanticcache.Cache) (context.Context, func()) {
+// withSemantic 装配测试用仓储/缓存并注入租户上下文，返回可直接传入 semanticQuery/groundTerms 的依赖。
+func withSemantic(t *testing.T, repo semantic.Repository, cache semanticcache.Cache) (context.Context, semantic.Repository, semanticcache.Cache) {
 	t.Helper()
-	prevRepo, prevCache := semanticRepo, semanticQueryCache
-	semanticRepo, semanticQueryCache = repo, cache
 	ctx := agentctx.WithTenantID(context.Background(), 1)
-	return ctx, func() { semanticRepo, semanticQueryCache = prevRepo, prevCache }
+	return ctx, repo, cache
 }
 
 func TestSemanticQuery_CoveredGeneratesSQLAndCaches(t *testing.T) {
 	cache := semanticcache.NewMemoryCache()
-	ctx, restore := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, cache)
-	defer restore()
+	ctx, repo, c := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, cache)
 
 	res, err := semanticQuery(ctx, &SemanticQueryRequest{
 		Metrics:    []string{"营收"},
 		Dimensions: []string{"区域"},
-	})
+	}, repo, c)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -93,10 +91,9 @@ func TestSemanticQuery_CoveredGeneratesSQLAndCaches(t *testing.T) {
 }
 
 func TestSemanticQuery_UncoveredFallsBackToLexical(t *testing.T) {
-	ctx, restore := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, semanticcache.NewMemoryCache())
-	defer restore()
+	ctx, repo, c := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, semanticcache.NewMemoryCache())
 
-	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"利润"}})
+	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"利润"}}, repo, c)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -113,8 +110,7 @@ func TestSemanticQuery_UncoveredFallsBackToLexical(t *testing.T) {
 
 func TestSemanticQuery_CacheHitReturnsTrustedSQL(t *testing.T) {
 	cache := semanticcache.NewMemoryCache()
-	ctx, restore := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, cache)
-	defer restore()
+	ctx, repo, c := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, cache)
 
 	q := metricsql.Query{Metrics: []string{"营收"}, Dimensions: []string{"区域"}}
 	key := semanticcache.BuildKey(1, "sales", 3, q)
@@ -122,7 +118,7 @@ func TestSemanticQuery_CacheHitReturnsTrustedSQL(t *testing.T) {
 		t.Fatalf("seed cache: %v", err)
 	}
 
-	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"营收"}, Dimensions: []string{"区域"}})
+	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"营收"}, Dimensions: []string{"区域"}}, repo, c)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -138,10 +134,10 @@ func TestGroundTerms_NeedsClarificationOnAmbiguity(t *testing.T) {
 	b := salesBundle()
 	// 追加一个与 营收 共享同义词 "revenue" 的指标 → 触发歧义。
 	b.Metrics = append(b.Metrics, &semantic.Metric{ID: "mt_rev2", ModelID: "m1", Name: "净收入", Synonyms: []string{"revenue"}})
-	ctx, restore := withSemantic(t, &stubSemanticRepo{bundle: b}, semanticcache.NewMemoryCache())
-	defer restore()
+	ctx, repo, _ := withSemantic(t, &stubSemanticRepo{bundle: b}, semanticcache.NewMemoryCache())
+	grounder := termgrounding.NewGrounder(nil)
 
-	res, err := groundTerms(ctx, &GroundTermsRequest{Terms: []string{"revenue", "大区", "客单价"}})
+	res, err := groundTerms(ctx, &GroundTermsRequest{Terms: []string{"revenue", "大区", "客单价"}}, repo, grounder)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

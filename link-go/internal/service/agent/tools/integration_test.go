@@ -128,7 +128,6 @@ func TestSQLExecuteIntegration(t *testing.T) {
 	db := getTestDB(t)
 	setupIntegrationTestData(t, db)
 
-	InitSQLExecuteTool(db)
 	ctx := context.Background()
 
 	t.Run("简单 SELECT 查询", func(t *testing.T) {
@@ -137,7 +136,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req)
+		result, err := sqlExecute(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -168,7 +167,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req)
+		result, err := sqlExecute(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -184,7 +183,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req)
+		result, err := sqlExecute(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -215,7 +214,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req)
+		result, err := sqlExecute(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -231,7 +230,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req)
+		result, err := sqlExecute(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -247,7 +246,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		_, err := sqlExecute(ctx, req)
+		_, err := sqlExecute(ctx, req, db, nil, nil)
 		if err == nil {
 			t.Error("expected error for DELETE SQL, got nil")
 		}
@@ -262,16 +261,15 @@ func TestGetSchemaIntegration(t *testing.T) {
 	db := getTestDB(t)
 	setupIntegrationTestData(t, db)
 
-	InitGetSchemaTool(db)
 	ctx := context.Background()
 
 	t.Run("获取集成测试表结构", func(t *testing.T) {
+		// database_id 留空走业务库路径（db 直连的即为目标库）。
 		req := &GetSchemaRequest{
-			DatabaseID: getEnv("DB_NAME", "link"),
-			TableName:  "integration_test_users",
+			TableName: "integration_test_users",
 		}
 
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, db, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -322,11 +320,10 @@ func TestGetSchemaIntegration(t *testing.T) {
 
 	t.Run("获取所有表（包含集成测试表）", func(t *testing.T) {
 		req := &GetSchemaRequest{
-			DatabaseID: getEnv("DB_NAME", "link"),
-			TableName:  "",
+			TableName: "",
 		}
 
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, db, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -354,18 +351,15 @@ func TestEndToEndScenarios(t *testing.T) {
 	db := getTestDB(t)
 	setupIntegrationTestData(t, db)
 
-	InitSQLExecuteTool(db)
-	InitGetSchemaTool(db)
 	ctx := context.Background()
 
 	t.Run("场景1：先获取Schema再执行查询", func(t *testing.T) {
 		// 1. 获取表结构
 		schemaReq := &GetSchemaRequest{
-			DatabaseID: getEnv("DB_NAME", "link"),
-			TableName:  "integration_test_users",
+			TableName: "integration_test_users",
 		}
 
-		schema, err := getSchema(ctx, schemaReq)
+		schema, err := getSchema(ctx, schemaReq, db, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -383,7 +377,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, queryReq)
+		result, err := sqlExecute(ctx, queryReq, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -411,7 +405,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req)
+		result, err := sqlExecute(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}

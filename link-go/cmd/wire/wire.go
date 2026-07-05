@@ -18,10 +18,11 @@ import (
 	"gorm.io/gorm"
 
 	agent "link/internal/model/agent"
+	domain_audit "link/internal/model/audit"
 	appAccount "link/internal/service/account"
+	auditsvc "link/internal/service/audit"
 	agentuc "link/internal/service/agent"
 	agentframework "link/internal/service/agent/framework"
-	agentinit "link/internal/service/agent/initializer"
 	agenttools "link/internal/service/agent/tools"
 	app_chat "link/internal/service/chat"
 	app_evaluation "link/internal/service/evaluation"
@@ -47,6 +48,7 @@ import (
 	"link/internal/infrastructure/queue"
 	domain_types "link/internal/model/common"
 	domain_conversation "link/internal/model/conversation"
+	datasourcemodel "link/internal/model/datasource"
 	domain_evaluation "link/internal/model/evaluation"
 	domain_knowledge "link/internal/model/knowledge"
 	domain_llm "link/internal/model/llm"
@@ -56,6 +58,7 @@ import (
 	domain_tenant "link/internal/model/tenant"
 	domain_user "link/internal/model/user"
 	qualitysvc "link/internal/service/quality"
+	datasourcesvc "link/internal/service/datasource"
 	"link/internal/repository/milvus/retriever"
 	"link/internal/repository/mysql"
 	neo4jimpl "link/internal/repository/neo4j"
@@ -156,6 +159,11 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideDatasetService,
 		ProvideDatasetUseCase,
 
+		// 请求审计（异步批量落库）
+		ProvideAuditRepository,
+		ProvideAuditWriter,
+		ProvideAuditHandler,
+
 		// 中间件
 		ProvideAuthMiddleware,
 		ProvideTenantMiddleware,
@@ -163,6 +171,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideRecoveryMiddleware,
 		ProvideLoggerMiddleware,
 		ProvideTraceMiddleware,
+		ProvideAuditMiddleware,
 
 		// Handler
 		ProvideAuthHandler,
@@ -187,6 +196,11 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideQualityCheckRecordRepository,
 		ProvideQualityService,
 		ProvideQualityHandler,
+
+		// 外部数据源
+		ProvideDataSourceRepository,
+		ProvideDataSourceService,
+		ProvideDataSourceHandler,
 
 		// 路由
 		ProvideRouter,
@@ -543,9 +557,9 @@ func ProvideDocumentProcessorService(
 // Agent Use Case Providers
 // ========================================
 
-func ProvideAgentOrchestrator() agent.AgentExecutor {
-	// 创建基于注册中心的 Agent 编排器
-	orchestrator := agentframework.NewRegistryAgentOrchestrator(agentinit.GetAgentByID)
+func ProvideAgentOrchestrator(registry *agentframework.SpecRegistry) agent.AgentExecutor {
+	// 创建基于注册中心的 Agent 编排器：从声明式注册表按 agentID 取可运行实例（含别名）。
+	orchestrator := agentframework.NewRegistryAgentOrchestrator(registry.GetInstance)
 	return orchestrator
 }
 
@@ -577,8 +591,8 @@ func ProvideAgentPersistenceService(
 // Agent Registry Provider
 // ========================================
 
-func ProvideAgentRegistry() agent.AgentRegistry {
-	return agentframework.NewMemoryRegistry()
+func ProvideAgentRegistry() *agentframework.SpecRegistry {
+	return agentframework.NewSpecRegistry()
 }
 
 // ========================================
@@ -697,6 +711,28 @@ func ProvideTraceMiddleware() *middleware.TraceMiddleware {
 	return middleware.NewTraceMiddleware()
 }
 
+func ProvideAuditMiddleware(writer *auditsvc.Writer) *middleware.AuditMiddleware {
+	return middleware.NewAuditMiddleware(writer)
+}
+
+// ========================================
+// 请求审计 Providers
+// ========================================
+
+func ProvideAuditRepository(db *gorm.DB) domain_audit.Repository {
+	return mysql.NewAuditRepository(db)
+}
+
+// ProvideAuditWriter 提供审计异步批量写入器。
+// 后台 flush goroutine 在构造时启动，App.Shutdown 负责优雅收尾。
+func ProvideAuditWriter(repo domain_audit.Repository) *auditsvc.Writer {
+	return auditsvc.NewWriter(repo, auditsvc.DefaultWriterConfig())
+}
+
+func ProvideAuditHandler(repo domain_audit.Repository) *handler.AuditHandler {
+	return handler.NewAuditHandler(repo)
+}
+
 // ========================================
 // Handler Providers
 // ========================================
@@ -760,7 +796,7 @@ func ProvideModelHandler(
 	return handler.NewModelHandler(modelService, chatService)
 }
 
-func ProvideRegistryAgentHandler(registry agent.AgentRegistry) *handler.RegistryAgentHandler {
+func ProvideRegistryAgentHandler(registry *agentframework.SpecRegistry) *handler.RegistryAgentHandler {
 	return handler.NewRegistryAgentHandler(registry)
 }
 
@@ -932,9 +968,12 @@ func ProvideRouter(
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
 	qualityHandler *handler.QualityHandler,
+	dataSourceHandler *handler.DataSourceHandler,
+	auditHandler *handler.AuditHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
+	auditMiddleware *middleware.AuditMiddleware,
 ) *router.Router {
 	return router.NewRouter(
 		authHandler,
@@ -952,9 +991,12 @@ func ProvideRouter(
 		guardrailHandler,
 		evaluationHandler,
 		qualityHandler,
+		dataSourceHandler,
+		auditHandler,
 		webHandler,
 		authMiddleware,
 		tenantMiddleware,
+		auditMiddleware,
 	)
 }
 
@@ -1002,6 +1044,31 @@ func ProvideQualityHandler(service *qualitysvc.Service) *handler.QualityHandler 
 }
 
 // ========================================
+// 外部数据源 Providers
+// ========================================
+
+// ProvideDataSourceRepository 提供数据源仓储。
+func ProvideDataSourceRepository(db *gorm.DB) datasourcemodel.Repository {
+	return mysql.NewDataSourceRepository(db)
+}
+
+// ProvideDataSourceService 提供数据源应用服务（含凭证加密与受管连接池）。
+// DATASOURCE_SECRET_KEY 未配置时 fail-fast：不允许明文/无密钥启动。
+func ProvideDataSourceService(repo datasourcemodel.Repository, idGen infraid.IDGenerator) *datasourcesvc.Service {
+	cipher, err := datasourcesvc.NewCipherFromEnv()
+	if err != nil {
+		panic(fmt.Sprintf("外部数据源加密初始化失败: %v（请配置 %s）", err, datasourcesvc.SecretKeyEnv))
+	}
+	cm := datasourcesvc.NewConnectionManager(repo, cipher, datasourcesvc.DefaultPoolOptions())
+	return datasourcesvc.NewService(repo, cipher, cm, idGen)
+}
+
+// ProvideDataSourceHandler 提供数据源 HTTP 处理器。
+func ProvideDataSourceHandler(service *datasourcesvc.Service) *handler.DataSourceHandler {
+	return handler.NewDataSourceHandler(service)
+}
+
+// ========================================
 // Middlewares Collection
 // ========================================
 
@@ -1041,7 +1108,7 @@ func ProvideMiddlewares(
 type App struct {
 	Router           *router.Router
 	Middlewares      *Middlewares
-	AgentRegistry    agent.AgentRegistry
+	AgentRegistry    *agentframework.SpecRegistry
 	ChatConfig       *config.ChatConfig
 	EvaluationConfig *config.EvaluationConfig
 	EvaluationWorker *app_evaluation.EvaluationWorker
@@ -1050,18 +1117,29 @@ type App struct {
 	Retriever               domain_rag.Retriever
 	GraphService            *app_kb.GraphService
 	KnowledgeBaseRepository domain_knowledge.KnowledgeBaseRepository
+	// AuditWriter 暴露给组合根：优雅关闭时 flush 积压审计。
+	AuditWriter *auditsvc.Writer
+	// DataSourceService 暴露给组合根：把查询类工具的 database_id 路由
+	// 接线到外部数据源 ConnectionManager（InitDatasourceTools）。
+	DataSourceService *datasourcesvc.Service
+	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
+	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
+	AgentHandler *handler.AgentHandler
 }
 
 func ProvideApp(
 	r *router.Router,
 	m *Middlewares,
-	agentRegistry agent.AgentRegistry,
+	agentRegistry *agentframework.SpecRegistry,
 	chatConfig *config.ChatConfig,
 	evalConfig *config.EvaluationConfig,
 	evalWorker *app_evaluation.EvaluationWorker,
 	retriever domain_rag.Retriever,
 	graphService *app_kb.GraphService,
 	kbRepo domain_knowledge.KnowledgeBaseRepository,
+	auditWriter *auditsvc.Writer,
+	dataSourceService *datasourcesvc.Service,
+	agentHandler *handler.AgentHandler,
 ) *App {
 	return &App{
 		Router:                  r,
@@ -1073,10 +1151,16 @@ func ProvideApp(
 		Retriever:               retriever,
 		GraphService:            graphService,
 		KnowledgeBaseRepository: kbRepo,
+		AuditWriter:             auditWriter,
+		DataSourceService:       dataSourceService,
+		AgentHandler:            agentHandler,
 	}
 }
 
-// Shutdown 关闭应用程序
+// Shutdown 关闭应用程序：flush 审计写入器，确保积压审计落库不丢。
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.AuditWriter != nil {
+		return a.AuditWriter.Close(ctx)
+	}
 	return nil
 }

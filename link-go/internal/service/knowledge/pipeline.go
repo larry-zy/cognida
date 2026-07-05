@@ -180,14 +180,16 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 		}
 
 		// 3. Send retrieve start event
-		sendEvent(eventChan, &StreamEvent{
+		if !sendEvent(ctx, eventChan, &StreamEvent{
 			Event:   "retrieve_start",
 			Content: finalQuery,
 			Metadata: map[string]interface{}{
 				"retrieval_mode": opts.RetrievalMode,
 				"top_k":          opts.TopK,
 			},
-		})
+		}) {
+			return
+		}
 
 		// 4. Execute retrieval
 		kbID := req.KnowledgeBaseID
@@ -214,7 +216,7 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 		}
 
 		if err != nil {
-			sendEvent(eventChan, &StreamEvent{
+			sendEvent(ctx, eventChan, &StreamEvent{
 				Event: "error",
 				Error: err.Error(),
 			})
@@ -222,19 +224,23 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 		}
 
 		// 5. Send retrieve complete event
-		sendEvent(eventChan, &StreamEvent{
+		if !sendEvent(ctx, eventChan, &StreamEvent{
 			Event: "retrieve_complete",
 			Metadata: map[string]interface{}{
 				"count": len(retrieveResp.Results),
 			},
-		})
+		}) {
+			return
+		}
 
 		// 6. Send document events
 		for _, doc := range retrieveResp.Results {
-			sendEvent(eventChan, &StreamEvent{
+			if !sendEvent(ctx, eventChan, &StreamEvent{
 				Event:    "document",
 				Document: convertDocumentDTO(doc),
-			})
+			}) {
+				return
+			}
 		}
 
 		// 7. Stream generate answer
@@ -247,7 +253,7 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 
 		streamChan, err := p.llmChat.ChatStream(ctx, llmMessages, llmOpts)
 		if err != nil {
-			sendEvent(eventChan, &StreamEvent{
+			sendEvent(ctx, eventChan, &StreamEvent{
 				Event: "error",
 				Error: err.Error(),
 			})
@@ -257,18 +263,20 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 		// 8. Forward stream events
 		for streamEvent := range streamChan {
 			if streamEvent.Error != nil {
-				sendEvent(eventChan, &StreamEvent{
+				sendEvent(ctx, eventChan, &StreamEvent{
 					Event: "error",
 					Error: streamEvent.Error.Error(),
 				})
 				return
 			}
 
-			sendEvent(eventChan, &StreamEvent{
+			if !sendEvent(ctx, eventChan, &StreamEvent{
 				Event:   "chunk",
 				Content: streamEvent.Content,
 				Done:    streamEvent.Done,
-			})
+			}) {
+				return
+			}
 
 			if streamEvent.Done {
 				break
@@ -276,7 +284,7 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 		}
 
 		// 9. Send complete event
-		sendEvent(eventChan, &StreamEvent{
+		sendEvent(ctx, eventChan, &StreamEvent{
 			Event: "done",
 			Done:  true,
 			Metadata: map[string]interface{}{
@@ -360,11 +368,13 @@ func (p *Pipeline) buildRAGMessages(query string, docs []*domainrag.Document, hi
 	return messages
 }
 
-// sendEvent sends event to channel in non-blocking way
-func sendEvent(ch chan<- *StreamEvent, event *StreamEvent) {
+// sendEvent 阻塞发送事件：慢消费者产生背压而非静默丢块；
+// ctx 取消时返回 false，调用方应停止生产。
+func sendEvent(ctx context.Context, ch chan<- *StreamEvent, event *StreamEvent) bool {
 	select {
 	case ch <- event:
-	default:
-		// Channel full, skip event
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }

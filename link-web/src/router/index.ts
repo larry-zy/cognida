@@ -93,6 +93,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/quality/QualityCenter.vue'),
         meta: { title: '数据质量管理中心' }
       },
+      {
+        path: '/datasource',
+        name: 'DatasourceList',
+        component: () => import('@/views/datasource/DatasourceList.vue'),
+        meta: { title: '数据源管理' }
+      },
+      {
+        path: '/audit-logs',
+        name: 'AuditLogList',
+        component: () => import('@/views/audit/AuditLogList.vue'),
+        meta: { title: '审计日志' }
+      },
     ]
   },
   {

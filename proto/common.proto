@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "link/api/proto/common";
+
+// 跨服务统一错误码（架构加固 Phase 4，任务 4.2）。
+//
+// 单一源：各服务（analytics/docreader/evaluation/judge/quality）的错误语义以此枚举为准，
+// 替代散在各 proto 的 string code 字段。当前为契约先行——新增字段/新服务应直接引用
+// common.ErrorCode；存量 string code 的迁移作为后续增量，不在本阶段一次性重写以控回归面。
+enum ErrorCode {
+    // 未指定（proto3 零值，保留位）。
+    ERROR_CODE_UNSPECIFIED = 0;
+
+    // 通用类（0–99 段）
+    ERROR_CODE_OK = 1;                    // 成功
+    ERROR_CODE_INTERNAL = 2;              // 服务内部错误
+    ERROR_CODE_INVALID_ARGUMENT = 3;      // 参数非法
+    ERROR_CODE_NOT_FOUND = 4;             // 资源不存在
+    ERROR_CODE_UNAUTHENTICATED = 5;       // 未认证
+    ERROR_CODE_PERMISSION_DENIED = 6;     // 无权限
+    ERROR_CODE_DEADLINE_EXCEEDED = 7;     // 超时
+    ERROR_CODE_UNAVAILABLE = 8;           // 依赖不可用（下游服务/存储）
+    ERROR_CODE_RESOURCE_EXHAUSTED = 9;    // 资源耗尽（限流/配额）
+
+    // 领域类（100+ 段，按需扩展）
+    ERROR_CODE_DATASET_NOT_FOUND = 100;   // 数据集不存在（evaluation）
+    ERROR_CODE_MODEL_UNAVAILABLE = 101;   // 模型不可用（evaluation/judge）
+    ERROR_CODE_COMPUTE_FAILED = 102;      // 指标计算失败（evaluation compute）
+    ERROR_CODE_UPSTREAM_TIMEOUT = 103;    // 上游数据源超时（analytics/docreader）
+}

@@ -1,103 +1,38 @@
-// Package tools 提供工具自动初始化
+// Package tools 提供工具注册装配：由 NewToolRegistry 在构造期按序调用各 registerXxx 方法，
+// 每个方法从 r.deps 读取显式注入的依赖并构造工具，取代原先的 init() 自动注册 + 包级全局注入。
 package tools
 
 import (
-	"log"
+	"context"
+
+	"link/internal/service/agent/framework"
+	"link/internal/model/agent/operations"
+	"link/internal/service/agent/termgrounding"
 )
 
-// init 包初始化时自动注册所有工具
-func init() {
-	if err := InitializeTools(); err != nil {
-		log.Printf("[警告] 工具初始化失败: %v", err)
-	}
-}
-
-// InitializeTools 初始化所有工具到全局注册表
-func InitializeTools() error {
-	// RAG 工具
-	if err := registerRAGTools(); err != nil {
-		return err
-	}
-
-	// SQL 工具
-	if err := registerSQLTools(); err != nil {
-		return err
-	}
-
-	// Web 工具
-	if err := registerWebTools(); err != nil {
-		return err
-	}
-
-	// 知识库工具
-	if err := registerKBTools(); err != nil {
-		return err
-	}
-
-	// 数据查询工具
-	if err := registerDataTools(); err != nil {
-		return err
-	}
-
-	// 指标语义层工具（NL2Semantics）
-	if err := registerSemanticTools(); err != nil {
-		return err
-	}
-
-	// 图谱工具
-	if err := registerGraphTools(); err != nil {
-		return err
-	}
-
-	// 数据分析工具（经 MCP 调用 Python analytics 引擎）
-	if err := registerAnalyticsTools(); err != nil {
-		return err
-	}
-
-	// 渲染工具（render_ui：结果集 → A2UI 规格）
-	if err := registerRenderTools(); err != nil {
-		return err
-	}
-
-	// 操作工具（sql_mutate / etl_run / data_export：写、派生、导出）
-	if err := registerOperationTools(); err != nil {
-		return err
-	}
-
-	// Skill 工具（工具发现和推荐）
-	if err := registerSkillTools(); err != nil {
-		return err
-	}
-
-	log.Printf("[工具注册] 已注册 %d 个工具，分组: %v",
-		GlobalRegistry.Size(), GlobalRegistry.ListGroups())
-
-	return nil
-}
-
 // registerRAGTools 注册 RAG 工具
-func registerRAGTools() error {
-	ragTool := NewRAGQueryTool()
+func (r *ToolRegistry) registerRAGTools() error {
+	ragTool := NewRAGQueryTool(r.deps.RAGService)
 	if ragTool == nil {
 		return nil // RAG 工具可能未配置
 	}
-	return GlobalRegistry.Register("rag", ragTool)
+	return r.Register("rag", ragTool)
 }
 
 // registerSQLTools 注册 SQL 工具
-func registerSQLTools() error {
+func (r *ToolRegistry) registerSQLTools() error {
 	// get_schema
-	getSchemaTool := NewGetSchemaTool()
+	getSchemaTool := NewGetSchemaTool(r.deps.GetSchemaDB, r.deps.DatasourceProvider)
 	if getSchemaTool != nil {
-		if err := GlobalRegistry.Register("sql", getSchemaTool); err != nil {
+		if err := r.Register("sql", getSchemaTool); err != nil {
 			return err
 		}
 	}
 
 	// sql_execute
-	sqlExecuteTool := NewSQLExecuteTool()
+	sqlExecuteTool := NewSQLExecuteTool(r.deps.SQLDB, r.deps.DatasourceProvider, r.deps.ResultStore)
 	if sqlExecuteTool != nil {
-		if err := GlobalRegistry.Register("sql", sqlExecuteTool); err != nil {
+		if err := r.Register("sql", sqlExecuteTool); err != nil {
 			return err
 		}
 	}
@@ -106,11 +41,11 @@ func registerSQLTools() error {
 }
 
 // registerWebTools 注册 Web 工具
-func registerWebTools() error {
+func (r *ToolRegistry) registerWebTools() error {
 	// web_search
-	webSearchTool := NewWebSearchTool()
+	webSearchTool := NewWebSearchTool(r.deps.MetasoClient)
 	if webSearchTool != nil {
-		if err := GlobalRegistry.Register("web", webSearchTool); err != nil {
+		if err := r.Register("web", webSearchTool); err != nil {
 			return err
 		}
 	}
@@ -118,15 +53,15 @@ func registerWebTools() error {
 	// fetch_url
 	fetchURLTool := NewFetchURLTool()
 	if fetchURLTool != nil {
-		if err := GlobalRegistry.Register("web", fetchURLTool); err != nil {
+		if err := r.Register("web", fetchURLTool); err != nil {
 			return err
 		}
 	}
 
 	// search_multi
-	searchMultiTool := NewSearchMultiTool()
+	searchMultiTool := NewSearchMultiTool(r.deps.MetasoClient)
 	if searchMultiTool != nil {
-		if err := GlobalRegistry.Register("web", searchMultiTool); err != nil {
+		if err := r.Register("web", searchMultiTool); err != nil {
 			return err
 		}
 	}
@@ -138,11 +73,11 @@ func registerWebTools() error {
 //
 // 检索范围由用户在会话入口选定并经 ctx 强制透传，rag_query 会自动在选定范围内多库检索，
 // 因此不再需要 kb_select（LLM 选库）与 rag_query_multi（LLM 传库列表）。仅保留 kb_list 供查看/说明。
-func registerKBTools() error {
+func (r *ToolRegistry) registerKBTools() error {
 	// kb_list
-	kbListTool := NewKbListTool()
+	kbListTool := NewKbListTool(r.deps.KnowledgeBaseRepo)
 	if kbListTool != nil {
-		if err := GlobalRegistry.Register("kb", kbListTool); err != nil {
+		if err := r.Register("kb", kbListTool); err != nil {
 			return err
 		}
 	}
@@ -150,7 +85,7 @@ func registerKBTools() error {
 	// kb_route：让 Agent 在结合/智能模式下自主聚焦检索范围（写入 ctx 路由 holder，无需外部服务）。
 	kbRouteTool := NewKbRouteTool()
 	if kbRouteTool != nil {
-		if err := GlobalRegistry.Register("kb", kbRouteTool); err != nil {
+		if err := r.Register("kb", kbRouteTool); err != nil {
 			return err
 		}
 	}
@@ -160,31 +95,34 @@ func registerKBTools() error {
 
 // registerDataTools 注册数据查询工具
 // data_query 已移除，使用 sql_execute 代替
-func registerDataTools() error {
+func (r *ToolRegistry) registerDataTools() error {
 	// 数据查询功能由 sql_execute 工具提供
 	return nil
 }
 
 // registerSemanticTools 注册指标语义层工具（semantic_models / semantic_query）
 //
-// 工具无需仓储即可注册；真实语义模型仓储由组合根通过 InitSemanticTools 注入。
+// 工具无需仓储即可注册；真实语义模型仓储由组合根经 ToolDeps.SemanticRepo 注入。
 // 未注入时工具报告语义层未启用并提示回退词法 NL2SQL。
-func registerSemanticTools() error {
-	modelsTool := NewSemanticModelsTool()
+func (r *ToolRegistry) registerSemanticTools() error {
+	// 词条对齐器：图谱端口缺省时以 nil 图谱降级构造（仍可跑无图谱兜底逻辑）。
+	grounder := termgrounding.NewGrounder(r.deps.TermGrounding)
+
+	modelsTool := NewSemanticModelsTool(r.deps.SemanticRepo)
 	if modelsTool != nil {
-		if err := GlobalRegistry.Register("semantic", modelsTool); err != nil {
+		if err := r.Register("semantic", modelsTool); err != nil {
 			return err
 		}
 	}
-	queryTool := NewSemanticQueryTool()
+	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder)
 	if queryTool != nil {
-		if err := GlobalRegistry.Register("semantic", queryTool); err != nil {
+		if err := r.Register("semantic", queryTool); err != nil {
 			return err
 		}
 	}
-	groundTool := NewGroundTermsTool()
+	groundTool := NewGroundTermsTool(r.deps.SemanticRepo, grounder)
 	if groundTool != nil {
-		if err := GlobalRegistry.Register("semantic", groundTool); err != nil {
+		if err := r.Register("semantic", groundTool); err != nil {
 			return err
 		}
 	}
@@ -192,25 +130,25 @@ func registerSemanticTools() error {
 }
 
 // registerGraphTools 注册图谱工具
-func registerGraphTools() error {
-	graphQueryTool := NewGraphQueryTool()
+func (r *ToolRegistry) registerGraphTools() error {
+	graphQueryTool := NewGraphQueryTool(r.deps.GraphService)
 	if graphQueryTool != nil {
-		return GlobalRegistry.Register("graph", graphQueryTool)
+		return r.Register("graph", graphQueryTool)
 	}
 	return nil
 }
 
 // registerAnalyticsTools 注册数据分析工具（data_analysis）
 //
-// 工具本身无需 MCP 客户端即可注册；真实 MCP 调用器由组合根通过
-// InitDataAnalysisTool 注入。未注入时调用返回非致命错误结果。
-func registerAnalyticsTools() error {
-	dataAnalysisTool, err := NewDataAnalysisTool()
+// 工具本身无需 MCP 客户端即可注册；真实 MCP 调用器由组合根经
+// ToolDeps.DataAnalysisInvoker 注入。未注入时调用返回非致命错误结果。
+func (r *ToolRegistry) registerAnalyticsTools() error {
+	dataAnalysisTool, err := NewDataAnalysisTool(r.deps.DataAnalysisInvoker, r.deps.ResultStore)
 	if err != nil {
 		return err
 	}
 	if dataAnalysisTool != nil {
-		if err := GlobalRegistry.Register("analytics", dataAnalysisTool); err != nil {
+		if err := r.Register("analytics", dataAnalysisTool); err != nil {
 			return err
 		}
 	}
@@ -219,12 +157,12 @@ func registerAnalyticsTools() error {
 
 // registerRenderTools 注册渲染工具（render_ui）
 //
-// 工具无需 Result Store 即可注册；真实存储由组合根经 InitResultStore 注入
+// 工具无需 Result Store 即可注册；真实存储由组合根经 ToolDeps.ResultStore 注入
 // （与 sql_execute 共享）。未注入时调用返回"结果存储未启用"错误。
-func registerRenderTools() error {
-	renderUITool := NewRenderUITool()
+func (r *ToolRegistry) registerRenderTools() error {
+	renderUITool := NewRenderUITool(r.deps.ResultStore, r.deps.UIBinding)
 	if renderUITool != nil {
-		if err := GlobalRegistry.Register("render", renderUITool); err != nil {
+		if err := r.Register("render", renderUITool); err != nil {
 			return err
 		}
 	}
@@ -233,24 +171,53 @@ func registerRenderTools() error {
 
 // registerOperationTools 注册操作工具（sql_mutate / etl_run / data_export）
 //
-// 工具无需配置即可注册；写库、审计仓储、待确认存储由组合根经
-// InitOperationTools 注入。未注入时调用返回不可用错误（宁拒不闯）。
-func registerOperationTools() error {
-	mutateTool := NewSQLMutateTool()
+// 工具无需配置即可注册；写库、审计仓储、待确认存储由组合根经 ToolDeps.Operation 注入。
+// 未注入时调用返回不可用错误（宁拒不闯）。同时挂接硬工具门/委派审计钩子（闭包持有 o）。
+func (r *ToolRegistry) registerOperationTools() error {
+	// 阈值归一化（<=0 用默认）后构造操作工具依赖载体，供三件操作工具的 handler 闭包共享。
+	cfg := r.deps.Operation
+	if cfg.DangerRowThreshold <= 0 {
+		cfg.DangerRowThreshold = DefaultDangerRowThreshold
+	}
+	o := &opTools{cfg: cfg, resultStore: r.deps.ResultStore}
+	r.ops = o // 存到注册表，供 handler 层 confirm-resume 经注册表方法复用
+
+	// 挂接硬工具门拦截审计（Phase 6 任务 7.4）：被拒调用与写/ETL/导出共用
+	// agent_operation_audit 留痕（type=tool_gate, status=rejected, result=原因）。
+	framework.SetToolBlockRecorder(func(ctx context.Context, call framework.BlockedToolCall) {
+		o.recordAudit(ctx, operations.OpToolGate, call.Tool, "", "",
+			operations.StatusRejected, call.Reason, map[string]interface{}{
+				"skill": call.Skill,
+				"scope": call.Scope,
+			})
+	})
+
+	// 挂接子代理委派审计（Phase 7 任务 8.6）：委派与治理目录串联留痕
+	// （type=delegate, target=子代理, params 携 goal/授予 scope/风险级）。
+	framework.SetDelegationRecorder(func(ctx context.Context, rec framework.DelegationRecord) {
+		o.recordAudit(ctx, operations.OpDelegate, rec.Agent, "", "",
+			rec.Status, rec.Detail, map[string]interface{}{
+				"goal":       rec.Goal,
+				"scope":      rec.Scope,
+				"risk_class": rec.RiskClass,
+			})
+	})
+
+	mutateTool := NewSQLMutateTool(o)
 	if mutateTool != nil {
-		if err := GlobalRegistry.Register("operation", mutateTool); err != nil {
+		if err := r.Register("operation", mutateTool); err != nil {
 			return err
 		}
 	}
-	etlTool := NewETLRunTool()
+	etlTool := NewETLRunTool(o)
 	if etlTool != nil {
-		if err := GlobalRegistry.Register("operation", etlTool); err != nil {
+		if err := r.Register("operation", etlTool); err != nil {
 			return err
 		}
 	}
-	exportTool := NewDataExportTool()
+	exportTool := NewDataExportTool(o)
 	if exportTool != nil {
-		if err := GlobalRegistry.Register("operation", exportTool); err != nil {
+		if err := r.Register("operation", exportTool); err != nil {
 			return err
 		}
 	}
@@ -258,25 +225,25 @@ func registerOperationTools() error {
 }
 
 // registerSkillTools 注册 Skill 工具（工具发现和推荐）
-func registerSkillTools() error {
+func (r *ToolRegistry) registerSkillTools() error {
 	// skill_list - 列出所有可用工具
-	skillListTool, err := NewSkillListTool()
+	skillListTool, err := NewSkillListTool(r)
 	if err != nil {
 		return err
 	}
 	if skillListTool != nil {
-		if err := GlobalRegistry.Register("skill", skillListTool); err != nil {
+		if err := r.Register("skill", skillListTool); err != nil {
 			return err
 		}
 	}
 
 	// skill_invoke - 智能工具调用（根据任务找到合适的工具）
-	skillInvokeTool, err := NewSkillInvokeTool()
+	skillInvokeTool, err := NewSkillInvokeTool(r)
 	if err != nil {
 		return err
 	}
 	if skillInvokeTool != nil {
-		if err := GlobalRegistry.Register("skill", skillInvokeTool); err != nil {
+		if err := r.Register("skill", skillInvokeTool); err != nil {
 			return err
 		}
 	}

@@ -294,27 +294,3 @@ func (o *registryAgentOrchestrator) buildToolCallsInfo(toolCalls []*ToolCall) st
 	}
 	return sb.String()
 }
-
-// ========================================
-// 全局单例
-// ========================================
-
-var (
-	globalRegistryOrchestrator agent.AgentExecutor
-	registryOrchestratorOnce   sync.Once
-)
-
-// GetGlobalRegistryOrchestrator 获取全局注册中心编排器
-func GetGlobalRegistryOrchestrator() agent.AgentExecutor {
-	registryOrchestratorOnce.Do(func() {
-		globalRegistryOrchestrator = NewRegistryAgentOrchestrator()
-	})
-	return globalRegistryOrchestrator
-}
-
-// SetGlobalAgentGetter 设置全局 Agent 获取函数
-func SetGlobalAgentGetter(getter AgentGetter) {
-	if orchestrator, ok := globalRegistryOrchestrator.(*registryAgentOrchestrator); ok {
-		orchestrator.SetAgentGetter(getter)
-	}
-}

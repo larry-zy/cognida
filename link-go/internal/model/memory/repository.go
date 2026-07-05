@@ -93,6 +93,10 @@ type LongTermMemoryRepository interface {
 	// Update 更新记忆
 	Update(ctx context.Context, memory *LongTermMemory) error
 
+	// RecordAccess 原子记录一次访问（access_count 自增 + last_access_at 刷新）。
+	// 由存储层做原子 UPDATE，调用方不得改写已返回给使用者的实体（避免 data race）
+	RecordAccess(ctx context.Context, id string) error
+
 	// Delete 删除记忆（软删除）
 	Delete(ctx context.Context, id string) error
 

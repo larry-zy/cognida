@@ -11,6 +11,7 @@ import (
 	domainagent "link/internal/model/agent"
 	infraagent "link/internal/service/agent/framework"
 	agentorch "link/internal/service/agent/orchestration"
+	"link/internal/service/agent/skills"
 	toolregistry "link/internal/service/agent/tools"
 )
 
@@ -118,11 +119,14 @@ SQL 结果检查项：
 
 // createPlanAgent 创建规划 Agent
 // 职责：分析用户问题，制定查询计划
-func createPlanAgent(toolModel model.ToolCallingChatModel, schemaTool tool.BaseTool) (infraagent.Agent, error) {
+func createPlanAgent(toolModel model.ToolCallingChatModel, schemaTool tool.BaseTool, tools *toolregistry.ToolRegistry) (infraagent.Agent, error) {
+	// 绑定 schema 工具 + skill 工具（Level 2 按需加载技能指导）；prompt 追加技能目录（Level 1）。
+	planTools := append([]tool.BaseTool{schemaTool}, tools.GetByGroup("skill")...)
 	return infraagent.New(toolModel).
 		Name("PlanAgent").
-		Prompt(planPrompt).
-		Tools(schemaTool).
+		Prompt(skills.AugmentPromptWithCatalog(planPrompt)).
+		Tools(planTools...).
+		Before(skills.AutoInjectHook(skills.FallbackInjectThreshold)). // 兜底：极高置信才词法注入，否则交由 LLM+skill_invoke
 		WithMaxIterations(3).
 		Build(nil)
 }
@@ -149,92 +153,77 @@ func createReflectAgent(toolModel model.ToolCallingChatModel) (infraagent.Agent,
 }
 
 // ========================================
-// Agent 注册
+// Agent 声明式描述（AgentSpec）
 // ========================================
 
-// RegisterText2SQLAgent 注册语义驱动的 Text2SQL Agent
-func RegisterText2SQLAgent(
-	ctx context.Context,
-	registry domainagent.AgentRegistry,
-	toolModel model.ToolCallingChatModel,
-) error {
-	// 1. 从全局注册表获取工具
-	getSchemaTool, ok := toolregistry.GetTool("get_schema")
-	if !ok || getSchemaTool == nil {
-		return fmt.Errorf("获取 get_schema 工具失败: 工具未注册")
-	}
+// Text2SQLAgentID 是 Text2SQL Agent 的主注册 ID。
+const Text2SQLAgentID = "agent-text2sql-per"
 
-	sqlExecuteTool, ok := toolregistry.GetTool("sql_execute")
-	if !ok || sqlExecuteTool == nil {
-		return fmt.Errorf("获取 sql_execute 工具失败: 工具未注册")
-	}
-
-	// data_analysis 为可选增强：取数后做量化分析，缺失时降级为纯取数。
-	executeTools := []tool.BaseTool{getSchemaTool, sqlExecuteTool}
-	if dataAnalysisTool, ok := toolregistry.GetTool("data_analysis"); ok && dataAnalysisTool != nil {
-		executeTools = append(executeTools, dataAnalysisTool)
-	}
-
-	// 2. 创建 PER 查询管道（Plan → Execute → Reflect）
-	planAgent, err := createPlanAgent(toolModel, getSchemaTool)
-	if err != nil {
-		return fmt.Errorf("创建 Plan Agent 失败: %w", err)
-	}
-
-	executeAgent, err := createExecuteAgent(toolModel, executeTools...)
-	if err != nil {
-		return fmt.Errorf("创建 Execute Agent 失败: %w", err)
-	}
-
-	reflectAgent, err := createReflectAgent(toolModel)
-	if err != nil {
-		return fmt.Errorf("创建 Reflect Agent 失败: %w", err)
-	}
-
-	// 3. 串联为查询管道
-	queryPipeline := agentorch.Sequential(
-		planAgent,
-		executeAgent,
-		reflectAgent,
-	)
-
-	// 4. 注册到注册中心
-	def := &domainagent.AgentDefinition{
-		ID:          "agent-text2sql-per",
+// Spec 返回 Text2SQL Agent 的声明式描述：元信息用于 UI 列表/详情，
+// Build 闭包在注册时装配 PER 查询管道（Plan → Execute → Reflect）。
+//
+// 历史 agentID `agent-text2sql-001` 经 Aliases 保留，实例在该别名下同样可路由。
+func Spec(toolModel model.ToolCallingChatModel, tools *toolregistry.ToolRegistry) infraagent.AgentSpec {
+	return infraagent.AgentSpec{
+		ID:          Text2SQLAgentID,
 		Name:        "text2sql_per",
 		Description: "Text2SQL Agent with semantic intent detection (Plan-Execute-Reflect pattern)",
 		Type:        domainagent.AgentTypeAgenticRAG,
-		Status:      domainagent.AgentStatusIdle,
+		ToolNames:   []string{"get_schema", "sql_execute", "data_analysis"},
+		Aliases:     []string{"agent-text2sql-001"},
 		Metadata: map[string]string{
 			"version": "4.0.0",
 			"pattern": "sequential+semantic",
 			"phases":  "plan,execute,reflect",
 		},
+		Build: func(ctx context.Context) (infraagent.Agent, error) {
+			return buildQueryPipeline(toolModel, tools)
+		},
 	}
-
-	if err := registry.Register(ctx, def); err != nil {
-		return fmt.Errorf("注册 Text2SQL Agent 失败: %w", err)
-	}
-
-	// 5. 保存 Agent 实例
-	return SetAgent(queryPipeline)
 }
 
-// ========================================
-// Agent 实例管理
-// ========================================
+// buildQueryPipeline 装配 PER 查询管道：按名取工具 → 建 Plan/Execute/Reflect → 串联。
+// tools 为注入的工具注册表（组合根经 Spec 下发）；未注入（nil）时 fail-fast，
+// 不再读取任何包级默认槽位。
+func buildQueryPipeline(toolModel model.ToolCallingChatModel, tools *toolregistry.ToolRegistry) (infraagent.Agent, error) {
+	if tools == nil {
+		return nil, fmt.Errorf("构建 Text2SQL 管道缺少工具注册表")
+	}
 
-var (
-	text2sqlAgentInstance infraagent.Agent
-)
+	getSchemaTool, ok := tools.Get("get_schema")
+	if !ok || getSchemaTool == nil {
+		return nil, fmt.Errorf("获取 get_schema 工具失败: 工具未注册")
+	}
 
-// SetAgent 设置 Agent 实例
-func SetAgent(agent infraagent.Agent) error {
-	text2sqlAgentInstance = agent
-	return nil
-}
+	sqlExecuteTool, ok := tools.Get("sql_execute")
+	if !ok || sqlExecuteTool == nil {
+		return nil, fmt.Errorf("获取 sql_execute 工具失败: 工具未注册")
+	}
 
-// GetAgent 获取 Agent 实例
-func GetAgent() infraagent.Agent {
-	return text2sqlAgentInstance
+	// data_analysis 为可选增强：取数后做量化分析，缺失时降级为纯取数。
+	executeTools := []tool.BaseTool{getSchemaTool, sqlExecuteTool}
+	if dataAnalysisTool, ok := tools.Get("data_analysis"); ok && dataAnalysisTool != nil {
+		executeTools = append(executeTools, dataAnalysisTool)
+	}
+
+	planAgent, err := createPlanAgent(toolModel, getSchemaTool, tools)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Plan Agent 失败: %w", err)
+	}
+
+	executeAgent, err := createExecuteAgent(toolModel, executeTools...)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Execute Agent 失败: %w", err)
+	}
+
+	reflectAgent, err := createReflectAgent(toolModel)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Reflect Agent 失败: %w", err)
+	}
+
+	return agentorch.Sequential(
+		planAgent,
+		executeAgent,
+		reflectAgent,
+	), nil
 }

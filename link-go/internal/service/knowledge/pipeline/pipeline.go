@@ -142,12 +142,14 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 		startTime := time.Now()
 
 		// 1. 查询增强
-		sendEvent(eventChan, &domainrag.PipelineEvent{
+		if !sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 			Event: "query_strengthening",
 			Metadata: map[string]interface{}{
 				"query": req.Query,
 			},
-		})
+		}) {
+			return
+		}
 
 		var finalQuery string
 		var ragContext *domainrag.RAGContext
@@ -184,13 +186,15 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 		}
 
 		// 2. 检索
-		sendEvent(eventChan, &domainrag.PipelineEvent{
+		if !sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 			Event: "retrieve",
 			Metadata: map[string]interface{}{
 				"query": finalQuery,
 				"mode":  req.Options.RetrievalMode,
 			},
-		})
+		}) {
+			return
+		}
 
 		retrieveOpts := &domainrag.RetrieveOptions{
 			TopK:                req.Options.TopK,
@@ -216,7 +220,7 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 		}
 
 		if err != nil {
-			sendEvent(eventChan, &domainrag.PipelineEvent{
+			sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 				Event: "error",
 				Error: err,
 			})
@@ -227,28 +231,34 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 		ragContext.RetrievalMetadata = retrieveResp.SearchTrace
 
 		// 3. 发送检索完成事件
-		sendEvent(eventChan, &domainrag.PipelineEvent{
+		if !sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 			Event: "retrieve_complete",
 			Metadata: map[string]interface{}{
 				"count": len(retrieveResp.Results),
 			},
-		})
+		}) {
+			return
+		}
 
 		// 4. 发送文档事件
 		for _, doc := range retrieveResp.Results {
-			sendEvent(eventChan, &domainrag.PipelineEvent{
+			if !sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 				Event:    "document",
 				Document: doc,
-			})
+			}) {
+				return
+			}
 		}
 
 		// 5. 流式生成
-		sendEvent(eventChan, &domainrag.PipelineEvent{
+		if !sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 			Event: "generate",
 			Metadata: map[string]interface{}{
 				"doc_count": len(retrieveResp.Results),
 			},
-		})
+		}) {
+			return
+		}
 
 		messages := p.buildMessages(req.Query, retrieveResp.Results, ragContext)
 		llmOpts := &domainrag.ChatOptions{
@@ -258,7 +268,7 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 
 		streamChan, err := p.llmChat.ChatStream(ctx, messages, llmOpts)
 		if err != nil {
-			sendEvent(eventChan, &domainrag.PipelineEvent{
+			sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 				Event: "error",
 				Error: err,
 			})
@@ -268,17 +278,19 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 		// 转发流式事件
 		for streamEvent := range streamChan {
 			if streamEvent.Error != nil {
-				sendEvent(eventChan, &domainrag.PipelineEvent{
+				sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 					Event: "error",
 					Error: streamEvent.Error,
 				})
 				return
 			}
 
-			sendEvent(eventChan, &domainrag.PipelineEvent{
+			if !sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 				Event:   "chunk",
 				Content: streamEvent.Content,
-			})
+			}) {
+				return
+			}
 
 			if streamEvent.Done {
 				break
@@ -286,7 +298,7 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 		}
 
 		// 6. 完成
-		sendEvent(eventChan, &domainrag.PipelineEvent{
+		sendEvent(ctx, eventChan, &domainrag.PipelineEvent{
 			Event: "done",
 			Metadata: map[string]interface{}{
 				"processing_time_ms": time.Since(startTime).Milliseconds(),
@@ -345,10 +357,13 @@ func buildHistoryString(ragContext *domainrag.RAGContext) string {
 	return history
 }
 
-func sendEvent(ch chan<- *domainrag.PipelineEvent, event *domainrag.PipelineEvent) {
+// sendEvent 阻塞发送事件：慢消费者产生背压而非静默丢块；
+// ctx 取消时返回 false，调用方应停止生产。
+func sendEvent(ctx context.Context, ch chan<- *domainrag.PipelineEvent, event *domainrag.PipelineEvent) bool {
 	select {
 	case ch <- event:
-	default:
-		// Channel full, skip event
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }

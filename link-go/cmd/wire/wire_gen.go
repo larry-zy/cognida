@@ -23,19 +23,21 @@ import (
 	"link/internal/infrastructure/config"
 	"link/internal/infrastructure/graph"
 	"link/internal/infrastructure/grpc/docreader"
-	qualitygrpc "link/internal/infrastructure/grpc/quality"
+	quality2 "link/internal/infrastructure/grpc/quality"
 	"link/internal/infrastructure/id"
 	llm2 "link/internal/infrastructure/llm"
 	chat2 "link/internal/infrastructure/llm/chat"
 	embedding2 "link/internal/infrastructure/llm/embedding"
 	"link/internal/infrastructure/queue"
 	"link/internal/model/agent"
+	audit2 "link/internal/model/audit"
 	"link/internal/model/common"
 	"link/internal/model/conversation"
+	datasource2 "link/internal/model/datasource"
 	evaluation2 "link/internal/model/evaluation"
 	"link/internal/model/knowledge"
-	qualitymodel "link/internal/model/quality"
 	"link/internal/model/llm"
+	quality3 "link/internal/model/quality"
 	"link/internal/model/rag"
 	"link/internal/model/task"
 	"link/internal/model/tenant"
@@ -46,14 +48,15 @@ import (
 	"link/internal/service/account"
 	agent2 "link/internal/service/agent"
 	"link/internal/service/agent/framework"
-	"link/internal/service/agent/initializer"
 	"link/internal/service/agent/tools"
+	"link/internal/service/audit"
 	"link/internal/service/chat"
+	"link/internal/service/datasource"
 	"link/internal/service/evaluation"
 	"link/internal/service/evaluation/executor"
 	knowledge2 "link/internal/service/knowledge"
 	rag2 "link/internal/service/knowledge/pipeline"
-	qualitysvc "link/internal/service/quality"
+	"link/internal/service/quality"
 	"log"
 	"time"
 )
@@ -114,14 +117,14 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	messageHandler := ProvideMessageHandler(messageService)
 	chatHandler := ProvideChatHandler(chatService)
 	tenantHandler := ProvideTenantHandler(accountService)
-	agentExecutor := ProvideAgentOrchestrator()
+	agentRegistry := ProvideAgentRegistry()
+	agentExecutor := ProvideAgentOrchestrator(agentRegistry)
 	executeService := ProvideExecuteService(agentExecutor)
 	researchService := ProvideResearchService(agentExecutor)
 	configService := ProvideConfigService()
 	progressService := ProvideProgressService()
 	agentPersistenceService := ProvideAgentPersistenceService(sessionRepository, messageRepository)
 	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService)
-	agentRegistry := ProvideAgentRegistry()
 	registryAgentHandler := ProvideRegistryAgentHandler(agentRegistry)
 	graphQueryRepository := ProvideGraphQueryRepository(db)
 	llmChat := ProvideRAGLLMChat(v)
@@ -156,21 +159,28 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	datasetManager := ProvideDatasetUseCase(datasetRepository, datasetLoader)
 	evaluationHandler := ProvideEvaluationHandler(service, datasetManager, progressCache)
 	pythonGrpcConfig := ProvidePythonGrpcConfig()
-	qualityGateway := ProvideQualityGateway(pythonGrpcConfig)
-	qualityCheckRecordRepository := ProvideQualityCheckRecordRepository(db)
-	qualityService := ProvideQualityService(qualityGateway, qualityCheckRecordRepository, idGenerator, pythonGrpcConfig)
+	gateway := ProvideQualityGateway(pythonGrpcConfig)
+	checkRecordRepository := ProvideQualityCheckRecordRepository(db)
+	qualityService := ProvideQualityService(gateway, checkRecordRepository, idGenerator, pythonGrpcConfig)
 	qualityHandler := ProvideQualityHandler(qualityService)
+	dataSourceRepository := ProvideDataSourceRepository(db)
+	dataSourceService := ProvideDataSourceService(dataSourceRepository, idGenerator)
+	dataSourceHandler := ProvideDataSourceHandler(dataSourceService)
+	repository := ProvideAuditRepository(db)
+	auditHandler := ProvideAuditHandler(repository)
 	handler := ProvideWebHandler()
 	authMiddleware := ProvideAuthMiddleware(accountService)
 	tenantMiddleware := ProvideTenantMiddleware()
-	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, handler, authMiddleware, tenantMiddleware)
+	writer := ProvideAuditWriter(repository)
+	auditMiddleware := ProvideAuditMiddleware(writer)
+	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, auditHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
 	corsMiddleware := ProvideCORSMiddleware()
 	recoveryMiddleware := ProvideRecoveryMiddleware()
 	loggerMiddleware := ProvideLoggerMiddleware()
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
 	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig)
-	app := ProvideApp(router, middlewares, agentRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository)
+	app := ProvideApp(router, middlewares, agentRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository, writer, dataSourceService, agentHandler)
 	return app, nil
 }
 
@@ -450,7 +460,7 @@ func ProvideEvaluationService(
 	evalQueue *cache.EvaluationQueue,
 	evalConfig *config.EvaluationConfig,
 ) *evaluation.Service {
-	// 可用指标目录代理到 Python 注册表（唯一事实来源），端点来自评测配置带默认兜底
+
 	pythonEndpoint := "http://localhost:8000"
 	if evalConfig != nil && evalConfig.PythonEndpoint != "" {
 		pythonEndpoint = evalConfig.PythonEndpoint
@@ -498,9 +508,9 @@ func ProvideDocumentProcessorService(
 	)
 }
 
-func ProvideAgentOrchestrator() agent.AgentExecutor {
+func ProvideAgentOrchestrator(registry *framework.SpecRegistry) agent.AgentExecutor {
 
-	orchestrator := framework.NewRegistryAgentOrchestrator(agentinit.GetAgentByID)
+	orchestrator := framework.NewRegistryAgentOrchestrator(registry.GetInstance)
 	return orchestrator
 }
 
@@ -528,8 +538,8 @@ func ProvideAgentPersistenceService(
 	return agent2.NewAgentPersistenceService(sessionRepo, messageRepo)
 }
 
-func ProvideAgentRegistry() agent.AgentRegistry {
-	return framework.NewMemoryRegistry()
+func ProvideAgentRegistry() *framework.SpecRegistry {
+	return framework.NewSpecRegistry()
 }
 
 // ProvideRedisClient provides the Redis client.
@@ -639,6 +649,24 @@ func ProvideTraceMiddleware() *middleware.TraceMiddleware {
 	return middleware.NewTraceMiddleware()
 }
 
+func ProvideAuditMiddleware(writer *audit.Writer) *middleware.AuditMiddleware {
+	return middleware.NewAuditMiddleware(writer)
+}
+
+func ProvideAuditRepository(db *gorm.DB) audit2.Repository {
+	return mysql.NewAuditRepository(db)
+}
+
+// ProvideAuditWriter 提供审计异步批量写入器。
+// 后台 flush goroutine 在构造时启动，App.Shutdown 负责优雅收尾。
+func ProvideAuditWriter(repo audit2.Repository) *audit.Writer {
+	return audit.NewWriter(repo, audit.DefaultWriterConfig())
+}
+
+func ProvideAuditHandler(repo audit2.Repository) *handler.AuditHandler {
+	return handler.NewAuditHandler(repo)
+}
+
 func ProvideAuthHandler(accountService *account.AccountService) *handler.AuthHandler {
 	return handler.NewAuthHandler(accountService)
 }
@@ -698,7 +726,7 @@ func ProvideModelHandler(
 	return handler.NewModelHandler(modelService, chatService)
 }
 
-func ProvideRegistryAgentHandler(registry agent.AgentRegistry) *handler.RegistryAgentHandler {
+func ProvideRegistryAgentHandler(registry *framework.SpecRegistry) *handler.RegistryAgentHandler {
 	return handler.NewRegistryAgentHandler(registry)
 }
 
@@ -856,9 +884,12 @@ func ProvideRouter(
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
 	qualityHandler *handler.QualityHandler,
+	dataSourceHandler *handler.DataSourceHandler,
+	auditHandler *handler.AuditHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
+	auditMiddleware *middleware.AuditMiddleware,
 ) *router.Router {
 	return router.NewRouter(
 		authHandler,
@@ -876,9 +907,12 @@ func ProvideRouter(
 		guardrailHandler,
 		evaluationHandler,
 		qualityHandler,
+		dataSourceHandler,
+		auditHandler,
 		webHandler,
 		authMiddleware,
 		tenantMiddleware,
+		auditMiddleware,
 	)
 }
 
@@ -888,7 +922,7 @@ func ProvidePythonGrpcConfig() *config.PythonGrpcConfig {
 }
 
 // ProvideQualityGateway 提供数据质量 gRPC 网关（Python 服务适配器）。
-func ProvideQualityGateway(cfg *config.PythonGrpcConfig) qualitysvc.Gateway {
+func ProvideQualityGateway(cfg *config.PythonGrpcConfig) quality.Gateway {
 	target := "localhost:50051"
 	timeout := 60 * time.Second
 	if cfg != nil {
@@ -899,26 +933,47 @@ func ProvideQualityGateway(cfg *config.PythonGrpcConfig) qualitysvc.Gateway {
 			timeout = time.Duration(cfg.Timeout) * time.Second
 		}
 	}
-	return qualitygrpc.NewGateway(target, timeout)
+	return quality2.NewGateway(target, timeout)
 }
 
 // ProvideQualityCheckRecordRepository 提供质检记录仓储。
-func ProvideQualityCheckRecordRepository(db *gorm.DB) qualitymodel.CheckRecordRepository {
+func ProvideQualityCheckRecordRepository(db *gorm.DB) quality3.CheckRecordRepository {
 	return mysql.NewQualityCheckRecordRepository(db)
 }
 
 // ProvideQualityService 提供数据质量应用服务。
-func ProvideQualityService(gateway qualitysvc.Gateway, repo qualitymodel.CheckRecordRepository, idGen id.IDGenerator, cfg *config.PythonGrpcConfig) *qualitysvc.Service {
+func ProvideQualityService(gateway quality.Gateway, repo quality3.CheckRecordRepository, idGen id.IDGenerator, cfg *config.PythonGrpcConfig) *quality.Service {
 	timeout := 60 * time.Second
 	if cfg != nil && cfg.Timeout > 0 {
 		timeout = time.Duration(cfg.Timeout) * time.Second
 	}
-	return qualitysvc.NewService(gateway, timeout, repo, idGen)
+	return quality.NewService(gateway, timeout, repo, idGen)
 }
 
 // ProvideQualityHandler 提供数据质量 HTTP 处理器。
-func ProvideQualityHandler(service *qualitysvc.Service) *handler.QualityHandler {
+func ProvideQualityHandler(service *quality.Service) *handler.QualityHandler {
 	return handler.NewQualityHandler(service)
+}
+
+// ProvideDataSourceRepository 提供数据源仓储。
+func ProvideDataSourceRepository(db *gorm.DB) datasource2.Repository {
+	return mysql.NewDataSourceRepository(db)
+}
+
+// ProvideDataSourceService 提供数据源应用服务（含凭证加密与受管连接池）。
+// DATASOURCE_SECRET_KEY 未配置时 fail-fast：不允许明文/无密钥启动。
+func ProvideDataSourceService(repo datasource2.Repository, idGen id.IDGenerator) *datasource.Service {
+	cipher, err := datasource.NewCipherFromEnv()
+	if err != nil {
+		panic(fmt.Sprintf("外部数据源加密初始化失败: %v（请配置 %s）", err, datasource.SecretKeyEnv))
+	}
+	cm := datasource.NewConnectionManager(repo, cipher, datasource.DefaultPoolOptions())
+	return datasource.NewService(repo, cipher, cm, idGen)
+}
+
+// ProvideDataSourceHandler 提供数据源 HTTP 处理器。
+func ProvideDataSourceHandler(service *datasource.Service) *handler.DataSourceHandler {
+	return handler.NewDataSourceHandler(service)
 }
 
 // Middlewares 中间件集合
@@ -952,7 +1007,7 @@ func ProvideMiddlewares(
 type App struct {
 	Router           *router.Router
 	Middlewares      *Middlewares
-	AgentRegistry    agent.AgentRegistry
+	AgentRegistry    *framework.SpecRegistry
 	ChatConfig       *config.ChatConfig
 	EvaluationConfig *config.EvaluationConfig
 	EvaluationWorker *evaluation.EvaluationWorker
@@ -961,18 +1016,29 @@ type App struct {
 	Retriever               rag.Retriever
 	GraphService            *knowledge2.GraphService
 	KnowledgeBaseRepository knowledge.KnowledgeBaseRepository
+	// AuditWriter 暴露给组合根：优雅关闭时 flush 积压审计。
+	AuditWriter *audit.Writer
+	// DataSourceService 暴露给组合根：把查询类工具的 database_id 路由
+	// 接线到外部数据源 ConnectionManager（InitDatasourceTools）。
+	DataSourceService *datasource.Service
+	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
+	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
+	AgentHandler *handler.AgentHandler
 }
 
 func ProvideApp(
 	r *router.Router,
 	m *Middlewares,
-	agentRegistry agent.AgentRegistry,
+	agentRegistry *framework.SpecRegistry,
 	chatConfig *config.ChatConfig,
 	evalConfig *config.EvaluationConfig,
-	evalWorker *evaluation.EvaluationWorker,
-	retriever rag.Retriever,
+	evalWorker *evaluation.EvaluationWorker, retriever2 rag.Retriever,
+
 	graphService *knowledge2.GraphService,
 	kbRepo knowledge.KnowledgeBaseRepository,
+	auditWriter *audit.Writer,
+	dataSourceService *datasource.Service,
+	agentHandler *handler.AgentHandler,
 ) *App {
 	return &App{
 		Router:                  r,
@@ -981,13 +1047,19 @@ func ProvideApp(
 		ChatConfig:              chatConfig,
 		EvaluationConfig:        evalConfig,
 		EvaluationWorker:        evalWorker,
-		Retriever:               retriever,
+		Retriever:               retriever2,
 		GraphService:            graphService,
 		KnowledgeBaseRepository: kbRepo,
+		AuditWriter:             auditWriter,
+		DataSourceService:       dataSourceService,
+		AgentHandler:            agentHandler,
 	}
 }
 
-// Shutdown 关闭应用程序
+// Shutdown 关闭应用程序：flush 审计写入器，确保积压审计落库不丢。
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.AuditWriter != nil {
+		return a.AuditWriter.Close(ctx)
+	}
 	return nil
 }

@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package evaluation;
+
+option go_package = "link/api/proto/evaluation";
+
+// 评测服务
+//
+// 注（架构加固 Phase 5/4）：评测编排已收口至 Go worker（唯一权威编排），Python 仅
+// 经 HTTP :18888 做无状态 compute。原流式 ExecuteEvaluation RPC 及其独占的请求/响应
+// 消息树（EvaluationRequest/EvaluationConfig/GraderConfig/EvaluationResponse/Progress/
+// EvaluationResult/RetrievalMetrics/GenerationMetrics/SemanticMetrics/LLMJudgeMetrics/
+// QAResult/Error）为已废弃的第二套编排契约，已从单一源移除；仅保留下列无状态查询 RPC。
+service EvaluationService {
+    // 获取可用的评测器列表
+    rpc ListGraders(ListGradersRequest) returns (ListGradersResponse);
+
+    // 获取可用的数据集列表
+    rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+
+    // 获取数据集详情
+    rpc GetDatasetInfo(GetDatasetInfoRequest) returns (GetDatasetInfoResponse);
+}
+
+// ===== 评测器列表相关 =====
+
+message ListGradersRequest {
+    string type = 1;                 // 过滤类型：retrieval, generation, semantic, llm, custom（空表示全部）
+}
+
+message ListGradersResponse {
+    repeated GraderInfo graders = 1;
+}
+
+message GraderInfo {
+    string name = 1;                 // 评测器名称
+    string type = 2;                 // 类型：retrieval, generation, semantic, llm, custom
+    string description = 3;          // 描述
+    repeated GraderParam params = 4; // 参数定义
+    string return_type = 5;          // 返回类型
+}
+
+message GraderParam {
+    string name = 1;                 // 参数名
+    string type = 2;                 // 参数类型：int, float, string, bool, list
+    string default_value = 3;        // 默认值
+    string description = 4;          // 描述
+    bool required = 5;               // 是否必需
+}
+
+// ===== 数据集列表相关 =====
+
+message ListDatasetsRequest {
+    // 空请求
+}
+
+message ListDatasetsResponse {
+    repeated DatasetInfo datasets = 1;
+}
+
+message DatasetInfo {
+    string dataset_id = 1;           // 数据集 ID
+    string description = 2;          // 描述
+    int32 qa_count = 3;              // QA 对数量
+    int64 size = 4;                  // 大小（字节）
+    int64 modified_time = 5;         // 修改时间
+}
+
+message GetDatasetInfoRequest {
+    string dataset_id = 1;           // 数据集 ID
+}
+
+message GetDatasetInfoResponse {
+    DatasetInfo info = 1;
+    repeated string domains = 2;     // 领域标签
+    repeated string languages = 3;   // 语言标签
+    map<string, string> metadata = 4; // 其他元数据
+}

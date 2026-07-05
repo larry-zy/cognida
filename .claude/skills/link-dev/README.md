@@ -69,6 +69,38 @@ browser-act --session test input 2 "text"
 
 ---
 
+### agent-eval - Agent 端到端评测技能
+
+把「两个核心 Agent 端到端评测」这条线——**脚本 + 指标 + 执行环境**——收敛到一处。
+一条命令自启服务、跑 RAG / Data 两个 Agent 各 10 轮连贯对话、逐项断言并采集指标，跑完自动清理。
+
+**覆盖 Agent**：
+
+| Agent | 端点 | 对话主线 |
+|-------|------|----------|
+| RAG-Agent | `POST /api/v1/agent/knowledge/stream` | 列知识库→概览→逐层检索→综合 |
+| Data-Agent | `POST /api/v1/agent/text2sql/stream` | 列表→采样→计数→分组→TopN→概览 |
+
+**通过判据**：无 reasoning_content 400（扫 SSE + 服务端日志）、有非空回答、至少一次成功工具调用。
+
+**采集指标**：每轮/总/均/最快最慢耗时、累计工具调用次数、空回答轮数、回答全文落盘、reasoning_content 400 命中。
+
+**快速开始**：
+```bash
+# 自启服务→评测→自动清理
+./agent-eval/scripts/test-agents-e2e.sh
+
+# 复用已运行服务
+SERVER_URL=http://localhost:8080 ./agent-eval/scripts/test-agents-e2e.sh --no-boot
+
+# 指标落盘为 JSON 行
+METRICS_FILE=/tmp/agent-eval.jsonl ./agent-eval/scripts/test-agents-e2e.sh
+```
+
+详见 `agent-eval/SKILL.md`。
+
+---
+
 ## Scripts 脚本包
 
 测试相关的可执行脚本，位于各 skill 的 `scripts/` 目录。
@@ -81,6 +113,12 @@ browser-act --session test input 2 "text"
 | `python-test.sh` | Python 测试脚本（单元/集成/覆盖率） |
 | `e2e-test.sh` | E2E 测试脚本（BrowserAct 场景） |
 | `test-all.sh` | 完整测试流水线（依次运行所有测试） |
+
+### agent-eval/scripts/
+
+| 脚本 | 用途 |
+|------|------|
+| `test-agents-e2e.sh` | 两个 Agent 多轮对话 E2E 评测（自启服务 + 指标采集 + 自动清理） |
 
 ### 使用方法
 

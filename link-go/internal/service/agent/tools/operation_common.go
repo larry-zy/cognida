@@ -13,7 +13,6 @@ import (
 
 	agentctx "link/internal/model/agent"
 	"link/internal/model/agent/operations"
-	"link/internal/service/agent/framework"
 	"link/internal/service/agent/pendingaction"
 	"link/internal/service/agent/resultstore"
 )
@@ -45,41 +44,14 @@ type OperationConfig struct {
 	ExportDir string
 }
 
-// opConfig 当前生效的操作工具配置。
-var opConfig OperationConfig
-
-// InitOperationTools 注入操作工具配置（组合根调用，与 InitSQLExecuteTool 对称）。
-func InitOperationTools(cfg OperationConfig) {
-	if cfg.DangerRowThreshold <= 0 {
-		cfg.DangerRowThreshold = DefaultDangerRowThreshold
-	}
-	opConfig = cfg
-
-	// 挂接硬工具门拦截审计（Phase 6 任务 7.4）：被拒调用与写/ETL/导出共用
-	// agent_operation_audit 留痕（type=tool_gate, status=rejected, result=原因）。
-	framework.SetToolBlockRecorder(func(ctx context.Context, call framework.BlockedToolCall) {
-		recordAudit(ctx, operations.OpToolGate, call.Tool, "", "",
-			operations.StatusRejected, call.Reason, map[string]interface{}{
-				"skill": call.Skill,
-				"scope": call.Scope,
-			})
-	})
-
-	// 挂接子代理委派审计（Phase 7 任务 8.6）：委派与治理目录串联留痕
-	// （type=delegate, target=子代理, params 携 goal/授予 scope/风险级）。
-	framework.SetDelegationRecorder(func(ctx context.Context, rec framework.DelegationRecord) {
-		recordAudit(ctx, operations.OpDelegate, rec.Agent, "", "",
-			rec.Status, rec.Detail, map[string]interface{}{
-				"goal":       rec.Goal,
-				"scope":      rec.Scope,
-				"risk_class": rec.RiskClass,
-			})
-	})
-}
-
-// GetPendingActionStore 取当前待确认操作存储（供 handler 层 confirm-resume 消费）。
-func GetPendingActionStore() pendingaction.Store {
-	return opConfig.Pending
+// opTools 操作工具族（sql_mutate / etl_run / data_export）的依赖载体：
+// 由 registerOperationTools 构造一次，所有操作工具的 handler 闭包共享同一实例，
+// 取代原先的包级 opConfig 全局，实现构造期显式注入。
+type opTools struct {
+	// cfg 操作工具配置（写库、审计仓储、待确认存储、红线表、阈值、导出目录）。
+	cfg OperationConfig
+	// resultStore 结果存储；etl_run（result_id 输入源）/ data_export 按引用取数用，可为 nil。
+	resultStore resultstore.Store
 }
 
 // ========================================
@@ -87,8 +59,8 @@ func GetPendingActionStore() pendingaction.Store {
 // ========================================
 
 // recordAudit 写入一条操作审计；审计失败不阻断主流程，但必须落日志。
-func recordAudit(ctx context.Context, opType, target, sqlText, idempotencyKey, status, result string, params map[string]interface{}) {
-	if opConfig.Audit == nil {
+func (o *opTools) recordAudit(ctx context.Context, opType, target, sqlText, idempotencyKey, status, result string, params map[string]interface{}) {
+	if o.cfg.Audit == nil {
 		log.Printf("[操作审计] 仓储未注入，审计丢失: type=%s target=%s status=%s", opType, target, status)
 		return
 	}
@@ -110,15 +82,15 @@ func recordAudit(ctx context.Context, opType, target, sqlText, idempotencyKey, s
 		Status:         status,
 		Result:         result,
 	}
-	if err := opConfig.Audit.Record(ctx, audit); err != nil {
+	if err := o.cfg.Audit.Record(ctx, audit); err != nil {
 		log.Printf("[操作审计] 写入失败: %v (type=%s target=%s status=%s)", err, opType, target, status)
 	}
 }
 
 // RecordUnsupportedConfirmKind 留痕「已消费但类型不支持」的确认请求：
 // pending action 是消费即失效的，进不了执行分支也必须可从审计追溯，防静默丢弃。
-func RecordUnsupportedConfirmKind(ctx context.Context, action *pendingaction.PendingAction) {
-	recordAudit(ctx, action.Kind, "", action.SQL, "",
+func (o *opTools) RecordUnsupportedConfirmKind(ctx context.Context, action *pendingaction.PendingAction) {
+	o.recordAudit(ctx, action.Kind, "", action.SQL, "",
 		operations.StatusRejected,
 		fmt.Sprintf("确认端点不支持的操作类型 %q（pending_action_id=%s），已消费未执行", action.Kind, action.ID),
 		action.Params)
@@ -202,12 +174,12 @@ func extractMutateTarget(sqlStr string) string {
 }
 
 // isRedlineTable 判断目标是否命中红线原始表（忽略库名前缀与大小写）。
-func isRedlineTable(target string) bool {
+func (o *opTools) isRedlineTable(target string) bool {
 	name := strings.ToLower(target)
 	if idx := strings.LastIndex(name, "."); idx >= 0 {
 		name = name[idx+1:]
 	}
-	for _, t := range opConfig.RedlineTables {
+	for _, t := range o.cfg.RedlineTables {
 		if strings.ToLower(t) == name {
 			return true
 		}

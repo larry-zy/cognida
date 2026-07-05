@@ -10,17 +10,17 @@ import "time"
 // Session 会话实体
 // 对应 sessions 表
 type Session struct {
-	ID           string
-	TenantID     int64
-	UserID       int64
-	AgentType    string  // Agent类型: rag, text2sql, default
-	Title        string
-	Description  string
-	Status       int8
-	MessageCount int
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    *time.Time
+	ID           string     `json:"id"`
+	TenantID     int64      `json:"tenant_id"`
+	UserID       int64      `json:"user_id"`
+	AgentType    string     `json:"agent_type"` // Agent类型: rag, text2sql, default
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	Status       int8       `json:"status"`
+	MessageCount int        `json:"message_count"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 }
 
 // ========================================
@@ -87,19 +87,19 @@ func (s *Session) SetTitle(title string) {
 // Message 消息实体
 // 对应 messages 表
 type Message struct {
-	ID                  string
-	RequestID           string
-	SessionID           string
-	Role                string
-	Content             string
-	KnowledgeReferences string
-	AgentSteps          string
-	ToolCalls           string
-	IsCompleted         bool
-	TokenCount          int
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	DeletedAt           *time.Time
+	ID                  string     `json:"id"`
+	RequestID           string     `json:"request_id,omitempty"`
+	SessionID           string     `json:"session_id"`
+	Role                string     `json:"role"`
+	Content             string     `json:"content"`
+	KnowledgeReferences string     `json:"knowledge_references,omitempty"`
+	AgentSteps          string     `json:"agent_steps,omitempty"`
+	ToolCalls           string     `json:"tool_calls,omitempty"`
+	IsCompleted         bool       `json:"is_completed"`
+	TokenCount          int        `json:"token_count"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	DeletedAt           *time.Time `json:"deleted_at,omitempty"`
 }
 
 // ========================================

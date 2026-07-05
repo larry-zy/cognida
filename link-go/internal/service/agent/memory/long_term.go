@@ -3,6 +3,7 @@ package memory
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"fmt"
 	"time"
 
@@ -89,13 +90,14 @@ func (uc *RetrieveMemoryUseCase) Execute(ctx context.Context, id string) (*memor
 		return nil, fmt.Errorf("failed to retrieve memory: %w", err)
 	}
 
-	// 异步更新访问统计
+	// 异步更新访问统计：repo 层原子自增（UPDATE ... access_count=access_count+1），
+	// 不在 goroutine 里改写已返回给调用方的 *mem（data race）
+	memID := mem.ID
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		mem.RecordAccess()
-		_ = uc.repo.Update(bgCtx, mem)
+		_ = uc.repo.RecordAccess(bgCtx, memID)
 	}()
 
 	return mem, nil
@@ -340,12 +342,16 @@ func generateID() string {
 	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), randomString(8))
 }
 
-// randomString 生成随机字符串
+// randomString 生成随机字符串（crypto/rand：同一纳秒内的并发调用也不会重复）
 func randomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, length)
+	if _, err := cryptorand.Read(b); err != nil {
+		// crypto/rand 不可用属于系统级故障，直接 panic 比静默重复 ID 安全
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
 	for i := range b {
-		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return string(b)
 }

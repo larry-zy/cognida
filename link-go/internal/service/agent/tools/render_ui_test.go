@@ -12,20 +12,14 @@ import (
 	"link/internal/service/agent/uibinding"
 )
 
-// setupRenderTest 注入内存 Result Store + 绑定存储，写入一份 n 行的结果集，
-// 返回带租户/会话的 ctx 与 result_id。测试结束自动还原单例。
-func setupRenderTest(t *testing.T, n int) (context.Context, string) {
+// setupRenderTest 构造内存 Result Store + 绑定存储，写入一份 n 行的结果集，
+// 返回带租户/会话的 ctx、result_id 与注入用的 Result Store / 绑定存储。
+// 绑定存储改为经参数注入 renderUI（去 uibinding 包级单例，架构加固 Phase 6）。
+func setupRenderTest(t *testing.T, n int) (context.Context, string, resultstore.Store, uibinding.Store) {
 	t.Helper()
 
-	oldRS := resultStore
-	oldBS := uibinding.GetStore()
-	t.Cleanup(func() {
-		resultStore = oldRS
-		uibinding.SetStore(oldBS)
-	})
-
-	InitResultStore(resultstore.NewMemoryStore())
-	uibinding.SetStore(uibinding.NewMemoryStore())
+	rs := resultstore.NewMemoryStore()
+	ui := uibinding.NewMemoryStore()
 
 	ctx := agentctx.WithSessionID(agentctx.WithTenantID(context.Background(), 1), "sess-render")
 
@@ -36,7 +30,7 @@ func setupRenderTest(t *testing.T, n int) (context.Context, string) {
 			"gmv":   float64(1000 + i),
 		})
 	}
-	id, err := resultStore.Put(ctx, &resultstore.Result{
+	id, err := rs.Put(ctx, &resultstore.Result{
 		Owner:   resultstore.OwnerKey(1, "sess-render"),
 		Columns: []string{"month", "gmv"},
 		Rows:    rows,
@@ -44,18 +38,18 @@ func setupRenderTest(t *testing.T, n int) (context.Context, string) {
 	if err != nil {
 		t.Fatalf("预置结果集失败: %v", err)
 	}
-	return ctx, id
+	return ctx, id, rs, ui
 }
 
 // TestRenderUI_MultipleSurfacesIndependent 多次渲染产出独立 surface（任务 4.10-1）。
 func TestRenderUI_MultipleSurfacesIndependent(t *testing.T) {
-	ctx, id := setupRenderTest(t, 5)
+	ctx, id, rs, ui := setupRenderTest(t, 5)
 
-	r1, err := renderUI(ctx, &RenderUIRequest{ResultID: id, Title: "面板一"})
+	r1, err := renderUI(ctx, &RenderUIRequest{ResultID: id, Title: "面板一"}, rs, ui)
 	if err != nil {
 		t.Fatalf("第一次渲染失败: %v", err)
 	}
-	r2, err := renderUI(ctx, &RenderUIRequest{ResultID: id, Title: "面板二"})
+	r2, err := renderUI(ctx, &RenderUIRequest{ResultID: id, Title: "面板二"}, rs, ui)
 	if err != nil {
 		t.Fatalf("第二次渲染失败: %v", err)
 	}
@@ -77,9 +71,9 @@ func TestRenderUI_MultipleSurfacesIndependent(t *testing.T) {
 // TestRenderUI_LargeTableByReference 大表按引用：快照有界，不全量内联（任务 4.10-2 / 4.6）。
 func TestRenderUI_LargeTableByReference(t *testing.T) {
 	const total = 500
-	ctx, id := setupRenderTest(t, total)
+	ctx, id, rs, ui := setupRenderTest(t, total)
 
-	r, err := renderUI(ctx, &RenderUIRequest{ResultID: id, Title: "大表"})
+	r, err := renderUI(ctx, &RenderUIRequest{ResultID: id, Title: "大表"}, rs, ui)
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -110,25 +104,25 @@ func TestRenderUI_LargeTableByReference(t *testing.T) {
 
 // TestRenderUI_InvalidResultID 非法 result_id 拒绝渲染（任务 4.10-3 / 4.3）。
 func TestRenderUI_InvalidResultID(t *testing.T) {
-	ctx, _ := setupRenderTest(t, 3)
+	ctx, _, rs, ui := setupRenderTest(t, 3)
 
-	if _, err := renderUI(ctx, &RenderUIRequest{ResultID: "res_不存在"}); err == nil {
+	if _, err := renderUI(ctx, &RenderUIRequest{ResultID: "res_不存在"}, rs, ui); err == nil {
 		t.Fatal("非法 result_id 应返回错误")
 	} else if !strings.Contains(err.Error(), "不存在或已过期") {
 		t.Errorf("错误信息应提示过期/不存在: %v", err)
 	}
 
-	if _, err := renderUI(ctx, &RenderUIRequest{}); err == nil {
+	if _, err := renderUI(ctx, &RenderUIRequest{}, rs, ui); err == nil {
 		t.Fatal("空 result_id 应返回错误")
 	}
 }
 
 // TestRenderUI_CrossSessionRejected 跨会话读取拒绝（归属校验）。
 func TestRenderUI_CrossSessionRejected(t *testing.T) {
-	_, id := setupRenderTest(t, 3)
+	_, id, rs, ui := setupRenderTest(t, 3)
 
 	otherCtx := agentctx.WithSessionID(agentctx.WithTenantID(context.Background(), 1), "sess-other")
-	if _, err := renderUI(otherCtx, &RenderUIRequest{ResultID: id}); err == nil {
+	if _, err := renderUI(otherCtx, &RenderUIRequest{ResultID: id}, rs, ui); err == nil {
 		t.Fatal("跨会话渲染应拒绝")
 	} else if !strings.Contains(err.Error(), "不属于当前会话") {
 		t.Errorf("错误信息应提示归属不符: %v", err)
@@ -137,7 +131,7 @@ func TestRenderUI_CrossSessionRejected(t *testing.T) {
 
 // TestRenderUI_NonCatalogComponentRejected 目录外组件拒绝（任务 4.10-3 / 4.3）。
 func TestRenderUI_NonCatalogComponentRejected(t *testing.T) {
-	ctx, id := setupRenderTest(t, 3)
+	ctx, id, rs, ui := setupRenderTest(t, 3)
 
 	_, err := renderUI(ctx, &RenderUIRequest{
 		ResultID: id,
@@ -145,7 +139,7 @@ func TestRenderUI_NonCatalogComponentRejected(t *testing.T) {
 			{ID: "root", Type: "Column", Children: []string{"x"}},
 			{ID: "x", Type: "Iframe", Props: map[string]interface{}{"src": "https://evil"}},
 		},
-	})
+	}, rs, ui)
 	if err == nil {
 		t.Fatal("目录外组件应拒绝")
 	}
@@ -156,7 +150,7 @@ func TestRenderUI_NonCatalogComponentRejected(t *testing.T) {
 
 // TestRenderUI_OutOfBoundsPointerRejected 越界 JSON Pointer 拒绝（任务 4.10-3 / 4.3）。
 func TestRenderUI_OutOfBoundsPointerRejected(t *testing.T) {
-	ctx, id := setupRenderTest(t, 3)
+	ctx, id, rs, ui := setupRenderTest(t, 3)
 
 	_, err := renderUI(ctx, &RenderUIRequest{
 		ResultID: id,
@@ -167,7 +161,7 @@ func TestRenderUI_OutOfBoundsPointerRejected(t *testing.T) {
 				"value": map[string]interface{}{"path": "/metrics/不存在"},
 			}},
 		},
-	})
+	}, rs, ui)
 	if err == nil {
 		t.Fatal("越界 Pointer 应拒绝")
 	}
@@ -175,7 +169,7 @@ func TestRenderUI_OutOfBoundsPointerRejected(t *testing.T) {
 
 // TestRenderUI_CustomLayoutValidated 合法自定义布局走 LLM 模式并通过校验。
 func TestRenderUI_CustomLayoutValidated(t *testing.T) {
-	ctx, id := setupRenderTest(t, 3)
+	ctx, id, rs, ui := setupRenderTest(t, 3)
 
 	r, err := renderUI(ctx, &RenderUIRequest{
 		ResultID: id,
@@ -187,7 +181,7 @@ func TestRenderUI_CustomLayoutValidated(t *testing.T) {
 				"data":  map[string]interface{}{"path": "/table"},
 			}},
 		},
-	})
+	}, rs, ui)
 	if err != nil {
 		t.Fatalf("合法自定义布局不应拒绝: %v", err)
 	}
@@ -198,9 +192,9 @@ func TestRenderUI_CustomLayoutValidated(t *testing.T) {
 
 // TestRenderUI_BindingTokenIssued 渲染成功后签发绑定 token 且绑定可路由（任务 4.8）。
 func TestRenderUI_BindingTokenIssued(t *testing.T) {
-	ctx, id := setupRenderTest(t, 3)
+	ctx, id, rs, ui := setupRenderTest(t, 3)
 
-	r, err := renderUI(ctx, &RenderUIRequest{ResultID: id})
+	r, err := renderUI(ctx, &RenderUIRequest{ResultID: id}, rs, ui)
 	if err != nil {
 		t.Fatalf("渲染失败: %v", err)
 	}
@@ -210,7 +204,7 @@ func TestRenderUI_BindingTokenIssued(t *testing.T) {
 		t.Fatal("Meta.surface_token 未签发")
 	}
 
-	b, err := uibinding.GetStore().Get(ctx, r.Surface)
+	b, err := ui.Get(ctx, r.Surface)
 	if err != nil {
 		t.Fatalf("绑定应可按 surface 取回: %v", err)
 	}
@@ -221,10 +215,10 @@ func TestRenderUI_BindingTokenIssued(t *testing.T) {
 
 // TestRenderUI_NoBindingStoreDegrades 绑定存储未注入时渲染仍成功（降级为无交互）。
 func TestRenderUI_NoBindingStoreDegrades(t *testing.T) {
-	ctx, id := setupRenderTest(t, 3)
-	uibinding.SetStore(nil)
+	ctx, id, rs, _ := setupRenderTest(t, 3)
 
-	r, err := renderUI(ctx, &RenderUIRequest{ResultID: id})
+	// 绑定存储未注入（nil）：渲染应仍成功，只是降级为无交互回调。
+	r, err := renderUI(ctx, &RenderUIRequest{ResultID: id}, rs, nil)
 	if err != nil {
 		t.Fatalf("绑定存储缺失不应阻断渲染: %v", err)
 	}

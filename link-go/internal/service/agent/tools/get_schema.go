@@ -3,11 +3,14 @@ package tools
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
 
 	"gorm.io/gorm"
+
+	model_datasource "link/internal/model/datasource"
 )
 
 // ========================================
@@ -16,8 +19,8 @@ import (
 
 // GetSchemaRequest Schema 获取请求
 type GetSchemaRequest struct {
-	// DatabaseID 数据库ID（可选，默认使用当前数据库）
-	DatabaseID string `json:"database_id" jsonschema:"description=数据库ID，可选"`
+	// DatabaseID 数据源ID（可选）。空=当前业务库（或会话选定的数据源）；非空=已注册外部数据源 ID
+	DatabaseID string `json:"database_id" jsonschema:"description=数据源ID，可选。空为当前库，非空为已注册外部数据源ID"`
 
 	// TableName 表名（可选，指定则精确返回该表的完整结构）
 	TableName string `json:"table_name" jsonschema:"description=表名，可选，指定则精确返回该表的完整结构"`
@@ -63,17 +66,12 @@ const (
 	maxCatalogTables = 300
 )
 
-// 全局 DB（通过 init 设置）
-var getSchemaDB *gorm.DB
-
-// InitGetSchemaTool 初始化 Schema 获取工具
-func InitGetSchemaTool(db *gorm.DB) {
-	getSchemaDB = db
-}
-
 // NewGetSchemaTool 创建 Schema 获取工具
-// 使用基类 TypedBaseTool 实现类型安全
-func NewGetSchemaTool() *TypedBaseTool[GetSchemaRequest, GetSchemaResult] {
+// 使用基类 TypedBaseTool 实现类型安全；db 业务库、dsp 外部数据源提供者（可为 nil）经参数注入。
+func NewGetSchemaTool(db *gorm.DB, dsp model_datasource.ConnectionProvider) *TypedBaseTool[GetSchemaRequest, GetSchemaResult] {
+	handler := func(ctx context.Context, req *GetSchemaRequest) (*GetSchemaResult, error) {
+		return getSchema(ctx, req, db, dsp)
+	}
 	return NewTypedBaseTool("get_schema",
 		`获取数据库表结构信息，用于生成 SQL 查询。
 
@@ -83,21 +81,21 @@ func NewGetSchemaTool() *TypedBaseTool[GetSchemaRequest, GetSchemaResult] {
 - 都不传：返回轻量「表目录」（表名+描述，不含列），据此再用 table_name/keywords 收敛。
 
 参数：
-- database_id: 数据库ID（可选）
+- database_id: 数据源ID（可选，空为当前库，非空为已注册外部数据源）
 - table_name: 表名（可选，精确返回）
 - keywords: 关键词/查询意图（可选，按相关度选表）`,
-		getSchema,
+		handler,
 	)
 }
 
 // FetchSchema 导出的 Schema 查询入口，供 HTTP handler 等外部调用方复用（前端 schema 浏览器）。
 // 与 agent 工具不同：未指定表名时返回全库全部表的完整结构（不做相关度收敛）。
-func FetchSchema(ctx context.Context, databaseID, tableName string) (*GetSchemaResult, error) {
-	if getSchemaDB == nil {
-		return nil, fmt.Errorf("数据库未初始化")
-	}
-	dbName, err := resolveDatabase(databaseID)
+func FetchSchema(ctx context.Context, db *gorm.DB, dsp model_datasource.ConnectionProvider, databaseID, tableName string) (*GetSchemaResult, error) {
+	target, err := resolveQueryTarget(ctx, databaseID, db, dsp)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := target.databaseName(); err != nil {
 		return nil, err
 	}
 
@@ -105,38 +103,39 @@ func FetchSchema(ctx context.Context, databaseID, tableName string) (*GetSchemaR
 	if tableName != "" {
 		names = []string{tableName}
 	} else {
-		if names, err = listTableNames(ctx, dbName); err != nil {
+		if names, err = listTableNames(ctx, target); err != nil {
 			return nil, err
 		}
 	}
-	tables, err := queryTableSchemas(ctx, dbName, names)
+	tables, err := queryTableSchemas(ctx, target, names)
 	if err != nil {
 		return nil, err
 	}
-	return &GetSchemaResult{Tables: tables, Database: dbName}, nil
+	return &GetSchemaResult{Tables: tables, Database: target.dbName}, nil
 }
 
 // getSchema 是 agent 工具处理器：施加「有界选表」策略，未指定表名时禁止全库详细注入。
-func getSchema(ctx context.Context, req *GetSchemaRequest) (*GetSchemaResult, error) {
-	if getSchemaDB == nil {
-		return nil, fmt.Errorf("数据库未初始化")
-	}
-	dbName, err := resolveDatabase(req.DatabaseID)
+// database_id 非空时经 ConnectionProvider 路由到外部数据源；无效 id 显式报错不回落业务库。
+func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider) (*GetSchemaResult, error) {
+	target, err := resolveQueryTarget(ctx, req.DatabaseID, businessDB, dsp)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := target.databaseName(); err != nil {
 		return nil, err
 	}
 
 	// 1) 指定表名：精确返回该表完整结构。
 	if req.TableName != "" {
-		tables, err := queryTableSchemas(ctx, dbName, []string{req.TableName})
+		tables, err := queryTableSchemas(ctx, target, []string{req.TableName})
 		if err != nil {
 			return nil, err
 		}
-		return &GetSchemaResult{Tables: tables, Database: dbName}, nil
+		return &GetSchemaResult{Tables: tables, Database: target.dbName}, nil
 	}
 
 	// 载入全部表描述卡片（名/表注释/列名/列注释），作为选表与目录的共同数据源。
-	cards, err := loadTableCards(ctx, dbName)
+	cards, err := loadTableCards(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -145,99 +144,65 @@ func getSchema(ctx context.Context, req *GetSchemaRequest) (*GetSchemaResult, er
 	if kw := strings.TrimSpace(req.Keywords); kw != "" {
 		selected := rankTablesByRelevance(cards, kw, maxRelevantTables)
 		if len(selected) > 0 {
-			tables, err := queryTableSchemas(ctx, dbName, selected)
+			tables, err := queryTableSchemas(ctx, target, selected)
 			if err != nil {
 				return nil, err
 			}
 			return &GetSchemaResult{
 				Tables:   tables,
-				Database: dbName,
+				Database: target.dbName,
 				Note:     fmt.Sprintf("按关键词相关度从 %d 张表中选出 %d 张候选（如需其它表请指定 table_name）", len(cards), len(tables)),
 			}, nil
 		}
 		// 3) 无命中：返回受上限约束的轻量目录，绝不无上限全库详细回退。
-		return catalogResult(dbName, cards, "未找到与关键词明显相关的表，返回轻量表目录（表名+描述），请据此指定 table_name")
+		return catalogResult(target.dbName, cards, "未找到与关键词明显相关的表，返回轻量表目录（表名+描述），请据此指定 table_name")
 	}
 
 	// 4) 无表名无关键词：返回轻量「表目录」（表名+描述，不含列）。
-	return catalogResult(dbName, cards, "返回轻量表目录（表名+描述，不含列）；请用 table_name 或 keywords 收敛到具体表")
-}
-
-// resolveDatabase 解析目标库名（空则取当前库）。
-func resolveDatabase(databaseID string) (string, error) {
-	if databaseID != "" {
-		return databaseID, nil
-	}
-	name := getSchemaDB.Migrator().CurrentDatabase()
-	if name == "" {
-		return "", fmt.Errorf("无法解析当前数据库名")
-	}
-	return name, nil
+	return catalogResult(target.dbName, cards, "返回轻量表目录（表名+描述，不含列）；请用 table_name 或 keywords 收敛到具体表")
 }
 
 // listTableNames 返回库内全部基础表名。
-func listTableNames(ctx context.Context, dbName string) ([]string, error) {
-	var rows []struct {
-		TableName string `gorm:"column:table_name"`
-	}
-	if err := getSchemaDB.WithContext(ctx).Raw(`
+func listTableNames(ctx context.Context, target *queryTarget) ([]string, error) {
+	rows, err := target.db.QueryContext(ctx, `
 		SELECT table_name
 		FROM information_schema.tables
 		WHERE table_schema = ? AND table_type = 'BASE TABLE'
 		ORDER BY table_name
-	`, dbName).Scan(&rows).Error; err != nil {
+	`, target.dbName)
+	if err != nil {
 		return nil, fmt.Errorf("查询表列表失败: %w", err)
 	}
-	names := make([]string, 0, len(rows))
-	for _, r := range rows {
-		names = append(names, r.TableName)
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("查询表列表失败: %w", err)
+		}
+		names = append(names, name)
 	}
-	return names, nil
+	return names, rows.Err()
 }
 
 // queryTableSchemas 返回指定表的完整结构（列/主键）。names 为空返回空。
-func queryTableSchemas(ctx context.Context, dbName string, names []string) ([]TableSchema, error) {
+func queryTableSchemas(ctx context.Context, target *queryTarget, names []string) ([]TableSchema, error) {
 	result := make([]TableSchema, 0, len(names))
 	for _, tableName := range names {
-		var columns []struct {
-			ColumnName    string `gorm:"column:column_name"`
-			DataType      string `gorm:"column:data_type"`
-			IsNullable    string `gorm:"column:is_nullable"`
-			ColumnComment string `gorm:"column:column_comment"`
-		}
-		if err := getSchemaDB.WithContext(ctx).Raw(`
-			SELECT column_name, data_type, is_nullable, column_comment
-			FROM information_schema.columns
-			WHERE table_schema = ? AND table_name = ?
-			ORDER BY ordinal_position
-		`, dbName, tableName).Scan(&columns).Error; err != nil {
-			return nil, fmt.Errorf("查询列信息失败: %w", err)
+		colSchemas, err := queryTableColumns(ctx, target, tableName)
+		if err != nil {
+			return nil, err
 		}
 		// 无列即表不存在（MySQL 表至少一列），跳过——省去单独的存在性查询。
-		if len(columns) == 0 {
+		if len(colSchemas) == 0 {
 			continue
 		}
 
-		colSchemas := make([]ColumnSchema, 0, len(columns))
-		for _, col := range columns {
-			colSchemas = append(colSchemas, ColumnSchema{
-				Name:        col.ColumnName,
-				Type:        col.DataType,
-				Nullable:    col.IsNullable == "YES",
-				Description: col.ColumnComment,
-			})
-		}
-
-		var primaryKeys []string
-		getSchemaDB.WithContext(ctx).Raw(`
-			SELECT column_name
-			FROM information_schema.key_column_usage
-			WHERE table_schema = ? AND table_name = ? AND constraint_name = 'PRIMARY'
-		`, dbName, tableName).Scan(&primaryKeys)
-
-		pk := ""
-		if len(primaryKeys) > 0 {
-			pk = primaryKeys[0]
+		pk, err := queryPrimaryKey(ctx, target, tableName)
+		if err != nil {
+			// 主键信息缺失不阻断结构返回
+			pk = ""
 		}
 
 		result = append(result, TableSchema{
@@ -247,6 +212,59 @@ func queryTableSchemas(ctx context.Context, dbName string, names []string) ([]Ta
 		})
 	}
 	return result, nil
+}
+
+// queryTableColumns 查询单表列结构。
+func queryTableColumns(ctx context.Context, target *queryTarget, tableName string) ([]ColumnSchema, error) {
+	rows, err := target.db.QueryContext(ctx, `
+		SELECT column_name, data_type, is_nullable, column_comment
+		FROM information_schema.columns
+		WHERE table_schema = ? AND table_name = ?
+		ORDER BY ordinal_position
+	`, target.dbName, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("查询列信息失败: %w", err)
+	}
+	defer rows.Close()
+
+	var colSchemas []ColumnSchema
+	for rows.Next() {
+		var name, dataType, isNullable string
+		var comment sql.NullString
+		if err := rows.Scan(&name, &dataType, &isNullable, &comment); err != nil {
+			return nil, fmt.Errorf("查询列信息失败: %w", err)
+		}
+		colSchemas = append(colSchemas, ColumnSchema{
+			Name:        name,
+			Type:        dataType,
+			Nullable:    strings.EqualFold(isNullable, "YES"),
+			Description: comment.String,
+		})
+	}
+	return colSchemas, rows.Err()
+}
+
+// queryPrimaryKey 查询单表主键首列。
+func queryPrimaryKey(ctx context.Context, target *queryTarget, tableName string) (string, error) {
+	rows, err := target.db.QueryContext(ctx, `
+		SELECT column_name
+		FROM information_schema.key_column_usage
+		WHERE table_schema = ? AND table_name = ? AND constraint_name = 'PRIMARY'
+		ORDER BY ordinal_position
+	`, target.dbName, tableName)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var pk string
+		if err := rows.Scan(&pk); err != nil {
+			return "", err
+		}
+		return pk, nil
+	}
+	return "", rows.Err()
 }
 
 // tableCard 是一张表的「描述卡」：用于相关度打分与轻量目录，避免为选表加载完整结构。
@@ -265,50 +283,62 @@ func (c tableCard) searchText() string {
 }
 
 // loadTableCards 一次性载入全部表的描述卡（2 次 information_schema 查询）。
-func loadTableCards(ctx context.Context, dbName string) ([]tableCard, error) {
-	var tables []struct {
-		TableName    string `gorm:"column:table_name"`
-		TableComment string `gorm:"column:table_comment"`
-	}
-	if err := getSchemaDB.WithContext(ctx).Raw(`
+func loadTableCards(ctx context.Context, target *queryTarget) ([]tableCard, error) {
+	tRows, err := target.db.QueryContext(ctx, `
 		SELECT table_name, table_comment
 		FROM information_schema.tables
 		WHERE table_schema = ? AND table_type = 'BASE TABLE'
 		ORDER BY table_name
-	`, dbName).Scan(&tables).Error; err != nil {
+	`, target.dbName)
+	if err != nil {
+		return nil, fmt.Errorf("查询表列表失败: %w", err)
+	}
+	defer tRows.Close()
+
+	var cards []tableCard
+	for tRows.Next() {
+		var name string
+		var comment sql.NullString
+		if err := tRows.Scan(&name, &comment); err != nil {
+			return nil, fmt.Errorf("查询表列表失败: %w", err)
+		}
+		cards = append(cards, tableCard{Name: name, Comment: comment.String})
+	}
+	if err := tRows.Err(); err != nil {
 		return nil, fmt.Errorf("查询表列表失败: %w", err)
 	}
 
-	var cols []struct {
-		TableName     string `gorm:"column:table_name"`
-		ColumnName    string `gorm:"column:column_name"`
-		ColumnComment string `gorm:"column:column_comment"`
-	}
-	if err := getSchemaDB.WithContext(ctx).Raw(`
+	cRows, err := target.db.QueryContext(ctx, `
 		SELECT table_name, column_name, column_comment
 		FROM information_schema.columns
 		WHERE table_schema = ?
 		ORDER BY table_name, ordinal_position
-	`, dbName).Scan(&cols).Error; err != nil {
+	`, target.dbName)
+	if err != nil {
 		return nil, fmt.Errorf("查询列信息失败: %w", err)
 	}
+	defer cRows.Close()
 
-	byName := make(map[string]*tableCard, len(tables))
-	cards := make([]tableCard, 0, len(tables))
-	for _, t := range tables {
-		cards = append(cards, tableCard{Name: t.TableName, Comment: t.TableComment})
-	}
+	byName := make(map[string]*tableCard, len(cards))
 	for i := range cards {
 		byName[cards[i].Name] = &cards[i]
 	}
-	for _, c := range cols {
-		if card, ok := byName[c.TableName]; ok {
-			frag := c.ColumnName
-			if c.ColumnComment != "" {
-				frag = frag + " " + c.ColumnComment
+	for cRows.Next() {
+		var tableName, columnName string
+		var columnComment sql.NullString
+		if err := cRows.Scan(&tableName, &columnName, &columnComment); err != nil {
+			return nil, fmt.Errorf("查询列信息失败: %w", err)
+		}
+		if card, ok := byName[tableName]; ok {
+			frag := columnName
+			if columnComment.String != "" {
+				frag = frag + " " + columnComment.String
 			}
 			card.Columns = append(card.Columns, strings.ReplaceAll(frag, "_", " "))
 		}
+	}
+	if err := cRows.Err(); err != nil {
+		return nil, fmt.Errorf("查询列信息失败: %w", err)
 	}
 	return cards, nil
 }

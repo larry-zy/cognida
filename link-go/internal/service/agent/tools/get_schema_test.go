@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"testing"
 
+	model_datasource "link/internal/model/datasource"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -39,10 +41,20 @@ func expectLoadTableCards(mock sqlmock.Sqlmock, dbName string, tables, columns *
 	)).WithArgs(dbName).WillReturnRows(columns)
 }
 
-// TestGetSchema 测试 Schema 获取（agent 工具路径：有界选表）
+// mainDatasource 将 sqlmock 库封装为外部数据源 "main" 提供者（DatabaseID 非空 → 外部路由）。
+func mainDatasource(t *testing.T, gormDB *gorm.DB) model_datasource.ConnectionProvider {
+	t.Helper()
+	rawDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("failed to get raw db: %v", err)
+	}
+	return &fakeConnProvider{id: "main", dbName: "main", db: rawDB}
+}
+
+// TestGetSchema 测试 Schema 获取（agent 工具路径：有界选表，经外部数据源 "main" 路由）
 func TestGetSchema(t *testing.T) {
 	gormDB, mock := setupMockSchemaDB(t)
-	InitGetSchemaTool(gormDB)
+	dsp := mainDatasource(t, gormDB)
 
 	ctx := context.Background()
 
@@ -60,7 +72,7 @@ func TestGetSchema(t *testing.T) {
 		expectLoadTableCards(mock, "main", tableRows, colRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: ""}
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, gormDB, dsp)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -107,7 +119,7 @@ func TestGetSchema(t *testing.T) {
 		)).WithArgs("main", "orders").WillReturnRows(sqlmock.NewRows([]string{"column_name"}).AddRow("id"))
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "", Keywords: "orders"}
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, gormDB, dsp)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -137,7 +149,7 @@ func TestGetSchema(t *testing.T) {
 		expectLoadTableCards(mock, "main", tableRows, colRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "", Keywords: "不存在的关键词xyz"}
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, gormDB, dsp)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -168,7 +180,7 @@ func TestGetSchema(t *testing.T) {
 		)).WithArgs("main", "users").WillReturnRows(pkRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "users"}
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, gormDB, dsp)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -204,7 +216,7 @@ func TestGetSchema(t *testing.T) {
 			sqlmock.NewRows([]string{"column_name", "data_type", "is_nullable", "column_comment"}))
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "nonexistent"}
-		result, err := getSchema(ctx, req)
+		result, err := getSchema(ctx, req, gormDB, dsp)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -216,17 +228,11 @@ func TestGetSchema(t *testing.T) {
 
 // TestGetSchemaWithoutInit 测试未初始化的情况
 func TestGetSchemaWithoutInit(t *testing.T) {
-	oldDB := getSchemaDB
-	defer func() {
-		getSchemaDB = oldDB
-	}()
-
-	getSchemaDB = nil
-
+	// DatabaseID 为空 → 业务库路径；业务库未注入（nil）必须显式报错。
 	ctx := context.Background()
-	req := &GetSchemaRequest{DatabaseID: "main"}
+	req := &GetSchemaRequest{DatabaseID: ""}
 
-	_, err := getSchema(ctx, req)
+	_, err := getSchema(ctx, req, nil, nil)
 	if err == nil {
 		t.Error("expected error when DB not initialized")
 	}
@@ -238,7 +244,7 @@ func TestGetSchemaWithoutInit(t *testing.T) {
 // TestColumnNullable 测试列的可空属性
 func TestColumnNullable(t *testing.T) {
 	gormDB, mock := setupMockSchemaDB(t)
-	InitGetSchemaTool(gormDB)
+	dsp := mainDatasource(t, gormDB)
 
 	ctx := context.Background()
 
@@ -257,7 +263,7 @@ func TestColumnNullable(t *testing.T) {
 	)).WithArgs("main", "users").WillReturnRows(pkRows)
 
 	req := &GetSchemaRequest{DatabaseID: "main", TableName: "users"}
-	result, err := getSchema(ctx, req)
+	result, err := getSchema(ctx, req, gormDB, dsp)
 	if err != nil {
 		t.Fatalf("getSchema() error = %v", err)
 	}
@@ -294,7 +300,7 @@ func findColumn(columns []ColumnSchema, name string) *ColumnSchema {
 // TestGetSchemaWithComments 测试带注释的列
 func TestGetSchemaWithComments(t *testing.T) {
 	gormDB, mock := setupMockSchemaDB(t)
-	InitGetSchemaTool(gormDB)
+	dsp := mainDatasource(t, gormDB)
 
 	ctx := context.Background()
 
@@ -312,7 +318,7 @@ func TestGetSchemaWithComments(t *testing.T) {
 	)).WithArgs("main", "users").WillReturnRows(pkRows)
 
 	req := &GetSchemaRequest{DatabaseID: "main", TableName: "users"}
-	result, err := getSchema(ctx, req)
+	result, err := getSchema(ctx, req, gormDB, dsp)
 	if err != nil {
 		t.Fatalf("getSchema() error = %v", err)
 	}

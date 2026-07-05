@@ -7,21 +7,21 @@ import (
 	"link/internal/service/agent/tools"
 )
 
-// init 自动注册 Skill 工具到全局工具注册表
-func init() {
-	if err := RegisterSkillTools(); err != nil {
-		log.Printf("[警告] Skill 工具注册失败: %v", err)
+// RegisterSkillTools 注册所有 Skill 工具到给定注册表，由组合根（cmd/server）在
+// NewToolRegistry 之后显式调用，替代旧的 init() 导入副作用注册。
+// 注意：需在注册表构造之后调用——skill_list/skill_invoke 与 tools 包内置的
+// 工具发现版同名，此处按名覆盖，保持旧加载顺序下"Skill 系统版生效"的语义。
+func RegisterSkillTools(reg *tools.ToolRegistry) error {
+	if reg == nil {
+		return nil
 	}
-}
 
-// RegisterSkillTools 注册所有 Skill 工具
-func RegisterSkillTools() error {
 	// skill_list - 列出可用 Skill
 	skillListTool, err := NewSkillListTool()
 	if err != nil {
 		return err
 	}
-	if err := tools.GlobalRegistry.Register("skill", skillListTool); err != nil {
+	if err := reg.Register("skill", skillListTool); err != nil {
 		return err
 	}
 
@@ -30,7 +30,7 @@ func RegisterSkillTools() error {
 	if err != nil {
 		return err
 	}
-	if err := tools.GlobalRegistry.Register("skill", skillInvokeTool); err != nil {
+	if err := reg.Register("skill", skillInvokeTool); err != nil {
 		return err
 	}
 
@@ -39,7 +39,7 @@ func RegisterSkillTools() error {
 	if err != nil {
 		return err
 	}
-	if err := tools.GlobalRegistry.Register("skill", skillMatchTool); err != nil {
+	if err := reg.Register("skill", skillMatchTool); err != nil {
 		return err
 	}
 

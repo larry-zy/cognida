@@ -1,5 +1,6 @@
 import type { AgentStreamEvent } from '@/types'
 import { storage } from '@/utils/security'
+import { readSSE } from '@/utils/sse'
 
 // 获取 API 基础 URL
 const getApiBaseURL = () => {
@@ -50,22 +51,6 @@ async function* streamChat(
   const graphEnabled = typeof request === 'string' ? undefined : request.graph_enabled
   const kbScopeMode = typeof request === 'string' ? undefined : request.kb_scope_mode
 
-  const token = storage.get<string>('token')
-  const currentTenant = storage.get<any>('current_tenant')
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Accept': 'text/event-stream'
-  }
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  if (currentTenant?.id) {
-    headers['X-Tenant-ID'] = currentTenant.id.toString()
-  }
-
   const body: AgentChatRequest = { query }
   if (sessionId) {
     body.session_id = sessionId
@@ -83,63 +68,18 @@ async function* streamChat(
     body.kb_scope_mode = kbScopeMode
   }
 
+  // 统一走 readSSE：鉴权头注入、非 2xx 统一错误/登出、AbortSignal 透传
   const apiBase = getApiBaseURL()
-  const response = await fetch(`${apiBase}${endpoint}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: opts?.signal
-  })
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`)
-  }
-
-  const reader = response.body?.getReader()
-  if (!reader) {
-    throw new Error('Failed to get response reader')
-  }
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let currentEvent = ''
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('event:')) {
-          currentEvent = trimmed.slice(6).trim()
-        } else if (trimmed.startsWith('data:')) {
-          const data = trimmed.slice(5).trim()
-          if (!data || data === '[DONE]') {
-            currentEvent = ''
-            continue
-          }
-
-          try {
-            const parsed = JSON.parse(data) as AgentStreamEvent
-            if (currentEvent && !parsed.event) {
-              parsed.event = currentEvent as any
-            }
-            yield parsed
-          } catch (e) {
-            console.error('Failed to parse SSE data:', e, 'Raw data:', data)
-          }
-          currentEvent = ''
-        }
+  for await (const msg of readSSE(`${apiBase}${endpoint}`, body, opts?.signal)) {
+    try {
+      const parsed = JSON.parse(msg.data) as AgentStreamEvent
+      if (msg.event && !parsed.event) {
+        parsed.event = msg.event as any
       }
+      yield parsed
+    } catch (e) {
+      console.error('Failed to parse SSE data:', e, 'Raw data:', msg.data)
     }
-  } finally {
-    reader.releaseLock()
   }
 }
 
@@ -167,11 +107,13 @@ export async function* streamAgentChat(request: string | AgentChatRequest, opts?
  * 实时下发 ui 事件（A2UI UISpec），由结果画布即时渲染。
  */
 export async function* streamDataChat(
-  request: { query: string; session_id?: string },
+  request: { query: string; session_id?: string; datasource_id?: string },
   opts?: StreamOptions
 ): AsyncGenerator<AgentStreamEvent> {
-  const body: AgentChatRequest = { query: request.query }
+  const body: AgentChatRequest & { datasource_id?: string } = { query: request.query }
   if (request.session_id) body.session_id = request.session_id
+  // 仅在非空时下发 datasource_id（空串表示"使用当前库"，无需携带）
+  if (request.datasource_id) body.datasource_id = request.datasource_id
   yield* streamChat('/agent/text2sql/stream', body, opts)
 }
 

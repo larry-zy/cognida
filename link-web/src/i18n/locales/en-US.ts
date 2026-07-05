@@ -122,6 +122,8 @@ export default {
     evaluation: 'Evaluation',
     datasets: 'Datasets',
     quality: 'Data Quality',
+    datasource: 'Datasources',
+    audit: 'Audit Logs',
     settings: 'Settings'
   },
   tenant: {

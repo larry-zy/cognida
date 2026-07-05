@@ -1,0 +1,29 @@
+# buf 模块配置（架构加固 Phase 4，任务 4.3）
+#
+# 单一源：仓库根顶层 proto/ 是全部 .proto 的唯一权威副本。module root 刻意设在仓库根
+# （path: .），使 .proto 被寻址为 `proto/<svc>.proto`——这样 Python 回生成的
+# stub 内部 import 保持 `from proto import <svc>_pb2`、序列化描述符文件名保持
+# `proto/<svc>.proto`，消费方零改动。
+#
+# excludes：link-go/api/proto 与 link-python/proto 是待删的手抄双份（任务 4.7 打 tag 后删），
+# 与顶层 proto/ 同包名，若不排除会与单一源冲突。link-web 无 .proto，一并排除以缩小扫描面。
+version: v2
+modules:
+  - path: .
+    excludes:
+      - link-go
+      - link-python
+      - link-web
+lint:
+  # 存量契约沿用扁平布局与无版本后缀命名（package analytics 而非 analytics.v1、
+  # 枚举值 COUNT 而非 METRIC_TYPE_COUNT）。此处只收编真正有价值的结构规则，
+  # 放行会强制大改既有线上契约、且与单一源收敛无关的风格规则，避免为过 lint 而破坏兼容。
+  use:
+    - MINIMAL
+  except:
+    - PACKAGE_DIRECTORY_MATCH # 扁平 proto/ 下包名与目录名不一致，与单一源布局冲突，放行
+    - DIRECTORY_SAME_PACKAGE # 单一源刻意让多服务包共处 proto/ 一目录，放行
+breaking:
+  # 契约破坏检查以文件为粒度：字段号/类型/删除等破坏性变更需显式过审。
+  use:
+    - FILE

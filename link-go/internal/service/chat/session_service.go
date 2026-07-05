@@ -1,4 +1,9 @@
-// Package chat provides chat service implementation
+// Package chat provides chat service implementation.
+//
+// 读/写路径边界（架构加固 Phase 6，见 agentstate 包门面）：本包（SessionService +
+// MessageRepository 落 sessions/messages）是 UI 会话「写路径」；跨轮记忆的「只读投影」
+// 读路径在 convcontext.ConversationContextBuilder。二者以 messages 表为单一数据源，
+// 写路径落库、读路径回放，互不越界——写入不经读投影、读投影不反向改写会话写入状态。
 package chat
 
 import (
@@ -44,9 +49,13 @@ func (s *SessionService) CreateSession(ctx context.Context, userID int64, req *C
 	now := time.Now()
 	sessionID := fmt.Sprintf("sess-%s", uuid.New().String()[:8])
 
+	// 从 ctx 取当前租户，随会话落库（authorizeSession 依赖 tenant 归属校验）
+	ctxTenantID, _ := ctx.Value("tenant_id").(int64)
+
 	// 构建领域实体
 	session := &conversation.Session{
 		ID:          sessionID,
+		TenantID:    ctxTenantID,
 		UserID:      userID,
 		AgentType:   agentType,
 		Title:       req.Title,
@@ -85,18 +94,22 @@ func (s *SessionService) CreateSession(ctx context.Context, userID int64, req *C
 	return resp, nil
 }
 
-// authorizeSession 获取会话并校验归属：ctx 内存在 user_id 且 >0 时，
-// 会话必须属于该用户，否则返回“无权访问”错误，统一防止越权读取/修改他人会话（IDOR）。
-// 未携带 user_id 的调用（如内部任务）退化为仅按 ID 查询，保持向后兼容。
+// authorizeSession 获取会话并校验归属（fail-closed）：
+// ctx 必须同时携带有效的 user_id 与 tenant_id，缺失即拒绝，不退化为默认身份；
+// 会话必须同时属于该租户与该用户，否则返回“无权访问”错误（防跨租户/跨用户 IDOR）。
 func (s *SessionService) authorizeSession(ctx context.Context, id string) (*conversation.Session, error) {
+	userID, uok := ctx.Value("user_id").(int64)
+	tenantID, tok := ctx.Value("tenant_id").(int64)
+	if !uok || userID <= 0 || !tok || tenantID <= 0 {
+		return nil, fmt.Errorf("无权访问该会话")
+	}
+
 	session, err := s.sessionRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if userID, ok := ctx.Value("user_id").(int64); ok && userID > 0 {
-		if session.UserID != userID {
-			return nil, fmt.Errorf("无权访问该会话")
-		}
+	if !session.BelongsToTenant(tenantID) || !session.IsOwnedBy(userID) {
+		return nil, fmt.Errorf("无权访问该会话")
 	}
 	return session, nil
 }

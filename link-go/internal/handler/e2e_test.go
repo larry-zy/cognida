@@ -24,6 +24,7 @@ import (
 	"gorm.io/gorm"
 
 	agentinit "link/internal/service/agent/initializer"
+	"link/internal/service/agent/presets/text2sql"
 	ragtool "link/internal/service/agent/tools"
 	infraagent "link/internal/service/agent/framework"
 	"link/internal/infrastructure/llm/chat"
@@ -57,9 +58,9 @@ func setupE2ETest(t *testing.T) *TestStack {
 	// 3. 创建测试表
 	setupE2ETestSchema(t, db)
 
-	// 4. 初始化 SQL 工具
-	ragtool.InitSQLExecuteTool(db)
-	ragtool.InitGetSchemaTool(db)
+	// 4. 构造携真实 DB 的工具注册表（SQL 工具随构造注册）；经 Initializer 显式注入
+	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{SQLDB: db})
+	require.NoError(t, err, "构造工具注册表失败")
 
 	// 5. 创建 ChatModel
 	chatModel := setupTestChatModel(t)
@@ -70,7 +71,7 @@ func setupE2ETest(t *testing.T) *TestStack {
 
 	// 6. 初始化 Text2SQL Agent
 	ctx := context.Background()
-	err = initE2EAgents(ctx, chatModel)
+	registry, err := initE2EAgents(ctx, chatModel, reg)
 	require.NoError(t, err, "初始化 Agent 失败")
 
 	// 7. 创建 Router
@@ -92,9 +93,9 @@ func setupE2ETest(t *testing.T) *TestStack {
 			return
 		}
 
-		// 使用 Text2SQL Agent
-		agent := agentinit.GetText2SQLAgent()
-		if agent == nil {
+		// 使用 Text2SQL Agent（从 SpecRegistry 解析运行实例）
+		agent, ok := registry.GetInstance(text2sql.Text2SQLAgentID)
+		if !ok || agent == nil {
 			InternalError(c, "Text2SQL Agent 未初始化")
 			return
 		}
@@ -207,13 +208,17 @@ func setupTestChatModel(t *testing.T) interface{} {
 	return chatModel
 }
 
-// initE2EAgents 初始化端到端测试的 Agent
-func initE2EAgents(ctx context.Context, chatModel interface{}) error {
-	registry := infraagent.NewMemoryRegistry()
+// initE2EAgents 初始化端到端测试的 Agent，返回可解析运行实例的 SpecRegistry。
+// 工具注册表经 Initializer 显式注入（替代包级默认槽位）。
+func initE2EAgents(ctx context.Context, chatModel interface{}, reg *ragtool.ToolRegistry) (*infraagent.SpecRegistry, error) {
+	registry := infraagent.NewSpecRegistry()
 
 	// 使用新的 Initializer 方式初始化
-	initializer := agentinit.NewInitializer(registry)
-	return initializer.Initialize(ctx, chatModel)
+	initializer := agentinit.NewInitializer(registry, reg)
+	if err := initializer.Initialize(ctx, chatModel); err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 // ========================================

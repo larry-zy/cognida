@@ -48,24 +48,19 @@ type MCPInvoker interface {
 	Invoke(ctx interface{}, skillName string, params map[string]interface{}) (*modeltools.SkillInvokeResult, error)
 }
 
-// dataAnalysisInvoker 注入的 MCP 调用器；未注入时工具返回非致命错误结果。
-var dataAnalysisInvoker MCPInvoker
-
-// InitDataAnalysisTool 注入 MCP 调用器（在组合根调用，与 InitSQLExecuteTool 对称）。
-func InitDataAnalysisTool(invoker MCPInvoker) {
-	dataAnalysisInvoker = invoker
-}
-
 // dataAnalysisTool data_analysis 工具实现
 //
 // 取数（sql_execute）之后，把行集交给 Python analytics 引擎做真正的
 // 描述统计 / 趋势 / 异常 / 相关性 / 综合洞察 / 对比 / 归因，产出有计算依据的结论。
 // 复用既有 MCP 通道（注入的 MCPInvoker → infrastructure/mcp.MCPClient.Invoke）。
-type dataAnalysisTool struct{}
+type dataAnalysisTool struct {
+	invoker     MCPInvoker        // 注入的 MCP 调用器；nil 时返回非致命错误结果
+	resultStore resultstore.Store // 注入的结果存储；nil 时无法按 result_id 取数
+}
 
-// NewDataAnalysisTool 创建 data_analysis 工具
-func NewDataAnalysisTool() (tool.InvokableTool, error) {
-	return &dataAnalysisTool{}, nil
+// NewDataAnalysisTool 创建 data_analysis 工具；invoker MCP 调用器（可为 nil）、rs 结果存储（可为 nil）经参数注入。
+func NewDataAnalysisTool(invoker MCPInvoker, rs resultstore.Store) (tool.InvokableTool, error) {
+	return &dataAnalysisTool{invoker: invoker, resultStore: rs}, nil
 }
 
 // Info 返回工具信息（含参数 schema）
@@ -143,11 +138,11 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	data := arguments["data"]
 	sourceResultID, _ := arguments["result_id"].(string)
 	if sourceResultID != "" {
-		if resultStore == nil {
+		if t.resultStore == nil {
 			return failResult(analysisType, "结果存储未启用，无法按 result_id 取数，请直接传 data"), nil
 		}
 		owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx))
-		stored, err := resultStore.Get(ctx, owner, sourceResultID)
+		stored, err := t.resultStore.Get(ctx, owner, sourceResultID)
 		if errors.Is(err, resultstore.ErrNotFound) {
 			return failResult(analysisType, fmt.Sprintf("result_id %s 不存在或已过期，请重新取数", sourceResultID)), nil
 		}
@@ -166,7 +161,7 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	// MCP 调用器需已注入
-	if dataAnalysisInvoker == nil {
+	if t.invoker == nil {
 		return failResult(analysisType, "MCP 调用器未初始化（请在组合根调用 InitDataAnalysisTool）"), nil
 	}
 
@@ -179,7 +174,7 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	// 通过既有 MCP 通道调用 Python analytics 工具
-	result, err := dataAnalysisInvoker.Invoke(ctx, mcpTool, params)
+	result, err := t.invoker.Invoke(ctx, mcpTool, params)
 	if err != nil {
 		return failResult(analysisType, fmt.Sprintf("分析调用失败: %v", err)), nil
 	}
@@ -198,7 +193,7 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 
 	// 归因成功：拼装一等信封（drivers 落 Result Store + 文字洞察 + 口径/置信/下钻）
 	if analysisType == "attribution" && result.Success && result.Data != nil {
-		enrichAttributionEnvelope(ctx, out, result.Data, sourceResultID)
+		t.enrichAttributionEnvelope(ctx, out, result.Data, sourceResultID)
 	}
 
 	resultBytes, err := json.MarshalIndent(out, "", "  ")
@@ -223,7 +218,7 @@ var attributionDriverColumns = []string{
 //   - insight：Go 侧确定性文字洞察（不依赖 LLM 复述数字）
 //   - caliber / confidence 提升到顶层，保证口径与置信标注不被裁剪
 //   - drill_down：下钻校验建议（引用取数来源 result_id）
-func enrichAttributionEnvelope(ctx context.Context, out map[string]interface{}, data map[string]interface{}, sourceResultID string) {
+func (t *dataAnalysisTool) enrichAttributionEnvelope(ctx context.Context, out map[string]interface{}, data map[string]interface{}, sourceResultID string) {
 	// 口径与置信直接上提
 	if caliber, ok := data["caliber"]; ok {
 		out["caliber"] = caliber
@@ -246,13 +241,13 @@ func enrichAttributionEnvelope(ctx context.Context, out map[string]interface{}, 
 		}
 		rows = append(rows, row)
 	}
-	if resultStore != nil && len(rows) > 0 {
+	if t.resultStore != nil && len(rows) > 0 {
 		driverResult := &resultstore.Result{
 			Owner:   resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx)),
 			Columns: attributionDriverColumns,
 			Rows:    rows,
 		}
-		if id, err := resultStore.Put(ctx, driverResult, resultstore.DefaultTTL); err == nil {
+		if id, err := t.resultStore.Put(ctx, driverResult, resultstore.DefaultTTL); err == nil {
 			out["result_id"] = id
 		}
 	}

@@ -129,22 +129,24 @@ func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 	defer func() { sqlDB, _ := db.DB(); sqlDB.Close() }()
 	setupSalesSchema(t, db)
 
-	// 注入 DB，使全局注册表中的 sql 工具（查）可用；析/渲工具就位时由 preset 自动纳入编排。
-	ragtool.InitGetSchemaTool(db)
-	ragtool.InitSQLExecuteTool(db)
+	// 构造携真实 DB 的工具注册表，使 sql 工具（查）可用；经 Spec 显式注入。
+	// 析/渲工具就位时由 preset 自动纳入编排。
+	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{SQLDB: db})
+	require.NoError(t, err, "构造工具注册表失败")
 
-	registry := infraagent.NewMemoryRegistry()
+	registry := infraagent.NewSpecRegistry()
 
-	// 注册 Data Agent（单一 ReAct）与旧 PER Text2SQL，用于双跑对比。
-	// collabRegistry 传 nil：本用例只回归单 Agent 查/析闭环，不含子代理委派。
+	// 声明式注册 Data Agent（单一 ReAct）与 PER Text2SQL，用于双跑对比。
 	// msgRepo 传 nil：本用例不校验多轮记忆，ContextBuilder 不装配。
-	require.NoError(t, RegisterDataAgentPreset(ctx, registry, toolModel, nil, nil))
-	require.NoError(t, text2sql.RegisterText2SQLAgent(ctx, registry, toolModel))
+	require.NoError(t, registry.RegisterSpec(ctx, Spec(toolModel, nil, reg)))
+	require.NoError(t, registry.RegisterSpec(ctx, text2sql.Spec(toolModel, reg)))
 
-	dataAgent := GetAgent()
+	dataAgent, ok := registry.GetInstance(DataAgentID)
+	require.True(t, ok, "Data Agent 应已注册")
 	require.NotNil(t, dataAgent, "Data Agent 应已注册")
-	perAgent := text2sql.GetAgent()
-	require.NotNil(t, perAgent, "旧 PER Agent 应已注册")
+	perAgent, ok := registry.GetInstance(text2sql.Text2SQLAgentID)
+	require.True(t, ok, "PER Agent 应已注册")
+	require.NotNil(t, perAgent, "PER Agent 应已注册")
 
 	question := "查询 dataagent_sales 表华东区各月的销售额，并分析其增长趋势"
 
@@ -165,7 +167,7 @@ func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 			"应至少完成取数（调用查询工具或结论含查询数据）")
 
 		// 渲：render_ui 为 Phase 3 能力，尚未注册；此处仅记录以便 Phase 3 回归自动覆盖。
-		if _, registered := ragtool.GetTool("render_ui"); registered {
+		if _, registered := reg.Get("render_ui"); registered {
 			t.Log("render_ui 已注册，Data Agent 应能完成渲染闭环（Phase 3 覆盖点）")
 		} else {
 			t.Log("render_ui 未注册（Phase 3 前的预期）：渲染闭环留待 Phase 3 覆盖")

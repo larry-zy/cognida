@@ -267,23 +267,6 @@ func (r *ToolRegistryImpl) mapToolType(desc string) agent.ToolType {
 }
 
 // ========================================
-// Global Registry (Singleton)
-// ========================================
-
-var (
-	globalRegistry ToolRegistry
-	registryOnce   sync.Once
-)
-
-// GetGlobalRegistry returns the global tool registry.
-func GetGlobalRegistry() ToolRegistry {
-	registryOnce.Do(func() {
-		globalRegistry = NewToolRegistry()
-	})
-	return globalRegistry
-}
-
-// ========================================
 // Core-compatible methods (for migration from core package)
 // ========================================
 

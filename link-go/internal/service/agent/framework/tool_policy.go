@@ -7,7 +7,7 @@
 //   - scope 校验：工具所需能力级别未被授予即拒绝；
 // scope 与 skill 策略同为放行的必要条件，任一不过即拦截。
 //
-// 拦截点在 invokeTool 执行前（覆盖 Chat / chatWithTools / Stream 三条循环），
+// 拦截点在 invokeTool 执行前（统一主干 run→execLoop→handleToolCall 覆盖 Chat/Stream 全部路径），
 // 被拒调用不触达底层执行，以合成 {"error":"tool_blocked",...} ToolMessage 回灌
 // LLM 自我修正，并同步留痕（日志 + 可插拔审计记录器）。
 package framework
@@ -203,7 +203,7 @@ func blockedToolResult(policy *ToolPolicy, tool, reason string) string {
 }
 
 // gateToolCall 执行前硬工具门：放行返回 ("", true)；拦截时留痕并返回合成
-// ToolMessage 载荷。所有工具执行路径（Chat/chatWithTools/Stream）统一经此门。
+// ToolMessage 载荷。所有工具执行路径（统一主干 run→handleToolCall→invokeTool）统一经此门。
 func gateToolCall(ctx context.Context, tool string) (string, bool) {
 	policy := ToolPolicyFromContext(ctx)
 	if policy == nil {

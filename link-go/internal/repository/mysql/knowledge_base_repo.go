@@ -52,6 +52,28 @@ func (r *knowledgeBaseRepository) FindByID(ctx context.Context, id string) (*dom
 	return model.ToDomain(), nil
 }
 
+// FindByIDForTenant 根据ID+租户查找知识库（SQL 层强制 tenant_id 谓词，防跨租户 IDOR）。
+// 跨租户访问与不存在同样返回“知识库不存在”，避免泄露资源存在性。
+func (r *knowledgeBaseRepository) FindByIDForTenant(ctx context.Context, id string, tenantID int64) (*domain_knowledge.KnowledgeBase, error) {
+	if tenantID <= 0 {
+		return nil, fmt.Errorf("知识库不存在")
+	}
+
+	var model KnowledgeBaseModel
+	err := r.db.WithContext(ctx).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		First(&model).Error
+
+	if err == gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("知识库不存在")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("查询知识库失败: %w", err)
+	}
+
+	return model.ToDomain(), nil
+}
+
 // FindByTenantID 根据租户ID查找知识库列表
 func (r *knowledgeBaseRepository) FindByTenantID(ctx context.Context, tenantID int64, page, pageSize int) ([]*domain_knowledge.KnowledgeBase, int64, error) {
 	var models []*KnowledgeBaseModel

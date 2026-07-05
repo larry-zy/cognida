@@ -6,12 +6,12 @@ import type {
   SessionDetail
 } from '@/types'
 
-// 后端实际返回的会话列表格式
+// 后端实际返回的会话列表格式（对齐 Go SessionListResponse：sessions/total/page/size）
 interface BackendSessionListResponse {
-  page: number
-  page_size: number
+  sessions: Session[]
   total: number
-  items: Session[]
+  page: number
+  size: number
 }
 
 // 前端期望的会话列表响应格式
@@ -49,23 +49,16 @@ export const sessionApi = {
    */
   async list(params?: { page?: number; page_size?: number; status?: number }): Promise<{ data: FrontendSessionListResponse }> {
     const response = await http.get<BackendSessionListResponse>('/sessions', { params })
-    // 转换后端格式为前端格式
-    if (response.data) {
-      return {
-        data: {
-          sessions: response.data.items || [],
-          total: response.data.total,
-          page: response.data.page,
-          size: response.data.page_size
-        }
-      }
-    }
+    // 转换后端格式为前端格式。
+    // 后端 SessionListResponse 的字段是 sessions/size（历史上这里误配为 items/page_size，
+    // 导致 sessions 恒为空数组 → 刷新后会话列表整块消失）。兼容旧字段名做兜底。
+    const d = (response?.data ?? {}) as Partial<BackendSessionListResponse> & { items?: Session[]; page_size?: number }
     return {
       data: {
-        sessions: [],
-        total: 0,
-        page: 1,
-        size: 10
+        sessions: d.sessions ?? d.items ?? [],
+        total: d.total ?? 0,
+        page: d.page ?? 1,
+        size: d.size ?? d.page_size ?? 20
       }
     }
   },

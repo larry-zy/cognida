@@ -1,5 +1,13 @@
 #!/bin/bash
-# Proto 文件一致性检查
+# Proto 单一源一致性检查（架构加固 Phase 4 起）
+#
+# 契约单一源：全部权威 .proto 只存于仓库根 proto/；link-go/api/proto 与 link-python/proto
+# 仅存 buf 回生成的 stub、不得再有手抄 .proto 双份。本检查守护三条不变量：
+#   1) 单一源齐备      —— proto/<svc>.proto 存在
+#   2) 反漂移（关键）  —— 两处生成目录下无任何手抄 .proto（防止双份复活）
+#   3) stub 齐备       —— Go .pb.go 与 Python _pb2.py 已生成到位
+# 回生成一致性（buf generate 后 git diff 干净）由 `make proto-check` 在 CI 守护，不在此重跑
+# （避免 review hook 依赖网络远程插件）。
 
 set -e
 
@@ -7,30 +15,46 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 FAILED=0
 
-echo "🔄 Proto 文件一致性检查..."
+echo "🔄 Proto 单一源一致性检查..."
 
-# 已定义的 proto 服务 (与 link-go/api/proto/<svc>/<svc>.proto 实际布局一致)
-PROTO_FILES=("analytics" "docreader" "evaluation" "judge" "quality")
+# 含 service 的服务（生成 _grpc stub）
+SERVICES=("analytics" "docreader" "evaluation" "judge" "quality")
+# 仅含消息/枚举的契约（无 service，无 _grpc）
+MSG_ONLY=("common")
+ALL=("${SERVICES[@]}" "${MSG_ONLY[@]}")
 
-# 检查 Go 端 proto 文件 (每个服务一个子目录)
-for proto in "${PROTO_FILES[@]}"; do
-    proto_file="$PROJECT_ROOT/link-go/api/proto/${proto}/${proto}.proto"
-    if [ ! -f "$proto_file" ]; then
-        echo "❌ Proto 文件缺失: ${proto}/${proto}.proto"
+# 1) 单一源齐备：proto/<name>.proto 必须存在
+for name in "${ALL[@]}"; do
+    src="$PROJECT_ROOT/proto/${name}.proto"
+    if [ ! -f "$src" ]; then
+        echo "❌ 单一源缺失: proto/${name}.proto"
         FAILED=1
     fi
 done
 
-# 检查 Python 端生成的代码
-for proto in "${PROTO_FILES[@]}"; do
-    python_file="$PROJECT_ROOT/link-python/proto/${proto}_pb2.py"
-    if [ ! -f "$python_file" ]; then
-        echo "⚠️  Python proto 未生成: ${proto}, 运行 cd link-python && python scripts/generate_grpc.py"
+# 2) 反漂移：两处生成目录下不得再出现手抄 .proto
+stray=$(find "$PROJECT_ROOT/link-go/api/proto" "$PROJECT_ROOT/link-python/proto" \
+    -name "*.proto" 2>/dev/null || true)
+if [ -n "$stray" ]; then
+    echo "❌ 检出手抄 .proto 双份（应只保留在顶层 proto/，由 buf 回生成 stub）:"
+    echo "$stray" | sed 's/^/     /'
+    FAILED=1
+fi
+
+# 3) stub 齐备：Go .pb.go 与 Python _pb2.py 落点存在
+for name in "${ALL[@]}"; do
+    go_stub="$PROJECT_ROOT/link-go/api/proto/${name}/${name}.pb.go"
+    py_stub="$PROJECT_ROOT/link-python/proto/${name}_pb2.py"
+    if [ ! -f "$go_stub" ]; then
+        echo "⚠️  Go stub 未生成: api/proto/${name}/${name}.pb.go, 运行 cd link-go && make proto"
+    fi
+    if [ ! -f "$py_stub" ]; then
+        echo "⚠️  Python stub 未生成: proto/${name}_pb2.py, 运行 cd link-go && make proto"
     fi
 done
 
 if [ $FAILED -eq 0 ]; then
-    echo "✅ Proto 文件一致性检查通过"
+    echo "✅ Proto 单一源一致性检查通过"
 fi
 
 exit $FAILED

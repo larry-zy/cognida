@@ -151,9 +151,9 @@ var orchestratorSubAgentSpecs = []subAgentSpec{
 }
 
 // resolveSubAgentTools 按名解析最小工具集（present-if-registered：未注册的工具跳过）。
-func resolveSubAgentTools(names []string) (resolved []tool.BaseTool, missing []string) {
+func resolveSubAgentTools(registry *toolregistry.ToolRegistry, names []string) (resolved []tool.BaseTool, missing []string) {
 	for _, name := range names {
-		t, ok := toolregistry.GetTool(name)
+		t, ok := registry.Get(name)
 		if !ok {
 			missing = append(missing, name)
 			continue
@@ -169,6 +169,7 @@ func buildSubAgent(
 	spec *subAgentSpec,
 	collabRegistry *infraagent.CollaborationRegistry,
 	toolModel model.ToolCallingChatModel,
+	registry *toolregistry.ToolRegistry,
 ) (infraagent.Agent, error) {
 	builder := infraagent.New(nil).
 		Name(spec.id).
@@ -180,7 +181,7 @@ func buildSubAgent(
 		// 分层编排者：只挂委派工具（delegate_to_agent + delegate_parallel）
 		builder = builder.WithCollaboration(collabRegistry, infraagent.EnableDelegate())
 	} else {
-		resolved, missing := resolveSubAgentTools(spec.toolNames)
+		resolved, missing := resolveSubAgentTools(registry, spec.toolNames)
 		if len(resolved) == 0 {
 			return nil, fmt.Errorf("子代理 %s 的最小工具集均未注册: %v", spec.id, spec.toolNames)
 		}
@@ -200,6 +201,7 @@ func RegisterDataSubAgents(
 	ctx context.Context,
 	collabRegistry *infraagent.CollaborationRegistry,
 	toolModel model.ToolCallingChatModel,
+	registry *toolregistry.ToolRegistry,
 ) error {
 	if collabRegistry == nil {
 		return fmt.Errorf("数据域子代理需要协作注册表")
@@ -207,9 +209,12 @@ func RegisterDataSubAgents(
 	if toolModel == nil {
 		return fmt.Errorf("数据域子代理需要 ToolCallingChatModel")
 	}
+	if registry == nil {
+		return fmt.Errorf("数据域子代理需要工具注册表")
+	}
 
 	register := func(spec *subAgentSpec) error {
-		subAgent, err := buildSubAgent(ctx, spec, collabRegistry, toolModel)
+		subAgent, err := buildSubAgent(ctx, spec, collabRegistry, toolModel, registry)
 		if err != nil {
 			return fmt.Errorf("构建子代理 %s 失败: %w", spec.id, err)
 		}

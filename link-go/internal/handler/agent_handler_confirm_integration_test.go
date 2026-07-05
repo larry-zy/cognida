@@ -29,8 +29,9 @@ import (
 	ragtool "link/internal/service/agent/tools"
 )
 
-// setupConfirmIntegration 连接真实 DB，预置源表与操作工具配置。
-func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore) {
+// setupConfirmIntegration 连接真实 DB，预置源表与操作工具配置，返回 DB、待确认存储与
+// 已注入工具网关的 handler（经 SetToolGateway，替代包级默认槽位）。
+func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore, *AgentHandler) {
 	t.Helper()
 	dsn := os.Getenv("MYSQL_DSN")
 	if dsn == "" {
@@ -59,16 +60,24 @@ func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore
 	t.Cleanup(func() { db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", source)) })
 
 	pending := pendingaction.NewMemoryStore()
-	ragtool.InitOperationTools(ragtool.OperationConfig{
-		DB:      db,
-		Audit:   mysqlrepo.NewOperationAuditRepository(db),
-		Pending: pending,
+	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{
+		SQLDB: db,
+		Operation: ragtool.OperationConfig{
+			DB:      db,
+			Audit:   mysqlrepo.NewOperationAuditRepository(db),
+			Pending: pending,
+		},
 	})
-	return db, pending
+	if err != nil {
+		t.Fatalf("构造工具注册表: %v", err)
+	}
+	h := &AgentHandler{}
+	h.SetToolGateway(reg)
+	return db, pending, h
 }
 
 // callConfirmIT 以 gin 测试上下文调用 ConfirmOperation（tenant_id 固定 991）。
-func callConfirmIT(t *testing.T, payload map[string]interface{}) (*httptest.ResponseRecorder, map[string]interface{}) {
+func callConfirmIT(t *testing.T, h *AgentHandler, payload map[string]interface{}) (*httptest.ResponseRecorder, map[string]interface{}) {
 	t.Helper()
 	body, _ := json.Marshal(payload)
 	w := httptest.NewRecorder()
@@ -77,7 +86,7 @@ func callConfirmIT(t *testing.T, payload map[string]interface{}) (*httptest.Resp
 	c.Request = httptest.NewRequest(http.MethodPost, "/agent/operations/confirm", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	(&AgentHandler{}).ConfirmOperation(c)
+	h.ConfirmOperation(c)
 
 	var resp struct {
 		Data map[string]interface{} `json:"data"`
@@ -117,10 +126,10 @@ func gmvOf(t *testing.T, db *gorm.DB) float64 {
 
 // TestConfirmIntegration_CommitsAndAudits 确认后真实落库 + 审计 success。
 func TestConfirmIntegration_CommitsAndAudits(t *testing.T) {
-	db, pending := setupConfirmIntegration(t)
+	db, pending, h := setupConfirmIntegration(t)
 	action := putConfirmITAction(t, pending, "cf-it-commit-1")
 
-	w, data := callConfirmIT(t, map[string]interface{}{
+	w, data := callConfirmIT(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
 		"token":             action.Token,
 		"session_id":        "sess-cf-it",
@@ -144,10 +153,10 @@ func TestConfirmIntegration_CommitsAndAudits(t *testing.T) {
 
 // TestConfirmIntegration_TokenMismatchNoWrite token 不匹配 → 403、立即失效、库不被改。
 func TestConfirmIntegration_TokenMismatchNoWrite(t *testing.T) {
-	db, pending := setupConfirmIntegration(t)
+	db, pending, h := setupConfirmIntegration(t)
 	action := putConfirmITAction(t, pending, "cf-it-mismatch-1")
 
-	w, _ := callConfirmIT(t, map[string]interface{}{
+	w, _ := callConfirmIT(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
 		"token":             "forged-token",
 		"session_id":        "sess-cf-it",
@@ -160,7 +169,7 @@ func TestConfirmIntegration_TokenMismatchNoWrite(t *testing.T) {
 	}
 
 	// 失效后携正确 token 也无法再确认，库依旧原样
-	w2, data2 := callConfirmIT(t, map[string]interface{}{
+	w2, data2 := callConfirmIT(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
 		"token":             action.Token,
 		"session_id":        "sess-cf-it",

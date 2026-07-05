@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -152,21 +151,4 @@ func (e *toolExecutorImpl) ExecuteWithStream(ctx context.Context, toolName strin
 	}
 
 	return nil, fmt.Errorf("unsupported tool type: %T", einoTool)
-}
-
-// ========================================
-// Global Executor (Singleton)
-// ========================================
-
-var (
-	globalExecutor agent.ToolExecutor
-	executorOnce   sync.Once
-)
-
-// GetGlobalExecutor returns the global tool executor.
-func GetGlobalExecutor() agent.ToolExecutor {
-	executorOnce.Do(func() {
-		globalExecutor = NewToolExecutor(GetGlobalRegistry())
-	})
-	return globalExecutor
 }

@@ -48,21 +48,8 @@ func NewToken() string {
 	return "tk_" + uuid.NewString()
 }
 
-// ========================================
-// 包级单例（组合根注入，工具与 handler 共用）
-// ========================================
-
-var defaultStore Store
-
-// SetStore 注入绑定存储（组合根调用；对齐 genui.SetModel / tools.InitResultStore 惯例）。
-func SetStore(s Store) {
-	defaultStore = s
-}
-
-// GetStore 取当前绑定存储；未注入返回 nil（调用方降级为无交互回调）。
-func GetStore() Store {
-	return defaultStore
-}
+// 注：绑定存储不再有包级单例。组合根构造后经 tools.ToolDeps.UIBinding 显式注入，
+// render_ui 与 handler 回调路由均从注入实例读取（架构加固 Phase 6：去全局化 + AgentState 门面收口）。
 
 // ========================================
 // Redis 后端

@@ -95,3 +95,31 @@ func TestRRFusionRespectsTopK(t *testing.T) {
 		t.Errorf("expected topK=2 results, got %d", len(out))
 	}
 }
+
+// TestRRFusionScoresIncompatibleWithCosineThreshold locks in the root cause of the
+// "hybrid retrieval returns empty" bug: RRF fused scores (~1/(60+rank)) live on a
+// completely different scale than cosine similarity. Applying a cosine threshold
+// (0.5~0.7) to fused scores drops every hit. HybridRetrieve therefore must NOT run
+// filterByThreshold on fused results — it filters the vector component instead.
+func TestRRFusionScoresIncompatibleWithCosineThreshold(t *testing.T) {
+	r := &RetrieverImpl{}
+	vector := []*domainrag.Document{{ChunkID: "A"}, {ChunkID: "B"}}
+	bm25 := []*domainrag.Document{{ChunkID: "A"}, {ChunkID: "C"}}
+	fused := r.rRFusion(vector, bm25, 10, 0.5)
+	if len(fused) == 0 {
+		t.Fatal("fusion produced no docs")
+	}
+	// Top fused score must be far below any sane cosine threshold.
+	if fused[0].Score >= 0.5 {
+		t.Fatalf("unexpected: top RRF score %v is on cosine scale; assumptions changed", fused[0].Score)
+	}
+	// Proof that the old post-fusion filter wiped everything: a 0.5 cosine threshold
+	// removes 100% of fused results.
+	if got := r.filterByThreshold(fused, 0.5); len(got) != 0 {
+		t.Fatalf("expected cosine threshold to drop all RRF-scored docs, kept %d", len(got))
+	}
+	// The correct behavior (no cosine filter on fused output) keeps them.
+	if len(fused) != 3 {
+		t.Fatalf("expected 3 fused docs retained without cosine filtering, got %d", len(fused))
+	}
+}

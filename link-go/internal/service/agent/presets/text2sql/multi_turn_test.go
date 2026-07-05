@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	agentinit "link/internal/service/agent/initializer"
+	"link/internal/service/agent/presets/text2sql"
 	ragtool "link/internal/service/agent/tools"
 	infraagent "link/internal/service/agent/framework"
 	"link/internal/model/common"
@@ -33,24 +34,25 @@ func TestText2SQL_MultiTurnConversation(t *testing.T) {
 	db := setupTestDB(t)
 	defer cleanupTestDB(t, db)
 
-	// 2. 初始化 SQL 工具
-	ragtool.InitSQLExecuteTool(db)
-	ragtool.InitGetSchemaTool(db)
+	// 2. 构造携真实 DB 的工具注册表（SQL 工具随构造注册）；经 Initializer 显式注入
+	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{SQLDB: db})
+	require.NoError(t, err, "构造工具注册表失败")
 
 	// 3. 创建测试表和数据
 	setupText2SQLSchema(t, db)
 
 	// 4. 创建模型和注册中心
 	toolModel := createText2SQLToolModel(t)
-	registry := infraagent.NewMemoryRegistry()
+	registry := infraagent.NewSpecRegistry()
 
 	// 5. 初始化 Agent
-	initializer := agentinit.NewInitializer(registry)
-	err := initializer.Initialize(ctx, toolModel)
+	initializer := agentinit.NewInitializer(registry, reg)
+	err = initializer.Initialize(ctx, toolModel)
 	require.NoError(t, err)
 
-	// 6. 获取 Text2SQL Agent
-	agent := agentinit.GetText2SQLAgent()
+	// 6. 获取 Text2SQL Agent（从 SpecRegistry 解析运行实例）
+	agent, ok := registry.GetInstance(text2sql.Text2SQLAgentID)
+	require.True(t, ok, "Text2SQL Agent 应已注册")
 	require.NotNil(t, agent)
 
 	t.Run("多轮对话：追问和修改", func(t *testing.T) {

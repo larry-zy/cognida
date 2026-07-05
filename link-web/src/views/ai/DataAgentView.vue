@@ -186,6 +186,43 @@
               </svg>
               数据智能体
             </span>
+
+            <!-- 数据源选择器 -->
+            <div class="ds-selector" @click.stop>
+              <button
+                ref="dsTriggerRef"
+                class="ds-selector__trigger"
+                :class="{ 'ds-selector__trigger--active': selectedDatasourceId }"
+                @click.stop="openDsDropdown"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <ellipse cx="12" cy="5" rx="7" ry="2.5"/>
+                  <path d="M5 5v14c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V5"/>
+                  <path d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>
+                </svg>
+                {{ selectedDatasourceName }}
+                <svg class="ds-selector__caret" :class="{ open: dsSelectOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+              <Teleport to="body">
+                <div v-if="dsSelectOpen" class="ds-selector__dropdown" :style="dsDropdownPos" @click.stop>
+                  <div
+                    v-for="opt in datasourceOptions"
+                    :key="opt.id"
+                    class="ds-selector__option"
+                    :class="{ selected: selectedDatasourceId === opt.id }"
+                    @click="selectDatasource(opt.id)"
+                  >
+                    {{ opt.name }}
+                    <svg v-if="selectedDatasourceId === opt.id" class="ds-selector__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  </div>
+                </div>
+              </Teleport>
+            </div>
+
             <span class="composer__count">{{ inputMessage.length }} / 4000</span>
             <button class="btn-send" :disabled="!inputMessage.trim() || isStreaming" @click="sendMessage">
               <svg v-if="!isStreaming" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -253,6 +290,8 @@ import MarkdownIt from 'markdown-it'
 import { useAuthStore } from '@/stores/auth'
 import { agentApi } from '@/api/agent'
 import { sessionApi } from '@/api/session'
+import { datasourceApi } from '@/api/datasource'
+import type { Datasource } from '@/api/datasource'
 import type { Session, Message, AgentStep } from '@/types'
 import { formatTime } from '@/utils'
 import toast from '@/utils/toast'
@@ -396,6 +435,50 @@ const textareaRef = ref<HTMLTextAreaElement>()
 const composerFocused = ref(false)
 let streamAbort: AbortController | null = null
 
+// ===== 数据源选择器 =====
+const datasources = ref<Datasource[]>([])
+/** 当前选中的数据源 id；空字符串表示"当前库" */
+const selectedDatasourceId = ref<string>('')
+const dsSelectOpen = ref(false)
+const dsTriggerRef = ref<HTMLButtonElement | null>(null)
+const dsDropdownPos = ref({ top: '0px', left: '0px' })
+
+const datasourceOptions = computed(() => {
+  const opts = [{ id: '', name: '当前库' }]
+  datasources.value.forEach(ds => opts.push({ id: ds.id, name: ds.name }))
+  return opts
+})
+
+const selectedDatasourceName = computed(() => {
+  if (!selectedDatasourceId.value) return '当前库'
+  return datasources.value.find(d => d.id === selectedDatasourceId.value)?.name ?? '当前库'
+})
+
+async function loadDatasources() {
+  try {
+    const res = await datasourceApi.list({ page: 1, page_size: 200 })
+    datasources.value = res.data?.items ?? []
+  } catch {
+    // 非关键路径，静默忽略
+  }
+}
+
+function openDsDropdown() {
+  if (dsTriggerRef.value) {
+    const rect = dsTriggerRef.value.getBoundingClientRect()
+    dsDropdownPos.value = {
+      top: `${rect.bottom + 4}px`,
+      left: `${rect.left}px`
+    }
+  }
+  dsSelectOpen.value = !dsSelectOpen.value
+}
+
+function selectDatasource(id: string) {
+  selectedDatasourceId.value = id
+  dsSelectOpen.value = false
+}
+
 // ===== 结果画布分组：历史轮次 + 实时轮次 =====
 interface CanvasGroup {
   key: string
@@ -522,6 +605,21 @@ function upsertStep(target: AgentStep[], event: any) {
   }
 }
 
+// 把当前流式轮次落成一条 assistant 历史消息（快照 steps / ui_surfaces）。
+// 成功收流与异常/中断分支共用，确保任何情况下已产出的内容都不会「消失」。
+function commitAssistantMessage(content: string) {
+  messages.value.push({
+    id: (Date.now() + 1).toString(),
+    session_id: currentSessionId.value,
+    role: 'assistant',
+    content,
+    token_count: Math.ceil(content.length / 3),
+    steps: streamingSteps.value.length ? [...streamingSteps.value] : undefined,
+    ui_surfaces: streamingUISurfaces.value.length ? [...streamingUISurfaces.value] : undefined,
+    created_at: new Date().toISOString()
+  } as DataMessage)
+}
+
 // ===== 发送 =====
 async function sendMessage() {
   const content = inputMessage.value.trim()
@@ -554,10 +652,11 @@ async function sendMessage() {
   streamAbort = new AbortController()
 
   try {
-    // 只携 query + session_id：不选智能体、不选知识库
+    // 只携 query + session_id + datasource_id（可选）：不选智能体、不选知识库
     for await (const event of agentApi.streamDataChat({
       query: content,
-      session_id: currentSessionId.value || undefined
+      session_id: currentSessionId.value || undefined,
+      datasource_id: selectedDatasourceId.value || undefined
     }, { signal: streamAbort.signal })) {
       if (event.session_id && event.session_id !== currentSessionId.value) {
         newSessionId = event.session_id
@@ -599,22 +698,25 @@ async function sendMessage() {
       scrollThreadToBottom()
     }
 
-    messages.value.push({
-      id: (Date.now() + 1).toString(),
-      session_id: currentSessionId.value,
-      role: 'assistant',
-      content: assistantContent || '抱歉，没有收到回复内容，请稍后重试。',
-      token_count: Math.ceil(assistantContent.length / 3),
-      steps: streamingSteps.value.length ? [...streamingSteps.value] : undefined,
-      ui_surfaces: streamingUISurfaces.value.length ? [...streamingUISurfaces.value] : undefined,
-      created_at: new Date().toISOString()
-    } as DataMessage)
+    commitAssistantMessage(assistantContent || '抱歉，没有收到回复内容，请稍后重试。')
 
     if (newSessionId) await loadSessions()
   } catch (err: any) {
-    if (err?.name !== 'AbortError') {
+    if (err?.name === 'AbortError') {
+      // 主动中断（组件卸载/新一轮发送）：保留已流式产出的部分，避免整块丢失
+      if (assistantContent || streamingContent.value || streamingSteps.value.length || streamingUISurfaces.value.length) {
+        commitAssistantMessage((assistantContent || streamingContent.value || '').trim() || '（生成已中断）')
+      }
+    } else {
+      // 连接中断/服务异常：不能让已经流式呈现的思考步骤与内容凭空「消失」，
+      // 把已产出的部分连同错误提示落成一条 assistant 消息保留下来。
       console.error('发送消息失败:', err)
       toast.error(err?.message || '发送消息失败')
+      const partial = (assistantContent || streamingContent.value || '').trim()
+      commitAssistantMessage(
+        (partial ? partial + '\n\n' : '') +
+        `> ⚠️ 生成中断：${err?.message || '与数据智能体的连接已断开，请重试。'}`
+      )
     }
   } finally {
     isStreaming.value = false
@@ -659,12 +761,19 @@ function formatSessionTime(dateStr: string): string {
 }
 
 // ===== 生命周期 =====
+function closeDsDropdown() {
+  dsSelectOpen.value = false
+}
+
 onMounted(() => {
   loadSessions()
+  loadDatasources()
   nextTick(() => textareaRef.value?.focus())
+  document.addEventListener('click', closeDsDropdown)
 })
 onUnmounted(() => {
   streamAbort?.abort()
+  document.removeEventListener('click', closeDsDropdown)
 })
 </script>
 
@@ -1170,5 +1279,93 @@ onUnmounted(() => {
   color: var(--text-muted);
   border: 1px dashed var(--color-border-subtle);
   border-radius: var(--radius-md);
+}
+
+/* ===================== 数据源选择器 ===================== */
+.ds-selector {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ds-selector__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
+  white-space: nowrap;
+}
+
+.ds-selector__trigger svg:first-child {
+  width: 12px;
+  height: 12px;
+}
+
+.ds-selector__trigger:hover {
+  color: var(--text-secondary);
+  border-color: var(--color-border-default);
+}
+
+.ds-selector__trigger--active {
+  color: var(--primary);
+  border-color: rgba(34, 211, 238, 0.35);
+}
+
+.ds-selector__caret {
+  width: 11px;
+  height: 11px;
+  transition: transform var(--duration-fast);
+}
+
+.ds-selector__caret.open {
+  transform: rotate(180deg);
+}
+
+.ds-selector__dropdown {
+  position: fixed;
+  min-width: 160px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+  z-index: 9999;
+  padding: 4px;
+}
+
+.ds-selector__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.ds-selector__option:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.ds-selector__option.selected {
+  color: var(--primary);
+  background: var(--primary-dim);
+}
+
+.ds-selector__check {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 </style>

@@ -6,9 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	agentuc "link/internal/service/agent/framework"
 )
 
 // TestPrompts 测试 Prompt 定义
@@ -37,51 +34,22 @@ func TestPrompts(t *testing.T) {
 	assert.Contains(t, reflectPrompt, "检查查询结果", "reflectPrompt 应该说明审核任务")
 }
 
-// TestGetAgent 测试 Agent 实例获取
-func TestGetAgent(t *testing.T) {
-	// 重置实例
-	SetAgent(nil)
+// TestSpec 测试声明式描述的元信息与 Build 工厂。
+func TestSpec(t *testing.T) {
+	spec := Spec(nil, nil)
 
-	agent := GetAgent()
-	assert.Nil(t, agent, "未设置时应该返回 nil")
-
-	// 设置后获取
-	mockAgent := &mockAgent{}
-	err := SetAgent(mockAgent)
-	require.NoError(t, err)
-
-	retrieved := GetAgent()
-	assert.Equal(t, mockAgent, retrieved, "应该返回设置的 Agent")
+	assert.Equal(t, Text2SQLAgentID, spec.ID, "主 ID 应为 agent-text2sql-per")
+	assert.Contains(t, spec.Aliases, "agent-text2sql-001", "应保留历史 agentID 别名")
+	assert.Contains(t, spec.ToolNames, "get_schema")
+	assert.Contains(t, spec.ToolNames, "sql_execute")
+	assert.NotNil(t, spec.Build, "Build 工厂不应为 nil")
+	assert.Equal(t, "sequential+semantic", spec.Metadata["pattern"])
 }
 
-// TestRegisterText2SQLAgent_WithoutModel 测试注册逻辑（需要真实模型）
-func TestRegisterText2SQLAgent_WithoutModel(t *testing.T) {
-	if testing.Short() {
-		t.Skip("跳过需要真实模型的集成测试")
-	}
-	// 这个测试需要真实的 ToolCallingChatModel
-	// 实际测试在 e2e_test.go 中进行
-	t.Skip("需要真实的 ChatModel，由 e2e 测试覆盖")
-}
-
-// ========================================
-// Mock 类型
-// ========================================
-
-type mockAgent struct{}
-
-func (m *mockAgent) Chat(ctx context.Context, message string) (*agentuc.Response, error) {
-	return &agentuc.Response{
-		Content: "mock response",
-	}, nil
-}
-
-func (m *mockAgent) Stream(ctx context.Context, message string) (<-chan *agentuc.Chunk, error) {
-	ch := make(chan *agentuc.Chunk)
-	close(ch)
-	return ch, nil
-}
-
-func (m *mockAgent) Name() string {
-	return "mock"
+// TestSpecBuild_WithoutTools 测试无工具注册时 Build 应 fail-fast（依赖必需工具）。
+func TestSpecBuild_WithoutTools(t *testing.T) {
+	spec := Spec(nil, nil)
+	inst, err := spec.Build(context.Background())
+	assert.Error(t, err, "缺少 get_schema/sql_execute 工具时应报错")
+	assert.Nil(t, inst)
 }

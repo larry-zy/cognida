@@ -34,7 +34,14 @@ func attributionRows() []map[string]interface{} {
 	}
 }
 
-func setupAttributionE2E(t *testing.T) context.Context {
+// attributionE2EEnv 归因 e2e 依赖载体：MCP 调用器与 Result Store 经构造参数
+// 显式注入工具（替代旧的包级 Init* 全局注入）。
+type attributionE2EEnv struct {
+	invoker agenttools.MCPInvoker
+	store   resultstore.Store
+}
+
+func setupAttributionE2E(t *testing.T) (context.Context, *attributionE2EEnv) {
 	t.Helper()
 	endpoint := os.Getenv("MCP_TEST_ENDPOINT")
 	if endpoint == "" {
@@ -49,20 +56,15 @@ func setupAttributionE2E(t *testing.T) context.Context {
 	if err != nil {
 		t.Fatalf("NewMCPClient: %v", err)
 	}
-	agenttools.InitDataAnalysisTool(client)
-	agenttools.InitResultStore(resultstore.NewMemoryStore())
-	t.Cleanup(func() {
-		agenttools.InitDataAnalysisTool(nil)
-		agenttools.InitResultStore(nil)
-	})
-	return agentctx.WithSessionID(agentctx.WithTenantID(context.Background(), 1), "sess-e2e-attr")
+	env := &attributionE2EEnv{invoker: client, store: resultstore.NewMemoryStore()}
+	ctx := agentctx.WithSessionID(agentctx.WithTenantID(context.Background(), 1), "sess-e2e-attr")
+	return ctx, env
 }
 
 // runAttribution 以 result_id 引用取数方式执行一次归因，返回解析后的信封。
-func runAttribution(t *testing.T, ctx context.Context, rows []map[string]interface{}) map[string]interface{} {
+func runAttribution(t *testing.T, ctx context.Context, env *attributionE2EEnv, rows []map[string]interface{}) map[string]interface{} {
 	t.Helper()
-	store := agenttools.GetResultStore()
-	srcID, err := store.Put(ctx, &resultstore.Result{
+	srcID, err := env.store.Put(ctx, &resultstore.Result{
 		Owner:   resultstore.OwnerKey(1, "sess-e2e-attr"),
 		Columns: []string{"month", "region", "gmv"},
 		Rows:    rows,
@@ -71,7 +73,7 @@ func runAttribution(t *testing.T, ctx context.Context, rows []map[string]interfa
 		t.Fatalf("预置行集失败: %v", err)
 	}
 
-	tool, err := agenttools.NewDataAnalysisTool()
+	tool, err := agenttools.NewDataAnalysisTool(env.invoker, env.store)
 	if err != nil {
 		t.Fatalf("NewDataAnalysisTool: %v", err)
 	}
@@ -118,8 +120,8 @@ func driverSegments(t *testing.T, envelope map[string]interface{}) []string {
 
 // TestAttributionE2E_EnvelopeContract 归因一等信封全链路契约。
 func TestAttributionE2E_EnvelopeContract(t *testing.T) {
-	ctx := setupAttributionE2E(t)
-	envelope := runAttribution(t, ctx, attributionRows())
+	ctx, env := setupAttributionE2E(t)
+	envelope := runAttribution(t, ctx, env, attributionRows())
 
 	// 头号驱动：华北 -400
 	segs := driverSegments(t, envelope)
@@ -132,7 +134,7 @@ func TestAttributionE2E_EnvelopeContract(t *testing.T) {
 	if newID == "" {
 		t.Fatal("expected drivers result_id in envelope")
 	}
-	stored, err := agenttools.GetResultStore().Get(ctx, resultstore.OwnerKey(1, "sess-e2e-attr"), newID)
+	stored, err := env.store.Get(ctx, resultstore.OwnerKey(1, "sess-e2e-attr"), newID)
 	if err != nil {
 		t.Fatalf("drivers result not retrievable: %v", err)
 	}
@@ -159,7 +161,7 @@ func TestAttributionE2E_EnvelopeContract(t *testing.T) {
 
 // TestAttributionE2E_RankingStableUnderShuffle 行序扰动不改变 driver ranking。
 func TestAttributionE2E_RankingStableUnderShuffle(t *testing.T) {
-	ctx := setupAttributionE2E(t)
+	ctx, env := setupAttributionE2E(t)
 
 	base := attributionRows()
 	shuffled := make([]map[string]interface{}, len(base))
@@ -168,8 +170,8 @@ func TestAttributionE2E_RankingStableUnderShuffle(t *testing.T) {
 		shuffled[len(base)-1-i] = r
 	}
 
-	segs1 := driverSegments(t, runAttribution(t, ctx, base))
-	segs2 := driverSegments(t, runAttribution(t, ctx, shuffled))
+	segs1 := driverSegments(t, runAttribution(t, ctx, env, base))
+	segs2 := driverSegments(t, runAttribution(t, ctx, env, shuffled))
 	if len(segs1) != len(segs2) {
 		t.Fatalf("driver count mismatch: %v vs %v", segs1, segs2)
 	}

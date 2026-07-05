@@ -40,10 +40,9 @@ func TestDataAnalysisE2E_RealMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMCPClient: %v", err)
 	}
-	agenttools.InitDataAnalysisTool(client)
-	t.Cleanup(func() { agenttools.InitDataAnalysisTool(nil) })
-
-	tool, err := agenttools.NewDataAnalysisTool()
+	// MCP 调用器经构造参数显式注入（替代旧的包级 Init* 全局注入）；
+	// 本用例走内联 data 传参，无需 Result Store。
+	tool, err := agenttools.NewDataAnalysisTool(client, nil)
 	if err != nil {
 		t.Fatalf("NewDataAnalysisTool: %v", err)
 	}

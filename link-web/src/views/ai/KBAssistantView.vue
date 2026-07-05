@@ -484,7 +484,9 @@ async function loadKnowledgeBases() {
   try {
     const res = await knowledgeApi.getList()
     if (res.data) {
-      knowledgeBases.value = Array.isArray(res.data) ? res.data : []
+      // 后端列表走分页信封 {items, total}，也兼容直接数组
+      const data = res.data as any
+      knowledgeBases.value = Array.isArray(data) ? data : (data.items ?? [])
     }
   } catch (err) {
     console.error('加载知识库失败:', err)

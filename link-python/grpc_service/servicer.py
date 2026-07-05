@@ -5,12 +5,14 @@
 - OCR 识别
 - 文本分块
 - URL 内容获取
-- 评测服务
 
 数据分析功能：
 - 数理统计
 - 趋势分析
 - 数据洞察
+
+注：评测不再经此 gRPC 编排。Python 评测已收敛为无状态 compute（FastAPI :18888，
+见 services/evaluation/fastapi_app.py），编排权威在 Go worker。
 """
 
 import asyncio
@@ -29,22 +31,9 @@ from services.document import (
 
 from proto import docreader_pb2
 from proto import docreader_pb2_grpc
-from proto import evaluation_pb2_grpc
 
 if TYPE_CHECKING:
     from grpc import ServicerContext
-
-# 延迟导入评测服务（避免启动时的依赖问题）
-_evaluation_servicer = None
-
-
-def get_evaluation_servicer():
-    """获取评测服务实例。"""
-    global _evaluation_servicer
-    if _evaluation_servicer is None:
-        from services.evaluation.service import EvaluationServicer
-        _evaluation_servicer = EvaluationServicer()
-    return _evaluation_servicer
 
 
 class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
@@ -371,23 +360,20 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
     """
     from concurrent import futures
 
-    # 使用同步服务器，使用默认选项
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    from core import RequestIDServerInterceptor
+
+    # 使用同步服务器，使用默认选项；拦截器从 metadata 提取 request_id 绑定日志上下文
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=10),
+        interceptors=(RequestIDServerInterceptor(),),
+    )
 
     # 添加 DocumentReader 服务
     docreader_pb2_grpc.add_DocumentReaderServiceServicer_to_server(
         DocumentReaderServicer(), server
     )
 
-    # 添加 Evaluation 服务
-    try:
-        evaluation_servicer = get_evaluation_servicer()
-        evaluation_pb2_grpc.add_EvaluationServiceServicer_to_server(
-            evaluation_servicer, server
-        )
-    except Exception as e:
-        logger = get_logger(__name__)
-        logger.warning(f"Failed to register EvaluationService", error=str(e))
+    # 评测不再注册 gRPC servicer：已收敛为无状态 compute（FastAPI :18888），编排在 Go worker。
 
     # 添加 Quality 数据质量服务
     try:

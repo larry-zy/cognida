@@ -122,6 +122,8 @@ export default {
     evaluation: '大模型测评',
     datasets: '数据集管理',
     quality: '数据质量',
+    datasource: '数据源管理',
+    audit: '审计日志',
     settings: '设置'
   },
   tenant: {

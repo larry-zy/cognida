@@ -3,15 +3,17 @@ package skills
 
 import (
 	"log"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
 // 全局配置
 var (
-	skillDirs []string // 技能目录列表
+	skillDirs   []string // 技能目录列表
 	initialized bool
-	initOnce sync.Once
+	initOnce    sync.Once
 )
 
 // ========================================
@@ -67,6 +69,37 @@ func Initialize(dirs ...string) error {
 // 便捷函数，用于启动时自动初始化
 func InitializeDefault() error {
 	return Initialize()
+}
+
+// InitializeFromEnv 以健壮的目录解析初始化 Skill 系统，供服务启动时调用。
+//
+// 解析优先级：
+//  1. 环境变量 LINK_SKILL_DIRS（逗号分隔的一或多个目录）——显式配置优先；
+//  2. 否则回退到一组候选相对目录：./skills、../skills、../../skills。
+//     服务通常从 link-go/ 启动，而 Skill 文件位于仓库根的 skills/（即 ../skills），
+//     原默认的 ./skills 会解析到 link-go/skills 而落空——这里显式覆盖候选，修复该 CWD 陷阱。
+//
+// 仅加载「存在且含 SKILL.md」的目录；缺失目录由 SkillManager.LoadSkills 静默跳过。
+func InitializeFromEnv() error {
+	var dirs []string
+	if env := strings.TrimSpace(os.Getenv("LINK_SKILL_DIRS")); env != "" {
+		for _, d := range strings.Split(env, ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				dirs = append(dirs, d)
+			}
+		}
+	}
+	if len(dirs) == 0 {
+		dirs = []string{
+			filepath.Join(".", "skills"),
+			filepath.Join("..", "skills"),
+			filepath.Join("..", "..", "skills"),
+		}
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		log.Printf("[Skill] Initializing from dirs %v (cwd=%s)", dirs, cwd)
+	}
+	return Initialize(dirs...)
 }
 
 // IsInitialized 检查是否已初始化

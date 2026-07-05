@@ -93,9 +93,9 @@ func TestReAct_DynamicToolOrder(t *testing.T) {
 		maxIter:   10,
 	}
 
-	resp, err := a.chatWithTools(context.Background(), "分析趋势")
+	resp, err := a.Chat(context.Background(), "分析趋势")
 	if err != nil {
-		t.Fatalf("chatWithTools: %v", err)
+		t.Fatalf("Chat: %v", err)
 	}
 	if resp.Content != "结论" {
 		t.Errorf("expected natural conclusion, got %q", resp.Content)
@@ -131,9 +131,9 @@ func TestReAct_EmptyNaturalFinish(t *testing.T) {
 		maxIter:   10,
 	}
 
-	resp, err := a.chatWithTools(context.Background(), "空结论收尾")
+	resp, err := a.Chat(context.Background(), "空结论收尾")
 	if err != nil {
-		t.Fatalf("chatWithTools: %v", err)
+		t.Fatalf("Chat: %v", err)
 	}
 	if _, ok := resp.Metadata["terminated_by"]; ok {
 		t.Errorf("empty natural finish must not set terminated_by: %v", resp.Metadata)
@@ -169,9 +169,9 @@ func TestReAct_MaxIterTermination(t *testing.T) {
 		maxIter:   3,
 	}
 
-	resp, err := a.chatWithTools(context.Background(), "永动查询")
+	resp, err := a.Chat(context.Background(), "永动查询")
 	if err != nil {
-		t.Fatalf("chatWithTools: %v", err)
+		t.Fatalf("Chat: %v", err)
 	}
 	if len(order) != 3 {
 		t.Errorf("expected exactly maxIter=3 tool calls, got %d (%v)", len(order), order)
@@ -212,9 +212,9 @@ func TestReAct_TokenBudgetTermination(t *testing.T) {
 		tokenBudget: 150,
 	}
 
-	resp, err := a.chatWithTools(context.Background(), "预算受限查询")
+	resp, err := a.Chat(context.Background(), "预算受限查询")
 	if err != nil {
-		t.Fatalf("chatWithTools: %v", err)
+		t.Fatalf("Chat: %v", err)
 	}
 	if resp.Metadata["terminated_by"] != TerminatedByTokenBudget {
 		t.Errorf("expected terminated_by=token_budget, got %v", resp.Metadata["terminated_by"])

@@ -11,6 +11,7 @@ import (
 	"link/internal/model/conversation"
 	"link/internal/service/agent/convcontext"
 	infraagent "link/internal/service/agent/framework"
+	"link/internal/service/agent/skills"
 	toolregistry "link/internal/service/agent/tools"
 )
 
@@ -30,11 +31,11 @@ const (
 var capabilityGroups = []string{"sql", "semantic", "graph", "analytics", "render", "operation", "skill"}
 
 // collectCapabilityTools 按能力分组收集全部已注册工具并按名去重。
-func collectCapabilityTools(ctx context.Context) []tool.BaseTool {
+func collectCapabilityTools(ctx context.Context, registry *toolregistry.ToolRegistry) []tool.BaseTool {
 	seen := make(map[string]struct{})
 	var tools []tool.BaseTool
 	for _, group := range capabilityGroups {
-		for _, t := range toolregistry.GetToolsByGroup(group) {
+		for _, t := range registry.GetByGroup(group) {
 			info, err := t.Info(ctx)
 			if err != nil {
 				continue
@@ -49,81 +50,78 @@ func collectCapabilityTools(ctx context.Context) []tool.BaseTool {
 	return tools
 }
 
-// RegisterDataAgentPreset 注册单一 ReAct 内核的 Data Agent 预设。
-// 以一个 ReAct 循环 Agent 承载查/析/渲/操四类能力，入口挂载意图路由 BeforeHook，
-// 循环受 maxIter + token 预算约束。collabRegistry 非 nil 时同时启用子代理委派
-// （delegate_to_agent + delegate_parallel，Phase 7 orchestrator-worker）。
+// Spec 返回单一 ReAct 内核 Data Agent 预设的声明式描述。
+//
+// Build 闭包在注册时装配：建子代理协作注册表 → 注册数据域子代理 → 建承载查/析/渲/操
+// 四类能力的 ReAct 循环 Agent（入口意图路由 BeforeHook，maxIter + token 预算约束，
+// 委派能力，可选跨轮对话记忆）。
 // msgRepo 非 nil 时启用跨轮对话记忆：从 messages 表回放会话历史，装配多轮上下文。
-func RegisterDataAgentPreset(
-	ctx context.Context,
-	registry domainagent.AgentRegistry,
+func Spec(
 	toolModel model.ToolCallingChatModel,
-	collabRegistry *infraagent.CollaborationRegistry,
 	msgRepo conversation.MessageRepository,
-) error {
-	if toolModel == nil {
-		return fmt.Errorf("data agent 预设需要 ToolCallingChatModel")
-	}
-
-	tools := collectCapabilityTools(ctx)
-	if len(tools) == 0 {
-		return fmt.Errorf("data agent 预设未收集到任何能力工具（分组均未注册）")
-	}
-
-	builder := infraagent.New(nil).
-		Name("DataAgent").
-		Prompt(systemPrompt).
-		WithToolModel(toolModel).
-		Tools(tools...).
-		Before(toolPolicyHook()). // 硬工具门：以原始消息匹配 skill，须先于 playbook 注入
-		Before(intentRoutingHook()).
-		WithMaxIterations(defaultMaxIter).
-		WithTokenBudget(defaultTokenBudget)
-	if msgRepo != nil {
-		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支
-		builder = builder.WithContextBuilder(convcontext.NewConversationContextBuilder(msgRepo))
-	}
-	if collabRegistry != nil {
-		// 指挥官持委派能力：复杂任务可拆解给数据域子代理（每次委派授予最小 scope）
-		builder = builder.WithCollaboration(collabRegistry, infraagent.EnableDelegate())
-	}
-	reactAgent, err := builder.Build(ctx)
-	if err != nil {
-		return fmt.Errorf("构建 Data Agent 失败: %w", err)
-	}
-
-	def := &domainagent.AgentDefinition{
+	registry *toolregistry.ToolRegistry,
+) infraagent.AgentSpec {
+	return infraagent.AgentSpec{
 		ID:          DataAgentID,
 		Name:        "data_agent",
 		Description: "Data Agent：单一 ReAct 内核，承载查/析/渲/操四类能力，入口意图路由 + maxIter/token 预算约束",
 		Type:        domainagent.AgentTypeAgenticRAG,
-		Status:      domainagent.AgentStatusIdle,
+		ToolNames:   capabilityGroups,
 		Metadata: map[string]string{
 			"version": "1.0.0",
 			"pattern": "single-react",
 			"kernel":  "reason-act-observe",
 		},
+		Build: func(ctx context.Context) (infraagent.Agent, error) {
+			return buildDataAgent(ctx, toolModel, msgRepo, registry)
+		},
 	}
-	if err := registry.Register(ctx, def); err != nil {
-		return fmt.Errorf("注册 Data Agent 失败: %w", err)
-	}
-
-	return SetAgent(reactAgent)
 }
 
-// ========================================
-// Agent 实例管理（单例）
-// ========================================
+// buildDataAgent 装配 Data Agent 实例：子代理协作注册表 + ReAct 内核。
+// registry 为注入的工具注册表（组合根经 Spec 下发）；nil 时 fail-fast，不读任何包级默认槽位。
+func buildDataAgent(
+	ctx context.Context,
+	toolModel model.ToolCallingChatModel,
+	msgRepo conversation.MessageRepository,
+	registry *toolregistry.ToolRegistry,
+) (infraagent.Agent, error) {
+	if toolModel == nil {
+		return nil, fmt.Errorf("data agent 预设需要 ToolCallingChatModel")
+	}
+	if registry == nil {
+		return nil, fmt.Errorf("data agent 预设需要工具注册表")
+	}
 
-var dataAgentInstance infraagent.Agent
+	// 子代理协作注册表：注册数据域子代理，供指挥官委派（每次委派授予最小 scope）。
+	collabRegistry := infraagent.NewCollaborationRegistry()
+	if err := RegisterDataSubAgents(ctx, collabRegistry, toolModel, registry); err != nil {
+		return nil, fmt.Errorf("注册 Data 子代理失败: %w", err)
+	}
 
-// SetAgent 设置 Data Agent 实例。
-func SetAgent(agent infraagent.Agent) error {
-	dataAgentInstance = agent
-	return nil
-}
+	tools := collectCapabilityTools(ctx, registry)
+	if len(tools) == 0 {
+		return nil, fmt.Errorf("data agent 预设未收集到任何能力工具（分组均未注册）")
+	}
 
-// GetAgent 获取 Data Agent 实例。
-func GetAgent() infraagent.Agent {
-	return dataAgentInstance
+	builder := infraagent.New(nil).
+		Name("DataAgent").
+		Prompt(skills.AugmentPromptWithCatalog(systemPrompt)). // 追加技能目录（Level 1 渐进式披露）
+		WithToolModel(toolModel).
+		Tools(tools...).
+		Before(toolPolicyHook()).               // 硬工具门：以原始消息匹配 skill，须先于 playbook 注入
+		Before(intentRoutingHook(toolModel)).   // LLM 意图分类（词法兜底），注入对应 playbook
+		Before(skills.InjectFromContextHook()). // 末位：把入口暂存的命中 skill 指导自动注入（自动注入）
+		WithMaxIterations(defaultMaxIter).
+		WithTokenBudget(defaultTokenBudget).
+		WithCollaboration(collabRegistry, infraagent.EnableDelegate())
+	if msgRepo != nil {
+		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支
+		builder = builder.WithContextBuilder(convcontext.NewConversationContextBuilder(msgRepo))
+	}
+	reactAgent, err := builder.Build(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("构建 Data Agent 失败: %w", err)
+	}
+	return reactAgent, nil
 }

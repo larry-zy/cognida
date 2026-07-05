@@ -10,11 +10,9 @@ import (
 
 // 图谱增强未开启时，graph_query 直接返回提示且不调用图谱服务、不报错。
 func TestGraphQuery_GatedWhenDisabled(t *testing.T) {
-	// 故意不设置 graphService；若门控失效会走到 nil 检查报错，从而暴露问题。
-	SetGraphService(nil)
-
+	// 故意传入 nil 图谱服务；若门控失效会走到 nil 检查报错，从而暴露问题。
 	ctx := agentctx.WithGraphEnabled(context.Background(), false)
-	res, err := graphQuery(ctx, &GraphQueryRequest{Query: "张三负责哪些项目"})
+	res, err := graphQuery(ctx, &GraphQueryRequest{Query: "张三负责哪些项目"}, nil)
 	if err != nil {
 		t.Fatalf("gated call should not error, got %v", err)
 	}
@@ -28,11 +26,8 @@ func TestGraphQuery_GatedWhenDisabled(t *testing.T) {
 
 // 图谱开启时正常调用图谱服务。
 func TestGraphQuery_PassthroughWhenEnabled(t *testing.T) {
-	SetGraphService(&mockGraphService{})
-	defer SetGraphService(nil)
-
 	ctx := agentctx.WithGraphEnabled(context.Background(), true)
-	res, err := graphQuery(ctx, &GraphQueryRequest{Query: "张三与李四的关联"})
+	res, err := graphQuery(ctx, &GraphQueryRequest{Query: "张三与李四的关联"}, &mockGraphService{})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

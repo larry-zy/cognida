@@ -27,6 +27,7 @@ import (
 	"link/internal/service/agent/resultstore"
 	"link/internal/service/agent/uibinding"
 	"link/internal/service/agent/semanticcache"
+	skilltools "link/internal/service/agent/skills/tools"
 	"link/internal/service/agent/termgrounding"
 	ragtool "link/internal/service/agent/tools"
 
@@ -65,6 +66,12 @@ func main() {
 
 	// 加载配置
 	cfg := config.LoadConfig()
+
+	// JWT 密钥强校验：缺失/占位符/过短一律拒绝启动（fail-closed），
+	// 杜绝弱密钥进入生产被离线爆破后自签合法 token。
+	if err := cfg.JWT.Validate(); err != nil {
+		log.Fatalf("❌ %v", err)
+	}
 
 	// 初始化数据库
 	log.Println("🔧 初始化数据库...")
@@ -119,9 +126,9 @@ func main() {
 	// 初始化 Agent 注册中心
 	if app.AgentRegistry != nil && app.ChatConfig != nil && app.ChatConfig.APIKey != "" {
 		log.Println("🔧 初始化 Agent 注册中心...")
-		// 注入消息仓储：Data Agent 据此从 messages 表回放会话历史，具备跨轮对话记忆
+		// 注入消息仓储：Data Agent 据此从 messages 表回放会话历史，具备跨轮对话记忆。
+		// Initializer 待 ToolRegistry 构造完成后再创建（工具注册表经构造期显式注入）。
 		msgRepo := mysql.NewMessageRepository(db)
-		initializer := agentinit.NewInitializer(app.AgentRegistry, msgRepo)
 
 		// 创建 ToolModel
 		ctx := context.Background()
@@ -136,16 +143,10 @@ func main() {
 		if err != nil {
 			log.Printf("⚠️  创建 ToolModel 失败: %v", err)
 		} else {
-			// 初始化 SQL 工具
-			ragtool.InitSQLExecuteTool(db)
-			ragtool.InitGetSchemaTool(db)
-			log.Println("✅ SQL 工具初始化完成")
+			// ==================== 装配工具依赖（ToolDeps）====================
+			// 依赖在构造期显式注入 NewToolRegistry，替代旧的包级 Init* 逐一全局注入。
 
-			// 初始化指标语义层工具（NL2Semantics）：注入语义模型仓储
-			ragtool.InitSemanticTools(mysql.NewSemanticRepository(db))
-			log.Println("✅ 指标语义层工具初始化完成")
-
-			// 初始化 Result Store（data-by-reference）：完整结果集落库、回灌 LLM 只给信封。
+			// Result Store（data-by-reference）：完整结果集落库、回灌 LLM 只给信封。
 			// Redis 可用则用 Redis 后端；否则降级为进程内内存后端（单实例可用）。
 			var rs resultstore.Store
 			if rediscache.Client != nil {
@@ -155,19 +156,20 @@ func main() {
 				rs = resultstore.NewMemoryStore()
 				log.Println("⚠️  Redis 未配置，Result Store 降级为进程内内存后端")
 			}
-			ragtool.InitResultStore(rs)
 
 			// 初始化 UI 交互绑定存储（surface ↔ result_id + token，会话 TTL）：
-			// 支撑 render_ui 的 Filter/Pagination 等组件回调路由。
+			// 支撑 render_ui 的 Filter/Pagination 等组件回调路由。经 ToolDeps.UIBinding
+			// 显式注入（去 uibinding 包级单例），render_ui 与 handler 回调路由共用同一实例。
+			var uiBindingStore uibinding.Store
 			if rediscache.Client != nil {
-				uibinding.SetStore(uibinding.NewRedisStore(rediscache.Client))
+				uiBindingStore = uibinding.NewRedisStore(rediscache.Client)
 				log.Println("✅ UI 交互绑定存储使用 Redis 后端")
 			} else {
-				uibinding.SetStore(uibinding.NewMemoryStore())
+				uiBindingStore = uibinding.NewMemoryStore()
 				log.Println("⚠️  Redis 未配置，UI 交互绑定存储降级为进程内内存后端")
 			}
 
-			// 初始化受信查询缓存（Verified/Golden Query）：键含语义模型版本，版本变更即失效。
+			// 受信查询缓存（Verified/Golden Query）：键含语义模型版本，版本变更即失效。
 			// 复用 Result Store 的 Redis 客户端；Redis 不可用则降级为进程内内存缓存。
 			var sc semanticcache.Cache
 			if rediscache.Client != nil {
@@ -175,8 +177,48 @@ func main() {
 			} else {
 				sc = semanticcache.NewMemoryCache()
 			}
-			ragtool.InitSemanticCache(sc)
-			log.Println("✅ 受信查询缓存初始化完成")
+
+			// 待确认操作存储（sql_mutate / etl_run / data_export 的人工确认闭环）：
+			// Redis 可用则 Redis，否则进程内内存。
+			var pendingStore pendingaction.Store
+			if rediscache.Client != nil {
+				pendingStore = pendingaction.NewRedisStore(rediscache.Client)
+				log.Println("✅ 待确认操作存储使用 Redis 后端")
+			} else {
+				pendingStore = pendingaction.NewMemoryStore()
+				log.Println("⚠️  Redis 未配置，待确认操作存储降级为进程内内存后端")
+			}
+
+			deps := ragtool.ToolDeps{
+				SQLDB:       db,
+				ResultStore: rs,
+				UIBinding:   uiBindingStore,
+				// 指标语义层（NL2Semantics）：语义模型仓储 + 受信查询缓存
+				SemanticRepo:  mysql.NewSemanticRepository(db),
+				SemanticCache: sc,
+				// 知识库列表工具（kb_list）仓储；nil 时工具报告未接线
+				KnowledgeBaseRepo: app.KnowledgeBaseRepository,
+				// Metaso 搜索客户端（web_search / search_multi）；API Key 缺失时调用报错
+				MetasoClient: ragtool.NewMetasoClient(config.LoadSearchConfig()),
+				// 操作工具（sql_mutate / etl_run / data_export）：审计仓储走 MySQL
+				Operation: ragtool.OperationConfig{
+					DB:      db,
+					Audit:   mysql.NewOperationAuditRepository(db),
+					Pending: pendingStore,
+					// 红线原始业务表：Agent 禁止直接修改的系统核心表
+					RedlineTables: []string{
+						"tenants", "tenant_users", "users", "refresh_tokens", "sessions",
+						"audit_logs", "agent_operation_audit",
+					},
+				},
+			}
+
+			// 外部数据源路由：查询类工具 database_id 非空时经 ConnectionManager
+			// 路由到已注册外部数据源；无效 id 显式报错不回落业务库。
+			if app.DataSourceService != nil {
+				deps.DatasourceProvider = app.DataSourceService
+				log.Println("✅ 外部数据源工具路由已注入")
+			}
 
 			// 术语接地：模型内同义词接地始终可用；Neo4j 可用时叠加知识图谱/血缘增强。
 			// 未连接 Neo4j 时端口为 nil，接地退化为仅模型内同义词。
@@ -188,36 +230,14 @@ func main() {
 				if graphRepo, gerr := neo4jrepo.NewNeo4jRepositoryFromDriver(driver, dbName); gerr != nil {
 					log.Printf("⚠️  术语接地图谱端口初始化失败，退化为仅模型内同义词: %v", gerr)
 				} else {
-					ragtool.InitTermGrounding(termgrounding.NewGraphAdapter(graphRepo, ""))
+					deps.TermGrounding = termgrounding.NewGraphAdapter(graphRepo, "")
 					log.Println("✅ 术语接地已叠加知识图谱增强")
 				}
 			} else {
 				log.Println("ℹ️  未连接 Neo4j，术语接地仅用模型内同义词")
 			}
 
-			// 初始化操作工具（sql_mutate / etl_run / data_export）：
-			// 审计仓储走 MySQL；待确认存储 Redis 可用则 Redis，否则进程内内存。
-			var pendingStore pendingaction.Store
-			if rediscache.Client != nil {
-				pendingStore = pendingaction.NewRedisStore(rediscache.Client)
-				log.Println("✅ 待确认操作存储使用 Redis 后端")
-			} else {
-				pendingStore = pendingaction.NewMemoryStore()
-				log.Println("⚠️  Redis 未配置，待确认操作存储降级为进程内内存后端")
-			}
-			ragtool.InitOperationTools(ragtool.OperationConfig{
-				DB:      db,
-				Audit:   mysql.NewOperationAuditRepository(db),
-				Pending: pendingStore,
-				// 红线原始业务表：Agent 禁止直接修改的系统核心表
-				RedlineTables: []string{
-					"tenants", "tenant_users", "users", "refresh_tokens", "sessions",
-					"audit_logs", "agent_operation_audit",
-				},
-			})
-			log.Println("✅ 操作工具（写/ETL/导出）初始化完成")
-
-			// 初始化数据分析工具：注入 MCP 调用器（与 skill 同源端点）
+			// 数据分析工具：注入 MCP 调用器（与 skill 同源端点）；失败时不注入（调用返回非致命错误）
 			skillCfg := config.LoadSkillConfig()
 			mcpClient, mcpErr := mcp.NewMCPClient(&mcp.Config{
 				Endpoint: skillCfg.Endpoint,
@@ -227,39 +247,61 @@ func main() {
 			if mcpErr != nil {
 				log.Printf("⚠️  data_analysis MCP 调用器初始化失败: %v", mcpErr)
 			} else {
-				ragtool.InitDataAnalysisTool(mcpClient)
-				log.Println("✅ 数据分析工具初始化完成")
+				deps.DataAnalysisInvoker = mcpClient
+				log.Println("✅ 数据分析工具 MCP 调用器已注入")
 			}
 
-			// 注入生成式 UI 的 LLM：Text2SQL 取数+分析后，由 Go 端用它定制布局
-			// （Level 2）；未注入时降级为确定性模板（Level 1）。
-			genui.SetModel(toolModel)
-			log.Println("✅ 生成式 UI（GenUI）已启用 LLM 定制布局")
-
-			// 初始化知识库检索/图谱工具：将已接线的领域服务经适配器注入工具层。
+			// 知识库检索/图谱工具：将已接线的领域服务经适配器注入工具层。
 			// 检索范围与图谱开关由会话 ctx 强制（用户在入口选定），工具/Agent 不再自行选库。
+			// 仅在服务就绪时赋值接口字段，避免 typed-nil 绕过工具内 nil 判断。
 			if app.Retriever != nil {
-				ragtool.InitRAGQueryTool(agentadapters.NewRAGRetrieverAdapter(app.Retriever, app.KnowledgeBaseRepository))
+				deps.RAGService = agentadapters.NewRAGRetrieverAdapter(app.Retriever, app.KnowledgeBaseRepository)
 				log.Println("✅ RAG 检索工具（rag_query）已接线真实检索器")
 			} else {
 				log.Println("⚠️  检索器未就绪，rag_query 工具未接线")
 			}
 			if app.GraphService != nil {
-				ragtool.InitGraphQueryTool(agentadapters.NewGraphSearchAdapter(app.GraphService, app.KnowledgeBaseRepository))
+				deps.GraphService = agentadapters.NewGraphSearchAdapter(app.GraphService, app.KnowledgeBaseRepository)
 				log.Println("✅ 图谱检索工具（graph_query）已接线真实图谱服务")
 			} else {
 				log.Println("⚠️  图谱服务未就绪，graph_query 工具未接线")
 			}
-			if app.KnowledgeBaseRepository != nil {
-				ragtool.InitKnowledgeBaseTool(app.KnowledgeBaseRepository)
-				log.Println("✅ 知识库列表工具（kb_list）已接线知识库仓储")
-			}
 
-			// 初始化所有 Agents
-			if err := initializer.Initialize(ctx, toolModel); err != nil {
-				log.Printf("⚠️  Agent 初始化失败: %v", err)
+			// ==================== 构造工具注册表并注入默认槽位 ====================
+			reg, regErr := ragtool.NewToolRegistry(deps)
+			if regErr != nil {
+				log.Printf("⚠️  工具注册表构造失败，跳过 Agent 初始化: %v", regErr)
 			} else {
-				log.Println("✅ Agent 注册中心初始化完成")
+				log.Printf("✅ 工具注册表构造完成（%d 个工具，依赖显式注入）", reg.Size())
+
+				// 经组合根把工具注册表注入 handler 网关（confirm-resume / UI 取数 /
+				// schema 查询），替代 tools 包级默认槽位（Decision A：窄接口 + setter）。
+				if app.AgentHandler != nil {
+					app.AgentHandler.SetToolGateway(reg)
+					log.Println("✅ Agent handler 工具网关已注入")
+				}
+
+				// Skill 系统工具（skill_list/skill_invoke/skill_match）：在注册表构造后
+				// 显式注册（同名覆盖内置工具发现版），替代旧的 init() 导入副作用。
+				if err := skilltools.RegisterSkillTools(reg); err != nil {
+					log.Printf("⚠️  Skill 工具注册失败: %v", err)
+				}
+
+				// 注入生成式 UI 的 LLM：Text2SQL 取数+分析后，由 Go 端用它定制布局
+				// （Level 2）；未注入时降级为确定性模板（Level 1）。
+				genui.SetModel(toolModel)
+				log.Println("✅ 生成式 UI（GenUI）已启用 LLM 定制布局")
+
+				// 工具注册表就绪后构造 Initializer（工具注册表构造期显式注入，
+				// 替代 tools 包级 GetTool/GetToolsByGroup 全局查询）。
+				initializer := agentinit.NewInitializer(app.AgentRegistry, reg, msgRepo)
+
+				// 初始化所有 Agents
+				if err := initializer.Initialize(ctx, toolModel); err != nil {
+					log.Printf("⚠️  Agent 初始化失败: %v", err)
+				} else {
+					log.Println("✅ Agent 注册中心初始化完成")
+				}
 			}
 		}
 	}

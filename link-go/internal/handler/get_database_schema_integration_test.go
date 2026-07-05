@@ -66,13 +66,16 @@ func TestGetDatabaseSchemaIntegration(t *testing.T) {
 	setupSchemaTestTable(t, db)
 	defer cleanupSchemaTestTable(t, db)
 
-	// 4. 初始化 get_schema 工具（端点复用其 DB）
-	ragtool.InitGetSchemaTool(db)
+	// 4. 构造携真实 DB 的工具注册表（端点经注册表 FetchSchema 复用其 DB）
+	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{SQLDB: db})
+	require.NoError(t, err, "构造工具注册表失败")
 
-	// 5. 构建 Handler 与路由（GetDatabaseSchema 不依赖其他 use case，传 nil 即可）
+	// 5. 构建 Handler 与路由（GetDatabaseSchema 不依赖其他 use case，传 nil 即可）；
+	//    经 SetToolGateway 注入工具网关，替代包级默认槽位。
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	h := NewAgentHandler(nil, nil, nil, nil, nil)
+	h.SetToolGateway(reg)
 	router.GET("/api/v1/agent/text2sql/schema", h.GetDatabaseSchema)
 
 	t.Run("指定表名返回精确结构", func(t *testing.T) {

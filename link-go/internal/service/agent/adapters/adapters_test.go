@@ -64,6 +64,9 @@ func (f *fakeKBRepo) Create(context.Context, *knowledge.KnowledgeBase) error { r
 func (f *fakeKBRepo) FindByID(context.Context, string) (*knowledge.KnowledgeBase, error) {
 	return nil, nil
 }
+func (f *fakeKBRepo) FindByIDForTenant(context.Context, string, int64) (*knowledge.KnowledgeBase, error) {
+	return nil, nil
+}
 func (f *fakeKBRepo) FindByUser(context.Context, int64, int, int) ([]*knowledge.KnowledgeBase, int64, error) {
 	return nil, 0, nil
 }

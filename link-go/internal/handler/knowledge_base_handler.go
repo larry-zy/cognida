@@ -95,7 +95,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 		return
 	}
 
-	result, err := h.knowledgeBaseService.FindByID(c.Request.Context(), id)
+	result, err := h.knowledgeBaseService.FindByID(c.Request.Context(), id, GetTenantID(c))
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -145,7 +145,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 	}
 
 	// 通过 Use Case 更新知识库
-	updatedKB, err := h.knowledgeBaseService.UpdateFromRequest(c.Request.Context(), id, &req)
+	updatedKB, err := h.knowledgeBaseService.UpdateFromRequest(c.Request.Context(), id, GetTenantID(c), &req)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -168,7 +168,7 @@ func (h *KnowledgeBaseHandler) DeleteKnowledgeBase(c *gin.Context) {
 		return
 	}
 
-	err := h.knowledgeBaseService.Delete(c.Request.Context(), id)
+	err := h.knowledgeBaseService.Delete(c.Request.Context(), id, GetTenantID(c))
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -189,7 +189,7 @@ func (h *KnowledgeBaseHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.knowledgeBaseService.GetStats(c.Request.Context(), id)
+	stats, err := h.knowledgeBaseService.GetStats(c.Request.Context(), id, GetTenantID(c))
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -218,7 +218,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeList(c *gin.Context) {
 	page, pageSize := GetPageParams(c)
 	status := c.DefaultQuery("status", "")
 
-	result, total, err := h.knowledgeBaseService.GetKnowledgeList(c.Request.Context(), id, page, pageSize, status)
+	result, total, err := h.knowledgeBaseService.GetKnowledgeList(c.Request.Context(), id, GetTenantID(c), page, pageSize, status)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -311,7 +311,7 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 	}
 
 	// 服务端权威去重校验：同一知识库内已存在相同内容的文件则拒绝
-	if dup, err := h.knowledgeBaseService.CheckDuplicateByHash(c.Request.Context(), knowledgeBaseID, fileHash); err != nil {
+	if dup, err := h.knowledgeBaseService.CheckDuplicateByHash(c.Request.Context(), knowledgeBaseID, tenantID, fileHash); err != nil {
 		InternalError(c, "去重校验失败: "+err.Error())
 		return
 	} else if dup != nil {
@@ -403,7 +403,7 @@ func (h *KnowledgeBaseHandler) CheckKnowledgeFile(c *gin.Context) {
 		return
 	}
 
-	dup, err := h.knowledgeBaseService.CheckDuplicateByHash(c.Request.Context(), knowledgeBaseID, body.FileHash)
+	dup, err := h.knowledgeBaseService.CheckDuplicateByHash(c.Request.Context(), knowledgeBaseID, GetTenantID(c), body.FileHash)
 	if err != nil {
 		InternalError(c, "去重校验失败: "+err.Error())
 		return
@@ -454,7 +454,7 @@ func (h *KnowledgeBaseHandler) markDocumentFailed(ctx context.Context, knowledge
 // processDocumentWithUseCase 使用 UseCase 处理文档
 func (h *KnowledgeBaseHandler) processDocumentWithUseCase(ctx context.Context, knowledgeBaseID string, tenantID, userID int64, fileName, filePath, documentID string) {
 	// 获取知识库配置以确定分块策略和是否启用图谱
-	kb, err := h.knowledgeBaseService.FindByID(ctx, knowledgeBaseID)
+	kb, err := h.knowledgeBaseService.FindByID(ctx, knowledgeBaseID, tenantID)
 	if err != nil {
 		log.Printf("[KnowledgeBaseHandler] Failed to get KB: %v", err)
 		h.markDocumentFailed(ctx, documentID)
@@ -553,7 +553,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeDetail(c *gin.Context) {
 		return
 	}
 
-	knowledge, err := h.knowledgeBaseService.GetKnowledgeDetail(c.Request.Context(), knowledgeBaseID, knowledgeID)
+	knowledge, err := h.knowledgeBaseService.GetKnowledgeDetail(c.Request.Context(), knowledgeBaseID, GetTenantID(c), knowledgeID)
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -602,7 +602,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeStatus(c *gin.Context) {
 		return
 	}
 
-	knowledge, err := h.knowledgeBaseService.GetKnowledgeStatus(c.Request.Context(), knowledgeBaseID, knowledgeID)
+	knowledge, err := h.knowledgeBaseService.GetKnowledgeStatus(c.Request.Context(), knowledgeBaseID, GetTenantID(c), knowledgeID)
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -637,7 +637,7 @@ func (h *KnowledgeBaseHandler) GetPendingKnowledgeList(c *gin.Context) {
 	page, pageSize := GetPageParams(c)
 
 	// 查询 pending 和 processing 状态的文档
-	result, total, err := h.knowledgeBaseService.GetKnowledgeListWithStatus(c.Request.Context(), knowledgeBaseID, page, pageSize, []string{"pending", "processing"})
+	result, total, err := h.knowledgeBaseService.GetKnowledgeListWithStatus(c.Request.Context(), knowledgeBaseID, GetTenantID(c), page, pageSize, []string{"pending", "processing"})
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -690,7 +690,7 @@ func (h *KnowledgeBaseHandler) GetChunks(c *gin.Context) {
 	page, size := GetPageParams(c)
 	knowledgeID := c.Query("knowledge_id")
 
-	chunks, total, err := h.knowledgeBaseService.GetChunks(c.Request.Context(), knowledgeBaseID, page, size, knowledgeID)
+	chunks, total, err := h.knowledgeBaseService.GetChunks(c.Request.Context(), knowledgeBaseID, GetTenantID(c), page, size, knowledgeID)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -739,7 +739,7 @@ func (h *KnowledgeBaseHandler) GetChunkDetail(c *gin.Context) {
 		return
 	}
 
-	chunk, err := h.knowledgeBaseService.GetChunkDetail(c.Request.Context(), knowledgeBaseID, chunkID)
+	chunk, err := h.knowledgeBaseService.GetChunkDetail(c.Request.Context(), knowledgeBaseID, GetTenantID(c), chunkID)
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -791,7 +791,7 @@ func (h *KnowledgeBaseHandler) UpdateChunk(c *gin.Context) {
 		return
 	}
 
-	chunk, err := h.knowledgeBaseService.UpdateChunk(c.Request.Context(), knowledgeBaseID, chunkID, req.Content)
+	chunk, err := h.knowledgeBaseService.UpdateChunk(c.Request.Context(), knowledgeBaseID, GetTenantID(c), chunkID, req.Content)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -835,7 +835,7 @@ func (h *KnowledgeBaseHandler) DeleteChunk(c *gin.Context) {
 		return
 	}
 
-	err := h.knowledgeBaseService.DeleteChunk(c.Request.Context(), knowledgeBaseID, chunkID)
+	err := h.knowledgeBaseService.DeleteChunk(c.Request.Context(), knowledgeBaseID, GetTenantID(c), chunkID)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -868,7 +868,7 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 		req.MinScore = 0.5
 	}
 
-	chunks, err := h.knowledgeBaseService.Search(c.Request.Context(), req.KnowledgeBaseIDs, req.Query, req.TopK, req.MinScore)
+	chunks, err := h.knowledgeBaseService.Search(c.Request.Context(), req.KnowledgeBaseIDs, GetTenantID(c), req.Query, req.TopK, req.MinScore)
 	if err != nil {
 		InternalError(c, err.Error())
 		return

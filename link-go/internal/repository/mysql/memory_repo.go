@@ -685,6 +685,26 @@ func (r *LongTermMemoryRepository) Update(ctx context.Context, mem *memory.LongT
 	return nil
 }
 
+// RecordAccess 原子记录一次访问：数据库侧自增，不经过 read-modify-write，
+// 避免并发丢计数，也避免调用方在 goroutine 里改写已返回的实体（data race）。
+func (r *LongTermMemoryRepository) RecordAccess(ctx context.Context, id string) error {
+	now := time.Now()
+
+	err := r.db.WithContext(ctx).
+		Model(&LongTermMemoryEntity{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Updates(map[string]interface{}{
+			"access_count":   gorm.Expr("access_count + 1"),
+			"last_access_at": &now,
+		}).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to record memory access: %w", err)
+	}
+
+	return nil
+}
+
 // Delete 删除记忆（软删除）
 func (r *LongTermMemoryRepository) Delete(ctx context.Context, id string) error {
 	now := time.Now()

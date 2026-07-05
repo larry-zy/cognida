@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"link/internal/infrastructure/config"
@@ -129,34 +128,14 @@ func (c *MetasoClient) Search(ctx context.Context, query string, size int) (*Met
 }
 
 // ========================================
-// 全局客户端管理
-// ========================================
-
-var (
-	metasoClient *MetasoClient
-	clientOnce   sync.Once
-)
-
-// InitMetasoClient 初始化 Metaso 客户端
-func InitMetasoClient(cfg *config.SearchConfig) {
-	clientOnce.Do(func() {
-		if cfg != nil && cfg.MetasoAPIKey != "" {
-			metasoClient = NewMetasoClient(cfg)
-		}
-	})
-}
-
-// SetMetasoClient 设置 Metaso 客户端（用于测试）
-func SetMetasoClient(client *MetasoClient) {
-	metasoClient = client
-}
-
-// ========================================
 // 工具 1: web_search - 增强的网络搜索工具
 // ========================================
 
-// NewWebSearchTool 创建网络搜索工具
-func NewWebSearchTool() *TypedBaseTool[agenttools.WebSearchRequest, agenttools.WebSearchResult] {
+// NewWebSearchTool 创建网络搜索工具；client 搜索客户端（可为 nil，nil 时降级返回模拟数据）经参数注入。
+func NewWebSearchTool(client *MetasoClient) *TypedBaseTool[agenttools.WebSearchRequest, agenttools.WebSearchResult] {
+	handler := func(ctx context.Context, req *agenttools.WebSearchRequest) (*agenttools.WebSearchResult, error) {
+		return webSearch(ctx, req, client)
+	}
 	return NewTypedBaseTool(
 		"web_search",
 		`在互联网上搜索实时信息。这是获取最新资讯和公开资料的主要工具。
@@ -183,12 +162,12 @@ func NewWebSearchTool() *TypedBaseTool[agenttools.WebSearchRequest, agenttools.W
 - time_range: 时间范围（可选，day/week/month/year/all）
 - domain: 限制域名（可选，如 github.com）
 - search_depth: 搜索深度（可选，basic/advanced）`,
-	webSearch,
+	handler,
 	)
 }
 
-// webSearch 执行网络搜索
-func webSearch(ctx context.Context, req *agenttools.WebSearchRequest) (*agenttools.WebSearchResult, error) {
+// webSearch 执行网络搜索；metasoClient 为 nil 时降级返回模拟数据。
+func webSearch(ctx context.Context, req *agenttools.WebSearchRequest, metasoClient *MetasoClient) (*agenttools.WebSearchResult, error) {
 	startTime := time.Now()
 
 	// 1. 参数验证
@@ -439,8 +418,11 @@ type WebQueryResult struct {
 	Count int                `json:"count"`
 }
 
-// NewSearchMultiTool 创建多源搜索工具
-func NewSearchMultiTool() *TypedBaseTool[SearchMultiRequest, SearchMultiResult] {
+// NewSearchMultiTool 创建多源搜索工具；client 搜索客户端（可为 nil）经参数注入。
+func NewSearchMultiTool(client *MetasoClient) *TypedBaseTool[SearchMultiRequest, SearchMultiResult] {
+	handler := func(ctx context.Context, req *SearchMultiRequest) (*SearchMultiResult, error) {
+		return searchMulti(ctx, req, client)
+	}
 	return NewTypedBaseTool(
 		"search_multi",
 		`使用多个查询变体进行搜索，并合并结果。
@@ -465,12 +447,12 @@ func NewSearchMultiTool() *TypedBaseTool[SearchMultiRequest, SearchMultiResult] 
 - deduplicate: 去重后合并
 - rank: 按相关性排序
 - all: 保留所有结果`,
-		searchMulti,
+		handler,
 	)
 }
 
-// searchMulti 执行多源搜索
-func searchMulti(ctx context.Context, req *SearchMultiRequest) (*SearchMultiResult, error) {
+// searchMulti 执行多源搜索；client 透传给每个并发 webSearch。
+func searchMulti(ctx context.Context, req *SearchMultiRequest, client *MetasoClient) (*SearchMultiResult, error) {
 	startTime := time.Now()
 
 	// 1. 参数验证
@@ -504,7 +486,7 @@ func searchMulti(ctx context.Context, req *SearchMultiRequest) (*SearchMultiResu
 				Query: q,
 				Limit: req.Limit,
 			}
-			result, err := webSearch(ctx, req)
+			result, err := webSearch(ctx, req, client)
 			resultChan <- resultPair{
 				query: q,
 				items: result.Items,
