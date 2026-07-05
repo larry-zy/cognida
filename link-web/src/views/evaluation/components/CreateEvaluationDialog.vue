@@ -246,7 +246,9 @@ function handleSubmit(): void {
 }
 
 .grader-checkbox {
-  display: block;
+  /* 用 flex 保持每项独占一行；不能用 block，否则覆盖 UiCheckbox 的
+     inline-flex 布局，勾选框与文字会上下堆叠 */
+  display: flex;
   margin-bottom: 6px;
   margin-left: 16px;
 }

@@ -79,7 +79,8 @@ export function useEvaluationList() {
     try {
       const res = await modelApi.getList('chat')
       if (res.data) {
-        chatModels.value = (res.data as any) || []
+        // 后端返回分页对象 { models, total, page, page_size }，取 models 数组
+        chatModels.value = (res.data as any).models || []
       }
     } catch (error) {
       console.error('Failed to load models:', error)

@@ -5,7 +5,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, provide, reactive, toRefs, watchEffect } from 'vue'
+import { computed, provide, reactive, toRefs } from 'vue'
 import {
   formContextKey,
   type FormRule,
@@ -53,18 +53,13 @@ function unregisterField(field: FormItemContext) {
 }
 
 /** 提供给子 FormItem 的响应式上下文 */
+// toRefs(props) 的 ref 只读且随 props 变化（withDefaults 已保证默认值），
+// 无需（也不能）再手动回写，否则触发 "target is readonly" 警告。
 const context = reactive({
   ...toRefs(props),
   registerField,
   unregisterField
 }) as unknown as FormContext
-
-// props 为可选项时确保上下文字段有默认值（reactive + toRefs 会随 props 变化）
-watchEffect(() => {
-  context.labelPosition = props.labelPosition
-  context.disabled = props.disabled
-  context.size = props.size
-})
 
 provide(formContextKey, context)
 

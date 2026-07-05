@@ -1,7 +1,11 @@
 <template>
   <router-view v-slot="{ Component }">
+    <!-- mode="out-in"：旧页面完全离场后新页面再进场。
+         页面容器多为 100vh 的普通流布局，若新旧同时渲染会在文档流中
+         上下叠放，表现为切页瞬间内容"覆盖/重影"。 -->
     <transition
       :name="transitionName"
+      mode="out-in"
       @before-enter="handleBeforeEnter"
       @after-enter="clearTransitioning"
       @enter-cancelled="clearTransitioning"
