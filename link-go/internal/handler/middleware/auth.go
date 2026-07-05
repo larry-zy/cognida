@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	agentctx "link/internal/model/agent"
 	appAccount "link/internal/service/account"
-	"link/internal/infrastructure/config"
 )
 
 // ========================================
@@ -43,7 +44,8 @@ func (m *AuthMiddleware) Apply() gin.HandlerFunc {
 		// 开发模式绕过认证（仅用于开发环境）
 		// 生产环境禁止使用 DEV_MODE 绕过认证
 		if authHeader == "" && os.Getenv("DEV_MODE") == "true" {
-			// 记录安全警告日志
+			// 记录安全警告日志（生产环境出现该日志说明配置错误）
+			log.Printf("[Auth][SECURITY] DEV_MODE 认证绕过生效: %s %s", c.Request.Method, c.Request.URL.Path)
 			c.Set("auth_bypass", true)
 
 			const devUserID = int64(1)
@@ -62,18 +64,8 @@ func (m *AuthMiddleware) Apply() gin.HandlerFunc {
 			return
 		}
 
-		// 从 API Key 获取
-		if authHeader == "" {
-			apiKey := c.GetHeader("X-API-Key")
-			if apiKey != "" {
-				// API Key 验证需要查询 api_keys 表并检查有效期、权限等信息
-				log.Printf("[Auth] API Key auth bypass in DEV_MODE")
-			c.Set("user_id", config.GetUserIDWithDefault(0))
-				c.Set("tenant_id", int64(1))
-				c.Next()
-				return
-			}
-		}
+		// 注意：不提供 X-API-Key 认证。在 api_keys 表校验（有效期/权限/租户归属）
+		// 真正落地前，任何仅凭非空 API Key 放行的分支都等于无认证，已移除。
 
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "未提供认证信息"})
@@ -142,13 +134,32 @@ type CORSMiddleware struct {
 	AllowedHeaders []string
 }
 
-// NewCORSMiddleware 创建CORS中间件
+// NewCORSMiddleware 创建CORS中间件。
+// 白名单从 CORS_ALLOWED_ORIGINS（逗号分隔）读取；未配置时白名单为空（fail-closed），
+// 本地开发经 Vite proxy 走同源不受影响。禁止默认 "*"：反射任意 Origin 且带
+// Allow-Credentials 等于允许任意站点携带凭证跨域。
 func NewCORSMiddleware() *CORSMiddleware {
+	var origins []string
+	for _, o := range strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",") {
+		if o = strings.TrimSpace(o); o != "" && o != "*" {
+			origins = append(origins, o)
+		}
+	}
 	return &CORSMiddleware{
-		AllowedOrigins: []string{"*"},
+		AllowedOrigins: origins,
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-API-Key", "X-Tenant-ID", "X-Request-ID"},
 	}
+}
+
+// originAllowed 判断请求 Origin 是否命中白名单
+func (m *CORSMiddleware) originAllowed(origin string) bool {
+	for _, allowed := range m.AllowedOrigins {
+		if strings.EqualFold(allowed, origin) {
+			return true
+		}
+	}
+	return false
 }
 
 // Apply 应用中间件
@@ -156,11 +167,15 @@ func (m *CORSMiddleware) Apply() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// 设置 CORS 头
-		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", strings.Join(m.AllowedMethods, ","))
-		c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join(m.AllowedHeaders, ","))
+		// 仅当 Origin 命中白名单时才回写该 Origin 与 Allow-Credentials；
+		// 不命中则不回写 Allow-Origin（浏览器将拦截跨域响应）。
+		if origin != "" && m.originAllowed(origin) {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			c.Writer.Header().Set("Access-Control-Allow-Methods", strings.Join(m.AllowedMethods, ","))
+			c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join(m.AllowedHeaders, ","))
+			c.Writer.Header().Add("Vary", "Origin")
+		}
 
 		// 处理 OPTIONS 请求
 		if c.Request.Method == "OPTIONS" {
@@ -234,7 +249,21 @@ func (m *TraceMiddleware) Apply() gin.HandlerFunc {
 		c.Set("request_id", requestID)
 		c.Writer.Header().Set("X-Request-ID", requestID)
 
+		// 注入 Go context，使下游 handler/service/gRPC 拦截器可全链路读取 request_id。
+		// 仅 c.Set 只能在 gin.Context 内取用，无法随 context.Context 传递到 gRPC 出站与 agent 编排。
+		ctx := agentctx.WithRequestID(c.Request.Context(), requestID)
+		c.Request = c.Request.WithContext(ctx)
+
+		start := time.Now()
 		c.Next()
+
+		// 打一行带 request_id 的访问日志到 stdout，供 Loki 按 rid 做全链路检索
+		// （结构化审计另由 AuditMiddleware 落库 MySQL，二者共用同一 request_id）。
+		if path := c.Request.URL.Path; path != "/health" && !strings.HasPrefix(path, "/assets") {
+			log.Printf("[req] rid=%s %s %s %d %dms ip=%s",
+				requestID, c.Request.Method, path, c.Writer.Status(),
+				time.Since(start).Milliseconds(), c.ClientIP())
+		}
 	}
 }
 
