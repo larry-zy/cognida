@@ -38,11 +38,12 @@ func (m *toolCallingModelAdapter) Stream(ctx context.Context, messages []*schema
 func (m *toolCallingModelAdapter) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
 	// 创建新实例以支持并发安全
 	newClient := &openaiClient{
-		baseURL:   m.client.baseURL,
-		apiKey:    m.client.apiKey,
-		model:     m.client.model,
-		client:    m.client.client,
-		toolInfos: tools,
+		baseURL:            m.client.baseURL,
+		apiKey:             m.client.apiKey,
+		model:              m.client.model,
+		client:             m.client.client,
+		toolInfos:          tools,
+		roundTripReasoning: m.client.roundTripReasoning,
 	}
 
 	return &toolCallingModelAdapter{client: newClient}, nil

@@ -27,6 +27,22 @@ type openaiClient struct {
 	model     string
 	client    *http.Client
 	toolInfos []*schema.ToolInfo
+	// roundTripReasoning 是否在请求中回传 assistant 轮的 reasoning_content。
+	// DeepSeek V4 thinking 模式要求"有工具调用的轮次必须原样回传 reasoning_content"，
+	// 否则 400；而旧版 deepseek-reasoner 规则相反（回传反而报错）。按模型名判定。
+	roundTripReasoning bool
+}
+
+// needsReasoningRoundTrip 判定该模型是否需要回传 reasoning_content。
+// DeepSeek V4 系列（thinking 模式）在工具调用轮必须回传；
+// 旧版 deepseek-reasoner / deepseek-chat 不回传（reasoner 回传会 400，chat 不产生 reasoning）。
+// 其它 provider 通常不返回 reasoning_content，回传为空即无副作用，故默认放行。
+func needsReasoningRoundTrip(modelName string) bool {
+	m := strings.ToLower(modelName)
+	if strings.Contains(m, "deepseek-reasoner") || strings.Contains(m, "deepseek-chat") {
+		return false
+	}
+	return true
 }
 
 // newOpenAIClient 创建OpenAI客户端
@@ -43,7 +59,8 @@ func newOpenAIClient(config *ChatConfig) (*openaiClient, error) {
 		apiKey:  config.APIKey,
 		model:   config.ModelName,
 		// 流式(SSE)不设整体超时，由 ctx 控制；共享调优 transport 提供连接复用与连接阶段超时。
-		client: &http.Client{Transport: httpx.SharedTransport()},
+		client:             &http.Client{Transport: httpx.SharedTransport()},
+		roundTripReasoning: needsReasoningRoundTrip(config.ModelName),
 	}, nil
 }
 
@@ -93,9 +110,11 @@ func (c *openaiClient) Generate(ctx context.Context, messages []*schema.Message,
 	}
 
 	return &schema.Message{
-		Role:      schema.RoleType(choice.Message.Role),
-		Content:   choice.Message.Content,
-		ToolCalls: toolCalls,
+		Role:    schema.RoleType(choice.Message.Role),
+		Content: choice.Message.Content,
+		// 保留 thinking 模式的 reasoning_content，供 Agent 在后续工具调用轮回传（DeepSeek V4 要求）。
+		ReasoningContent: choice.Message.ReasoningContent,
+		ToolCalls:        toolCalls,
 	}, nil
 }
 
@@ -127,6 +146,9 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 		hasSentData := false
 		toolCallCount := 0
 		pendingToolCalls := make(map[int]*schema.ToolCall)
+		// 累积 thinking 模式的 reasoning_content 分片，附加到带 tool_calls 的 assistant 消息上，
+		// 以满足 DeepSeek V4 "工具调用轮必须回传 reasoning_content" 的要求。
+		var reasoningBuilder strings.Builder
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -152,11 +174,13 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 					}
 					hasSentData = true
 					writer.Send(&schema.Message{
-						Role:      schema.Assistant,
-						Content:   "",
-						ToolCalls: toolCalls,
+						Role:             schema.Assistant,
+						Content:          "",
+						ReasoningContent: reasoningBuilder.String(),
+						ToolCalls:        toolCalls,
 					}, nil)
 					pendingToolCalls = make(map[int]*schema.ToolCall)
+					reasoningBuilder.Reset()
 				}
 
 				// 如果流结束但没有发送任何数据，发送一个空消息
@@ -185,6 +209,11 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 						Role:    schema.RoleType(delta.Role),
 						Content: delta.Content,
 					}, nil)
+				}
+
+				// 累积 reasoning_content（thinking 模式下与 content 并行分片到达，不直接下发给用户）
+				if delta.ReasoningContent != "" {
+					reasoningBuilder.WriteString(delta.ReasoningContent)
 				}
 
 				// 处理工具调用（在流中，工具调用在 delta.tool_calls 中）
@@ -282,6 +311,13 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 					},
 				}
 			}
+		}
+
+		// 回传 reasoning_content：DeepSeek V4 thinking 模式要求"有工具调用的 assistant 轮
+		// 必须原样带回 reasoning_content"，否则后续请求 400。旧版 reasoner 则相反（已由
+		// roundTripReasoning=false 剔除）。仅对 assistant 且非空时回传。
+		if msg.Role == schema.Assistant && c.roundTripReasoning && msg.ReasoningContent != "" {
+			oaiMsg.ReasoningContent = msg.ReasoningContent
 		}
 
 		// 处理 tool 消息（工具返回结果）
@@ -391,6 +427,8 @@ type openaiMessage struct {
 	Content    string           `json:"content"`
 	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"` // For tool response messages
+	// ReasoningContent 承载 DeepSeek thinking 模式的思维链，响应中解析、请求中回传（见 buildRequest）。
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 // openaiToolCall 工具调用
@@ -453,6 +491,8 @@ type openaiDelta struct {
 	Role      string                 `json:"role,omitempty"`
 	Content   string                 `json:"content,omitempty"`
 	ToolCalls []openaiStreamToolCall `json:"tool_calls,omitempty"`
+	// ReasoningContent 流式下 thinking 分片，与 content 并行到达。
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type openaiStreamToolCall struct {
