@@ -3,33 +3,6 @@
 ## Purpose
 TBD - created by archiving change python-evaluation-service. Update Purpose after archive.
 ## Requirements
-### Requirement: ExecuteEvaluation RPC method
-The system SHALL provide ExecuteEvaluation RPC method that accepts request and returns stream of responses.
-
-#### Scenario: Valid request
-- **WHEN** client calls ExecuteEvaluation with valid EvaluationRequest
-- **THEN** system returns stream of EvaluationResponse messages
-- **AND** stream contains progress updates followed by final result
-
-#### Scenario: Missing required fields
-- **WHEN** request missing dataset_id or knowledge_base_id
-- **THEN** system returns error immediately without starting stream
-
-### Requirement: Streaming response format
-The system SHALL use oneof pattern for streaming responses.
-
-#### Scenario: Progress response
-- **WHEN** sending progress update
-- **THEN** response contains Progress message with stage, current, total, message fields
-
-#### Scenario: Result response
-- **WHEN** evaluation completes successfully
-- **THEN** response contains EvaluationResult with all calculated metrics
-
-#### Scenario: Error response
-- **WHEN** evaluation fails
-- **THEN** response contains Error message with error description
-
 ### Requirement: Request message structure
 The system SHALL accept EvaluationRequest with specified fields.
 
@@ -59,11 +32,12 @@ The system SHALL support EvaluationConfig with configurable options.
 - **THEN** system skips LLM judge evaluation
 
 ### Requirement: Result message structure
-The system SHALL return structured EvaluationResult.
+The system SHALL return structured EvaluationResult as the output of stateless metric computation. 该结果 SHALL 由无状态指标计算入口返回，MUST NOT 内嵌进度流或编排状态。
 
 #### Scenario: Complete result
-- **WHEN** evaluation completes
+- **WHEN** 无状态指标计算完成
 - **THEN** result contains: retrieval metrics, generation metrics, llm_judge metrics, semantic metrics
+- **AND** 结果 SHALL 为一次性返回，MUST NOT 附带 Progress 流
 
 #### Scenario: Detailed QA results
 - **WHEN** config requests detailed results
