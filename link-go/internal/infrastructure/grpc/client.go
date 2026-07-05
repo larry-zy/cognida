@@ -13,6 +13,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+
+	"link/internal/infrastructure/grpc/interceptor"
 )
 
 // Config gRPC 客户端配置
@@ -151,6 +153,13 @@ func newClient(cfg *Config, opts []ClientOption) (*Client, error) {
 		},
 		MinConnectTimeout: 5 * time.Second,
 	}))
+
+	// 默认拦截器：所有 gRPC 客户端自动透传 request_id 到下游（Python）服务，
+	// 实现跨进程链路追踪。多次 WithChain* 会按顺序合并，故置于调用方自定义拦截器之前。
+	dialOpts = append(dialOpts,
+		grpc.WithChainUnaryInterceptor(interceptor.RequestIDUnary()),
+		grpc.WithChainStreamInterceptor(interceptor.RequestIDStream()),
+	)
 
 	// 添加拦截器
 	for _, opt := range opts {

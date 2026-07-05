@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import get_settings
 from core import setup_logging
 from core.exceptions import setup_exception_handlers
+from core.request_context import RequestIDMiddleware
 
 
 @asynccontextmanager
@@ -64,6 +65,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 请求 ID 透传（最外层）：绑定 request_id 到日志上下文并回写响应头
+    app.add_middleware(RequestIDMiddleware)
 
     # 设置异常处理器
     setup_exception_handlers(app)

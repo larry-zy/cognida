@@ -389,7 +389,12 @@ def create_analytics_server(port: int = 50053):
     """
     from concurrent import futures
 
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    from core import RequestIDServerInterceptor
+
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=10),
+        interceptors=(RequestIDServerInterceptor(),),
+    )
 
     # 添加 Analytics 服务
     analytics_pb2_grpc.add_AnalyticsServiceServicer_to_server(

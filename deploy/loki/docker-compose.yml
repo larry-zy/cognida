@@ -1,0 +1,67 @@
+# Loki 原始日志采集栈（本地开发）
+#
+# 组成：
+#   - loki      :3100   日志聚合/查询后端
+#   - promtail          采集器：抓取宿主机 link-go / link-python 的 *.log 文件推给 Loki
+#   - grafana   :3300   查询/可视化（已预置 Loki 数据源）
+#
+# 用法：
+#   1) 让服务把日志写到被采集的目录：
+#        Python：scripts/dev-all.sh 已写入 link-python/logs/*.log（开箱即用）
+#        Go    ：go run ./cmd/server 2>&1 | tee link-go/logs/server.log
+#              （或 mkdir -p link-go/logs && ... > link-go/logs/server.log 2>&1）
+#   2) cd deploy/loki && docker compose up -d
+#   3) 打开 http://localhost:3300 （匿名登录，已是 Admin），Explore → Loki
+#        LogQL 示例（按 request_id 追踪全链路）：
+#          {job="link"} |= "rid-from-go"
+#          {service="eval"} |= "request_id="
+#
+# request_id 说明：request_id 属高基数字段，故不作为 Loki label（否则 stream 爆炸），
+# 而是保留在原始日志行中，用 LogQL 行过滤 |= "<rid>" 做全链路检索。
+
+services:
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: link-loki
+    command: -config.file=/etc/loki/loki-config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: link-promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # 宿主机日志目录（相对本 compose 文件：deploy/loki → 仓库根）
+      - ../../link-python/logs:/var/log/link/python:ro
+      - ../../link-go/logs:/var/log/link/go:ro
+      - promtail-positions:/tmp/promtail
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: link-grafana
+    ports:
+      - "3300:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  promtail-positions:
+  grafana-data:

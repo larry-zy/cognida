@@ -1,0 +1,55 @@
+# Promtail 采集配置：抓取宿主机挂入的 link-go / link-python 日志文件，推送到 Loki。
+#
+# 标签策略（低基数）：
+#   job=link           固定，便于 {job="link"} 全量检索
+#   stack=go|python    区分服务栈
+#   service=<文件名>    如 eval/grpc/http/mcp/server（由文件路径正则提取）
+# request_id 不做 label（高基数），保留在日志行内，用 LogQL 行过滤检索。
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Python 四服务：logs/{grpc,http,eval,mcp}.log
+  - job_name: link-python
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: link
+          stack: python
+          __path__: /var/log/link/python/*.log
+    pipeline_stages:
+      # 从文件路径提取文件名作为 service 标签（去掉 .log 后缀）
+      - match:
+          selector: '{stack="python"}'
+          stages:
+            - regex:
+                source: filename
+                expression: '/(?P<service>[^/]+)\.log$'
+            - labels:
+                service:
+
+  # Go 服务：logs/*.log（stdout 重定向）
+  - job_name: link-go
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: link
+          stack: go
+          __path__: /var/log/link/go/*.log
+    pipeline_stages:
+      - match:
+          selector: '{stack="go"}'
+          stages:
+            - regex:
+                source: filename
+                expression: '/(?P<service>[^/]+)\.log$'
+            - labels:
+                service:
