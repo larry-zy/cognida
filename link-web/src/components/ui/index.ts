@@ -40,6 +40,7 @@ export { default as UiAlert } from './UiAlert.vue'
 export { default as UiToast } from './UiToast.vue'
 export { default as UiTooltip } from './UiTooltip.vue'
 export { default as UiLoader } from './UiLoader.vue'
+export { default as UiAsyncStatus } from './UiAsyncStatus.vue'
 
 // ---------- 导航 ----------
 export { default as UiTabs } from './UiTabs.vue'

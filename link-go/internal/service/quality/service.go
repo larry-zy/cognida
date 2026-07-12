@@ -3,6 +3,7 @@ package quality
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	qualitypb "link/api/proto/quality"
@@ -14,6 +15,27 @@ type IDGenerator interface {
 	Generate() string
 }
 
+// InputRejectedError 表示 Python 质量服务成功接收并处理了请求，但因输入数据本身
+// 不合法/无法解析（如 CSV 格式错误、空数据）而拒绝。它与传输层错误（Python 服务
+// 不可用、超时）区分：前者是客户端可修正的输入问题，handler 应返回 4xx 而非 5xx。
+type InputRejectedError struct {
+	Op  string // 操作名，如 "结构化质量评估"
+	Msg string // Python 返回的错误信息
+}
+
+func (e *InputRejectedError) Error() string {
+	if e.Msg == "" {
+		return e.Op + "失败"
+	}
+	return e.Op + "失败: " + e.Msg
+}
+
+// Sampler 从外部数据源抽样取数（由 datasource.Service 实现）。
+// Go 侧统一取数并推给 Python，Python 质量服务不直连任何外部数据库。
+type Sampler interface {
+	SampleCSV(ctx context.Context, tenantID int64, datasourceID, table string, limit int) ([]byte, int, error)
+}
+
 // Service 数据质量应用服务。
 // 通过 Gateway 端口调用 Python 质量服务完成评估/清洗，并把结果落库供历史回看。
 type Service struct {
@@ -21,34 +43,41 @@ type Service struct {
 	timeout time.Duration
 	repo    domain_quality.CheckRecordRepository
 	idGen   IDGenerator
+	sampler Sampler
 }
 
-// NewService 创建数据质量服务
-func NewService(gateway Gateway, timeout time.Duration, repo domain_quality.CheckRecordRepository, idGen IDGenerator) *Service {
+// NewService 创建数据质量服务。sampler 可为 nil（未接入数据源时，数据源评估接口报错拒绝）。
+func NewService(gateway Gateway, timeout time.Duration, repo domain_quality.CheckRecordRepository, idGen IDGenerator, sampler Sampler) *Service {
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
-	return &Service{gateway: gateway, timeout: timeout, repo: repo, idGen: idGen}
+	return &Service{gateway: gateway, timeout: timeout, repo: repo, idGen: idGen, sampler: sampler}
 }
 
 // ========================================
 // 结构化数据评估
 // ========================================
 
-// EvaluateStructured 评估 CSV 结构化数据质量，并落库。
-func (s *Service) EvaluateStructured(ctx context.Context, tenantID, userID int64, sourceName string, csv []byte, dimensions []string) (*StructuredReport, error) {
+// EvaluateStructured 评估结构化数据质量，并落库。
+// format 指定输入解析方式："csv"（默认）或 "json"（对象数组），经 config 透传给 Python。
+func (s *Service) EvaluateStructured(ctx context.Context, tenantID, userID int64, sourceName string, data []byte, format string, dimensions []string) (*StructuredReport, error) {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	var config map[string]string
+	if f := strings.ToLower(strings.TrimSpace(format)); f == "json" {
+		config = map[string]string{"format": "json"}
+	}
 	resp, err := s.gateway.EvaluateQuality(callCtx, &qualitypb.EvaluateQualityRequest{
-		Data:       &qualitypb.EvaluateQualityRequest_CsvData{CsvData: csv},
+		Data:       &qualitypb.EvaluateQualityRequest_CsvData{CsvData: data},
 		Dimensions: dimensions,
+		Config:     config,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("结构化质量评估失败: %w", err)
 	}
 	if !resp.GetSuccess() {
-		return nil, fmt.Errorf("结构化质量评估失败: %s", resp.GetErrorMessage())
+		return nil, &InputRejectedError{Op: "结构化质量评估", Msg: resp.GetErrorMessage()}
 	}
 
 	report := mapStructuredReport(resp.GetReport())
@@ -56,6 +85,29 @@ func (s *Service) EvaluateStructured(ctx context.Context, tenantID, userID int64
 	s.persist(ctx, tenantID, userID, domain_quality.CheckTypeStructured, sourceName,
 		report.OverallScore, report.RecordCount, summary, report)
 	return report, nil
+}
+
+// ========================================
+// 数据源直评（Go 抽样 → Python 评估，Python 不直连数据库）
+// ========================================
+
+// EvaluateDatasource 从外部数据源指定表抽样若干行，评估其结构化数据质量并落库。
+// 抽样与取数全在 Go 侧完成（受管连接池 + 只读 SELECT），仅把 CSV 样本推给 Python。
+func (s *Service) EvaluateDatasource(ctx context.Context, tenantID, userID int64, datasourceID, table string, sampleSize int, dimensions []string) (*StructuredReport, error) {
+	if s.sampler == nil {
+		return nil, fmt.Errorf("数据源质量评估未启用：缺少数据源抽样能力")
+	}
+	csv, n, err := s.sampler.SampleCSV(ctx, tenantID, datasourceID, table, sampleSize)
+	if err != nil {
+		return nil, fmt.Errorf("数据源抽样失败: %w", err)
+	}
+	if n == 0 {
+		return nil, fmt.Errorf("数据源抽样为空：表 %q 无数据", table)
+	}
+	// 以「数据源ID/表名」作为来源标识，便于历史回看定位
+	sourceName := datasourceID + "/" + table
+	// 数据源抽样固定输出 CSV
+	return s.EvaluateStructured(ctx, tenantID, userID, sourceName, csv, "csv", dimensions)
 }
 
 // ========================================
@@ -75,7 +127,7 @@ func (s *Service) EvaluateUnstructured(ctx context.Context, tenantID, userID int
 		return nil, fmt.Errorf("文本质量评估失败: %w", err)
 	}
 	if !resp.GetSuccess() {
-		return nil, fmt.Errorf("文本质量评估失败: %s", resp.GetErrorMessage())
+		return nil, &InputRejectedError{Op: "文本质量评估", Msg: resp.GetErrorMessage()}
 	}
 
 	report := mapUnstructuredReport(resp.GetReport())
@@ -102,7 +154,7 @@ func (s *Service) Clean(ctx context.Context, tenantID, userID int64, sourceName 
 		return nil, fmt.Errorf("数据清洗失败: %w", err)
 	}
 	if !resp.GetSuccess() {
-		return nil, fmt.Errorf("数据清洗失败: %s", resp.GetErrorMessage())
+		return nil, &InputRejectedError{Op: "数据清洗", Msg: resp.GetErrorMessage()}
 	}
 
 	report := mapCleaningReport(resp.GetResult())

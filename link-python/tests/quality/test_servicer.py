@@ -90,6 +90,43 @@ class TestQualityServicer:
         assert response.success is False
         assert "No data provided" in response.error_message
 
+    def test_evaluate_quality_malformed_csv(self, servicer, mock_context):
+        """畸形 CSV（各行列数不一致）应返回可读的中文错误，而非晦涩的 pandas tokenizer 报错。"""
+        request = quality_pb2.EvaluateQualityRequest(
+            csv_data=b"a,b\n1,2,3,4\n5,6,7,8,9\n",
+        )
+
+        response = servicer.EvaluateQuality(request, mock_context)
+
+        assert response.success is False
+        assert "CSV 格式错误" in response.error_message
+
+    def test_evaluate_quality_json_array(self, servicer, mock_context):
+        """format=json 时 csv_data 内是对象数组文本，应被解析为二维表并成功评估。"""
+        request = quality_pb2.EvaluateQualityRequest(
+            csv_data=b'[{"id":1,"name":"a"},{"id":2,"name":"b"}]',
+            dimensions=["completeness"],
+            config={"format": "json"},
+        )
+
+        response = servicer.EvaluateQuality(request, mock_context)
+
+        assert response.success is True
+        assert response.report is not None
+        assert response.report.record_count == 2
+
+    def test_evaluate_quality_malformed_json(self, servicer, mock_context):
+        """format=json 但内容非法 JSON，应返回可读的中文错误。"""
+        request = quality_pb2.EvaluateQualityRequest(
+            csv_data=b'[{"id":1,,}]',
+            config={"format": "json"},
+        )
+
+        response = servicer.EvaluateQuality(request, mock_context)
+
+        assert response.success is False
+        assert "JSON 格式错误" in response.error_message
+
     def test_evaluate_quality_with_config(self, servicer, mock_context, sample_csv_data):
         """测试带配置的评估。"""
         request = quality_pb2.EvaluateQualityRequest(
@@ -118,6 +155,11 @@ class TestQualityServicer:
         assert response.success is True
         assert response.report is not None
         assert response.report.overall_score >= 0
+        # 回归防线：非结构化维度必须被注册并实际参与评分（曾因 unstructured 包从未被
+        # import → EvaluatorRegistry 为空 → dimensions=[]、overall_score=0）。
+        assert len(response.report.dimensions) == 2
+        returned = {d.name for d in response.report.dimensions}
+        assert returned == {"readability", "information_density"}
 
     def test_evaluate_unstructured_quality_empty(self, servicer, mock_context):
         """测试空文本评估。"""

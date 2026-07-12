@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"errors"
 	"io"
 	"strings"
 
@@ -10,6 +11,18 @@ import (
 	domain_quality "link/internal/model/quality"
 	app_quality "link/internal/service/quality"
 )
+
+// respondEvalError 区分质量评估错误的 HTTP 语义：Python 因输入数据不合法而拒绝
+// （InputRejectedError）属客户端错误，返回 400；其余（Python 不可用/超时/落库失败）
+// 属服务端错误，返回 500。避免把用户粘贴的畸形 CSV 记成服务器故障。
+func respondEvalError(c *gin.Context, err error) {
+	var inputErr *app_quality.InputRejectedError
+	if errors.As(err, &inputErr) {
+		BadRequest(c, err.Error())
+		return
+	}
+	InternalError(c, err.Error())
+}
 
 // QualityHandler 数据质量处理器
 type QualityHandler struct {
@@ -23,55 +36,57 @@ func NewQualityHandler(service *app_quality.Service) *QualityHandler {
 
 const maxQualityUploadSize = 20 << 20 // 20MB
 
-// readCSVInput 从请求提取 CSV 字节与来源名。
-// 优先 multipart 文件(file)，否则回退 JSON 里的 csv_data 文本。
-func (h *QualityHandler) readCSVInput(c *gin.Context) (csv []byte, sourceName string, dimensions []string, ok bool) {
+// readCSVInput 从请求提取结构化数据字节、来源名、维度与输入格式(csv/json)。
+// 优先 multipart 文件(file)，否则回退 JSON body 里的 csv_data 文本。
+// format 为空时按 csv 处理；json 表示 csv_data 内是对象数组文本，由 Python 端解析。
+func (h *QualityHandler) readCSVInput(c *gin.Context) (data []byte, sourceName string, dimensions []string, format string, ok bool) {
 	contentType := c.ContentType()
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
 			BadRequest(c, "缺少上传文件 file")
-			return nil, "", nil, false
+			return nil, "", nil, "", false
 		}
 		if fileHeader.Size > maxQualityUploadSize {
 			BadRequest(c, "文件超过 20MB 上限")
-			return nil, "", nil, false
+			return nil, "", nil, "", false
 		}
 		f, err := fileHeader.Open()
 		if err != nil {
 			InternalError(c, "打开上传文件失败")
-			return nil, "", nil, false
+			return nil, "", nil, "", false
 		}
 		defer f.Close()
-		data, err := io.ReadAll(f)
+		fileBytes, err := io.ReadAll(f)
 		if err != nil {
 			InternalError(c, "读取上传文件失败")
-			return nil, "", nil, false
+			return nil, "", nil, "", false
 		}
 		if dims := c.PostForm("dimensions"); dims != "" {
 			dimensions = splitCSVParam(dims)
 		}
-		return data, fileHeader.Filename, dimensions, true
+		return fileBytes, fileHeader.Filename, dimensions, c.PostForm("format"), true
 	}
 
-	// JSON: { "csv_data": "...", "source_name": "...", "dimensions": [...] }
+	// JSON: { "csv_data": "...", "source_name": "...", "dimensions": [...], "format": "csv|json" }
 	var req struct {
 		CSVData    string   `json:"csv_data"`
 		SourceName string   `json:"source_name"`
 		Dimensions []string `json:"dimensions"`
+		Format     string   `json:"format"`
 	}
 	if !BindJSON(c, &req) {
-		return nil, "", nil, false
+		return nil, "", nil, "", false
 	}
 	if strings.TrimSpace(req.CSVData) == "" {
-		BadRequest(c, "csv_data 不能为空")
-		return nil, "", nil, false
+		BadRequest(c, "数据不能为空")
+		return nil, "", nil, "", false
 	}
 	name := req.SourceName
 	if name == "" {
 		name = "粘贴数据"
 	}
-	return []byte(req.CSVData), name, req.Dimensions, true
+	return []byte(req.CSVData), name, req.Dimensions, req.Format, true
 }
 
 func splitCSVParam(s string) []string {
@@ -88,14 +103,45 @@ func splitCSVParam(s string) []string {
 // EvaluateStructured 结构化数据质量评估
 // @Router /api/v1/quality/evaluate/structured [post]
 func (h *QualityHandler) EvaluateStructured(c *gin.Context) {
-	csv, sourceName, dimensions, ok := h.readCSVInput(c)
+	data, sourceName, dimensions, format, ok := h.readCSVInput(c)
 	if !ok {
 		return
 	}
 	report, err := h.service.EvaluateStructured(
-		c.Request.Context(), GetTenantID(c), GetUserID(c), sourceName, csv, dimensions)
+		c.Request.Context(), GetTenantID(c), GetUserID(c), sourceName, data, format, dimensions)
 	if err != nil {
-		InternalError(c, err.Error())
+		respondEvalError(c, err)
+		return
+	}
+	OK(c, report)
+}
+
+// EvaluateDatasource 数据源直评：从外部数据源指定表抽样后评估结构化质量。
+// 取数全在 Go 侧完成（受管连接池 + 只读 SELECT），Python 不直连数据库。
+// @Router /api/v1/quality/evaluate/datasource [post]
+func (h *QualityHandler) EvaluateDatasource(c *gin.Context) {
+	var req struct {
+		DatasourceID string   `json:"datasource_id"`
+		Table        string   `json:"table"`
+		SampleSize   int      `json:"sample_size"`
+		Dimensions   []string `json:"dimensions"`
+	}
+	if !BindJSON(c, &req) {
+		return
+	}
+	if strings.TrimSpace(req.DatasourceID) == "" {
+		BadRequest(c, "datasource_id 不能为空")
+		return
+	}
+	if strings.TrimSpace(req.Table) == "" {
+		BadRequest(c, "table 不能为空")
+		return
+	}
+	report, err := h.service.EvaluateDatasource(
+		c.Request.Context(), GetTenantID(c), GetUserID(c),
+		req.DatasourceID, req.Table, req.SampleSize, req.Dimensions)
+	if err != nil {
+		respondEvalError(c, err)
 		return
 	}
 	OK(c, report)
@@ -123,7 +169,7 @@ func (h *QualityHandler) EvaluateUnstructured(c *gin.Context) {
 	report, err := h.service.EvaluateUnstructured(
 		c.Request.Context(), GetTenantID(c), GetUserID(c), name, req.Text, req.Dimensions)
 	if err != nil {
-		InternalError(c, err.Error())
+		respondEvalError(c, err)
 		return
 	}
 	OK(c, report)
@@ -132,8 +178,8 @@ func (h *QualityHandler) EvaluateUnstructured(c *gin.Context) {
 // CleanData 数据清洗
 // @Router /api/v1/quality/clean [post]
 func (h *QualityHandler) CleanData(c *gin.Context) {
-	// 复用 CSV 提取逻辑，dimensions 位在清洗场景不用；cleaners 单独取。
-	csv, sourceName, _, ok := h.readCSVInput(c)
+	// 复用 CSV 提取逻辑，dimensions/format 位在清洗场景不用；cleaners 单独取。
+	csv, sourceName, _, _, ok := h.readCSVInput(c)
 	if !ok {
 		return
 	}
@@ -151,7 +197,7 @@ func (h *QualityHandler) CleanData(c *gin.Context) {
 	report, err := h.service.Clean(
 		c.Request.Context(), GetTenantID(c), GetUserID(c), sourceName, csv, cleaners)
 	if err != nil {
-		InternalError(c, err.Error())
+		respondEvalError(c, err)
 		return
 	}
 	OK(c, report)

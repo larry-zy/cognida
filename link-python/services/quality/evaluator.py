@@ -12,6 +12,13 @@ from .models import QualityReport, UnstructuredQualityReport
 from .registry import EvaluatorRegistry
 from .rules import RuleEngine
 
+# 显式导入内置维度包，触发各维度的 @register_evaluator 装饰器完成注册。
+# 结构化维度过去仅因 pipeline.executor 间接 import dimensions.base 才“碰巧”注册，
+# 而非结构化维度无人导入 → EvaluatorRegistry 为空 → evaluate_unstructured 得到 0 维度、
+# overall_score=0。这里在评估器自身模块内做显式注册，使两条评估路径都不依赖导入顺序。
+from . import dimensions as _dimensions  # noqa: F401  # 注册结构化维度（副作用导入）
+from . import unstructured as _unstructured  # noqa: F401  # 注册非结构化维度（副作用导入）
+
 
 class DataQualityEvaluator:
     """数据质量评估器。

@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { qualityApi } from '@/api/quality'
+import { datasourceApi } from '@/api/datasource'
+import type { Datasource } from '@/api/datasource'
+import { useAsyncTask } from '@/composables/useAsyncTask'
+import UiSelect from '@/components/ui/UiSelect.vue'
+import UiInputNumber from '@/components/ui/UiInputNumber.vue'
+import UiAsyncStatus from '@/components/ui/UiAsyncStatus.vue'
 import type {
   StructuredReport,
   UnstructuredReport,
@@ -22,9 +28,10 @@ import UiStatistic from '@/components/ui/UiStatistic.vue'
 import UiProgress from '@/components/ui/UiProgress.vue'
 
 // ==================== Tab 状态 ====================
-const activeTab = ref<'structured' | 'unstructured' | 'cleaning' | 'history'>('structured')
+const activeTab = ref<'structured' | 'datasource' | 'unstructured' | 'cleaning' | 'history'>('structured')
 const tabs = [
   { key: 'structured', label: '结构化评估' },
+  { key: 'datasource', label: '数据源直评' },
   { key: 'unstructured', label: '非结构化文本' },
   { key: 'cleaning', label: '数据清洗' },
   { key: 'history', label: '历史记录' }
@@ -33,13 +40,36 @@ const tabs = [
 // ==================== 维度元数据 ====================
 const dimensions = ref<DimensionInfo[]>([])
 
+// 结构化评测可选维度（仅 supports_structured）与用户勾选状态；默认全选。
+const structuredDimLabels: Record<string, string> = {
+  completeness: '完整性',
+  accuracy: '准确性',
+  consistency: '一致性',
+  validity: '有效性',
+  uniqueness: '唯一性',
+  timeliness: '时效性'
+}
+const structuredDimOptions = computed(() => dimensions.value.filter((d) => d.supports_structured))
+const selectedStructuredDims = ref<string[]>([])
+function dimLabel(name: string): string {
+  return structuredDimLabels[name] || name
+}
+function toggleStructuredDim(name: string) {
+  const i = selectedStructuredDims.value.indexOf(name)
+  if (i >= 0) selectedStructuredDims.value.splice(i, 1)
+  else selectedStructuredDims.value.push(name)
+}
+
 onMounted(async () => {
   try {
     const res = await qualityApi.listDimensions()
     dimensions.value = res.data?.dimensions ?? []
+    // 默认全选结构化维度
+    selectedStructuredDims.value = structuredDimOptions.value.map((d) => d.name)
   } catch (e) {
     // 维度列表失败不阻塞主流程
   }
+  loadDatasources()
   loadRecords()
 })
 
@@ -62,30 +92,55 @@ function pct(score: number): number {
 // ==================== 结构化评估 ====================
 const structuredInput = ref('')
 const structuredSource = ref('')
-const structuredLoading = ref(false)
+const structuredFormat = ref<'csv' | 'json'>('csv')
+const structuredTask = useAsyncTask<StructuredReport | null>()
 const structuredReport = ref<StructuredReport | null>(null)
 const structuredError = ref('')
 
+const structuredPlaceholder = computed(() =>
+  structuredFormat.value === 'json'
+    ? '粘贴 JSON 对象数组，例如：\n[\n  {"id": 1, "name": "Alice", "age": 30},\n  {"id": 2, "name": "Bob", "age": 25}\n]'
+    : '粘贴 CSV 数据，第一行为表头，例如：\nid,name,age\n1,Alice,30\n2,Bob,25'
+)
+
 async function runStructured() {
   if (!structuredInput.value.trim()) {
-    structuredError.value = '请粘贴 CSV 数据'
+    structuredError.value = structuredFormat.value === 'json' ? '请粘贴 JSON 数据' : '请粘贴 CSV 数据'
+    return
+  }
+  if (structuredDimOptions.value.length && !selectedStructuredDims.value.length) {
+    structuredError.value = '请至少选择一个评测维度'
     return
   }
   structuredError.value = ''
-  structuredLoading.value = true
   structuredReport.value = null
-  try {
-    const res = await qualityApi.evaluateStructured({
-      csv_data: structuredInput.value,
-      source_name: structuredSource.value || '粘贴数据'
-    })
-    structuredReport.value = res.data ?? null
-    loadRecords()
-  } catch (e: any) {
-    structuredError.value = e?.message || '评估失败'
-  } finally {
-    structuredLoading.value = false
-  }
+  // 选满（或维度列表未加载）时省略 dimensions，交由后端跑默认全集。
+  const dims =
+    selectedStructuredDims.value.length &&
+    selectedStructuredDims.value.length < structuredDimOptions.value.length
+      ? [...selectedStructuredDims.value]
+      : undefined
+  await structuredTask.run(
+    async () => {
+      const res = await qualityApi.evaluateStructured({
+        csv_data: structuredInput.value,
+        source_name: structuredSource.value || '粘贴数据',
+        format: structuredFormat.value,
+        dimensions: dims
+      })
+      structuredReport.value = res.data ?? null
+      loadRecords()
+      return res.data ?? null
+    },
+    {
+      pendingMessage: '评估中…',
+      successMessage: (r) =>
+        r
+          ? `评估完成：综合得分 ${pct(r.overall_score)} 分，${r.record_count} 条记录，${r.issues?.length || 0} 个问题`
+          : '评估完成',
+      errorMessage: (e) => e?.message || '评估失败'
+    }
+  )
 }
 
 function onStructuredFile(e: Event) {
@@ -107,10 +162,86 @@ const issueColumns = [
   { key: 'count', title: '数量', width: '80px', align: 'right' as const }
 ]
 
+// ==================== 数据源直评 ====================
+const dsList = ref<Datasource[]>([])
+const dsId = ref('')
+const dsTables = ref<string[]>([])
+const dsTable = ref('')
+const dsSampleSize = ref(200)
+const dsTask = useAsyncTask<StructuredReport | null>()
+const dsTablesLoading = ref(false)
+const dsReport = ref<StructuredReport | null>(null)
+const dsError = ref('')
+
+const dsOptions = computed(() =>
+  dsList.value.map((d) => ({ label: `${d.name}（${d.type}）`, value: d.id }))
+)
+const dsTableOptions = computed(() =>
+  dsTables.value.map((t) => ({ label: t, value: t }))
+)
+
+async function loadDatasources() {
+  try {
+    const res = await datasourceApi.list({ page: 1, page_size: 100 })
+    dsList.value = res.data?.items ?? []
+  } catch (e) {
+    // 列表失败不阻塞
+  }
+}
+
+async function onDatasourceChange() {
+  dsTable.value = ''
+  dsTables.value = []
+  dsReport.value = null
+  if (!dsId.value) return
+  dsTablesLoading.value = true
+  try {
+    const res = await datasourceApi.getTables(dsId.value)
+    dsTables.value = res.data?.tables ?? []
+  } catch (e: any) {
+    dsError.value = e?.message || '获取表清单失败'
+  } finally {
+    dsTablesLoading.value = false
+  }
+}
+
+async function runDatasource() {
+  if (!dsId.value) {
+    dsError.value = '请选择数据源'
+    return
+  }
+  if (!dsTable.value) {
+    dsError.value = '请选择数据表'
+    return
+  }
+  dsError.value = ''
+  dsReport.value = null
+  await dsTask.run(
+    async () => {
+      const res = await qualityApi.evaluateDatasource({
+        datasource_id: dsId.value,
+        table: dsTable.value,
+        sample_size: dsSampleSize.value
+      })
+      dsReport.value = res.data ?? null
+      loadRecords()
+      return res.data ?? null
+    },
+    {
+      pendingMessage: '抽样评估中…',
+      successMessage: (r) =>
+        r
+          ? `评估完成：综合得分 ${pct(r.overall_score)} 分，抽样 ${r.record_count} 行，${r.issues?.length || 0} 个问题`
+          : '评估完成',
+      errorMessage: (e) => e?.message || '评估失败'
+    }
+  )
+}
+
 // ==================== 非结构化文本 ====================
 const textInput = ref('')
 const textSource = ref('')
-const textLoading = ref(false)
+const textTask = useAsyncTask<UnstructuredReport | null>()
 const textReport = ref<UnstructuredReport | null>(null)
 const textError = ref('')
 
@@ -120,20 +251,26 @@ async function runUnstructured() {
     return
   }
   textError.value = ''
-  textLoading.value = true
   textReport.value = null
-  try {
-    const res = await qualityApi.evaluateUnstructured({
-      text: textInput.value,
-      source_name: textSource.value || '粘贴文本'
-    })
-    textReport.value = res.data ?? null
-    loadRecords()
-  } catch (e: any) {
-    textError.value = e?.message || '评估失败'
-  } finally {
-    textLoading.value = false
-  }
+  await textTask.run(
+    async () => {
+      const res = await qualityApi.evaluateUnstructured({
+        text: textInput.value,
+        source_name: textSource.value || '粘贴文本'
+      })
+      textReport.value = res.data ?? null
+      loadRecords()
+      return res.data ?? null
+    },
+    {
+      pendingMessage: '评估中…',
+      successMessage: (r) =>
+        r
+          ? `评估完成：综合得分 ${pct(r.overall_score)} 分，${r.issues?.length || 0} 个问题`
+          : '评估完成',
+      errorMessage: (e) => e?.message || '评估失败'
+    }
+  )
 }
 
 const textIssueColumns = [
@@ -146,7 +283,7 @@ const textIssueColumns = [
 // ==================== 数据清洗 ====================
 const cleanInput = ref('')
 const cleanSource = ref('')
-const cleanLoading = ref(false)
+const cleanTask = useAsyncTask<CleaningReport | null>()
 const cleanReport = ref<CleaningReport | null>(null)
 const cleanError = ref('')
 const CLEANERS = [
@@ -169,20 +306,26 @@ async function runClean() {
     return
   }
   cleanError.value = ''
-  cleanLoading.value = true
   cleanReport.value = null
-  try {
-    const res = await qualityApi.clean(
-      { csv_data: cleanInput.value, source_name: cleanSource.value || '粘贴数据' },
-      selectedCleaners.value
-    )
-    cleanReport.value = res.data ?? null
-    loadRecords()
-  } catch (e: any) {
-    cleanError.value = e?.message || '清洗失败'
-  } finally {
-    cleanLoading.value = false
-  }
+  await cleanTask.run(
+    async () => {
+      const res = await qualityApi.clean(
+        { csv_data: cleanInput.value, source_name: cleanSource.value || '粘贴数据' },
+        selectedCleaners.value
+      )
+      cleanReport.value = res.data ?? null
+      loadRecords()
+      return res.data ?? null
+    },
+    {
+      pendingMessage: '清洗中…',
+      successMessage: (r) =>
+        r
+          ? `清洗完成：原始 ${r.original_count} 行 → 清洗后 ${r.cleaned_count} 行，移除 ${r.removed_count} 行`
+          : '清洗完成',
+      errorMessage: (e) => e?.message || '清洗失败'
+    }
+  )
 }
 
 function onCleanFile(e: Event) {
@@ -307,20 +450,53 @@ function fmtTime(s: string): string {
         <div class="tab-body">
           <UiCard title="输入数据" variant="bordered">
             <div class="input-row">
+              <div class="fmt-toggle" role="group" aria-label="输入格式">
+                <button
+                  type="button"
+                  class="fmt-btn"
+                  :class="{ active: structuredFormat === 'csv' }"
+                  @click="structuredFormat = 'csv'"
+                >CSV</button>
+                <button
+                  type="button"
+                  class="fmt-btn"
+                  :class="{ active: structuredFormat === 'json' }"
+                  @click="structuredFormat = 'json'"
+                >JSON</button>
+              </div>
               <input type="text" class="q-input" v-model="structuredSource" placeholder="来源名称（可选）" />
               <label class="file-btn">
-                上传 CSV
-                <input type="file" accept=".csv,text/csv" hidden @change="onStructuredFile" />
+                {{ structuredFormat === 'json' ? '上传 JSON' : '上传 CSV' }}
+                <input
+                  type="file"
+                  :accept="structuredFormat === 'json' ? '.json,application/json' : '.csv,text/csv'"
+                  hidden
+                  @change="onStructuredFile"
+                />
               </label>
+            </div>
+            <div v-if="structuredDimOptions.length" class="dim-picker">
+              <span class="dim-picker-label">评测维度</span>
+              <span
+                v-for="d in structuredDimOptions"
+                :key="d.name"
+                class="cleaner-chip"
+                :class="{ active: selectedStructuredDims.includes(d.name) }"
+                :title="d.description"
+                @click="toggleStructuredDim(d.name)"
+              >{{ dimLabel(d.name) }}</span>
             </div>
             <UiTextarea
               v-model="structuredInput"
-              placeholder="粘贴 CSV 数据，首行为表头，例如：&#10;name,age,email&#10;张三,28,zhang@x.com"
+              :placeholder="structuredPlaceholder"
               :rows="8"
             />
             <div v-if="structuredError" class="err">{{ structuredError }}</div>
             <template #footer>
-              <UiButton variant="primary" :loading="structuredLoading" @click="runStructured">开始评估</UiButton>
+              <div class="footer-actions">
+                <UiButton variant="primary" :loading="structuredTask.isPending.value" @click="runStructured">开始评估</UiButton>
+                <UiAsyncStatus :status="structuredTask.status.value" :message="structuredTask.message.value" @retry="runStructured" />
+              </div>
             </template>
           </UiCard>
 
@@ -354,6 +530,72 @@ function fmtTime(s: string): string {
         </div>
       </template>
 
+      <!-- ========== 数据源直评 ========== -->
+      <template #datasource>
+        <div class="tab-body">
+          <UiCard title="选择数据源与表" variant="bordered">
+            <p class="ds-hint">取数在服务端完成（受管连接池 + 只读 SELECT），仅抽样样本用于评估，Python 不直连数据库。</p>
+            <div class="ds-form">
+              <UiSelect
+                v-model="dsId"
+                :options="dsOptions"
+                label="数据源"
+                placeholder="请选择数据源"
+                filterable
+                @change="onDatasourceChange"
+              />
+              <UiSelect
+                v-model="dsTable"
+                :options="dsTableOptions"
+                label="数据表"
+                :placeholder="dsTablesLoading ? '加载中…' : '请选择数据表'"
+                :disabled="!dsId || dsTablesLoading"
+                filterable
+              />
+              <div class="ds-num">
+                <span class="ds-num-label">抽样行数</span>
+                <UiInputNumber v-model="dsSampleSize" :min="1" :max="10000" :step="100" />
+              </div>
+            </div>
+            <div v-if="dsError" class="err">{{ dsError }}</div>
+            <template #footer>
+              <div class="footer-actions">
+                <UiButton variant="primary" :loading="dsTask.isPending.value" @click="runDatasource">抽样评估</UiButton>
+                <UiAsyncStatus :status="dsTask.status.value" :message="dsTask.message.value" @retry="runDatasource" />
+              </div>
+            </template>
+          </UiCard>
+
+          <UiCard v-if="dsReport" title="评估结果" variant="bordered" class="result-card">
+            <div class="stat-grid">
+              <UiStatistic title="综合得分" :value="pct(dsReport.overall_score)" suffix="分" />
+              <UiStatistic title="抽样行数" :value="dsReport.record_count" />
+              <UiStatistic title="问题数" :value="dsReport.issues?.length || 0" />
+            </div>
+
+            <div class="dim-list">
+              <div v-for="d in dsReport.dimensions" :key="d.name" class="dim-item">
+                <div class="dim-head">
+                  <span class="dim-name">{{ d.name }}</span>
+                  <UiTag :variant="d.passed ? 'success' : 'danger'" size="sm">
+                    {{ d.passed ? '通过' : '未通过' }}
+                  </UiTag>
+                </div>
+                <UiProgress :percentage="pct(d.score)" :status="scoreVariant(d.score)" />
+              </div>
+            </div>
+
+            <h4 class="sub-title">质量问题</h4>
+            <UiTable :columns="issueColumns" :data="dsReport.issues || []">
+              <template #cell-severity="{ row }">
+                <UiTag :variant="severityVariant(row.severity)" size="sm">{{ row.severity }}</UiTag>
+              </template>
+              <template #empty><UiEmpty title="未发现问题" description="数据质量良好" /></template>
+            </UiTable>
+          </UiCard>
+        </div>
+      </template>
+
       <!-- ========== 非结构化文本 ========== -->
       <template #unstructured>
         <div class="tab-body">
@@ -368,7 +610,10 @@ function fmtTime(s: string): string {
             />
             <div v-if="textError" class="err">{{ textError }}</div>
             <template #footer>
-              <UiButton variant="primary" :loading="textLoading" @click="runUnstructured">开始评估</UiButton>
+              <div class="footer-actions">
+                <UiButton variant="primary" :loading="textTask.isPending.value" @click="runUnstructured">开始评估</UiButton>
+                <UiAsyncStatus :status="textTask.status.value" :message="textTask.message.value" @retry="runUnstructured" />
+              </div>
             </template>
           </UiCard>
 
@@ -433,7 +678,10 @@ function fmtTime(s: string): string {
             />
             <div v-if="cleanError" class="err">{{ cleanError }}</div>
             <template #footer>
-              <UiButton variant="primary" :loading="cleanLoading" @click="runClean">开始清洗</UiButton>
+              <div class="footer-actions">
+                <UiButton variant="primary" :loading="cleanTask.isPending.value" @click="runClean">开始清洗</UiButton>
+                <UiAsyncStatus :status="cleanTask.status.value" :message="cleanTask.message.value" @retry="runClean" />
+              </div>
             </template>
           </UiCard>
 
@@ -533,6 +781,30 @@ function fmtTime(s: string): string {
   align-items: center;
   margin-bottom: var(--space-3, 12px);
 }
+.fmt-toggle {
+  display: inline-flex;
+  height: 36px;
+  border: 1px solid var(--border-default, #2a2d35);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+  flex: none;
+}
+.fmt-btn {
+  height: 100%;
+  padding: 0 var(--space-4, 16px);
+  border: none;
+  background: var(--bg-elevated, #1a1d24);
+  color: var(--text-secondary, #9ca3af);
+  font-size: 14px;
+  cursor: pointer;
+}
+.fmt-btn + .fmt-btn {
+  border-left: 1px solid var(--border-default, #2a2d35);
+}
+.fmt-btn.active {
+  background: var(--primary, #6366f1);
+  color: #fff;
+}
 .q-input {
   flex: 1;
   height: 36px;
@@ -568,6 +840,32 @@ function fmtTime(s: string): string {
   margin-top: var(--space-2, 8px);
   color: var(--danger, #ef4444);
   font-size: 13px;
+}
+.ds-hint {
+  margin: 0 0 var(--space-3, 12px);
+  color: var(--text-secondary, #9ca3af);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ds-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-4, 16px);
+  align-items: end;
+}
+.ds-num {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+.ds-num-label {
+  font-size: 13px;
+  color: var(--text-secondary, #9ca3af);
+}
+@media (max-width: 720px) {
+  .ds-form {
+    grid-template-columns: 1fr;
+  }
 }
 .result-card {
   margin-top: 0;
@@ -608,6 +906,18 @@ function fmtTime(s: string): string {
   gap: var(--space-2, 8px);
   margin-bottom: var(--space-3, 12px);
 }
+.dim-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  margin-bottom: var(--space-3, 12px);
+}
+.dim-picker-label {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 13px;
+  margin-right: var(--space-1, 4px);
+}
 .cleaner-chip {
   padding: 4px 12px;
   border-radius: var(--radius-md, 8px);
@@ -625,6 +935,12 @@ function fmtTime(s: string): string {
   background: var(--primary, #6366f1);
   border-color: var(--primary, #6366f1);
   color: #fff;
+}
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  flex-wrap: wrap;
 }
 .download-row {
   margin-top: var(--space-4, 16px);

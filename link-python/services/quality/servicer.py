@@ -18,6 +18,70 @@ from services.quality.registry import EvaluatorRegistry, CleanerRegistry
 from services.quality.rules import RuleEngine
 
 
+def _read_csv_bytes(raw: bytes) -> pd.DataFrame:
+    """从字节流解析 CSV，把 pandas 底层报错翻译成用户可读的中文提示。
+
+    用户在页面粘贴的数据经常存在列数不一致、引号未闭合等格式问题，pandas 会抛出
+    晦涩的英文 tokenizer 错误。这里统一兜底，给出可操作的说明，便于前端直接展示。
+    """
+    from io import BytesIO
+
+    try:
+        return pd.read_csv(BytesIO(raw))
+    except pd.errors.EmptyDataError as exc:
+        raise ValueError("CSV 数据为空或缺少表头，无法解析") from exc
+    except pd.errors.ParserError as exc:
+        raise ValueError(
+            f"CSV 格式错误，无法解析（请检查各行列数是否一致、引号是否闭合）：{exc}"
+        ) from exc
+
+
+def _read_json_bytes(raw: bytes) -> pd.DataFrame:
+    """从字节流解析 JSON 为二维表，支持「对象数组」与「列->值 的对象」两种常见形态。
+
+    前端 JSON 输入通常是记录数组 [{...}, {...}]；也兼容单对象 {...}（视作一行）与
+    列式对象 {"col": [...]} 。统一在这里把 json/pandas 的报错翻译成可读中文提示。
+    """
+    import json
+
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ValueError("JSON 数据为空，无法解析")
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"JSON 格式错误，无法解析（请检查括号、引号、逗号是否配对）：{exc}"
+        ) from exc
+
+    try:
+        if isinstance(parsed, list):
+            df = pd.DataFrame(parsed)
+        elif isinstance(parsed, dict):
+            # 列式对象 {"col": [..]} → 直接建表；否则按单条记录处理
+            if parsed and all(isinstance(v, list) for v in parsed.values()):
+                df = pd.DataFrame(parsed)
+            else:
+                df = pd.DataFrame([parsed])
+        else:
+            raise ValueError("JSON 顶层需为对象数组或对象，无法解析为二维表")
+    except ValueError:
+        raise
+    except Exception as exc:  # pandas 结构化失败（如数组元素非同构）
+        raise ValueError(f"JSON 结构无法转换为二维表：{exc}") from exc
+
+    if df.empty:
+        raise ValueError("JSON 数据不含任何记录，无法评估")
+    return df
+
+
+def _read_tabular_bytes(raw: bytes, fmt: str) -> pd.DataFrame:
+    """按显式 format 提示（csv/json）选择解析器，默认 csv。"""
+    if (fmt or "csv").strip().lower() == "json":
+        return _read_json_bytes(raw)
+    return _read_csv_bytes(raw)
+
+
 class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
     """质量服务 gRPC 实现。"""
 
@@ -35,13 +99,15 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
     ) -> quality_pb2.EvaluateQualityResponse:
         """评估结构化数据质量。"""
         try:
+            # format 提示经 config 透传（避免改 proto）；先取出，避免污染维度配置
+            config = dict(request.config) if request.config else {}
+            data_format = config.pop("format", "csv")
+
             # 加载数据
             if request.file_path:
                 data = self.evaluator.load_data(request.file_path)
             elif request.csv_data:
-                from io import BytesIO
-
-                data = pd.read_csv(BytesIO(request.csv_data))
+                data = _read_tabular_bytes(request.csv_data, data_format)
             else:
                 return quality_pb2.EvaluateQualityResponse(
                     success=False,
@@ -50,7 +116,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
 
             # 执行评估
             dimensions = list(request.dimensions) if request.dimensions else None
-            config = dict(request.config) if request.config else None
+            config = config or None
 
             report = self.evaluator.evaluate_structured(
                 data,
@@ -109,9 +175,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
             if request.file_path:
                 data = self.evaluator.load_data(request.file_path)
             elif request.csv_data:
-                from io import BytesIO
-
-                data = pd.read_csv(BytesIO(request.csv_data))
+                data = _read_csv_bytes(request.csv_data)
             else:
                 return quality_pb2.CleanDataResponse(
                     success=False,
@@ -160,9 +224,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
                 if request.file_path:
                     data = self.evaluator.load_data(request.file_path)
                 elif request.csv_data:
-                    from io import BytesIO
-
-                    data = pd.read_csv(BytesIO(request.csv_data))
+                    data = _read_csv_bytes(request.csv_data)
                 else:
                     return quality_pb2.ProcessPipelineResponse(
                         success=False,
@@ -202,17 +264,13 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
             if request.baseline_file:
                 baseline_data = self.evaluator.load_data(request.baseline_file)
             else:
-                from io import BytesIO
-
-                baseline_data = pd.read_csv(BytesIO(request.baseline_data))
+                baseline_data = _read_csv_bytes(request.baseline_data)
 
             # 加载当前数据
             if request.current_file:
                 current_data = self.evaluator.load_data(request.current_file)
             else:
-                from io import BytesIO
-
-                current_data = pd.read_csv(BytesIO(request.current_data))
+                current_data = _read_csv_bytes(request.current_data)
 
             # 设置检测器
             columns = list(request.columns) if request.columns else None

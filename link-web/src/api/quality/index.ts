@@ -108,9 +108,12 @@ export interface PageResult<T> {
 // ==================== 请求参数 ====================
 
 export interface StructuredRequest {
+  /** 结构化数据文本；format=csv 时为 CSV，format=json 时为对象数组 JSON */
   csv_data: string
   source_name?: string
   dimensions?: string[]
+  /** 输入格式，默认 csv；json 表示 csv_data 内是对象数组 */
+  format?: 'csv' | 'json'
 }
 
 export interface UnstructuredRequest {
@@ -122,6 +125,13 @@ export interface UnstructuredRequest {
 export interface CleanRequest {
   csv_data: string
   source_name?: string
+}
+
+export interface DatasourceEvaluateRequest {
+  datasource_id: string
+  table: string
+  sample_size?: number
+  dimensions?: string[]
 }
 
 export interface RecordListParams {
@@ -146,6 +156,11 @@ export const qualityApi = {
     return http.post<StructuredReport>('/quality/evaluate/structured', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
+  },
+
+  /** 数据源直评：从外部数据源指定表抽样后评估结构化质量（取数在 Go 侧完成） */
+  evaluateDatasource(data: DatasourceEvaluateRequest) {
+    return http.post<StructuredReport>('/quality/evaluate/datasource', data)
   },
 
   /** 非结构化文本质量评估 */
