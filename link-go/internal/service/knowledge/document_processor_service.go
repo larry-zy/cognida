@@ -178,7 +178,7 @@ func (s *documentProcessorService) ProcessDocument(
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			graphErr = s.extractGraph(ctx, tenantID, req.KnowledgeBaseID, knowledgeID, chunkEntities)
+			_, _, graphErr = s.extractGraph(ctx, tenantID, req.KnowledgeBaseID, knowledgeID, chunkEntities)
 			if graphErr == nil {
 				graphExtracted = true
 			}
@@ -543,23 +543,23 @@ func (s *documentProcessorService) vectorizeChunks(
 	return nil
 }
 
-// extractGraph 提取图谱（保存到 Neo4j）
+// extractGraph 提取图谱（保存到 Neo4j），返回提取的节点数与关系数
 func (s *documentProcessorService) extractGraph(
 	ctx context.Context,
 	tenantID int64,
 	kbID string,
 	knowledgeID string,
 	chunks []*domain_knowledge.Chunk,
-) error {
+) (int, int, error) {
 	if s.graphRepo == nil {
-		return fmt.Errorf("graph repository not available")
+		return 0, 0, fmt.Errorf("graph repository not available")
 	}
 	if s.llmClient == nil {
-		return fmt.Errorf("llm client not available")
+		return 0, 0, fmt.Errorf("llm client not available")
 	}
 
 	if len(chunks) == 0 {
-		return nil
+		return 0, 0, nil
 	}
 
 	log.Printf("[DocumentProcessor] Starting graph extraction for %d chunks", len(chunks))
@@ -625,20 +625,22 @@ func (s *documentProcessorService) extractGraph(
 
 	resp, err := s.llmClient.Chat(ctx, chatReq)
 	if err != nil {
-		return fmt.Errorf("llm chat failed: %w", err)
+		return 0, 0, fmt.Errorf("llm chat failed: %w", err)
 	}
 
 	// 解析 LLM 响应
 	graphData, err := s.parseGraphExtraction(resp.Content)
 	if err != nil {
-		log.Printf("[DocumentProcessor] Warning: failed to parse graph extraction: %v", err)
-		// 不返回错误，允许文档处理继续
-		return nil
+		// 返回错误以如实上报：解析失败不是“成功抽取 0 节点”。
+		// 单文档主流程（调用点仅记 warning、不影响解析状态）行为不变；
+		// 整库重建据此把该文档计入 FailedDocuments 而非 ProcessedDocuments，
+		// 避免 LLM 偶发解析失败被伪装成“已处理、0 节点”的静默成功。
+		return 0, 0, fmt.Errorf("parse graph extraction failed: %w", err)
 	}
 
 	if len(graphData.Node) == 0 && len(graphData.Relation) == 0 {
 		log.Printf("[DocumentProcessor] No entities or relations extracted")
-		return nil
+		return 0, 0, nil
 	}
 
 	// 关联 chunk ID 到节点和关系
@@ -655,12 +657,86 @@ func (s *documentProcessorService) extractGraph(
 
 	// 保存到 Neo4j
 	if err := s.graphRepo.AddGraph(ctx, namespace, []*domain_knowledge.GraphData{graphData}); err != nil {
-		return fmt.Errorf("failed to save graph: %w", err)
+		return 0, 0, fmt.Errorf("failed to save graph: %w", err)
 	}
 
 	log.Printf("[DocumentProcessor] Graph extraction completed: %d nodes, %d relations",
 		len(graphData.Node), len(graphData.Relation))
-	return nil
+	return len(graphData.Node), len(graphData.Relation), nil
+}
+
+// RebuildKnowledgeBaseGraph 为知识库内所有已解析完成的历史文档补建/重建知识图谱。
+// 复用已存储的分块（不重新解析/分块），并在重建前清除该文档旧图谱以保证幂等。
+func (s *documentProcessorService) RebuildKnowledgeBaseGraph(
+	ctx context.Context,
+	tenantID int64,
+	kbID string,
+) (*RebuildGraphResponse, error) {
+	if s.graphRepo == nil {
+		return nil, fmt.Errorf("graph repository not available")
+	}
+	if s.llmClient == nil {
+		return nil, fmt.Errorf("llm client not available")
+	}
+
+	resp := &RebuildGraphResponse{}
+
+	// 幂等：整库重建前先清空该 KB 的旧图谱（DETACH DELETE 全部节点+关系）。
+	// 不能按文档 DeleteByKnowledgeID——节点上存的是 chunk_id 而非 knowledge_id，
+	// 那条路径永远匹配不到、清不掉，导致重复补建时旧节点/关系不断累积。
+	if derr := s.graphRepo.DeleteByScope(ctx, "kb_id", kbID); derr != nil {
+		return nil, fmt.Errorf("clear old graph failed: %w", derr)
+	}
+
+	// 分页遍历知识库下所有已完成的文档
+	const pageSize = 100
+	for page := 1; ; page++ {
+		docs, total, err := s.knowledgeRepo.FindByKnowledgeBaseID(ctx, kbID, &domain_knowledge.KnowledgeListQuery{
+			KnowledgeBaseID: kbID,
+			ParseStatus:     domain_knowledge.ParseStatusCompleted,
+			Page:            page,
+			PageSize:        pageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list knowledge failed: %w", err)
+		}
+		if len(docs) == 0 {
+			break
+		}
+		resp.TotalDocuments = int(total)
+
+		for _, doc := range docs {
+			// 读取该文档已启用的分块，复用而非重新解析
+			chunks, cerr := s.chunkRepo.FindByKnowledgeID(ctx, doc.ID, true)
+			if cerr != nil {
+				log.Printf("[DocumentProcessor] Rebuild: load chunks failed for doc %s: %v", doc.ID, cerr)
+				resp.FailedDocuments++
+				continue
+			}
+			if len(chunks) == 0 {
+				resp.SkippedDocuments++
+				continue
+			}
+
+			nodes, relations, gerr := s.extractGraph(ctx, tenantID, kbID, doc.ID, chunks)
+			if gerr != nil {
+				log.Printf("[DocumentProcessor] Rebuild: extract graph failed for doc %s: %v", doc.ID, gerr)
+				resp.FailedDocuments++
+				continue
+			}
+			resp.ProcessedDocuments++
+			resp.TotalNodes += nodes
+			resp.TotalRelations += relations
+		}
+
+		if page*pageSize >= int(total) {
+			break
+		}
+	}
+
+	log.Printf("[DocumentProcessor] Rebuild graph completed for KB %s: total=%d processed=%d skipped=%d failed=%d nodes=%d relations=%d",
+		kbID, resp.TotalDocuments, resp.ProcessedDocuments, resp.SkippedDocuments, resp.FailedDocuments, resp.TotalNodes, resp.TotalRelations)
+	return resp, nil
 }
 
 // parseGraphExtraction 解析 LLM 返回的图谱提取结果
@@ -697,7 +773,7 @@ func (s *documentProcessorService) parseGraphExtraction(content string) (*domain
 	// 转换为 GraphData
 	graphData := &domain_knowledge.GraphData{
 		Node:     make([]*domain_knowledge.GraphNode, len(result.Nodes)),
-		Relation: make([]*domain_knowledge.GraphRelation, len(result.Relations)),
+		Relation: make([]*domain_knowledge.GraphRelation, 0, len(result.Relations)),
 	}
 
 	for i, n := range result.Nodes {
@@ -710,34 +786,34 @@ func (s *documentProcessorService) parseGraphExtraction(content string) (*domain
 		}
 	}
 
-	// 构建节点名称到 ID 的映射
-	nodeIDMap := make(map[string]string)
+	// 构建节点名称集合用于校验（关系按节点名称存储/匹配，见 Neo4jRepository.AddGraph）
+	nodeNames := make(map[string]struct{}, len(graphData.Node))
 	for _, node := range graphData.Node {
-		nodeIDMap[node.Name] = node.ID
+		nodeNames[node.Name] = struct{}{}
 	}
 
-	for i, r := range result.Relations {
+	for _, r := range result.Relations {
 		// 验证源和目标节点存在
-		sourceID, ok := nodeIDMap[r.Source]
-		if !ok {
+		if _, ok := nodeNames[r.Source]; !ok {
 			log.Printf("[DocumentProcessor] Warning: source node '%s' not found", r.Source)
 			continue
 		}
-		targetID, ok := nodeIDMap[r.Target]
-		if !ok {
+		if _, ok := nodeNames[r.Target]; !ok {
 			log.Printf("[DocumentProcessor] Warning: target node '%s' not found", r.Target)
 			continue
 		}
 
-		graphData.Relation[i] = &domain_knowledge.GraphRelation{
+		// Source/Target 存节点名称：AddGraph 用 MATCH (Entity {name: $source}) 匹配，
+		// 存 ID 会导致匹配不到、关系被静默丢弃（计数虚高但落库为 0）。
+		graphData.Relation = append(graphData.Relation, &domain_knowledge.GraphRelation{
 			ID:          s.idGenerator.Generate(),
-			Source:      sourceID,
-			Target:      targetID,
+			Source:      r.Source,
+			Target:      r.Target,
 			Type:        r.Type,
 			Strength:    r.Strength,
 			ChunkIDs:    []string{}, // 将在调用方设置
 			Description: r.Description,
-		}
+		})
 	}
 
 	return graphData, nil

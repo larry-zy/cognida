@@ -287,6 +287,16 @@ export interface KnowledgeBaseStats {
   total_size: number
 }
 
+// 图谱补建结果
+export interface RebuildGraphResult {
+  total_documents: number
+  processed_documents: number
+  skipped_documents: number
+  failed_documents: number
+  total_nodes: number
+  total_relations: number
+}
+
 // 知识条目相关
 export interface Knowledge {
   id: string

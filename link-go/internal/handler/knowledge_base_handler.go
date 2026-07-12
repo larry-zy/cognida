@@ -95,7 +95,8 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 		return
 	}
 
-	result, err := h.knowledgeBaseService.FindByID(c.Request.Context(), id, GetTenantID(c))
+	// 详情需带上 setting（图谱开关等库级数据处理配置），供前端设置页展示与编辑
+	result, err := h.knowledgeBaseService.FindByIDWithSettings(c.Request.Context(), id, GetTenantID(c))
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -201,6 +202,40 @@ func (h *KnowledgeBaseHandler) GetStats(c *gin.Context) {
 		"chunk_count":     stats.ChunkCount,
 		"total_size":      stats.TotalSize,
 	})
+}
+
+// RebuildGraph 为知识库补建知识图谱
+// @Summary 为知识库补建知识图谱
+// @Description 复用已存储分块，为库内所有已完成解析的历史文档重新提取知识图谱（幂等）
+// @Tags knowledge-base
+// @Router /api/v1/knowledge-bases/{id}/graph/rebuild [post]
+func (h *KnowledgeBaseHandler) RebuildGraph(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		BadRequest(c, "知识库ID不能为空")
+		return
+	}
+
+	tenantID := GetTenantID(c)
+
+	// 校验归属并确认库级图谱开关已开启
+	kb, err := h.knowledgeBaseService.FindByIDWithSettings(c.Request.Context(), id, tenantID)
+	if err != nil {
+		NotFound(c, err.Error())
+		return
+	}
+	if kb.Setting == nil || !kb.Setting.GraphEnabled {
+		BadRequest(c, "请先在设置页开启「构建知识图谱」后再补建")
+		return
+	}
+
+	result, err := h.documentProcessor.RebuildKnowledgeBaseGraph(c.Request.Context(), tenantID, id)
+	if err != nil {
+		InternalError(c, err.Error())
+		return
+	}
+
+	OK(c, result)
 }
 
 // GetKnowledgeList 获取知识库文档列表

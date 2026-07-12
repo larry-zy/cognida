@@ -549,6 +549,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 		SessionID: req.SessionID,
 		UserID:    userID,
 		TenantID:  tenantID,
+		Query:     req.Query, // 新建会话时据此自动命名（否则所有会话同名）
 	}
 
 	// 生成消息 ID
@@ -891,6 +892,7 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 			SessionID: req.SessionID,
 			UserID:    userID,
 			TenantID:  tenantID,
+			Query:     req.Query, // 新建会话时据此自动命名（否则所有会话同名）
 		})
 		if err != nil {
 			log.Printf("[KnowledgeStream] Prepare session failed: %v", err)

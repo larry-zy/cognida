@@ -39,6 +39,9 @@ type ToolDeps struct {
 	SemanticRepo semantic.Repository
 	// SemanticCache 受信查询缓存（可选）；nil 时不缓存，每次经引擎生成。
 	SemanticCache semanticcache.Cache
+	// CoverageSink 语义查询覆盖埋点写入端口（可选）；nil 时不埋点，
+	// 非 nil 时 semantic_query 每次以 best-effort 记录 covered/cache_hit/fallback。
+	CoverageSink semantic.CoverageSink
 	// TermGrounding 术语接地图谱端口（可选）；nil 时仅用模型内同义词接地。
 	TermGrounding termgrounding.GraphPort
 	// DataAnalysisInvoker MCP 调用器（可选）；nil 时 data_analysis 返回非致命错误结果。

@@ -33,11 +33,16 @@ type Service struct {
 	idGen  IDGenerator
 	// testTimeout 测试连接超时
 	testTimeout time.Duration
+	// healthPingTimeout 健康检查单次 ping 超时
+	healthPingTimeout time.Duration
 }
 
 // NewService 创建数据源服务
 func NewService(repo model.Repository, cipher *Cipher, cm *ConnectionManager, idGen IDGenerator) *Service {
-	return &Service{repo: repo, cipher: cipher, cm: cm, idGen: idGen, testTimeout: 5 * time.Second}
+	return &Service{
+		repo: repo, cipher: cipher, cm: cm, idGen: idGen,
+		testTimeout: 5 * time.Second, healthPingTimeout: 5 * time.Second,
+	}
 }
 
 // ConnectionManager 暴露受管连接（供 agent 工具经 ConnectionProvider 消费）

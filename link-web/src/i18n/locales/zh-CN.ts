@@ -119,7 +119,7 @@ export default {
     knowledge: '知识库',
     graph: '知识图谱',
     agent: 'Agent',
-    evaluation: '大模型测评',
+    evaluation: 'Agent 测评',
     datasets: '数据集管理',
     quality: '数据质量',
     datasource: '数据源管理',

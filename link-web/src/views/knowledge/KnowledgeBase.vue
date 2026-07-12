@@ -233,6 +233,37 @@
               >{{ settingsForm.status === 1 ? '启用' : '禁用' }}</UiSwitch>
             </UiFormItem>
 
+            <!-- 索引构建 -->
+            <UiDivider label-position="start">索引构建</UiDivider>
+
+            <UiFormItem label="构建知识图谱">
+              <UiSwitch v-model="settingsForm.graph_enabled" />
+              <UiText type="info" size="sm" style="display: block; margin-top: 4px">
+                开启后，之后上传到本知识库的文档会自动提取知识图谱，供图谱检索使用；对已上传的历史文档不追溯重建，可用下方「补建图谱」处理。
+              </UiText>
+            </UiFormItem>
+
+            <UiFormItem label="补建历史图谱">
+              <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <UiButton
+                  variant="secondary"
+                  @click="rebuildGraph"
+                  :loading="rebuildTask.isPending.value"
+                  :disabled="!settingsForm.graph_enabled"
+                >
+                  为本库补建图谱
+                </UiButton>
+                <UiAsyncStatus
+                  :status="rebuildTask.status.value"
+                  :message="rebuildTask.message.value"
+                  @retry="rebuildGraph"
+                />
+              </div>
+              <UiText type="info" size="sm" style="display: block; margin-top: 4px">
+                复用已有分块，为开启开关之前上传的历史文档补建知识图谱，不会重复建块；文档较多时耗时较长，请耐心等待。
+              </UiText>
+            </UiFormItem>
+
             <UiFormItem>
               <UiButton variant="primary" @click="saveSettings" :loading="settingsSaving">
                 保存设置
@@ -249,6 +280,7 @@
           >
             <ul style="margin: 0; padding-left: 20px;">
               <li><strong>分块配置</strong>：分块大小/重叠等数据处理参数在<strong>创建知识库时</strong>设定，创建后暂不支持修改</li>
+              <li><strong>知识图谱</strong>：图谱提取为库级开关，可随时开关；仅对开启后<strong>新上传</strong>的文档生效，历史文档可用「补建图谱」按钮追溯重建</li>
               <li><strong>检索设置</strong>：TopK、相似度阈值等检索参数请在<strong>对话设置</strong>中调整，支持跨知识库检索</li>
             </ul>
           </UiAlert>
@@ -323,9 +355,11 @@ import {
   UiSwitch,
   UiAlert,
   UiSelect,
-  UiProgress
+  UiProgress,
+  UiAsyncStatus
 } from '@/components'
 import toast from '@/utils/toast'
+import { useAsyncTask } from '@/composables/useAsyncTask'
 import { ElMessageBox } from '@/utils/confirm'
 import { Upload, Search } from '@element-plus/icons-vue'
 import GraphView from './GraphView.vue'
@@ -420,12 +454,15 @@ const currentChunk = ref<Chunk | null>(null)
 // 设置相关
 const settingsLoading = ref(false)
 const settingsSaving = ref(false)
-// 仅保留后端 UpdateKnowledgeBase 接口真正接受的字段（name/description/status）。
-// 分块/图谱/BM25 等数据处理配置后端更新接口不接收，仅在创建时生效，故不在此维护。
+// 补建图谱状态机：idle→pending→success|error，就地由 <UiAsyncStatus> 常驻展示
+const rebuildTask = useAsyncTask()
+// 后端 UpdateKnowledgeBase 接受 name/description/status，以及库级图谱开关 graph_enabled。
+// 分块/BM25 等其余数据处理配置仅在创建时生效，故不在此维护。
 const settingsForm = reactive<UpdateKnowledgeBaseRequest>({
   name: '',
   description: '',
-  status: 1
+  status: 1,
+  graph_enabled: false
 })
 
 function formatDateTime(date?: string | number) {
@@ -485,6 +522,7 @@ async function loadKnowledgeBase() {
       settingsForm.name = data.name
       settingsForm.description = data.description || ''
       settingsForm.status = data.status
+      settingsForm.graph_enabled = data.setting?.graph_enabled ?? false
     }
   } catch (error) {
     console.error('Failed to load knowledge base:', error)
@@ -763,11 +801,12 @@ async function saveSettings() {
 
   settingsSaving.value = true
   try {
-    // 后端 UpdateKnowledgeBase 仅接受 name/description/status
+    // 后端 UpdateKnowledgeBase 接受 name/description/status + 库级图谱开关 graph_enabled
     const updateData: UpdateKnowledgeBaseRequest = {
       name: settingsForm.name,
       description: settingsForm.description,
-      status: settingsForm.status
+      status: settingsForm.status,
+      graph_enabled: settingsForm.graph_enabled
     }
     await knowledgeApi.update(kbId.value, updateData)
     toast.success('设置保存成功')
@@ -777,6 +816,32 @@ async function saveSettings() {
   } finally {
     settingsSaving.value = false
   }
+}
+
+// 为历史文档补建知识图谱（复用已存分块）
+async function rebuildGraph() {
+  if (!settingsForm.graph_enabled) {
+    toast.warning('请先开启并保存「构建知识图谱」后再补建')
+    return
+  }
+  await rebuildTask.run(
+    async () => {
+      const res = await knowledgeApi.rebuildGraph(kbId.value)
+      return res.data
+    },
+    {
+      pendingMessage: '补建中…（文档较多时耗时较长，请勿关闭页面）',
+      successMessage: (r: any) => {
+        if (!r) return '补建完成'
+        // 有失败文档时如实标注，避免把「部分失败」伪装成完全成功
+        const failed = r.failed_documents ? `，失败 ${r.failed_documents} 篇` : ''
+        const skipped = r.skipped_documents ? `，跳过 ${r.skipped_documents} 篇` : ''
+        return `补建完成：处理 ${r.processed_documents}/${r.total_documents} 篇，` +
+          `新增 ${r.total_nodes} 节点、${r.total_relations} 关系${skipped}${failed}`
+      },
+      errorMessage: (e: any) => e?.message || '补建失败',
+    }
+  )
 }
 
 // 标签切换处理

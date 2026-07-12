@@ -119,7 +119,7 @@ export default {
     knowledge: 'Knowledge',
     graph: 'Knowledge Graph',
     agent: 'Agent',
-    evaluation: 'Evaluation',
+    evaluation: 'Agent Eval',
     datasets: 'Datasets',
     quality: 'Data Quality',
     datasource: 'Datasources',

@@ -95,6 +95,17 @@ func (r *memRepo) List(_ context.Context, filter model.ListFilter) ([]*model.Dat
 	return out, int64(len(out)), nil
 }
 
+func (r *memRepo) ListAll(_ context.Context) ([]*model.DataSource, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*model.DataSource, 0, len(r.items))
+	for _, ds := range r.items {
+		cp := *ds
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
 func (r *memRepo) Update(_ context.Context, ds *model.DataSource) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

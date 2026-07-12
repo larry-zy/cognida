@@ -28,7 +28,11 @@
 #   - 每轮工具调用成功次数、累计工具调用次数
 #   - 空回答轮数、回答字符数（并完整落盘到 *.answer.txt）
 #   - reasoning_content 400 命中（SSE 流 + 服务端日志）
-#   设置 METRICS_FILE=<path> 时，额外把每个 Agent 的汇总指标以 JSON 行追加落盘。
+#   汇总指标默认以 JSON 行落到本次产物目录 metrics.jsonl；可用 METRICS_FILE=<path> 覆盖。
+#
+# 产物落盘：日志 / 指标 / 各轮 SSE 与回答默认持久保留在项目内
+#   test-output/agent-eval/<时间戳>-<agents>-<pid>/（已 gitignore），不再用 /tmp，
+#   便于历次结果回溯对比。可用 OUTPUT_ROOT 覆盖根目录。
 # ==============================================================================
 
 set -uo pipefail
@@ -44,10 +48,12 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # 本脚本位于 .claude/skills/link-dev/agent-eval/scripts/，向上 5 级即仓库根。
 # 优先用 LINK_GO_DIR 覆盖，便于在非常规布局 / CI 下显式指定。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# .claude/skills/link-dev/agent-eval/scripts/ 向上 5 级即仓库根
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
 if [[ -n "${LINK_GO_DIR:-}" ]]; then
     GO_DIR="$LINK_GO_DIR"
 else
-    GO_DIR="$(cd "$SCRIPT_DIR/../../../../.." && pwd)/link-go"
+    GO_DIR="$REPO_ROOT/link-go"
 fi
 
 # ---------- 配置 ----------
@@ -55,8 +61,16 @@ SERVER_URL="${SERVER_URL:-http://localhost:8080}"
 BOOT_SERVER=1
 KEEP_LOG="${KEEP_LOG:-0}"
 REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-120}"   # 单轮 SSE 最长等待秒数
-METRICS_FILE="${METRICS_FILE:-}"            # 非空则把每 Agent 汇总指标以 JSON 行追加
+METRICS_FILE="${METRICS_FILE:-}"            # 空则默认落到本次产物目录 metrics.jsonl
+# 产物根目录：默认落到项目内 test-output/agent-eval/（已 gitignore），不再用 /tmp。
+# 日志/指标/各轮 SSE 与回答默认全部持久保留在项目里，便于回溯与历次对比。
+OUTPUT_ROOT="${OUTPUT_ROOT:-$REPO_ROOT/test-output/agent-eval}"
 AGENTS="${AGENTS:-rag,data}"                # 逗号分隔，选择跑哪些 Agent：rag / data
+GRAPH_ENABLED="${GRAPH_ENABLED:-0}"         # =1/true 进入 RAG「图谱模式」：请求级开启图谱检索
+                                            # （graph_enabled:true）+ 换用关系型问法 + 断言
+                                            # graph_query 至少触发一次；前提是目标库已抽取图谱
+KB_IDS="${KB_IDS:-}"                         # 逗号分隔知识库 id。图谱模式必填（否则作用域为空、
+                                            # graph_query 查不到关系）；普通 RAG 模式留空=按租户全库
 DATASOURCE_ID="${DATASOURCE_ID:-}"          # Data Agent 目标外部数据源 id（空=当前业务库）
                                             # 非空时 Data Agent 用面向该数据源的通用电商用例
 
@@ -74,16 +88,23 @@ usage() {
 
 选项:
   --no-boot        不自启服务，复用已运行的 SERVER_URL（此模式下无法扫描服务端日志）
-  --keep-log       保留临时 SSE / 服务端日志文件，便于排查
+  --keep-log       连编译出的 server 二进制也一并保留（日志/指标默认已持久保留）
   -h, --help       显示帮助
+
+产物：日志 / 指标 / 各轮 SSE 与回答默认持久保留在项目内
+  test-output/agent-eval/<时间戳>-<agents>-<pid>/（已 gitignore），可用 OUTPUT_ROOT 覆盖根目录。
 
 环境变量:
   SERVER_URL        服务地址（默认 http://localhost:8080）
   REQUEST_TIMEOUT   单轮 SSE 最长等待秒（默认 120）
-  KEEP_LOG          =1 保留临时文件（等价 --keep-log）
+  KEEP_LOG          =1 连 server 二进制也保留（等价 --keep-log）
   LINK_GO_DIR       显式指定 link-go 目录（默认从脚本位置推导）
-  METRICS_FILE      指定则把每个 Agent 的汇总指标以 JSON 行追加落盘
+  OUTPUT_ROOT       产物根目录（默认 <repo>/test-output/agent-eval）
+  METRICS_FILE      汇总指标落盘路径（默认 <产物目录>/metrics.jsonl）
   AGENTS            逗号分隔选择跑哪些 Agent：rag / data（默认 rag,data）
+  GRAPH_ENABLED     =1/true 进入 RAG 图谱模式：开图谱检索 + 关系型问法 + 断言 graph_query 触发
+                    （默认 0；需配合 KB_IDS；前提是目标库已抽取图谱）
+  KB_IDS            逗号分隔知识库 id（图谱模式必填；普通模式留空=按租户全库检索）
   DATASOURCE_ID     Data Agent 目标外部数据源 id（空=当前业务库；
                     非空时 Data Agent 改用面向该数据源的通用电商用例）
 EOF
@@ -105,11 +126,10 @@ cleanup() {
         wait "$SERVER_PID" 2>/dev/null
     fi
     if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
-        if [[ "$KEEP_LOG" -eq 1 ]]; then
-            info "临时文件保留在: $WORK_DIR"
-        else
-            rm -rf "$WORK_DIR"
-        fi
+        # 产物默认持久保留在项目内 test-output/。仅清掉体积大的编译产物，
+        # 日志 / 指标 / 各轮 SSE 与回答一律留存。--keep-log 时连二进制也保留。
+        [[ "$KEEP_LOG" -eq 1 ]] || rm -f "$WORK_DIR/link-server"
+        info "本次产物保留在: $WORK_DIR"
     fi
 }
 trap cleanup EXIT INT TERM
@@ -121,7 +141,7 @@ check_deps() {
         fi
     done
     if [[ ! -f "$GO_DIR/go.mod" ]]; then
-        error "无法定位 link-go 目录（$GO_DIR）。可用 LINK_GO_DIR 显式指定，或用 --no-boot 复用已运行服务。"
+        error "无法定位 link-go 目录（${GO_DIR}）。可用 LINK_GO_DIR 显式指定，或用 --no-boot 复用已运行服务。"
         exit 1
     fi
 }
@@ -192,6 +212,14 @@ count_tool_results() {
         | jq -rc 'select((.status // "") != "error")' 2>/dev/null | wc -l | tr -d ' '
 }
 
+# 统计 SSE 文件里某具名工具被调用的次数（不限 status，用于判断 LLM 是否确实选用了该工具）
+# $1 文件  $2 tool_name
+count_named_tool() {
+    grep '^data:' "$1" 2>/dev/null | sed 's/^data: *//' \
+        | jq -rc --arg n "$2" 'select(.type=="tool_result" and .tool_name==$n)' 2>/dev/null \
+        | wc -l | tr -d ' '
+}
+
 # 扫描本轮 reasoning_content 400 / 生成失败 标志（SSE 流内）
 scan_sse_errors() {
     grep -iE 'must be passed back|reasoning_content|生成失败' "$1" 2>/dev/null | head -3
@@ -205,9 +233,16 @@ now_ms() { perl -MTime::HiRes=time -e 'printf("%.0f", time()*1000)'; }
 run_turn() {
     local endpoint="$1" query="$2" sid="$3" out="$4" ds="${5:-}"
     local body
-    # datasource_id 为空时服务端按当前业务库处理；非空时路由到已注册外部数据源
-    body=$(jq -n --arg q "$query" --arg s "$sid" --arg ds "$ds" \
-        '{query:$q, session_id:$s, datasource_id:$ds, kb_ids:[], graph_enabled:false, kb_scope_mode:"manual"}')
+    # 请求级图谱检索开关：GRAPH_ENABLED=1/true 时置 true
+    local graph_json=false
+    [[ "$GRAPH_ENABLED" == "1" || "$GRAPH_ENABLED" == "true" ]] && graph_json=true
+    # datasource_id 为空时服务端按当前业务库处理；非空时路由到已注册外部数据源。
+    # kb_ids 由 KB_IDS（逗号分隔）构造：纯数字转 number，否则保留字符串；空则为 []。
+    # 图谱模式必须传 kb_ids，否则 resolveKBScope 得空作用域、graph_query 查不到关系。
+    body=$(jq -n --arg q "$query" --arg s "$sid" --arg ds "$ds" --arg kbids "$KB_IDS" --argjson graph "$graph_json" \
+        '{query:$q, session_id:$s, datasource_id:$ds,
+          kb_ids:($kbids | split(",") | map(select(length>0)) | map(if test("^[0-9]+$") then tonumber else . end)),
+          graph_enabled:$graph, kb_scope_mode:"manual"}')
 
     # -N 关闭缓冲，实时落盘；--max-time 兜底防止 SSE 挂死
     curl -sS -N --max-time "$REQUEST_TIMEOUT" \
@@ -227,12 +262,15 @@ test_agent() {
 
     echo ""
     echo "=============================================================="
-    log "开始测试 [$name]  ($endpoint)  共 ${#queries[@]} 轮${ds:+  数据源=$ds}"
+    local graph_note=""
+    [[ "$name" == "RAG-Agent" && ( "$GRAPH_ENABLED" == "1" || "$GRAPH_ENABLED" == "true" ) ]] && graph_note="  图谱检索=开"
+    log "开始测试 [$name]  ($endpoint)  共 ${#queries[@]} 轮${ds:+  数据源=$ds}${graph_note}"
     echo "=============================================================="
 
     local sid=""
     local turn=0
     local total_tools=0
+    local total_graph=0
     local last_answer=""
     local agent_failed=0
     local total_ms=0 max_ms=0 min_ms=0 empty_answers=0
@@ -263,7 +301,9 @@ test_agent() {
         answer=$(done_field "$out" '.answer')
         tools=$(count_tool_results "$out")
         sse_err=$(scan_sse_errors "$out")
+        local graph_calls; graph_calls=$(count_named_tool "$out" graph_query)
         total_tools=$((total_tools + tools))
+        total_graph=$((total_graph + graph_calls))
         [[ -n "$answer" ]] && last_answer="$answer"
 
         if [[ -z "$new_sid" ]]; then
@@ -320,22 +360,38 @@ test_agent() {
         agent_failed=1
     fi
 
+    # ---- 图谱模式专项断言：RAG 图谱模式下必须实际触发 graph_query ----
+    local graph_mode=0
+    [[ "$name" == "RAG-Agent" && ( "$GRAPH_ENABLED" == "1" || "$GRAPH_ENABLED" == "true" ) ]] && graph_mode=1
+    if [[ "$graph_mode" -eq 1 ]]; then
+        echo "  · graph_query 触发次数：${total_graph}"
+        if [[ "$total_graph" -eq 0 ]]; then
+            error "[$name] 图谱模式全程未触发 graph_query —— 未覆盖图谱检索路径（判为不达标）"
+            error "        排查：KB_IDS 是否为已抽取图谱的库；问法是否为关系型；目标库是否已 rebuild 图谱"
+            agent_failed=1
+        fi
+    fi
+
     # ---- 机器可读指标落盘（可选）----
     if [[ -n "$METRICS_FILE" ]]; then
+        local graph_metric=false
+        [[ "$name" == "RAG-Agent" && ( "$GRAPH_ENABLED" == "1" || "$GRAPH_ENABLED" == "true" ) ]] && graph_metric=true
         jq -nc \
             --arg agent "$name" \
             --arg endpoint "$endpoint" \
             --arg datasource_id "$ds" \
+            --argjson graph_enabled "$graph_metric" \
             --argjson turns "$turn" \
             --argjson total_ms "$total_ms" \
             --argjson avg_ms "$avg_ms" \
             --argjson max_ms "$max_ms" \
             --argjson min_ms "$min_ms" \
             --argjson total_tools "$total_tools" \
+            --argjson graph_queries "$total_graph" \
             --argjson empty_answers "$empty_answers" \
             --argjson per_turn_ms "$(printf '%s\n' "${per_turn_ms[@]}" | jq -sc '.')" \
             --argjson passed "$([[ "$agent_failed" -eq 0 ]] && echo true || echo false)" \
-            '{agent:$agent, endpoint:$endpoint, datasource_id:$datasource_id, turns:$turns, total_ms:$total_ms, avg_ms:$avg_ms, max_ms:$max_ms, min_ms:$min_ms, total_tools:$total_tools, empty_answers:$empty_answers, per_turn_ms:$per_turn_ms, passed:$passed}' \
+            '{agent:$agent, endpoint:$endpoint, datasource_id:$datasource_id, graph_enabled:$graph_enabled, turns:$turns, total_ms:$total_ms, avg_ms:$avg_ms, max_ms:$max_ms, min_ms:$min_ms, total_tools:$total_tools, graph_queries:$graph_queries, empty_answers:$empty_answers, per_turn_ms:$per_turn_ms, passed:$passed}' \
             >> "$METRICS_FILE"
     fi
 
@@ -354,10 +410,18 @@ main() {
 
     check_deps
 
-    WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/link-e2e.XXXXXX")"
+    # 产物目录：项目内 test-output/agent-eval/<时间戳>-<agents>-<pid>/，持久保留
+    local stamp agents_slug
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    agents_slug="$(echo "$AGENTS" | tr ',' '-')"
+    WORK_DIR="$OUTPUT_ROOT/${stamp}-${agents_slug}-$$"
+    mkdir -p "$WORK_DIR" || { error "无法创建产物目录: $WORK_DIR"; exit 1; }
     SERVER_LOG="$WORK_DIR/server.log"
     : > "$WORK_DIR/curl.err"
-    [[ -n "$METRICS_FILE" ]] && : > "$METRICS_FILE"
+    # 未显式指定 METRICS_FILE 时，默认落到本次产物目录
+    [[ -z "$METRICS_FILE" ]] && METRICS_FILE="$WORK_DIR/metrics.jsonl"
+    : > "$METRICS_FILE"
+    info "本次产物目录: $WORK_DIR"
 
     if [[ "$BOOT_SERVER" -eq 1 ]]; then
         boot_server
@@ -372,19 +436,44 @@ main() {
     case ",${AGENTS}," in *,data,*) run_data=1;; esac
     [[ "$run_rag" -eq 0 && "$run_data" -eq 0 ]] && { error "AGENTS=$AGENTS 未选中任何 Agent（可选 rag,data）"; exit 1; }
 
-    # RAG Agent：10 轮连贯对话，逐轮基于上文追问，持续触发 kb_list / rag_query
+    # RAG Agent：10 轮连贯对话，逐轮基于上文追问，持续触发工具调用。
+    #   普通模式 → 概览/追问/总结式问法，回归 kb_list / rag_query（hybrid 检索）。
+    #   图谱模式（GRAPH_ENABLED=1）→ 关系型问法 + KB_IDS 作用域，专门诱导并断言 graph_query。
     if [[ "$run_rag" -eq 1 ]]; then
-        test_agent "RAG-Agent" "/api/v1/agent/knowledge/stream" "" \
-            "有哪些知识库？请列出来。" \
-            "这个知识库大概讲的是什么主题？检索一下给我一个概览。" \
-            "针对刚才的主题，检索最核心的一个概念并解释清楚。" \
-            "再检索一个与之相关的细节问题并回答。" \
-            "把前面几轮检索到的信息综合成一段连贯的总结。" \
-            "有没有和这个主题相关、但你前面还没提到的内容？检索补充一下。" \
-            "基于我们目前聊到的全部内容，帮我提炼成 3 个要点。" \
-            "针对上面第 2 个要点，再深入检索并展开说明。" \
-            "如果要向一个完全不了解的人两句话介绍这个知识库，你会怎么说？" \
-            "回顾我们整段对话，你觉得还遗漏了什么关键信息？检索确认后补上。"
+        if [[ "$GRAPH_ENABLED" == "1" || "$GRAPH_ENABLED" == "true" ]]; then
+            # 图谱模式前置校验：无 KB_IDS 则作用域为空、graph_query 无从查起，直接失败给指引。
+            if [[ -z "$KB_IDS" ]]; then
+                error "GRAPH_ENABLED=1（图谱模式）需同时提供 KB_IDS（目标图谱库的知识库 id，逗号分隔）。"
+                error "否则 kb 作用域解析为空、graph_query 查不到关系。例：KB_IDS=3 GRAPH_ENABLED=1 $0 --no-boot"
+                exit 1
+            fi
+            info "RAG-Agent 进入图谱模式：KB_IDS=${KB_IDS}，改用关系型问法并断言 graph_query 触发"
+            # 关系型问法：不写死实体名，靠“关联/依赖/图谱关系”措辞诱导 LLM 主动选 graph_query，
+            # 适配任意已抽取图谱的库；实体名由上文语境自然带入。
+            test_agent "RAG-Agent" "/api/v1/agent/knowledge/stream" "" \
+                "先列一下这个知识库里有哪些核心实体或概念。" \
+                "这些核心概念之间存在哪些关联关系？用知识图谱查一下它们是怎么相互关联的。" \
+                "其中最核心的那个概念，和哪些其他概念直接相连？沿着图谱关系展开说说。" \
+                "顺着上一个概念，它依赖或影响了哪些下游概念？用图谱查一下依赖/因果链路。" \
+                "反过来，有哪些概念指向或作用于它？把入边关系也查出来。" \
+                "在这张知识图谱里，两个最重要的概念之间是通过什么路径关联起来的？" \
+                "有没有哪个概念连接最多、处于中心枢纽位置？基于图谱里的关系数量判断一下。" \
+                "把前面查到的这些关系综合成一张“谁—如何关联—谁”的关系清单。" \
+                "如果只依据图谱关系（不看正文），能还原出这个知识库的整体结构吗？描述一下。" \
+                "回顾整段对话，图谱里还有哪些关系我们没覆盖到？用图谱查一下补齐。"
+        else
+            test_agent "RAG-Agent" "/api/v1/agent/knowledge/stream" "" \
+                "有哪些知识库？请列出来。" \
+                "这个知识库大概讲的是什么主题？检索一下给我一个概览。" \
+                "针对刚才的主题，检索最核心的一个概念并解释清楚。" \
+                "再检索一个与之相关的细节问题并回答。" \
+                "把前面几轮检索到的信息综合成一段连贯的总结。" \
+                "有没有和这个主题相关、但你前面还没提到的内容？检索补充一下。" \
+                "基于我们目前聊到的全部内容，帮我提炼成 3 个要点。" \
+                "针对上面第 2 个要点，再深入检索并展开说明。" \
+                "如果要向一个完全不了解的人两句话介绍这个知识库，你会怎么说？" \
+                "回顾我们整段对话，你觉得还遗漏了什么关键信息？检索确认后补上。"
+        fi
     fi
 
     # Data Agent：10 轮连贯数据分析对话，逐步下钻，持续触发 sql_execute / data_analysis

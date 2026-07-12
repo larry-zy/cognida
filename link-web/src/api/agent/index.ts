@@ -1,6 +1,30 @@
 import type { AgentStreamEvent } from '@/types'
 import { storage } from '@/utils/security'
 import { readSSE } from '@/utils/sse'
+import { http } from '@/utils/request'
+
+/** 运行中 Agent 概要（供评测选择被测 Agent） */
+export interface AgentSummary {
+  id: string
+  name: string
+  description?: string
+  type: string
+  status: string
+  metadata?: Record<string, unknown>
+}
+
+/** ListAgents 响应体（信封 data 内） */
+export interface ListAgentsResult {
+  count: number
+  agents: AgentSummary[]
+}
+
+/**
+ * 列出已注册的 Agent（GET /api/v1/agents），供评测创建时选择被测 Agent。
+ */
+export function listAgents() {
+  return http.get<ListAgentsResult>('/agents')
+}
 
 // 获取 API 基础 URL
 const getApiBaseURL = () => {
@@ -215,7 +239,8 @@ export const agentApi = {
   streamAgentChat,
   streamDataChat,
   getUISurfacePage,
-  confirmOperation
+  confirmOperation,
+  listAgents
 }
 
 export default agentApi

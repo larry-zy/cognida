@@ -378,6 +378,12 @@ class ComputeItem(BaseModel):
     retrieved_pids: List[str] = []       # 检索到的分块ID（用于 precision/recall/ndcg/mrr）
     relevant_pids: List[str] = []        # 标注的相关分块ID
     retrieved_contexts: List[str] = []   # 检索到的分块正文（用于 faithfulness/context_relevance）
+    # Agent 评测字段：references(expected_*) + outputs(tools_used/trajectory/total_steps)
+    expected_tools: List[str] = []       # 期望调用的工具名（tool_selection/tool_order）
+    expected_steps: List[str] = []       # 期望步骤序列（trajectory_match/step_efficiency）
+    tools_used: List[str] = []           # 实际调用的工具名（按调用顺序）
+    trajectory: List[str] = []           # 实际步骤序列
+    total_steps: int = 0                 # 步骤总数
 
 
 class ComputeMetricsRequest(BaseModel):
@@ -429,6 +435,9 @@ _GENERATION_GRADERS = {"rouge", "rouge_1", "rouge_2", "rouge_l", "bleu", "bleu_1
 _RETRIEVAL_GRADERS = {"precision", "recall", "ndcg", "mrr", "map"}
 _SEMANTIC_GRADERS = {"semantic", "semantic_similarity", "semantic_relevance"}
 _RAG_GRADERS = {"faithfulness", "context_relevance", "noise_ratio"}
+# Agent 家族评分器：走 compute_agent_metrics 专属批量算子（未注册进通用 registry，
+# 由本端点按 references/outputs 组装后计算，避免落入 unsupported）
+_AGENT_GRADERS = {"answer_accuracy", "tool_selection", "tool_order", "trajectory_match", "step_efficiency"}
 # 每项固定字段 -> 动态 scores map 的键映射(用于把固定字段镜像进 scores)
 _FIXED_SCORE_KEYS = [
     "precision", "recall", "ndcg", "rr",
@@ -449,12 +458,15 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
     try:
         registry = _ensure_registry()
 
-        # —— 注册表解析:区分 supported / unsupported ——
+        # —— 注册表解析:区分 supported / agent / unsupported ——
         requested = list(dict.fromkeys(request.graders))  # 去重保序
         supported_names: set[str] = set()
+        agent_requested: set[str] = set()
         unsupported: List[str] = []
         for name in requested:
-            if registry.exists(name):
+            if name in _AGENT_GRADERS:
+                agent_requested.add(name)  # Agent 家族走专属 compute_agent_metrics 路径
+            elif registry.exists(name):
                 supported_names.add(name)
             else:
                 unsupported.append(name)
@@ -691,6 +703,49 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                     g_count += 1
             if g_count > 0:  # 以是否运行为准,合法 0 分保留
                 aggregate[name] = g_sum / g_count
+
+        # —— Agent 家族专属路径：按 references/outputs 组装后命中 compute_agent_metrics ——
+        # references 取 expected_tools/expected_steps 作参考，outputs 取实际 tools_used/trajectory/total_steps。
+        if agent_requested and request.items:
+            references = [
+                {
+                    "final_answer": item.reference_answer,
+                    "tools_used": item.expected_tools,
+                    "expected_steps": item.expected_steps,
+                }
+                for item in request.items
+            ]
+            outputs = [
+                {
+                    "final_answer": item.generated_answer,
+                    "tools_used": item.tools_used,
+                    "trajectory": [{"content": s} for s in item.trajectory],
+                    "total_steps": item.total_steps or len(item.trajectory),
+                }
+                for item in request.items
+            ]
+            agent_result = compute_agent_metrics(
+                references=references,
+                outputs=outputs,
+                metrics=sorted(agent_requested),
+            )
+            # 将嵌套结果平铺进聚合 scores map（前端/Go 侧按 name->value 消费）
+            if "answer_accuracy" in agent_result:
+                aggregate["answer_accuracy"] = agent_result["answer_accuracy"]
+            if isinstance(agent_result.get("tool_selection"), dict):
+                ts = agent_result["tool_selection"]
+                aggregate["tool_precision"] = ts.get("precision", 0.0)
+                aggregate["tool_recall"] = ts.get("recall", 0.0)
+                aggregate["tool_f1"] = ts.get("f1", 0.0)
+            if isinstance(agent_result.get("tool_order"), dict):
+                aggregate["tool_order"] = agent_result["tool_order"].get("ordered_match", 0.0)
+            if isinstance(agent_result.get("trajectory_match"), dict):
+                tm = agent_result["trajectory_match"]
+                aggregate["traj_exact_match"] = tm.get("exact_match", 0.0)
+                aggregate["traj_similarity"] = tm.get("similarity", 0.0)
+            if isinstance(agent_result.get("step_efficiency"), dict):
+                se = agent_result["step_efficiency"]
+                aggregate["step_optimal_ratio"] = se.get("optimal_ratio", 0.0)
 
         return ComputeMetricsResponse(
             items=items_result,

@@ -34,6 +34,7 @@ type Router struct {
 	evaluationHandler    *handler.EvaluationHandler
 	qualityHandler       *handler.QualityHandler
 	dataSourceHandler    *handler.DataSourceHandler
+	semanticHandler      *handler.SemanticHandler
 	auditHandler         *handler.AuditHandler
 	webHandler           *web.Handler
 	authMiddleware       *middleware.AuthMiddleware
@@ -60,6 +61,7 @@ func NewRouter(
 	evaluationHandler *handler.EvaluationHandler,
 	qualityHandler *handler.QualityHandler,
 	dataSourceHandler *handler.DataSourceHandler,
+	semanticHandler *handler.SemanticHandler,
 	auditHandler *handler.AuditHandler,
 	webHandler *web.Handler,
 	// Middleware
@@ -95,6 +97,7 @@ func NewRouter(
 		evaluationHandler:    evaluationHandler,
 		qualityHandler:       qualityHandler,
 		dataSourceHandler:    dataSourceHandler,
+		semanticHandler:      semanticHandler,
 		auditHandler:         auditHandler,
 		webHandler:           webHandler,
 		authMiddleware:       authMiddleware,
@@ -134,6 +137,7 @@ func (r *Router) Setup() {
 			r.setupEvaluationRoutes(auth)
 			r.setupQualityRoutes(auth)
 			r.setupDataSourceRoutes(auth)
+			r.setupSemanticRoutes(auth)
 			r.setupAuditRoutes(auth)
 		}
 
@@ -236,6 +240,8 @@ func (r *Router) setupKBRoutes(api *gin.RouterGroup) {
 		kbs.PUT("/:id", r.knowledgeBaseHandler.UpdateKnowledgeBase)
 		kbs.DELETE("/:id", r.knowledgeBaseHandler.DeleteKnowledgeBase)
 		kbs.GET("/:id/stats", r.knowledgeBaseHandler.GetStats)
+		// 为历史文档补建知识图谱（复用已存分块，幂等）
+		kbs.POST("/:id/graph/rebuild", r.knowledgeBaseHandler.RebuildGraph)
 
 		// 知识库文档管理
 		kbs.GET("/:id/knowledge", r.knowledgeBaseHandler.GetKnowledgeList)
@@ -456,6 +462,7 @@ func (r *Router) setupQualityRoutes(api *gin.RouterGroup) {
 		// 评估与清洗
 		quality.POST("/evaluate/structured", r.qualityHandler.EvaluateStructured)
 		quality.POST("/evaluate/unstructured", r.qualityHandler.EvaluateUnstructured)
+		quality.POST("/evaluate/datasource", r.qualityHandler.EvaluateDatasource)
 		quality.POST("/clean", r.qualityHandler.CleanData)
 		quality.GET("/dimensions", r.qualityHandler.ListDimensions)
 
@@ -484,6 +491,24 @@ func (r *Router) setupDataSourceRoutes(api *gin.RouterGroup) {
 		ds.GET("/:id/tables", r.dataSourceHandler.ListTables)
 		ds.GET("/:id/tables/:table", r.dataSourceHandler.DescribeTable)
 	}
+}
+
+// setupSemanticRoutes 设置指标语义层「建模」路由（受治理查询的进料线）。
+func (r *Router) setupSemanticRoutes(api *gin.RouterGroup) {
+	if r.semanticHandler == nil {
+		return
+	}
+	sm := api.Group("/semantic-models")
+	{
+		sm.GET("", r.semanticHandler.List)
+		sm.POST("", r.semanticHandler.Create)
+		sm.GET("/:id", r.semanticHandler.Get)
+		sm.PUT("/:id", r.semanticHandler.Update)
+		sm.POST("/:id/publish", r.semanticHandler.Publish)
+		sm.POST("/:id/deprecate", r.semanticHandler.Deprecate)
+	}
+	// 覆盖率埋点只读视图（独立路径，避免与 /semantic-models/:id 的静态/参数段冲突）。
+	api.GET("/semantic-coverage", r.semanticHandler.Coverage)
 }
 
 // setupAuditRoutes 设置请求审计查询路由（只读）

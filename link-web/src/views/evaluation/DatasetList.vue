@@ -123,8 +123,15 @@
       </UiForm>
 
       <template #footer>
-        <UiButton variant="secondary" @click="showUploadDialog = false">取消</UiButton>
-        <UiButton variant="primary" @click="uploadDataset" :loading="uploading">上传</UiButton>
+        <div class="footer-with-status">
+          <UiAsyncStatus
+            :status="uploadTask.status.value"
+            :message="uploadTask.message.value"
+            @retry="uploadDataset"
+          />
+          <UiButton variant="secondary" @click="showUploadDialog = false">取消</UiButton>
+          <UiButton variant="primary" @click="uploadDataset" :loading="uploadTask.isPending.value">上传</UiButton>
+        </div>
       </template>
     </UiModal>
 
@@ -190,8 +197,15 @@
       </UiForm>
 
       <template #footer>
-        <UiButton variant="secondary" @click="showCreateDialog = false">取消</UiButton>
-        <UiButton variant="primary" @click="createDataset" :loading="creating">创建</UiButton>
+        <div class="footer-with-status">
+          <UiAsyncStatus
+            :status="createTask.status.value"
+            :message="createTask.message.value"
+            @retry="createDataset"
+          />
+          <UiButton variant="secondary" @click="showCreateDialog = false">取消</UiButton>
+          <UiButton variant="primary" @click="createDataset" :loading="createTask.isPending.value">创建</UiButton>
+        </div>
       </template>
     </UiModal>
 
@@ -380,8 +394,10 @@ import {
   UiDescriptionsItem,
   UiTable,
   UiPagination,
+  UiAsyncStatus,
   type FormRule
 } from '@/components'
+import { useAsyncTask } from '@/composables/useAsyncTask'
 import {
   Plus,
   Document,
@@ -404,8 +420,9 @@ const router = useRouter()
 
 // State
 const loading = ref(false)
-const uploading = ref(false)
-const creating = ref(false)
+// 上传/创建数据集状态机：idle→pending→success|error，就地由 <UiAsyncStatus> 常驻展示
+const uploadTask = useAsyncTask()
+const createTask = useAsyncTask()
 const updating = ref(false)
 const samplesLoading = ref(false)
 const addingSample = ref(false)
@@ -555,37 +572,42 @@ async function uploadDataset() {
     return
   }
 
-  uploading.value = true
-  try {
-    const text = await uploadForm.value.file.text()
-    const qapairs = text.split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        try {
-          return JSON.parse(line)
-        } catch {
-          return null
-        }
+  const r = await uploadTask.run(
+    async () => {
+      const text = await uploadForm.value.file!.text()
+      const qapairs = text.split('\n')
+        .filter(line => line.trim())
+        .map(line => {
+          try {
+            return JSON.parse(line)
+          } catch {
+            return null
+          }
+        })
+        .filter(qa => qa !== null)
+
+      await evaluationApi.createDataset({
+        dataset_id: uploadForm.value.dataset_id,
+        name: uploadForm.value.dataset_id,
+        evaluation_type: uploadForm.value.type as 'rag' | 'qa' | 'agent',
+        qapairs
       })
-      .filter(qa => qa !== null)
 
-    await evaluationApi.createDataset({
-      dataset_id: uploadForm.value.dataset_id,
-      name: uploadForm.value.dataset_id,
-      evaluation_type: uploadForm.value.type as 'rag' | 'qa' | 'agent',
-      qapairs
-    })
+      return { count: qapairs.length }
+    },
+    {
+      pendingMessage: '上传中…',
+      successMessage: (res) => `成功导入 ${res.count} 条`,
+      errorMessage: (e) => e?.message || '上传失败'
+    }
+  )
 
-    toast.success('数据集上传成功')
+  if (r) {
     showUploadDialog.value = false
     uploadForm.value = { dataset_id: '', type: 'rag', file: null }
     selectedFileName.value = ''
     if (fileInputRef.value) fileInputRef.value.value = ''
     await loadDatasets()
-  } catch (error: any) {
-    toast.error(error.message || '上传失败')
-  } finally {
-    uploading.value = false
   }
 }
 
@@ -606,21 +628,31 @@ async function createDataset() {
     qa => qa.question.trim() && qa.reference_answer.trim()
   )
 
-  creating.value = true
-  try {
-    const data: CreateDatasetRequest = {
-      dataset_id: createForm.value.dataset_id,
-      name: createForm.value.name,
-      evaluation_type: createForm.value.evaluation_type,
-      description: createForm.value.description
-    }
+  const r = await createTask.run(
+    async () => {
+      const data: CreateDatasetRequest = {
+        dataset_id: createForm.value.dataset_id,
+        name: createForm.value.name,
+        evaluation_type: createForm.value.evaluation_type,
+        description: createForm.value.description
+      }
 
-    if (validQAPairs.length > 0) {
-      data.qa_pairs = validQAPairs
-    }
+      if (validQAPairs.length > 0) {
+        data.qa_pairs = validQAPairs
+      }
 
-    await evaluationApi.createDataset(data)
-    toast.success('数据集创建成功')
+      await evaluationApi.createDataset(data)
+      return { count: validQAPairs.length }
+    },
+    {
+      pendingMessage: '创建中…',
+      successMessage: (res) =>
+        res.count > 0 ? `数据集创建成功，已导入 ${res.count} 条` : '数据集创建成功',
+      errorMessage: (e) => e?.message || '创建失败'
+    }
+  )
+
+  if (r) {
     showCreateDialog.value = false
     createForm.value = {
       dataset_id: '',
@@ -630,10 +662,6 @@ async function createDataset() {
       qa_pairs: []
     }
     await loadDatasets()
-  } catch (error: any) {
-    toast.error(error.message || '创建失败')
-  } finally {
-    creating.value = false
   }
 }
 
@@ -1052,6 +1080,17 @@ onMounted(() => {
 
 .qa-header {
   color: var(--text-primary);
+}
+
+.footer-with-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.footer-with-status :deep(.ui-async-status) {
+  margin-right: auto;
 }
 
 .upload-filename {

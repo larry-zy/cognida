@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -704,12 +705,21 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	}
 
 	// 提取所有工具的 ToolInfo 并绑定到模型。
+	// 按工具名去重：LLM 供应商（OpenAI/DeepSeek 兼容接口）硬性要求 tools 数组内工具名唯一，
+	// 上游任一装配路径若混入同名工具都会导致 400 "Tool names must be unique"。此处收口去重
+	// （保留首个、丢弃后续同名），并对被丢弃者打 WARN 便于回溯真正的重复来源。
 	toolInfos := make([]*schema.ToolInfo, 0, len(a.tools))
+	seenTools := make(map[string]struct{}, len(a.tools))
 	for _, t := range a.tools {
 		info, infoErr := t.Info(ctx)
 		if infoErr != nil {
 			continue // 跳过无法获取信息的工具
 		}
+		if _, dup := seenTools[info.Name]; dup {
+			log.Printf("[agent:%s] 丢弃重名工具 %q（tools 数组要求唯一），请检查上游工具装配", a.name, info.Name)
+			continue
+		}
+		seenTools[info.Name] = struct{}{}
 		toolInfos = append(toolInfos, info)
 	}
 	var boundModel model.ToolCallingChatModel = a.toolModel

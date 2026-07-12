@@ -322,7 +322,7 @@
             class="composer__textarea"
             rows="1"
             :disabled="isStreaming"
-            @keydown.enter.exact.prevent="sendMessage"
+            @keydown.enter.exact="onEnterKey"
             @input="adjustTextareaHeight"
             @focus="composerFocused = true"
             @blur="composerFocused = false"
@@ -693,6 +693,13 @@ function upsertStep(target: AgentStep[], event: any) {
   } else {
     target.push({ id: key, timestamp: 0, ...patch } as AgentStep)
   }
+}
+
+// 回车发送：输入法合成期（拼音候选框开着）按回车只确认选字，不触发发送
+function onEnterKey(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  sendMessage()
 }
 
 // 发送消息

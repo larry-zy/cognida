@@ -114,7 +114,7 @@ func (r *ToolRegistry) registerSemanticTools() error {
 			return err
 		}
 	}
-	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder)
+	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder, r.deps.CoverageSink)
 	if queryTool != nil {
 		if err := r.Register("semantic", queryTool); err != nil {
 			return err

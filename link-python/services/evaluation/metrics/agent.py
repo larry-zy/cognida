@@ -80,6 +80,48 @@ def tool_selection(
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
+def _is_ordered_subsequence(expected: List[str], actual: List[str]) -> bool:
+    """判断 expected 是否为 actual 的有序子序列（保持相对顺序，允许中间插入其他调用）。"""
+    it = iter(actual)
+    return all(tool in it for tool in expected)
+
+
+def tool_order(
+    expected_tools: List[List[str]],
+    used_tools: List[List[str]],
+) -> dict[str, float]:
+    """计算工具调用的有序包含度（ordered inclusion）。
+
+    与 tool_selection 只看集合命中不同，tool_order 要求期望工具按序作为实际
+    调用序列的子序列出现——选对工具 ≠ 调用顺序正确（先查库存再下单，反之无效）。
+
+    Args:
+        expected_tools: 期望工具序列列表（每样本按期望顺序）
+        used_tools: 实际工具调用序列列表（每样本按调用顺序）
+
+    Returns:
+        包含 ordered_match（有序子序列命中率）的字典
+    """
+    if len(expected_tools) != len(used_tools):
+        raise ValueError("expected_tools 和 used_tools 长度必须相同")
+
+    if not expected_tools:
+        return {"ordered_match": 0.0}
+
+    # 无期望工具标注的样本不参与统计，避免拉高/拉低分母
+    scored = 0
+    matched = 0
+    for expected, used in zip(expected_tools, used_tools):
+        if not expected:
+            continue
+        scored += 1
+        if _is_ordered_subsequence(expected, used):
+            matched += 1
+
+    ordered_match = matched / scored if scored else 0.0
+    return {"ordered_match": ordered_match}
+
+
 def trajectory_match(
     expected_trajectories: List[List[str]],
     actual_trajectories: List[List[str]],
@@ -145,7 +187,8 @@ def step_efficiency(
     avg_optimal = sum(optimal_steps) / len(optimal_steps)
 
     # 计算最优比率（实际/最优，越接近1越好）
-    if avg_optimal > 0:
+    # 两侧都需 > 0：Agent 未产生工具调用轨迹时 avg_actual=0，避免 avg_optimal/avg_actual 除零。
+    if avg_optimal > 0 and avg_actual > 0:
         optimal_ratio = min(avg_optimal / avg_actual, avg_actual / avg_optimal)
     else:
         optimal_ratio = 0.0
@@ -229,11 +272,17 @@ def compute_agent_metrics(
         out_answers = [o.get("final_answer", "") for o in outputs]
         result["answer_accuracy"] = answer_accuracy(ref_answers, out_answers)
 
-    # 工具选择
+    # 工具选择（集合命中：precision/recall/f1）
     if "tool_selection" in metrics:
         expected_tools = [r.get("tools_used", []) for r in references]
         used_tools = [o.get("tools_used", []) for o in outputs]
         result["tool_selection"] = tool_selection(expected_tools, used_tools)
+
+    # 工具顺序（有序子序列命中：ordered_match）
+    if "tool_order" in metrics:
+        expected_tools = [r.get("tools_used", []) for r in references]
+        used_tools = [o.get("tools_used", []) for o in outputs]
+        result["tool_order"] = tool_order(expected_tools, used_tools)
 
     # 轨迹匹配
     if "trajectory_match" in metrics:

@@ -32,9 +32,9 @@
 
 ## 5. Phase 3 — 扩展（可后置）
 
-- [ ] 5.1 PostgreSQL driver 实现并注册（BuildDSN/Ping/ListTables/DescribeTable），前端类型下拉放开
-- [ ] 5.2 数据源健康检查定时任务（默认关闭，更新 status/last_health_check_at，列表展示状态）
-- [ ] 5.3 数据质量模块接入：Go 从数据源抽样取数推给 Python（或落 Parquet 复用 load_data），Python 不直连数据库
+- [x] 5.1 PostgreSQL driver 实现并注册（BuildDSN/Ping/ListTables/DescribeTable），前端类型下拉放开（`postgres_driver.go` 走 lib/pq keyword DSN + search_path 固化 schema，pg_catalog 元数据查询按 current_schema() 过滤；Driver 接口新增 QuoteIdent；前端 `DatasourceType` 放开 postgres、下拉与按类型默认端口 3306/5432；`postgres_driver_test.go` 覆盖注册/DSN/pqQuote/Extra 默认）
+- [x] 5.2 数据源健康检查定时任务（默认关闭，更新 status/last_health_check_at，列表展示状态）（`healthcheck.go` `CheckHealthOnce` 遍历 `ListAll`，need_credentials 跳过不覆盖，其余探活回写 active/error 与 last_health_check_at；main.go 由 `DATASOURCE_HEALTHCHECK_ENABLED`+`DATASOURCE_HEALTHCHECK_INTERVAL`(默认 5m) 门控 ticker goroutine；列表页已展示状态；`healthcheck_test.go` 覆盖概览与状态回写）
+- [x] 5.3 数据质量模块接入：Go 从数据源抽样取数推给 Python，Python 不直连数据库（`sampler.go` `SampleCSV` 经受管连接池抽样，表名先白名单校验再 QuoteIdent，只读 SELECT+行数上限+超时，序列化 CSV；quality 服务新增 `Sampler` 端口与 `EvaluateDatasource`（抽样→复用 EvaluateStructured 推 gRPC）；handler `/quality/evaluate/datasource` + wire 注入 datasource 服务作 Sampler；前端质量中心新增「数据源直评」Tab（选源/选表/抽样行数）；`sampler_test.go`/`service_test.go` 覆盖抽样 CSV/白名单拒绝/nil sampler/空样本/透传）
 
 ## 6. 验证与收尾
 

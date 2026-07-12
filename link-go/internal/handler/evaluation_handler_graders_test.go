@@ -29,7 +29,7 @@ func (f *fakeGraderCatalog) ListGraders(_ context.Context, evalType string) (*ev
 func newGradersRouter(catalog evaluation.GraderCatalogClient) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := evaluation.NewService(nil, nil, nil, nil, nil, catalog)
-	h := NewEvaluationHandler(svc, nil, nil)
+	h := NewEvaluationHandler(svc, nil, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/evaluation/graders", h.ListGraders)
 	return r

@@ -33,12 +33,13 @@ import (
 	audit2 "link/internal/model/audit"
 	"link/internal/model/common"
 	"link/internal/model/conversation"
-	datasource2 "link/internal/model/datasource"
+	"link/internal/model/datasource"
 	evaluation2 "link/internal/model/evaluation"
 	"link/internal/model/knowledge"
 	"link/internal/model/llm"
 	quality3 "link/internal/model/quality"
 	"link/internal/model/rag"
+	"link/internal/model/semantic"
 	"link/internal/model/task"
 	"link/internal/model/tenant"
 	"link/internal/model/user"
@@ -51,12 +52,13 @@ import (
 	"link/internal/service/agent/tools"
 	"link/internal/service/audit"
 	"link/internal/service/chat"
-	"link/internal/service/datasource"
+	datasource2 "link/internal/service/datasource"
 	"link/internal/service/evaluation"
 	"link/internal/service/evaluation/executor"
 	knowledge2 "link/internal/service/knowledge"
 	rag2 "link/internal/service/knowledge/pipeline"
 	"link/internal/service/quality"
+	semantic2 "link/internal/service/semantic"
 	"log"
 	"time"
 )
@@ -101,9 +103,9 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		return nil, err
 	}
 	chatConfig := ProvideChatConfig()
-	v := ProvideLLMClient(chatConfig)
+	llmClient := ProvideLLMClient(chatConfig)
 	idGenerator := ProvideIDGenerator()
-	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, v, idGenerator)
+	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, llmClient, idGenerator)
 	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService)
 	sessionRepository := ProvideSessionRepository(db)
 	messageRepository := ProvideMessageRepository(db)
@@ -111,23 +113,23 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	sessionService := ProvideSessionService(sessionRepository, messageRepository, retrievalSettingRepository)
 	modelRepository := ProvideModelRepository(db)
 	modelFactory := ProvideModelFactory()
-	chatService := ProvideChatService(v, modelRepository, modelFactory)
+	chatService := ProvideChatService(llmClient, modelRepository, modelFactory)
 	sessionHandler := ProvideSessionHandler(sessionService, chatService)
 	messageService := ProvideMessageService(messageRepository)
 	messageHandler := ProvideMessageHandler(messageService)
 	chatHandler := ProvideChatHandler(chatService)
 	tenantHandler := ProvideTenantHandler(accountService)
-	agentRegistry := ProvideAgentRegistry()
-	agentExecutor := ProvideAgentOrchestrator(agentRegistry)
+	specRegistry := ProvideAgentRegistry()
+	agentExecutor := ProvideAgentOrchestrator(specRegistry)
 	executeService := ProvideExecuteService(agentExecutor)
 	researchService := ProvideResearchService(agentExecutor)
 	configService := ProvideConfigService()
 	progressService := ProvideProgressService()
 	agentPersistenceService := ProvideAgentPersistenceService(sessionRepository, messageRepository)
 	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService)
-	registryAgentHandler := ProvideRegistryAgentHandler(agentRegistry)
+	registryAgentHandler := ProvideRegistryAgentHandler(specRegistry)
 	graphQueryRepository := ProvideGraphQueryRepository(db)
-	llmChat := ProvideRAGLLMChat(v)
+	llmChat := ProvideRAGLLMChat(llmClient)
 	graphService := ProvideGraphService(graphRepository, graphQueryRepository, llmChat)
 	graphHandler := ProvideGraphHandler(graphService)
 	modelService := ProvideModelService(modelRepository, modelFactory)
@@ -157,30 +159,34 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	evaluationConfig := ProvideEvaluationConfig()
 	service := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, evaluationQueue, evaluationConfig)
 	datasetManager := ProvideDatasetUseCase(datasetRepository, datasetLoader)
-	evaluationHandler := ProvideEvaluationHandler(service, datasetManager, progressCache)
+	evaluationHandler := ProvideEvaluationHandler(service, datasetManager, progressCache, specRegistry)
 	pythonGrpcConfig := ProvidePythonGrpcConfig()
 	gateway := ProvideQualityGateway(pythonGrpcConfig)
 	checkRecordRepository := ProvideQualityCheckRecordRepository(db)
-	qualityService := ProvideQualityService(gateway, checkRecordRepository, idGenerator, pythonGrpcConfig)
+	repository := ProvideDataSourceRepository(db)
+	datasourceService := ProvideDataSourceService(repository, idGenerator)
+	qualityService := ProvideQualityService(gateway, checkRecordRepository, idGenerator, pythonGrpcConfig, datasourceService)
 	qualityHandler := ProvideQualityHandler(qualityService)
-	dataSourceRepository := ProvideDataSourceRepository(db)
-	dataSourceService := ProvideDataSourceService(dataSourceRepository, idGenerator)
-	dataSourceHandler := ProvideDataSourceHandler(dataSourceService)
-	repository := ProvideAuditRepository(db)
-	auditHandler := ProvideAuditHandler(repository)
+	dataSourceHandler := ProvideDataSourceHandler(datasourceService)
+	semanticRepository := ProvideSemanticRepository(db)
+	coverageReporter := ProvideSemanticCoverageReporter(db)
+	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter)
+	semanticHandler := ProvideSemanticHandler(semanticService)
+	auditRepository := ProvideAuditRepository(db)
+	auditHandler := ProvideAuditHandler(auditRepository)
 	handler := ProvideWebHandler()
 	authMiddleware := ProvideAuthMiddleware(accountService)
 	tenantMiddleware := ProvideTenantMiddleware()
-	writer := ProvideAuditWriter(repository)
+	writer := ProvideAuditWriter(auditRepository)
 	auditMiddleware := ProvideAuditMiddleware(writer)
-	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, auditHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
+	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, semanticHandler, auditHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
 	corsMiddleware := ProvideCORSMiddleware()
 	recoveryMiddleware := ProvideRecoveryMiddleware()
 	loggerMiddleware := ProvideLoggerMiddleware()
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
-	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig)
-	app := ProvideApp(router, middlewares, agentRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository, writer, dataSourceService, agentHandler)
+	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig)
+	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository, writer, datasourceService, agentHandler)
 	return app, nil
 }
 
@@ -573,6 +579,8 @@ func ProvideEvaluationWorker(
 	evalQueue *cache.EvaluationQueue,
 	progressCache *cache.ProgressCache,
 	llmChat rag.LLMChat,
+	retriever rag.Retriever,
+	agentRegistry *framework.SpecRegistry,
 	taskRepo evaluation2.EvaluationTaskRepository,
 	resultRepo evaluation2.EvaluationResultRepository,
 	datasetLoader *evaluation.DatasetLoader,
@@ -582,6 +590,13 @@ func ProvideEvaluationWorker(
 	registry := executor.NewExecutorRegistry()
 	if err := registry.Register(executor.NewQAExecutor(llmChat)); err != nil {
 		log.Printf("[Worker] 注册 QA 执行器失败: %v", err)
+	}
+	if err := registry.Register(executor.NewRAGExecutor(retriever, llmChat)); err != nil {
+		log.Printf("[Worker] 注册 RAG 执行器失败: %v", err)
+	}
+	agentService := evaluation.NewAgentServiceAdapter(agentRegistry)
+	if err := registry.Register(executor.NewAgentExecutor(agentService, 60*time.Second)); err != nil {
+		log.Printf("[Worker] 注册 Agent 执行器失败: %v", err)
 	}
 
 	pythonEndpoint := "http://localhost:8000"
@@ -711,8 +726,9 @@ func ProvideEvaluationHandler(
 	evalService *evaluation.Service,
 	datasetManager *evaluation.DatasetManager,
 	progressCache *cache.ProgressCache,
+	agentRegistry *framework.SpecRegistry,
 ) *handler.EvaluationHandler {
-	return handler.NewEvaluationHandler(evalService, datasetManager, progressCache)
+	return handler.NewEvaluationHandler(evalService, datasetManager, progressCache, agentRegistry)
 }
 
 func ProvideGraphHandler(graphService *knowledge2.GraphService) *handler.GraphHandler {
@@ -885,6 +901,7 @@ func ProvideRouter(
 	evaluationHandler *handler.EvaluationHandler,
 	qualityHandler *handler.QualityHandler,
 	dataSourceHandler *handler.DataSourceHandler,
+	semanticHandler *handler.SemanticHandler,
 	auditHandler *handler.AuditHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -908,6 +925,7 @@ func ProvideRouter(
 		evaluationHandler,
 		qualityHandler,
 		dataSourceHandler,
+		semanticHandler,
 		auditHandler,
 		webHandler,
 		authMiddleware,
@@ -942,12 +960,13 @@ func ProvideQualityCheckRecordRepository(db *gorm.DB) quality3.CheckRecordReposi
 }
 
 // ProvideQualityService 提供数据质量应用服务。
-func ProvideQualityService(gateway quality.Gateway, repo quality3.CheckRecordRepository, idGen id.IDGenerator, cfg *config.PythonGrpcConfig) *quality.Service {
+// 注入数据源服务作为 Sampler：数据源直评时由 Go 抽样取数推给 Python。
+func ProvideQualityService(gateway quality.Gateway, repo quality3.CheckRecordRepository, idGen id.IDGenerator, cfg *config.PythonGrpcConfig, sampler *datasource2.Service) *quality.Service {
 	timeout := 60 * time.Second
 	if cfg != nil && cfg.Timeout > 0 {
 		timeout = time.Duration(cfg.Timeout) * time.Second
 	}
-	return quality.NewService(gateway, timeout, repo, idGen)
+	return quality.NewService(gateway, timeout, repo, idGen, sampler)
 }
 
 // ProvideQualityHandler 提供数据质量 HTTP 处理器。
@@ -956,24 +975,44 @@ func ProvideQualityHandler(service *quality.Service) *handler.QualityHandler {
 }
 
 // ProvideDataSourceRepository 提供数据源仓储。
-func ProvideDataSourceRepository(db *gorm.DB) datasource2.Repository {
+func ProvideDataSourceRepository(db *gorm.DB) datasource.Repository {
 	return mysql.NewDataSourceRepository(db)
 }
 
 // ProvideDataSourceService 提供数据源应用服务（含凭证加密与受管连接池）。
 // DATASOURCE_SECRET_KEY 未配置时 fail-fast：不允许明文/无密钥启动。
-func ProvideDataSourceService(repo datasource2.Repository, idGen id.IDGenerator) *datasource.Service {
-	cipher, err := datasource.NewCipherFromEnv()
+func ProvideDataSourceService(repo datasource.Repository, idGen id.IDGenerator) *datasource2.Service {
+	cipher, err := datasource2.NewCipherFromEnv()
 	if err != nil {
-		panic(fmt.Sprintf("外部数据源加密初始化失败: %v（请配置 %s）", err, datasource.SecretKeyEnv))
+		panic(fmt.Sprintf("外部数据源加密初始化失败: %v（请配置 %s）", err, datasource2.SecretKeyEnv))
 	}
-	cm := datasource.NewConnectionManager(repo, cipher, datasource.DefaultPoolOptions())
-	return datasource.NewService(repo, cipher, cm, idGen)
+	cm := datasource2.NewConnectionManager(repo, cipher, datasource2.DefaultPoolOptions())
+	return datasource2.NewService(repo, cipher, cm, idGen)
 }
 
 // ProvideDataSourceHandler 提供数据源 HTTP 处理器。
-func ProvideDataSourceHandler(service *datasource.Service) *handler.DataSourceHandler {
+func ProvideDataSourceHandler(service *datasource2.Service) *handler.DataSourceHandler {
 	return handler.NewDataSourceHandler(service)
+}
+
+// ProvideSemanticRepository 提供指标语义层模型仓储。
+func ProvideSemanticRepository(db *gorm.DB) semantic.Repository {
+	return mysql.NewSemanticRepository(db)
+}
+
+// ProvideSemanticCoverageReporter 提供语义查询覆盖率读侧（治理命中率聚合）。
+func ProvideSemanticCoverageReporter(db *gorm.DB) semantic.CoverageReporter {
+	return mysql.NewSemanticCoverageRepository(db)
+}
+
+// ProvideSemanticModelService 提供语义模型建模应用服务（受治理查询的写入口）。
+func ProvideSemanticModelService(repo semantic.Repository, idGen id.IDGenerator, coverage semantic.CoverageReporter) *semantic2.Service {
+	return semantic2.NewService(repo, idGen, coverage)
+}
+
+// ProvideSemanticHandler 提供语义模型建模 HTTP 处理器。
+func ProvideSemanticHandler(service *semantic2.Service) *handler.SemanticHandler {
+	return handler.NewSemanticHandler(service)
 }
 
 // Middlewares 中间件集合
@@ -1020,7 +1059,7 @@ type App struct {
 	AuditWriter *audit.Writer
 	// DataSourceService 暴露给组合根：把查询类工具的 database_id 路由
 	// 接线到外部数据源 ConnectionManager（InitDatasourceTools）。
-	DataSourceService *datasource.Service
+	DataSourceService *datasource2.Service
 	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
 	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
 	AgentHandler *handler.AgentHandler
@@ -1037,7 +1076,7 @@ func ProvideApp(
 	graphService *knowledge2.GraphService,
 	kbRepo knowledge.KnowledgeBaseRepository,
 	auditWriter *audit.Writer,
-	dataSourceService *datasource.Service,
+	dataSourceService *datasource2.Service,
 	agentHandler *handler.AgentHandler,
 ) *App {
 	return &App{

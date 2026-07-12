@@ -31,14 +31,30 @@ func (s *sequentialAgent) Chat(ctx context.Context, message string) (*infraagent
 	var lastResponse *infraagent.Response
 	var err error
 
+	// 逐段累积工具调用轨迹：Sequential 只把每段的 Content 透传给下一段，
+	// 但最终返回的 lastResponse 仅是末段（如 Reflect）的响应，其自身通常无工具调用。
+	// 若不累积，Plan/Execute 段真实发生的 get_schema/sql_execute 轨迹会被丢弃，
+	// 导致下游（评测轨迹指标、orchestrator.Execute 的工具信息）读到空 ToolCalls。
+	var trajectory []*infraagent.ToolCall
+
 	for i, a := range s.agents {
 		lastResponse, err = a.Chat(ctx, current)
 		if err != nil {
 			return nil, fmt.Errorf("Sequential: agent %d failed: %w", i, err)
 		}
+		if lastResponse == nil {
+			return nil, fmt.Errorf("Sequential: agent %d returned nil response", i)
+		}
+
+		trajectory = append(trajectory, lastResponse.ToolCalls...)
 
 		// Pass content to next agent
 		current = lastResponse.Content
+	}
+
+	// 用跨段合并后的完整轨迹覆盖末段响应的 ToolCalls，保序（Plan→Execute→Reflect）。
+	if lastResponse != nil {
+		lastResponse.ToolCalls = trajectory
 	}
 
 	return lastResponse, nil

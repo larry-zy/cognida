@@ -53,12 +53,14 @@ import (
 	domain_knowledge "link/internal/model/knowledge"
 	domain_llm "link/internal/model/llm"
 	domain_rag "link/internal/model/rag"
+	semanticmodel "link/internal/model/semantic"
 	qualitymodel "link/internal/model/quality"
 	domain_task "link/internal/model/task"
 	domain_tenant "link/internal/model/tenant"
 	domain_user "link/internal/model/user"
 	qualitysvc "link/internal/service/quality"
 	datasourcesvc "link/internal/service/datasource"
+	semanticsvc "link/internal/service/semantic"
 	"link/internal/repository/milvus/retriever"
 	"link/internal/repository/mysql"
 	neo4jimpl "link/internal/repository/neo4j"
@@ -201,6 +203,12 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideDataSourceRepository,
 		ProvideDataSourceService,
 		ProvideDataSourceHandler,
+
+		// 指标语义层建模（受治理查询进料线）+ 覆盖率埋点读侧
+		ProvideSemanticRepository,
+		ProvideSemanticCoverageReporter,
+		ProvideSemanticModelService,
+		ProvideSemanticHandler,
 
 		// 路由
 		ProvideRouter,
@@ -630,15 +638,25 @@ func ProvideEvaluationWorker(
 	evalQueue *evaluationcache.EvaluationQueue,
 	progressCache *evaluationcache.ProgressCache,
 	llmChat domain_rag.LLMChat,
+	retriever domain_rag.Retriever,
+	agentRegistry *agentframework.SpecRegistry,
 	taskRepo domain_evaluation.EvaluationTaskRepository,
 	resultRepo domain_evaluation.EvaluationResultRepository,
 	datasetLoader *app_evaluation.DatasetLoader,
 	evalConfig *config.EvaluationConfig,
 ) *app_evaluation.EvaluationWorker {
-	// 注册评测执行器（QA 评测仅需 LLMChat，已在上游装配）
+	// 注册评测执行器：QA（LLMChat）、RAG（检索+LLMChat）、Agent（注册中心适配器）。
+	// 三类共存，Worker 按任务 type 路由；qa/llm 别名由注册表内部归一。
 	registry := evalexecutor.NewExecutorRegistry()
 	if err := registry.Register(evalexecutor.NewQAExecutor(llmChat)); err != nil {
 		log.Printf("[Worker] 注册 QA 执行器失败: %v", err)
+	}
+	if err := registry.Register(evalexecutor.NewRAGExecutor(retriever, llmChat)); err != nil {
+		log.Printf("[Worker] 注册 RAG 执行器失败: %v", err)
+	}
+	agentService := app_evaluation.NewAgentServiceAdapter(agentRegistry)
+	if err := registry.Register(evalexecutor.NewAgentExecutor(agentService, 60*time.Second)); err != nil {
+		log.Printf("[Worker] 注册 Agent 执行器失败: %v", err)
 	}
 
 	// Python 评测服务客户端 + Worker 配置（来自评测配置，带默认值兜底）
@@ -781,8 +799,9 @@ func ProvideEvaluationHandler(
 	evalService *app_evaluation.Service,
 	datasetManager *app_evaluation.DatasetManager,
 	progressCache *evaluationcache.ProgressCache,
+	agentRegistry *agentframework.SpecRegistry,
 ) *handler.EvaluationHandler {
-	return handler.NewEvaluationHandler(evalService, datasetManager, progressCache)
+	return handler.NewEvaluationHandler(evalService, datasetManager, progressCache, agentRegistry)
 }
 
 func ProvideGraphHandler(graphService *app_kb.GraphService) *handler.GraphHandler {
@@ -969,6 +988,7 @@ func ProvideRouter(
 	evaluationHandler *handler.EvaluationHandler,
 	qualityHandler *handler.QualityHandler,
 	dataSourceHandler *handler.DataSourceHandler,
+	semanticHandler *handler.SemanticHandler,
 	auditHandler *handler.AuditHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
@@ -992,6 +1012,7 @@ func ProvideRouter(
 		evaluationHandler,
 		qualityHandler,
 		dataSourceHandler,
+		semanticHandler,
 		auditHandler,
 		webHandler,
 		authMiddleware,
@@ -1030,12 +1051,13 @@ func ProvideQualityCheckRecordRepository(db *gorm.DB) qualitymodel.CheckRecordRe
 }
 
 // ProvideQualityService 提供数据质量应用服务。
-func ProvideQualityService(gateway qualitysvc.Gateway, repo qualitymodel.CheckRecordRepository, idGen infraid.IDGenerator, cfg *config.PythonGrpcConfig) *qualitysvc.Service {
+// 注入数据源服务作为 Sampler：数据源直评时由 Go 抽样取数推给 Python。
+func ProvideQualityService(gateway qualitysvc.Gateway, repo qualitymodel.CheckRecordRepository, idGen infraid.IDGenerator, cfg *config.PythonGrpcConfig, sampler *datasourcesvc.Service) *qualitysvc.Service {
 	timeout := 60 * time.Second
 	if cfg != nil && cfg.Timeout > 0 {
 		timeout = time.Duration(cfg.Timeout) * time.Second
 	}
-	return qualitysvc.NewService(gateway, timeout, repo, idGen)
+	return qualitysvc.NewService(gateway, timeout, repo, idGen, sampler)
 }
 
 // ProvideQualityHandler 提供数据质量 HTTP 处理器。
@@ -1066,6 +1088,26 @@ func ProvideDataSourceService(repo datasourcemodel.Repository, idGen infraid.IDG
 // ProvideDataSourceHandler 提供数据源 HTTP 处理器。
 func ProvideDataSourceHandler(service *datasourcesvc.Service) *handler.DataSourceHandler {
 	return handler.NewDataSourceHandler(service)
+}
+
+// ProvideSemanticRepository 提供指标语义层模型仓储。
+func ProvideSemanticRepository(db *gorm.DB) semanticmodel.Repository {
+	return mysql.NewSemanticRepository(db)
+}
+
+// ProvideSemanticCoverageReporter 提供语义查询覆盖率读侧（治理命中率聚合）。
+func ProvideSemanticCoverageReporter(db *gorm.DB) semanticmodel.CoverageReporter {
+	return mysql.NewSemanticCoverageRepository(db)
+}
+
+// ProvideSemanticModelService 提供语义模型建模应用服务（受治理查询的写入口）。
+func ProvideSemanticModelService(repo semanticmodel.Repository, idGen infraid.IDGenerator, coverage semanticmodel.CoverageReporter) *semanticsvc.Service {
+	return semanticsvc.NewService(repo, idGen, coverage)
+}
+
+// ProvideSemanticHandler 提供语义模型建模 HTTP 处理器。
+func ProvideSemanticHandler(service *semanticsvc.Service) *handler.SemanticHandler {
+	return handler.NewSemanticHandler(service)
 }
 
 // ========================================

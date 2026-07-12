@@ -73,7 +73,7 @@ const routes: RouteRecordRaw[] = [
         path: '/evaluation',
         name: 'EvaluationList',
         component: () => import('@/views/evaluation/EvaluationList.vue'),
-        meta: { title: '大模型测评' }
+        meta: { title: 'Agent 测评' }
       },
       {
         path: '/evaluation/:id',

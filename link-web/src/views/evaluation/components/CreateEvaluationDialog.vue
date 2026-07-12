@@ -7,6 +7,12 @@
         <div class="form-tip">选择评测类型</div>
       </UiFormItem>
 
+      <!-- 被测 Agent（仅 agent 类型显示且必填） -->
+      <UiFormItem v-if="formData.type === 'agent'" label="被测 Agent">
+        <UiSelect v-model="formData.agent_id" :options="agentOptions" placeholder="请选择运行中的 Agent" />
+        <div class="form-tip">选择作为评测对象的运行中 Agent（必填）</div>
+      </UiFormItem>
+
       <!-- 数据集 -->
       <UiFormItem label="数据集ID">
         <UiSelect v-model="formData.dataset_id" :options="datasetOptions" placeholder="请选择数据集" />
@@ -92,6 +98,7 @@ import {
   type GraderGroup
 } from '../evaluation-config'
 import { evaluationApi } from '@/api/evaluation'
+import type { AgentSummary } from '@/api/agent'
 import type { CreateEvaluationRequest } from '@/types'
 
 const props = defineProps<{
@@ -99,6 +106,7 @@ const props = defineProps<{
   datasets: string[]
   knowledgeBases: Array<Record<string, any>>
   chatModels: Array<Record<string, any>>
+  agents: AgentSummary[]
   creating: boolean
 }>()
 
@@ -114,9 +122,11 @@ const visible = computed({
 
 // ---------- 表单状态 ----------
 const formData = reactive({
-  type: 'qa' as 'qa' | 'rag' | 'agent',
+  // 模块已转向以 Agent 测评为主，默认突出 Agent；QA/RAG 仍可切换
+  type: 'agent' as 'qa' | 'rag' | 'agent',
   dataset_id: 'default',
   kb_id: '',
+  agent_id: '',
   model_id: ''
 })
 const selectedGraders = ref<string[]>(['rouge', 'bleu'])
@@ -175,6 +185,13 @@ const kbOptions = computed(() =>
   props.knowledgeBases.map(kb => ({ label: kb.name, value: kb.id }))
 )
 
+const agentOptions = computed(() =>
+  props.agents.map(a => ({
+    label: a.description ? `${a.name}（${a.description}）` : a.name,
+    value: a.id
+  }))
+)
+
 const modelOptions = computed(() => [
   { label: '默认模型', value: '' },
   ...props.chatModels.map(m => ({ label: m.name || m.display_name, value: m.id }))
@@ -184,6 +201,11 @@ const modelOptions = computed(() => [
 function handleSubmit(): void {
   if (!formData.dataset_id) {
     toast.warning('请选择数据集')
+    return
+  }
+  // agent 类型必须选择被测 Agent；qa/rag 不要求，行为不变
+  if (formData.type === 'agent' && !formData.agent_id) {
+    toast.warning('请选择被测 Agent')
     return
   }
   const config: Record<string, any> = {}
@@ -208,6 +230,7 @@ function handleSubmit(): void {
     dataset_id: formData.dataset_id,
     type: formData.type,
     kb_id: formData.kb_id || undefined,
+    agent_id: formData.type === 'agent' ? formData.agent_id : undefined,
     model_id: formData.model_id,
     config: Object.keys(config).length ? config : undefined
   }

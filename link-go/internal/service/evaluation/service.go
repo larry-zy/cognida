@@ -91,8 +91,8 @@ func (s *Service) CreateEvaluation(ctx context.Context, tenantID, userID int64, 
 		return nil, fmt.Errorf("%w: %s", domeval.ErrDatasetNotFound, config.DatasetID)
 	}
 
-	// 验证评测类型匹配
-	if datasetInfo.EvalType != "" && datasetInfo.EvalType != config.Type {
+	// 验证评测类型匹配（按归一化后比较：qa 与历史别名 llm 视为同一类型）
+	if datasetInfo.EvalType != "" && datasetInfo.EvalType.Normalize() != config.Type.Normalize() {
 		return nil, fmt.Errorf("%w: expected %s, got %s", domeval.ErrDatasetTypeMismatch, datasetInfo.EvalType, config.Type)
 	}
 

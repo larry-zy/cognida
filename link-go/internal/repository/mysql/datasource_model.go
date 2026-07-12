@@ -161,6 +161,18 @@ func (r *dataSourceRepository) List(ctx context.Context, filter domain_datasourc
 	return items, total, nil
 }
 
+func (r *dataSourceRepository) ListAll(ctx context.Context) ([]*domain_datasource.DataSource, error) {
+	var models []DataSourceModel
+	if err := r.db.WithContext(ctx).Order("created_at DESC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	items := make([]*domain_datasource.DataSource, 0, len(models))
+	for i := range models {
+		items = append(items, models[i].toDomain())
+	}
+	return items, nil
+}
+
 func (r *dataSourceRepository) Update(ctx context.Context, ds *domain_datasource.DataSource) error {
 	ds.UpdatedAt = time.Now()
 	return r.db.WithContext(ctx).

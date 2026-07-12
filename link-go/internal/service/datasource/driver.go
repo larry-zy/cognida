@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	gosqlmysql "github.com/go-sql-driver/mysql"
@@ -49,11 +50,14 @@ type Driver interface {
 	ListTables(ctx context.Context, db *sql.DB, dbName string) ([]TableInfo, error)
 	// DescribeTable 单表结构
 	DescribeTable(ctx context.Context, db *sql.DB, dbName, table string) (*TableSchema, error)
+	// QuoteIdent 转义标识符（表名/列名），防止注入。调用方仍应先做白名单校验。
+	QuoteIdent(ident string) string
 }
 
-// drivers 已注册驱动（Factory）。Phase 3 在此追加 PostgreSQL。
+// drivers 已注册驱动（Factory）。
 var drivers = map[model.Type]Driver{
-	model.TypeMySQL: mysqlDriver{},
+	model.TypeMySQL:    mysqlDriver{},
+	model.TypePostgres: postgresDriver{},
 }
 
 // DriverFor 按类型取驱动；不支持的类型返回错误
@@ -98,6 +102,11 @@ func (mysqlDriver) BuildDSN(ds *model.DataSource, password string) (string, erro
 
 func (mysqlDriver) Ping(ctx context.Context, db *sql.DB) error {
 	return db.PingContext(ctx)
+}
+
+// QuoteIdent 用反引号包裹并转义内部反引号。
+func (mysqlDriver) QuoteIdent(ident string) string {
+	return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
 }
 
 func (mysqlDriver) ListTables(ctx context.Context, db *sql.DB, dbName string) ([]TableInfo, error) {

@@ -9,7 +9,8 @@ import type {
   Chunk,
   ChunkListResponse,
   SearchRequest,
-  SearchResponse
+  SearchResponse,
+  RebuildGraphResult
 } from '@/types'
 
 /**
@@ -56,6 +57,13 @@ export const knowledgeApi = {
    */
   getStats(id: string) {
     return http.get<KnowledgeBaseStats>(`/knowledge-bases/${id}/stats`)
+  },
+
+  /**
+   * 为知识库补建知识图谱（复用已存分块，为历史文档重建，幂等）
+   */
+  rebuildGraph(id: string) {
+    return http.post<RebuildGraphResult>(`/knowledge-bases/${id}/graph/rebuild`)
   },
 
   /**

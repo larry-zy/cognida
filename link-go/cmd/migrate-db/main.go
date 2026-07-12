@@ -72,6 +72,7 @@ func main() {
 		&mysqlrepo.SemanticMeasureModel{},
 		&mysqlrepo.SemanticMetricModel{},
 		&mysqlrepo.SemanticRelationModel{},
+		&mysqlrepo.SemanticCoverageLogModel{},
 		// 数据质量管理中心
 		&mysqlrepo.QualityCheckRecordModel{},
 		// Data Agent 操作审计

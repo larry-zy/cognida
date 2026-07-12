@@ -135,7 +135,12 @@ service.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    // 其他错误（不重复显示错误消息，由调用方处理）
+    // 其他错误（如 400/422 业务校验）：优先把后端返回的 message 透传到 error.message，
+    // 便于调用方（useAsyncTask 等）直接展示可读原因，而非笼统的 "status code 400"。
+    const backendMsg = (error.response?.data as ApiResponse | undefined)?.message
+    if (backendMsg) {
+      error.message = backendMsg
+    }
     return Promise.reject(error)
   }
 )

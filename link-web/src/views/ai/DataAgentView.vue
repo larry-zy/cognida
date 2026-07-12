@@ -173,7 +173,7 @@
             class="composer__textarea"
             rows="1"
             :disabled="isStreaming"
-            @keydown.enter.exact.prevent="sendMessage"
+            @keydown.enter.exact="onEnterKey"
             @input="adjustTextareaHeight"
             @focus="composerFocused = true"
             @blur="composerFocused = false"
@@ -621,6 +621,13 @@ function commitAssistantMessage(content: string) {
 }
 
 // ===== 发送 =====
+// 回车发送：输入法合成期（拼音候选框开着）按回车只确认选字，不触发发送
+function onEnterKey(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  sendMessage()
+}
+
 async function sendMessage() {
   const content = inputMessage.value.trim()
   if (!content || isStreaming.value) return

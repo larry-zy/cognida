@@ -69,8 +69,14 @@ func main() {
 
 	// JWT 密钥强校验：缺失/占位符/过短一律拒绝启动（fail-closed），
 	// 杜绝弱密钥进入生产被离线爆破后自签合法 token。
+	// DEV_MODE 下降级为告警放行——dev 认证本就在 middleware 处被整体绕过
+	// （见 handler/middleware/auth.go），弱密钥在此无实际暴露面，不该阻塞本地启动。
 	if err := cfg.JWT.Validate(); err != nil {
-		log.Fatalf("❌ %v", err)
+		if os.Getenv("DEV_MODE") == "true" {
+			log.Printf("⚠️  [SECURITY] JWT_SECRET 校验未通过（DEV_MODE 放行）: %v", err)
+		} else {
+			log.Fatalf("❌ %v", err)
+		}
 	}
 
 	// 初始化数据库
@@ -193,9 +199,10 @@ func main() {
 				SQLDB:       db,
 				ResultStore: rs,
 				UIBinding:   uiBindingStore,
-				// 指标语义层（NL2Semantics）：语义模型仓储 + 受信查询缓存
+				// 指标语义层（NL2Semantics）：语义模型仓储 + 受信查询缓存 + 覆盖埋点
 				SemanticRepo:  mysql.NewSemanticRepository(db),
 				SemanticCache: sc,
+				CoverageSink:  mysql.NewSemanticCoverageRepository(db),
 				// 知识库列表工具（kb_list）仓储；nil 时工具报告未接线
 				KnowledgeBaseRepo: app.KnowledgeBaseRepository,
 				// Metaso 搜索客户端（web_search / search_multi）；API Key 缺失时调用报错
@@ -315,6 +322,39 @@ func main() {
 			}
 		}()
 		log.Println("✅ 评测 Worker 已启动")
+	}
+
+	// 启动外部数据源健康检查（默认关闭；DATASOURCE_HEALTHCHECK_ENABLED=true 开启）
+	if os.Getenv("DATASOURCE_HEALTHCHECK_ENABLED") == "true" && app.DataSourceService != nil {
+		interval := 5 * time.Minute
+		if v := os.Getenv("DATASOURCE_HEALTHCHECK_INTERVAL"); v != "" {
+			if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
+				interval = d
+			} else {
+				log.Printf("⚠️  DATASOURCE_HEALTHCHECK_INTERVAL=%q 非法，回落 %s", v, interval)
+			}
+		}
+		log.Printf("🔧 启动数据源健康检查（间隔 %s）...", interval)
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			runCheck := func() {
+				hcCtx, cancel := context.WithTimeout(context.Background(), interval)
+				defer cancel()
+				report, err := app.DataSourceService.CheckHealthOnce(hcCtx)
+				if err != nil {
+					log.Printf("❌ 数据源健康检查失败: %v", err)
+					return
+				}
+				log.Printf("💓 数据源健康检查：检查 %d / 正常 %d / 跳过 %d",
+					report.Checked, report.Healthy, report.Skipped)
+			}
+			runCheck() // 启动即跑一次
+			for range ticker.C {
+				runCheck()
+			}
+		}()
+		log.Println("✅ 数据源健康检查已启动")
 	}
 
 	// 设置路由

@@ -2,8 +2,8 @@ import { http } from '@/utils/request'
 
 // ==================== 类型定义 ====================
 
-/** 数据源类型（当前仅支持 mysql） */
-export type DatasourceType = 'mysql'
+/** 数据源类型 */
+export type DatasourceType = 'mysql' | 'postgres'
 
 /** 数据源状态 */
 export type DatasourceStatus = 'active' | 'inactive' | 'error' | 'need_credentials'

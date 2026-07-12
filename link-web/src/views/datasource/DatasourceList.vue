@@ -44,12 +44,18 @@
               </svg>
               编辑
             </button>
-            <button class="action-btn action-btn--test" title="测试连接" :disabled="testingId === row.id" @click="testSaved(row)">
+            <button class="action-btn action-btn--test" title="测试连接" :disabled="rowTest[row.id]?.status === 'pending'" @click="testSaved(row)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
-              {{ testingId === row.id ? '测试中…' : '测试连接' }}
+              {{ rowTest[row.id]?.status === 'pending' ? '测试中…' : '测试连接' }}
             </button>
+            <UiAsyncStatus
+              v-if="rowTest[row.id] && rowTest[row.id].status !== 'idle'"
+              :status="rowTest[row.id].status"
+              :message="rowTest[row.id].message"
+              @retry="testSaved(row)"
+            />
             <button class="action-btn action-btn--danger" title="删除" @click="confirmDelete(row)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                 <polyline points="3 6 5 6 21 6" />
@@ -119,6 +125,7 @@
               v-model="form.type"
               :options="typeOptions"
               placeholder="请选择类型"
+              @change="onTypeChange"
             />
           </div>
 
@@ -196,11 +203,16 @@
           <UiButton
             variant="ghost"
             size="sm"
-            :loading="testingForm"
+            :loading="testFormTask.isPending.value"
             @click="testFormConnection"
           >
             测试连接
           </UiButton>
+          <UiAsyncStatus
+            :status="testFormTask.status.value"
+            :message="testFormTask.message.value"
+            @retry="testFormConnection"
+          />
           <div class="footer-right">
             <UiButton variant="secondary" @click="closeDialog">取消</UiButton>
             <UiButton variant="primary" :loading="submitting" @click="submitForm">
@@ -215,10 +227,11 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { UiButton, UiTable, UiTag, UiModal, UiInput, UiInputNumber, UiSelect, UiPagination } from '@/components'
+import { UiButton, UiTable, UiTag, UiModal, UiInput, UiInputNumber, UiSelect, UiPagination, UiAsyncStatus } from '@/components'
 import { datasourceApi } from '@/api/datasource'
 import type { Datasource, DatasourceType } from '@/api/datasource'
 import toast from '@/utils/toast'
+import { useAsyncTask, type AsyncStatus } from '@/composables/useAsyncTask'
 import { ElMessageBox } from '@/utils/confirm'
 
 // ==================== 列定义 ====================
@@ -235,8 +248,24 @@ const columns = [
 ]
 
 const typeOptions = [
-  { label: 'MySQL', value: 'mysql' }
+  { label: 'MySQL', value: 'mysql' },
+  { label: 'PostgreSQL', value: 'postgres' }
 ]
+
+// 各类型默认端口
+const defaultPortByType: Record<DatasourceType, number> = {
+  mysql: 3306,
+  postgres: 5432
+}
+
+// 切换类型时，若端口仍为其它类型的默认值则自动改为新类型默认端口
+function onTypeChange(value: string | number | (string | number)[]) {
+  const type = value as DatasourceType
+  const currentIsDefault = Object.values(defaultPortByType).includes(form.port)
+  if (currentIsDefault) {
+    form.port = defaultPortByType[type] ?? form.port
+  }
+}
 
 // ==================== 列表状态 ====================
 const datasources = ref<Datasource[]>([])
@@ -284,8 +313,10 @@ function statusLabel(status: string): string {
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
 const submitting = ref(false)
-const testingForm = ref(false)
-const testingId = ref<string | null>(null)
+// 弹窗内「测试连接」状态机：idle→pending→success|error，就地由 <UiAsyncStatus> 常驻展示
+const testFormTask = useAsyncTask()
+// 列表行「测试连接」按行记录状态（每行独立三态），供行内 <UiAsyncStatus> 常驻展示
+const rowTest = reactive<Record<string, { status: AsyncStatus; message: string }>>({})
 
 interface FormState {
   name: string
@@ -318,6 +349,7 @@ function resetForm() {
   form.username = ''
   form.password = ''
   Object.keys(errors).forEach(k => delete (errors as any)[k])
+  testFormTask.reset()   // 清掉上次的测试连接三态，避免打开弹窗时残留
 }
 
 function openCreateDialog() {
@@ -336,6 +368,7 @@ function openEditDialog(row: Datasource) {
   form.username      = row.username
   form.password      = ''        // 永不回填密码
   Object.keys(errors).forEach(k => delete (errors as any)[k])
+  testFormTask.reset()
   dialogVisible.value = true
 }
 
@@ -413,28 +446,28 @@ async function testFormConnection() {
     toast.warning('请先填写密码')
     return
   }
-  testingForm.value = true
-  try {
-    const res = await datasourceApi.testConnection({
-      name:          form.name || 'test',
-      type:          form.type,
-      host:          form.host,
-      port:          form.port,
-      database_name: form.database_name,
-      username:      form.username,
-      password:      form.password
-    })
-    const result = res.data
-    if (result?.ok) {
-      toast.success('连接成功')
-    } else {
-      toast.error(result?.message || '连接失败')
+  await testFormTask.run(
+    async () => {
+      const res = await datasourceApi.testConnection({
+        name:          form.name || 'test',
+        type:          form.type,
+        host:          form.host,
+        port:          form.port,
+        database_name: form.database_name,
+        username:      form.username,
+        password:      form.password
+      })
+      const result = res.data
+      // testConnection 不抛异常、用 result.ok 表达成败；这里主动抛出让状态机落到 error
+      if (!result?.ok) throw new Error(result?.message || '连接失败')
+      return result
+    },
+    {
+      pendingMessage: '测试中…',
+      successMessage: '连接成功',
+      errorMessage: (e: any) => e?.message || '测试连接失败',
     }
-  } catch (err: any) {
-    toast.error(err?.message || '测试连接失败')
-  } finally {
-    testingForm.value = false
-  }
+  )
 }
 
 /** 测试已保存的数据源（列表行按钮） */
@@ -443,19 +476,20 @@ async function testSaved(row: Datasource) {
 }
 
 async function testSavedById(id: string) {
-  testingId.value = id
+  rowTest[id] = { status: 'pending', message: '测试中…' }
   try {
     const res = await datasourceApi.testConnection({ datasource_id: id })
     const result = res.data
     if (result?.ok) {
+      rowTest[id] = { status: 'success', message: '连接成功' }
       toast.success('连接成功')
     } else {
+      rowTest[id] = { status: 'error', message: result?.message || '连接失败' }
       toast.error(result?.message || '连接失败')
     }
   } catch (err: any) {
+    rowTest[id] = { status: 'error', message: err?.message || '测试连接失败' }
     toast.error(err?.message || '测试连接失败')
-  } finally {
-    testingId.value = null
   }
 }
 

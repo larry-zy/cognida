@@ -24,10 +24,24 @@ type AgentExecutor struct {
 
 // AgentService Agent 服务接口
 type AgentService interface {
-	// Chat 调用 Agent 进行对话
-	Chat(ctx context.Context, agentID, message string) (string, error)
+	// Chat 调用 Agent 进行对话，返回答案与工具调用轨迹。
+	// 轨迹用于 tool_selection/trajectory/step_efficiency 指标——业界共识是 Agent
+	// 评测必须打分整条轨迹而非仅最终答案（选对工具≠传对参数≠不绕路）。
+	Chat(ctx context.Context, agentID, message string) (*AgentChatResult, error)
 	// GetAgent 获取 Agent 配置
 	GetAgent(ctx context.Context, agentID string) (*AgentInfo, error)
+}
+
+// AgentChatResult 单轮 Agent 对话的富结果：最终答案 + 工具调用轨迹。
+type AgentChatResult struct {
+	// Answer 最终文本答案。
+	Answer string
+	// ToolsUsed 实际调用的工具名（按调用顺序，含重复），供 tool_selection/tool_order。
+	ToolsUsed []string
+	// Trajectory 步骤描述（工具名或步骤摘要），供 trajectory_match。
+	Trajectory []string
+	// TotalSteps 步骤总数（默认取工具调用数），供 step_efficiency。
+	TotalSteps int
 }
 
 // AgentInfo Agent 信息
@@ -76,11 +90,13 @@ func (e *AgentExecutor) Execute(ctx context.Context, task *EvaluationTaskConfig,
 			Question:        qa.Question,
 			ReferenceAnswer: qa.ReferenceAnswer,
 			RelevantPIDs:    qa.RelevantPIDs,
+			ExpectedTools:   qa.ExpectedTools,
+			ExpectedSteps:   qa.ExpectedSteps,
 		}
 
 		// 为每个 QA 设置单独的超时
 		qaCtx, cancel := context.WithTimeout(ctx, e.timeout)
-		answer, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
 		cancel()
 
 		if err != nil {
@@ -89,11 +105,23 @@ func (e *AgentExecutor) Execute(ctx context.Context, task *EvaluationTaskConfig,
 			continue
 		}
 
-		results[i].GeneratedAnswer = answer
+		applyAgentChatResult(results[i], chatResult)
 		results[i].Success = true
 	}
 
 	return results, nil
+}
+
+// applyAgentChatResult 把 Agent 富结果写入评测结果（答案 + 轨迹），供 Python 侧计算
+// tool_selection/trajectory/step_efficiency。chatResult 为 nil 时安全跳过。
+func applyAgentChatResult(result *QAResult, chatResult *AgentChatResult) {
+	if chatResult == nil {
+		return
+	}
+	result.GeneratedAnswer = chatResult.Answer
+	result.ToolsUsed = chatResult.ToolsUsed
+	result.Trajectory = chatResult.Trajectory
+	result.TotalSteps = chatResult.TotalSteps
 }
 
 // ExecuteSequential 顺序执行 Agent 评测（用于调试）
@@ -118,18 +146,20 @@ func (e *AgentExecutor) ExecuteSequential(ctx context.Context, task *EvaluationT
 			Question:        qa.Question,
 			ReferenceAnswer: qa.ReferenceAnswer,
 			RelevantPIDs:    qa.RelevantPIDs,
+			ExpectedTools:   qa.ExpectedTools,
+			ExpectedSteps:   qa.ExpectedSteps,
 		}
 
 		// 为每个 QA 设置单独的超时
 		qaCtx, cancel := context.WithTimeout(ctx, e.timeout)
-		answer, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
 		cancel()
 
 		if err != nil {
 			result.Success = false
 			result.Error = fmt.Sprintf("agent chat failed: %v", err)
 		} else {
-			result.GeneratedAnswer = answer
+			applyAgentChatResult(result, chatResult)
 			result.Success = true
 		}
 

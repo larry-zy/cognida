@@ -336,6 +336,12 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 			RetrievedPIDs:     result.RetrievedPIDs,
 			RelevantPIDs:      result.RelevantPIDs,
 			RetrievedContexts: result.RetrievedChunks, // 分块正文，供忠实度/上下文相关性/噪声比计算
+			// Agent 轨迹与期望标注（QA/RAG 为空，不影响既有指标）
+			ExpectedTools: result.ExpectedTools,
+			ExpectedSteps: result.ExpectedSteps,
+			ToolsUsed:     result.ToolsUsed,
+			Trajectory:    result.Trajectory,
+			TotalSteps:    result.TotalSteps,
 		}
 	}
 
@@ -350,6 +356,13 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 				}
 			}
 		}
+	}
+
+	// Agent 类型：注入 Agent 家族评分器，命中 Python compute_agent_metrics 专属路径
+	// （tool_selection/tool_order/trajectory/step_efficiency/answer_accuracy）。
+	// 用户若未在 config.graders 指定，仅有 rouge/bleu 会漏算轨迹类核心指标。
+	if config.Type == domeval.EvaluationTypeAgent {
+		graders = ensureAgentGraders(graders)
 	}
 
 	// 构建 LLM Judge 配置
@@ -384,6 +397,31 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 	w.fillMetrics(evalResult, resp)
 
 	return evalResult, nil
+}
+
+// agentGraders 与 Python fastapi_app._AGENT_GRADERS 保持一致：命中其中任一名即触发
+// compute_agent_metrics 分流，产出 tool_selection/tool_order/trajectory/step_efficiency/answer_accuracy。
+var agentGraders = []string{
+	"answer_accuracy",
+	"tool_selection",
+	"tool_order",
+	"trajectory_match",
+	"step_efficiency",
+}
+
+// ensureAgentGraders 幂等地把 Agent 家族评分器并入现有列表（保留用户在 config 中显式指定的其它评分器如 rouge/bleu）。
+func ensureAgentGraders(graders []string) []string {
+	seen := make(map[string]struct{}, len(graders))
+	for _, g := range graders {
+		seen[g] = struct{}{}
+	}
+	for _, g := range agentGraders {
+		if _, ok := seen[g]; !ok {
+			graders = append(graders, g)
+			seen[g] = struct{}{}
+		}
+	}
+	return graders
 }
 
 // fillMetrics 填充指标
@@ -530,6 +568,20 @@ func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, confi
 		return fmt.Errorf("failed to save results: %w", err)
 	}
 
+	// 统计成功/失败条数并持久化——否则任务级 success_count/failure_count 恒为 0，
+	// 前端进度与成功率无法显示。逐条以 QAResult.Success 判定。
+	var successCount, failureCount int
+	for _, qa := range appResult.QAResults {
+		if qa.Success {
+			successCount++
+		} else {
+			failureCount++
+		}
+	}
+	if err := w.taskRepo.UpdateProgress(ctx, taskID, successCount, failureCount); err != nil {
+		return fmt.Errorf("failed to update task progress: %w", err)
+	}
+
 	// 持久化任务级聚合指标（含 faithfulness/context_relevance/noise_ratio 等只在批级存在的指标）
 	if err := w.taskRepo.UpdateMetrics(ctx, taskID, buildTaskMetrics(appResult)); err != nil {
 		return fmt.Errorf("failed to save task metrics: %w", err)
@@ -621,6 +673,8 @@ func convertQAPairsToDomain(pairs []*QAPair) []*domeval.QAPair {
 			ReferenceAnswer: p.ReferenceAnswer,
 			RelevantPIDs:    p.RelevantPIDs,
 			Context:         p.Context,
+			ExpectedTools:   p.ExpectedTools,
+			ExpectedSteps:   p.ExpectedSteps,
 		}
 	}
 	return result
@@ -642,6 +696,11 @@ func convertQAResultsToApp(results []*domeval.QAResult) []*QAResult {
 			RelevantPIDs:       r.RelevantPIDs,
 			Success:            r.Success,
 			Error:              r.Error,
+			ToolsUsed:          r.ToolsUsed,
+			Trajectory:         r.Trajectory,
+			TotalSteps:         r.TotalSteps,
+			ExpectedTools:      r.ExpectedTools,
+			ExpectedSteps:      r.ExpectedSteps,
 			Precision:          r.Precision,
 			Recall:             r.Recall,
 			NDCG:               r.NDCG,

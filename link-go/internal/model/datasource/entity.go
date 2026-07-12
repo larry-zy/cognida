@@ -14,8 +14,10 @@ import (
 type Type string
 
 const (
-	// TypeMySQL MySQL 数据源（Phase 1 唯一支持类型）
+	// TypeMySQL MySQL 数据源
 	TypeMySQL Type = "mysql"
+	// TypePostgres PostgreSQL 数据源
+	TypePostgres Type = "postgres"
 )
 
 // 数据源状态
@@ -62,6 +64,8 @@ type Repository interface {
 	Get(ctx context.Context, id string, tenantID int64) (*DataSource, error)
 	GetByName(ctx context.Context, name string, tenantID int64) (*DataSource, error)
 	List(ctx context.Context, filter ListFilter) ([]*DataSource, int64, error)
+	// ListAll 跨租户返回全部数据源（供后台健康检查等系统级任务遍历，不分页）。
+	ListAll(ctx context.Context) ([]*DataSource, error)
 	Update(ctx context.Context, ds *DataSource) error
 	// UpdateStatus 仅更新状态与健康检查时间（不触碰 updated_at 之外的配置字段）。
 	UpdateStatus(ctx context.Context, id string, tenantID int64, status string, checkedAt time.Time) error

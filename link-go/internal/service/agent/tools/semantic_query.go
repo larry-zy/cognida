@@ -163,6 +163,11 @@ type SemanticQueryResult struct {
 	Covered bool `json:"covered"`
 	// SQL 治理口径下生成的 SQL（Covered=true 时非空），交由 sql_execute 执行
 	SQL string `json:"sql,omitempty"`
+	// DatabaseID 治理 SQL 应打向的数据源 ID（取自语义模型逻辑表的绑定）。
+	// Covered=true 时非空即代表模型已显式绑定数据源，调用方 MUST 原样传给
+	// sql_execute 的 database_id，避免依赖「会话隐式选库」而静默打错库。为空表示
+	// 模型未绑定数据源，回落到会话选定数据源 / 业务库（向后兼容旧模型）。
+	DatabaseID string `json:"database_id,omitempty"`
 	// Model / ModelVersion 命中的语义模型与版本（版本供 Verified Query 缓存键，见 2a.3）
 	Model        string `json:"model,omitempty"`
 	ModelVersion int    `json:"model_version,omitempty"`
@@ -181,10 +186,11 @@ type SemanticQueryResult struct {
 	Note string `json:"note,omitempty"`
 }
 
-// NewSemanticQueryTool 创建结构化取数工具；repo 语义仓储、cache 受信缓存、grounder 术语接地器经参数注入（均可为 nil）。
-func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
+// NewSemanticQueryTool 创建结构化取数工具；repo 语义仓储、cache 受信缓存、grounder 术语接地器、
+// sink 覆盖埋点端口经参数注入（均可为 nil）。
+func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder, sink semantic.CoverageSink) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
 	handler := func(ctx context.Context, req *SemanticQueryRequest) (*SemanticQueryResult, error) {
-		return semanticQuery(ctx, req, repo, cache)
+		return semanticQuery(ctx, req, repo, cache, sink)
 	}
 	return NewTypedBaseTool("semantic_query",
 		`按受治理的指标语义模型生成 SQL（NL2Semantics 查询主路径）。
@@ -193,6 +199,10 @@ func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, g
 - 先用 semantic_models 查看可用的指标/维度语义名。
 - 提交 metrics（指标/度量语义名）+ dimensions（维度语义名）+ 可选 filters/order_by/limit。
 - 返回治理口径下的 SQL，再交给 sql_execute 执行取数。
+
+执行取数（重要）：covered=true 时，若返回了 database_id，调用 sql_execute 必须原样把它
+传给 database_id 参数——治理 SQL 是裸物理 SQL，须显式打向该数据源，不能依赖会话隐式选库，
+否则会静默查错库、拿到空结果或报表不存在。database_id 为空才回落到会话选定的数据源。
 
 覆盖判定：任一指标/维度/过滤字段无法在语义模型中解析时返回 covered=false，
 此时应回退到 get_schema + sql_execute 走词法 NL2SQL（结果会在 fallback_hint 标注）。
@@ -206,7 +216,7 @@ func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, g
 	)
 }
 
-func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache) (*SemanticQueryResult, error) {
+func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache, sink semantic.CoverageSink) (*SemanticQueryResult, error) {
 	if semanticRepo == nil {
 		return &SemanticQueryResult{
 			Covered:      false,
@@ -223,12 +233,18 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 		return nil, err
 	}
 	if bundle == nil {
+		// 无可用语义模型也是一次「治理未命中」：记 fallback（模型名空），使命中率分母完整。
+		recordCoverage(ctx, sink, tenantID, "", semantic.CoverageFallback, nil)
 		return &SemanticQueryResult{
 			Covered:      false,
 			Note:         note,
 			FallbackHint: "无可用语义模型，改用 get_schema + sql_execute 走词法 NL2SQL",
 		}, nil
 	}
+
+	// 数据源绑定：治理 SQL 是裸物理 SQL，须显式带上模型绑定的数据源 ID，
+	// 让 sql_execute 打向 ecommerce_demo 等外部库，而非依赖「会话隐式选库」。
+	dbID := bundleDatabaseID(bundle)
 
 	query := metricsql.Query{
 		Metrics:    req.Metrics,
@@ -244,9 +260,11 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 	if semanticQueryCache != nil {
 		cacheKey = semanticcache.BuildKey(tenantID, bundle.Model.Name, bundle.Model.Version, query)
 		if entry, ok, cerr := semanticQueryCache.Get(ctx, cacheKey); cerr == nil && ok {
+			recordCoverage(ctx, sink, tenantID, bundle.Model.Name, semantic.CoverageCacheHit, nil)
 			return &SemanticQueryResult{
 				Covered:      true,
 				SQL:          entry.SQL,
+				DatabaseID:   dbID,
 				Model:        bundle.Model.Name,
 				ModelVersion: bundle.Model.Version,
 				CacheHit:     true,
@@ -272,6 +290,8 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 	}
 	if out.Coverage.Covered {
 		res.SQL = out.SQL
+		res.DatabaseID = dbID
+		recordCoverage(ctx, sink, tenantID, bundle.Model.Name, semantic.CoverageCovered, nil)
 		// 覆盖命中的治理 SQL 写入受信缓存（Verified），供后续同签名请求复用。
 		if semanticQueryCache != nil && cacheKey != "" {
 			_ = semanticQueryCache.Put(ctx, cacheKey, &semanticcache.Entry{
@@ -281,9 +301,53 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 			}, semanticcache.DefaultTTL)
 		}
 	} else {
+		recordCoverage(ctx, sink, tenantID, bundle.Model.Name, semantic.CoverageFallback, out.Coverage.Uncovered)
 		res.FallbackHint = "存在未覆盖名称，改用 get_schema + sql_execute 走词法 NL2SQL"
 	}
 	return res, nil
+}
+
+// recordCoverage 以 best-effort 记一条覆盖埋点：sink 缺省则跳过，落库失败静默吞掉，
+// 绝不影响 semantic_query 主路径。request_id 取全链路 rid（缺失则空），与审计/Loki 关联。
+func recordCoverage(ctx context.Context, sink semantic.CoverageSink, tenantID int64, model string, outcome semantic.CoverageOutcome, uncovered []string) {
+	if sink == nil {
+		return
+	}
+	rid, _ := agentctx.GetRequestID(ctx)
+	_ = sink.Record(ctx, semantic.CoverageEvent{
+		TenantID:  tenantID,
+		RequestID: rid,
+		Model:     model,
+		Outcome:   outcome,
+		Uncovered: uncovered,
+	})
+}
+
+// bundleDatabaseID 从语义模型的逻辑表推导本模型绑定的数据源 ID。
+//
+// 治理引擎生成的是单库物理 SQL（表名不带库前缀），故一个模型的全部逻辑表必须绑定
+// 同一数据源，SQL 才成立。据此：取全部逻辑表中「非空且唯一」的 DatabaseID——
+//   - 恰有一个非空取值 → 返回它（模型已显式绑定，sql_execute 据此显式选库）；
+//   - 全空 → 返回 ""（未绑定，回落会话选定库/业务库，向后兼容旧模型）；
+//   - 多个不同取值 → 返回 ""（跨库模型属建模错误，不硬猜，交由回落而非静默打错库）。
+func bundleDatabaseID(bundle *semantic.ModelBundle) string {
+	if bundle == nil {
+		return ""
+	}
+	seen := ""
+	for _, lt := range bundle.LogicalTables {
+		if lt == nil || lt.DatabaseID == "" {
+			continue
+		}
+		if seen == "" {
+			seen = lt.DatabaseID
+			continue
+		}
+		if seen != lt.DatabaseID {
+			return "" // 跨数据源绑定不一致：不硬选，交回落
+		}
+	}
+	return seen
 }
 
 // resolveBundle 解析目标语义模型：指定名则精确取；未指定且恰有一个生效模型则自动选用；

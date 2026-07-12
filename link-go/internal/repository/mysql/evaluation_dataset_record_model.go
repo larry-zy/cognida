@@ -2,11 +2,38 @@
 package mysql
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"time"
 
 	"link/internal/model/evaluation"
 )
+
+// nullableJSON 让 type:json 列在空值时写 NULL 而非非法空串——MySQL 的 JSON 列
+// 拒绝 ”（Error 3140），而 GORM 对普通 string 零值会写入 ”。用作 relevant_pids /
+// expected_tools / expected_steps 的存储类型，空切片场景下统一落 NULL。
+type nullableJSON string
+
+// Value 实现 driver.Valuer：空串落 NULL，否则原样写入。
+func (j nullableJSON) Value() (driver.Value, error) {
+	if j == "" {
+		return nil, nil
+	}
+	return string(j), nil
+}
+
+// Scan 实现 sql.Scanner：NULL/[]byte/string 统一归一为字符串。
+func (j *nullableJSON) Scan(v any) error {
+	switch s := v.(type) {
+	case nil:
+		*j = ""
+	case []byte:
+		*j = nullableJSON(s)
+	case string:
+		*j = nullableJSON(s)
+	}
+	return nil
+}
 
 // ========================================
 // DatasetRecordModel 数据集样本记录模型
@@ -14,14 +41,35 @@ import (
 
 // DatasetRecordModel 数据集样本记录 GORM 模型
 type DatasetRecordModel struct {
-	ID              int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	DatasetID       string    `gorm:"column:dataset_id;not null;type:varchar(64);index:idx_dataset_id,idx_tenant_dataset" json:"dataset_id"`
-	TenantID        int64     `gorm:"column:tenant_id;not null;index:idx_tenant_id,idx_tenant_dataset" json:"tenant_id"`
-	Question        string    `gorm:"column:question;not null;type:text" json:"question"`
-	ReferenceAnswer string    `gorm:"column:reference_answer;not null;type:text" json:"reference_answer"`
-	RelevantPIDs    string    `gorm:"column:relevant_pids;type:json" json:"relevant_pids,omitempty"`
-	Context         string    `gorm:"column:context;type:text" json:"context,omitempty"`
-	CreatedAt       time.Time `gorm:"column:created_at;not null" json:"created_at"`
+	ID              int64        `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	DatasetID       string       `gorm:"column:dataset_id;not null;type:varchar(64);index:idx_dataset_id,idx_tenant_dataset" json:"dataset_id"`
+	TenantID        int64        `gorm:"column:tenant_id;not null;index:idx_tenant_id,idx_tenant_dataset" json:"tenant_id"`
+	Question        string       `gorm:"column:question;not null;type:text" json:"question"`
+	ReferenceAnswer string       `gorm:"column:reference_answer;not null;type:text" json:"reference_answer"`
+	RelevantPIDs    nullableJSON `gorm:"column:relevant_pids;type:json" json:"relevant_pids,omitempty"`
+	Context         string       `gorm:"column:context;type:text" json:"context,omitempty"`
+	// Agent 评测期望标注（JSON 数组；QA/RAG 样本为空 → NULL）
+	ExpectedTools nullableJSON `gorm:"column:expected_tools;type:json" json:"expected_tools,omitempty"`
+	ExpectedSteps nullableJSON `gorm:"column:expected_steps;type:json" json:"expected_steps,omitempty"`
+	CreatedAt     time.Time    `gorm:"column:created_at;not null" json:"created_at"`
+}
+
+// decodeJSONStringSlice 解析 JSON 数组字符串到 []string（空串安全跳过）。
+func decodeJSONStringSlice(raw nullableJSON, dst *[]string) {
+	if raw != "" {
+		json.Unmarshal([]byte(raw), dst)
+	}
+}
+
+// encodeJSONStringSlice 序列化 []string 为 JSON 字符串（空切片返回空串 → 落 NULL）。
+func encodeJSONStringSlice(src []string) nullableJSON {
+	if len(src) == 0 {
+		return ""
+	}
+	if data, err := json.Marshal(src); err == nil {
+		return nullableJSON(data)
+	}
+	return ""
 }
 
 // TableName 指定表名
@@ -45,6 +93,8 @@ func (m *DatasetRecordModel) ToDomain() *evaluation.DatasetRecord {
 	if m.RelevantPIDs != "" {
 		json.Unmarshal([]byte(m.RelevantPIDs), &record.RelevantPIDs)
 	}
+	decodeJSONStringSlice(m.ExpectedTools, &record.ExpectedTools)
+	decodeJSONStringSlice(m.ExpectedSteps, &record.ExpectedSteps)
 
 	return record
 }
@@ -61,6 +111,8 @@ func (m *DatasetRecordModel) ToDomainWithQAPair() *evaluation.QAPair {
 	if m.RelevantPIDs != "" {
 		json.Unmarshal([]byte(m.RelevantPIDs), &pair.RelevantPIDs)
 	}
+	decodeJSONStringSlice(m.ExpectedTools, &pair.ExpectedTools)
+	decodeJSONStringSlice(m.ExpectedSteps, &pair.ExpectedSteps)
 
 	return pair
 }
@@ -80,9 +132,11 @@ func FromDomainDatasetRecord(record *evaluation.DatasetRecord) *DatasetRecordMod
 	// 序列化 relevant_pids 为 JSON
 	if len(record.RelevantPIDs) > 0 {
 		if data, err := json.Marshal(record.RelevantPIDs); err == nil {
-			model.RelevantPIDs = string(data)
+			model.RelevantPIDs = nullableJSON(data)
 		}
 	}
+	model.ExpectedTools = encodeJSONStringSlice(record.ExpectedTools)
+	model.ExpectedSteps = encodeJSONStringSlice(record.ExpectedSteps)
 
 	return model
 }
@@ -100,9 +154,11 @@ func FromQAPair(datasetID string, tenantID int64, pair *evaluation.QAPair) *Data
 	// 序列化 relevant_pids 为 JSON
 	if len(pair.RelevantPIDs) > 0 {
 		if data, err := json.Marshal(pair.RelevantPIDs); err == nil {
-			model.RelevantPIDs = string(data)
+			model.RelevantPIDs = nullableJSON(data)
 		}
 	}
+	model.ExpectedTools = encodeJSONStringSlice(pair.ExpectedTools)
+	model.ExpectedSteps = encodeJSONStringSlice(pair.ExpectedSteps)
 
 	return model
 }

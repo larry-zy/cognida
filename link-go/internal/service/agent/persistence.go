@@ -354,6 +354,9 @@ type PrepareSessionRequest struct {
 	SessionID string
 	UserID    int64
 	TenantID  int64
+	// Query 首个用户问题：新建会话时用于自动生成标题（截取前 30 rune）。
+	// 缺省时标题退化为 agent 名，导致所有会话同名——务必由调用方透传。
+	Query string
 }
 
 // PrepareSession prepares or validates a session for streaming
@@ -363,6 +366,7 @@ func (s *AgentPersistenceService) PrepareSession(ctx context.Context, req *Prepa
 		SessionID: req.SessionID,
 		UserID:    req.UserID,
 		TenantID:  req.TenantID,
+		Query:     req.Query,
 	}
 	return s.prepareSession(ctx, persistReq)
 }

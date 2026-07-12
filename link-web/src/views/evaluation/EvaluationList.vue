@@ -1,7 +1,7 @@
 <template>
   <div class="evaluation-list-container">
     <div class="header">
-      <h2>大模型测评</h2>
+      <h2>Agent 测评</h2>
       <UiButton variant="primary" icon @click="showCreateDialog = true">
         <template #icon><el-icon><Plus /></el-icon></template>
         创建测评任务
@@ -27,6 +27,7 @@
       :datasets="datasets"
       :knowledge-bases="knowledgeBases"
       :chat-models="chatModels"
+      :agents="agents"
       :creating="creating"
       @submit="handleCreate"
     />
@@ -62,6 +63,7 @@ const {
   datasets,
   knowledgeBases,
   chatModels,
+  agents,
   currentDetail,
   stats,
   loadAll,

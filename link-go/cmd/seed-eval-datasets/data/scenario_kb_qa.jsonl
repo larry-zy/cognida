@@ -1,0 +1,5 @@
+{"question": "本系统的数据同步默认走哪种存储？", "reference_answer": "元数据与配置默认存 MySQL，向量存 Milvus，知识图谱存 Neo4j，缓存/队列走 Redis。"}
+{"question": "给业务表新增字段后应如何同步表结构？", "reference_answer": "运行 cmd/migrate-db 从 GORM model 幂等同步全部业务表结构，不手动 ALTER。"}
+{"question": "知识图谱的提取开关是库级还是提问级？", "reference_answer": "图谱提取是库级配置（kb_settings），图谱检索是提问级（随请求下发）。"}
+{"question": "服务间通信在什么场景用 gRPC，什么场景用 MCP？", "reference_answer": "高性能、大数据量走 gRPC；AI 工具调用与实验功能走 MCP。"}
+{"question": "request_id 在系统里起什么作用？", "reference_answer": "request_id 全链路透传，串联结构化审计日志与原始日志，便于按同一请求排障。"}

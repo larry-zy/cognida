@@ -28,6 +28,9 @@ uploads/
 .codegraph/
 *.db
 
+# ---- 评测/测试产物（agent-eval 等，日志与指标本地留存不入库）----
+test-output/
+
 # ---- Go 产物 ----
 link-go/bin/
 link-go/dist/

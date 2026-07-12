@@ -16,6 +16,10 @@ type QAPair struct {
 	ReferenceAnswer string   `json:"reference_answer"`
 	RelevantPIDs    []string `json:"relevant_pids,omitempty"` // 相关文档ID（用于检索评测）
 	Context         string   `json:"context,omitempty"`       // 额外上下文
+
+	// Agent 评测期望标注（仅 Agent 类型使用，QA/RAG 留空）
+	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名（tool_selection/tool_order）
+	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列（trajectory_match/step_efficiency）
 }
 
 // ========================================
@@ -32,6 +36,15 @@ type QAResult struct {
 	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
 	Success          bool     `json:"success"`
 	Error            string   `json:"error,omitempty"`
+
+	// Agent 评测轨迹（仅 Agent 类型填充，供 tool_selection/trajectory/step_efficiency）
+	ToolsUsed  []string `json:"tools_used,omitempty"`  // 实际调用的工具名（按调用顺序）
+	Trajectory []string `json:"trajectory,omitempty"`  // 实际步骤序列
+	TotalSteps int      `json:"total_steps,omitempty"` // 步骤总数
+
+	// Agent 评测期望标注（从 QAPair 透传，供 Worker 组装 references；QA/RAG 留空）
+	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名
+	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列
 
 	// 检索指标
 	Precision *float64 `json:"precision,omitempty"`
@@ -345,7 +358,10 @@ type DatasetRecord struct {
 	ReferenceAnswer string    `json:"reference_answer"`
 	RelevantPIDs    []string  `json:"relevant_pids,omitempty"`
 	Context         string    `json:"context,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
+	// Agent 评测期望标注（仅 Agent 样本使用，QA/RAG 留空）
+	ExpectedTools []string  `json:"expected_tools,omitempty"`
+	ExpectedSteps []string  `json:"expected_steps,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // NewDatasetRecord 创建新的样本记录

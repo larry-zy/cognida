@@ -42,6 +42,7 @@ from .agent import (
     compute_agent_metrics,
     answer_accuracy,
     tool_selection,
+    tool_order,
     trajectory_match,
     step_efficiency,
 )
@@ -83,6 +84,7 @@ __all__ = [
     "compute_agent_metrics",
     "answer_accuracy",
     "tool_selection",
+    "tool_order",
     "trajectory_match",
     "step_efficiency",
     # RAG

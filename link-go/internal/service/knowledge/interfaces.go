@@ -172,4 +172,8 @@ type KnowledgeService interface {
 type DocumentProcessorService interface {
 	// ProcessDocument processes a document (parse + chunk + store + vectorize + graph extract)
 	ProcessDocument(ctx context.Context, tenantID int64, userID int64, req *ProcessDocumentRequest) (*ProcessDocumentResponse, error)
+
+	// RebuildKnowledgeBaseGraph re-extracts the knowledge graph for all completed documents in a KB,
+	// reusing stored chunks (no re-parse). Idempotent per document.
+	RebuildKnowledgeBaseGraph(ctx context.Context, tenantID int64, kbID string) (*RebuildGraphResponse, error)
 }

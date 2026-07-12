@@ -132,13 +132,16 @@ func (l *DatasetLoader) LoadFromDB(ctx context.Context, datasetID string) (*Data
 			return nil, fmt.Errorf("failed to load samples: %w", err)
 		}
 
-		// 转换为 QAPair
+		// 转换为 QAPair（含 Agent 期望标注，供 tool_selection/tool_order/trajectory 计算；
+		// 缺失会让 Agent 指标误判为 0，故必须一并回填）
 		for _, record := range records {
 			allQAPairs = append(allQAPairs, &QAPair{
 				Question:        record.Question,
 				ReferenceAnswer: record.ReferenceAnswer,
 				RelevantPIDs:    record.RelevantPIDs,
 				Context:         record.Context,
+				ExpectedTools:   record.ExpectedTools,
+				ExpectedSteps:   record.ExpectedSteps,
 			})
 		}
 
@@ -294,7 +297,24 @@ func (l *DatasetLoader) GetDatasetInfo(ctx context.Context, datasetID string) (*
 		return l.loadDatasetMetadata(datasetID)
 	}
 
-	// TODO: 尝试数据库
+	// 回退数据库：seed 脚本与前端上传的数据集只落库，无文件系统副本，
+	// 必须从库里取元信息，否则创建评测任务时永远 dataset not found。
+	if l.datasetRepo != nil {
+		ds, err := l.datasetRepo.FindByID(ctx, datasetID)
+		if err != nil {
+			return nil, err
+		}
+		return &DatasetMetadata{
+			ID:          ds.DatasetID,
+			Name:        ds.Name,
+			Description: ds.Description,
+			Type:        DatasetType(ds.Type),
+			EvalType:    EvaluationType(ds.EvaluationType),
+			QACount:     ds.QACount,
+			ModifiedAt:  ds.UpdatedAt,
+		}, nil
+	}
+
 	return nil, fmt.Errorf("dataset not found: %s", datasetID)
 }
 
@@ -401,8 +421,9 @@ func (c *EvaluationTaskConfig) Validate() error {
 		return fmt.Errorf("kb_id is required for RAG evaluation")
 	}
 
-	// 所有类型都需要 model_id
-	if c.ModelID == "" {
+	// model_id：QA/RAG 用它选择被测生成模型；Agent 类型的被测对象是运行中的 Agent，
+	// 模型由 Agent 自身配置内嵌，故 agent 类型不强制 model_id。
+	if c.Type != EvaluationTypeAgent && c.ModelID == "" {
 		return fmt.Errorf("model_id is required")
 	}
 

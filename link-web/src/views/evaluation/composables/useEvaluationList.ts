@@ -8,6 +8,7 @@ import { ElMessageBox } from '@/utils/confirm'
 import { evaluationApi } from '@/api/evaluation'
 import { knowledgeApi } from '@/api/knowledge'
 import { modelApi } from '@/api/model'
+import { listAgents, type AgentSummary } from '@/api/agent'
 import { connectTaskProgress, type SSEConnection } from '@/utils/sse'
 import type {
   EvaluationTask,
@@ -23,6 +24,7 @@ export function useEvaluationList() {
   const datasets = ref<string[]>([])
   const knowledgeBases = ref<Array<Record<string, any>>>([])
   const chatModels = ref<Array<Record<string, any>>>([])
+  const agents = ref<AgentSummary[]>([])
   const currentDetail = ref<EvaluationDetail | null>(null)
 
   const sseClient = ref<SSEConnection | null>(null)
@@ -87,11 +89,23 @@ export function useEvaluationList() {
     }
   }
 
+  async function loadAgents() {
+    try {
+      const res = await listAgents()
+      if (res.data) {
+        agents.value = (res.data as any).agents || []
+      }
+    } catch (error) {
+      console.error('Failed to load agents:', error)
+    }
+  }
+
   function loadAll() {
     loadEvaluations()
     loadDatasets()
     loadKnowledgeBases()
     loadModels()
+    loadAgents()
   }
 
   // ---------- 创建 ----------
@@ -230,11 +244,13 @@ export function useEvaluationList() {
     datasets,
     knowledgeBases,
     chatModels,
+    agents,
     currentDetail,
     // computed
     stats,
     // actions
     loadAll,
+    loadAgents,
     loadEvaluations,
     submitEvaluation,
     viewDetail,

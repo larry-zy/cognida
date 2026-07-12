@@ -1,0 +1,5 @@
+{"question": "查一下订单 SO2024001 现在是什么状态？", "reference_answer": "订单 SO2024001 当前状态为「已发货」，预计 3 日内送达。", "expected_tools": ["query_order"], "expected_steps": ["解析订单号 SO2024001", "调用 query_order 查询订单", "整理状态并回复"]}
+{"question": "我想买 3 件商品 P1001，先看看还有没有货，有的话帮我下单。", "reference_answer": "商品 P1001 库存充足，已为你创建包含 3 件的订单。", "expected_tools": ["check_inventory", "create_order"], "expected_steps": ["调用 check_inventory 核对 P1001 库存", "库存充足则调用 create_order 下单", "回复下单结果"]}
+{"question": "帮我统计上个月销量最高的三个商品。", "reference_answer": "上月销量前三为 P1001、P1005、P1003，销量分别为 320/280/210 件。", "expected_tools": ["query_sales", "aggregate_topn"], "expected_steps": ["调用 query_sales 拉取上月销售明细", "调用 aggregate_topn 取销量前三", "整理榜单回复"]}
+{"question": "订单 SO2024007 想退货，帮我发起退款。", "reference_answer": "已为订单 SO2024007 发起退款申请，款项将原路退回。", "expected_tools": ["query_order", "create_refund"], "expected_steps": ["调用 query_order 校验订单可退", "调用 create_refund 发起退款", "回复退款进度"]}
+{"question": "客户 C2048 最近有哪些未支付的订单？", "reference_answer": "客户 C2048 有 2 笔未支付订单：SO2024011、SO2024015。", "expected_tools": ["query_customer_orders"], "expected_steps": ["调用 query_customer_orders 按客户与支付状态过滤", "汇总未支付订单回复"]}

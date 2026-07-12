@@ -1,0 +1,47 @@
+[
+  {
+    "dataset_id": "scenario_ecommerce_agent",
+    "name": "电商场景 Agent 测评集（自造）",
+    "description": "贴合 ecommerce_demo 的多轮工具调用样本，带 expected_tools + expected_steps，命中全量 Agent 指标。",
+    "evaluation_type": "agent",
+    "supports_trajectory": true,
+    "records_file": "scenario_ecommerce_agent.jsonl",
+    "count": 5
+  },
+  {
+    "dataset_id": "scenario_kb_qa",
+    "name": "知识库场景 QA 测评集（自造）",
+    "description": "贴合本系统知识库的问答样本，映射 question/reference_answer，用于 QA/RAG 指标。",
+    "evaluation_type": "qa",
+    "supports_trajectory": false,
+    "records_file": "scenario_kb_qa.jsonl",
+    "count": 5
+  },
+  {
+    "dataset_id": "hf_cmrc2018_zh",
+    "name": "CMRC2018 中文阅读理解（QA）",
+    "description": "中文抽取式问答基准，映射 question/reference_answer，用于 QA 生成/语义/裁判指标。",
+    "evaluation_type": "qa",
+    "supports_trajectory": false,
+    "records_file": "hf_cmrc2018_zh.jsonl",
+    "count": 80
+  },
+  {
+    "dataset_id": "hf_squad_en",
+    "name": "SQuAD 英文阅读理解（QA）",
+    "description": "英文抽取式问答基准，映射 question/reference_answer，用于 QA 生成/语义/裁判指标。",
+    "evaluation_type": "qa",
+    "supports_trajectory": false,
+    "records_file": "hf_squad_en.jsonl",
+    "count": 80
+  },
+  {
+    "dataset_id": "hf_xlam_agent",
+    "name": "xLAM 工具调用基准（Agent）",
+    "description": "xLAM function-calling 公开镜像：query→expected_tools（有序），命中 tool_selection/tool_order；无步骤标注故 supports_trajectory=false。",
+    "evaluation_type": "agent",
+    "supports_trajectory": false,
+    "records_file": "hf_xlam_agent.jsonl",
+    "count": 80
+  }
+]

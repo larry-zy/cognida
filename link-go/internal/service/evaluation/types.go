@@ -70,6 +70,10 @@ type QAPair struct {
 	ReferenceAnswer string   `json:"reference_answer"`
 	RelevantPIDs    []string `json:"relevant_pids,omitempty"` // 相关文档ID（用于检索评测）
 	Context         string   `json:"context,omitempty"`       // 额外上下文
+
+	// Agent 评测期望标注（仅 Agent 类型使用，QA/RAG 留空）
+	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名（tool_selection/tool_order）
+	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列（trajectory_match/step_efficiency）
 }
 
 // Dataset 数据集
@@ -114,6 +118,13 @@ type QAResult struct {
 	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
 	Success          bool     `json:"success"`
 	Error            string   `json:"error,omitempty"`
+
+	// Agent 评测轨迹与期望标注（仅 Agent 类型填充）
+	ToolsUsed     []string `json:"tools_used,omitempty"`     // 实际调用的工具名（按调用顺序）
+	Trajectory    []string `json:"trajectory,omitempty"`     // 实际步骤序列
+	TotalSteps    int      `json:"total_steps,omitempty"`    // 步骤总数
+	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名
+	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列
 
 	// 检索指标
 	Precision *float64 `json:"precision,omitempty"`
@@ -225,6 +236,13 @@ type ComputeItem struct {
 	RetrievedPIDs     []string `json:"retrieved_pids,omitempty"`     // 检索到的分块ID（检索指标）
 	RelevantPIDs      []string `json:"relevant_pids,omitempty"`      // 标注的相关分块ID
 	RetrievedContexts []string `json:"retrieved_contexts,omitempty"` // 检索到的分块正文（RAG 忠实度类指标）
+
+	// Agent 评测字段：references(expected_*) + outputs(tools_used/trajectory/total_steps)，命中 compute_agent_metrics
+	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名（tool_selection/tool_order）
+	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列（trajectory_match/step_efficiency）
+	ToolsUsed     []string `json:"tools_used,omitempty"`     // 实际调用的工具名（按调用顺序）
+	Trajectory    []string `json:"trajectory,omitempty"`     // 实际步骤序列
+	TotalSteps    int      `json:"total_steps,omitempty"`    // 步骤总数
 }
 
 // ComputeMetricsResponse Python 指标计算响应

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	domagent "link/internal/model/agent"
 	domeval "link/internal/model/evaluation"
 	"link/internal/service/evaluation"
 )
@@ -21,6 +22,7 @@ type EvaluationHandler struct {
 	service         *evaluation.Service
 	datasetManager  *evaluation.DatasetManager
 	progressCache   domeval.ProgressReader
+	agentRegistry   domagent.AgentRegistry
 }
 
 // NewEvaluationHandler 创建评测处理器
@@ -28,11 +30,13 @@ func NewEvaluationHandler(
 	service *evaluation.Service,
 	datasetManager *evaluation.DatasetManager,
 	progressCache domeval.ProgressReader,
+	agentRegistry domagent.AgentRegistry,
 ) *EvaluationHandler {
 	return &EvaluationHandler{
 		service:        service,
 		datasetManager: datasetManager,
 		progressCache:  progressCache,
+		agentRegistry:  agentRegistry,
 	}
 }
 
@@ -72,6 +76,25 @@ func (h *EvaluationHandler) CreateTask(c *gin.Context) {
 	var req CreateEvaluationTaskRequest
 	if !BindJSON(c, &req) {
 		return
+	}
+
+	// Agent 类型校验：被测对象为选定的运行中 Agent，agent_id 必填且须存在于注册中心
+	if domeval.EvaluationType(req.Type).Normalize() == domeval.EvaluationTypeAgent {
+		if req.AgentID == "" {
+			BadRequest(c, "agent_id is required for agent evaluation")
+			return
+		}
+		if h.agentRegistry != nil {
+			exists, err := h.agentRegistry.Exists(c.Request.Context(), req.AgentID)
+			if err != nil {
+				h.handleError(c, err)
+				return
+			}
+			if !exists {
+				BadRequest(c, fmt.Sprintf("agent not found: %s", req.AgentID))
+				return
+			}
+		}
 	}
 
 	// 构建配置

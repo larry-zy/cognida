@@ -233,6 +233,8 @@ type UpdateKnowledgeBaseRequest struct {
 	Avatar      *string  `json:"avatar"`
 	IsPublic    *bool    `json:"is_public"`
 	Status      *int8    `json:"status"`
+	// GraphEnabled 库级图谱提取开关：非 nil 时更新到 kb_settings，允许建库后在设置页开关
+	GraphEnabled *bool   `json:"graph_enabled"`
 }
 
 // KnowledgeBaseResponse 知识库响应
@@ -299,4 +301,14 @@ type ProcessDocumentResponse struct {
 	Vectorized      bool     `json:"vectorized"`
 	GraphExtracted  bool     `json:"graph_extracted"`
 	Message         string   `json:"message"`
+}
+
+// RebuildGraphResponse 知识库图谱补建结果
+type RebuildGraphResponse struct {
+	TotalDocuments     int `json:"total_documents"`     // 已完成解析的文档总数
+	ProcessedDocuments int `json:"processed_documents"` // 成功重建图谱的文档数
+	SkippedDocuments   int `json:"skipped_documents"`   // 无可用分块而跳过的文档数
+	FailedDocuments    int `json:"failed_documents"`    // 重建失败的文档数
+	TotalNodes         int `json:"total_nodes"`         // 提取的节点总数
+	TotalRelations     int `json:"total_relations"`     // 提取的关系总数
 }

@@ -110,9 +110,9 @@ export const LLM_JUDGE_DIMENSIONS: GraderOption[] = [
 
 /** 评测类型下拉选项 */
 export const EVALUATION_TYPE_OPTIONS = [
+  { value: 'agent', label: 'Agent 评测' },
   { value: 'qa', label: 'QA 评测' },
-  { value: 'rag', label: 'RAG 评测' },
-  { value: 'agent', label: 'Agent 评测' }
+  { value: 'rag', label: 'RAG 评测' }
 ]
 
 /** 计算任务进度百分比 */

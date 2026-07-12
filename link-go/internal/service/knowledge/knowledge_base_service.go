@@ -225,7 +225,36 @@ func (s *knowledgeBaseService) UpdateFromRequest(
 		return nil, err
 	}
 
+	// 图谱开关属于库级数据处理配置，允许建库后在设置页开关，持久化到 kb_settings
+	if req.GraphEnabled != nil {
+		if err := s.applyGraphEnabled(ctx, id, *req.GraphEnabled, now); err != nil {
+			return nil, err
+		}
+	}
+
+	// 回填最新设置，保证响应包含 setting（图谱开关等），供前端设置页回显
+	if setting, ferr := s.kbSettingRepo.FindByKnowledgeBaseID(ctx, id); ferr == nil {
+		kb.Setting = setting
+	}
+
 	return kb, nil
+}
+
+// applyGraphEnabled 更新（或在缺失时创建）知识库的图谱提取开关
+func (s *knowledgeBaseService) applyGraphEnabled(ctx context.Context, kbID string, enabled bool, now time.Time) error {
+	setting, err := s.kbSettingRepo.FindByKnowledgeBaseID(ctx, kbID)
+	if err == nil && setting != nil {
+		setting.GraphEnabled = enabled
+		setting.UpdatedAt = now
+		return s.kbSettingRepo.Update(ctx, setting)
+	}
+	// 设置不存在则创建
+	return s.kbSettingRepo.Create(ctx, &domain_knowledge.KnowledgeBaseSetting{
+		KnowledgeBaseID: kbID,
+		GraphEnabled:    enabled,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
 }
 
 // UpdateWithSettings updates a knowledge base and its settings

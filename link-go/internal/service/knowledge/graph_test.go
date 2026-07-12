@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	domain_knowledge "link/internal/model/knowledge"
+	"link/internal/infrastructure/id"
 )
 
 // ========================================
@@ -561,4 +562,50 @@ type mockChunkRepository struct{}
 
 func (m *mockChunkRepository) FindEnabledChunks(ctx context.Context, kbID string, limit int) ([]Chunk, error) {
 	return nil, nil
+}
+
+// ========================================
+// parseGraphExtraction 回归测试
+// ========================================
+
+// TestParseGraphExtraction_RelationsUseNodeNames 锁定修复：
+// 关系的 Source/Target 必须存节点“名称”（Neo4jRepository.AddGraph 用
+// MATCH (Entity {name:$source}) 匹配）；此前误存生成的节点 ID，导致关系
+// 落库时匹配不到、被静默丢弃（返回计数虚高但 Neo4j 里 0 条关系）。
+func TestParseGraphExtraction_RelationsUseNodeNames(t *testing.T) {
+	s := &documentProcessorService{idGenerator: id.NewIDGenerator()}
+
+	content := `{
+		"nodes": [
+			{"name": "OrderOrchestrator", "entity_type": "组件"},
+			{"name": "Think阶段", "entity_type": "阶段"}
+		],
+		"relations": [
+			{"source": "OrderOrchestrator", "target": "Think阶段", "type": "CONTAINS", "strength": 8},
+			{"source": "OrderOrchestrator", "target": "不存在的节点", "type": "USES", "strength": 5}
+		]
+	}`
+
+	gd, err := s.parseGraphExtraction(content)
+	assert.NoError(t, err)
+	assert.Len(t, gd.Node, 2)
+
+	// 只有两端节点都存在的关系才保留；且 append 语义下不能有 nil 空洞
+	assert.Len(t, gd.Relation, 1, "指向不存在节点的关系应被丢弃，且不留 nil 空洞")
+	rel := gd.Relation[0]
+	assert.NotNil(t, rel)
+
+	// 关键断言：Source/Target 是节点名称而非生成的 ID
+	names := map[string]bool{"OrderOrchestrator": true, "Think阶段": true}
+	assert.True(t, names[rel.Source], "Source 应为节点名称，实际=%q", rel.Source)
+	assert.True(t, names[rel.Target], "Target 应为节点名称，实际=%q", rel.Target)
+	assert.Equal(t, "OrderOrchestrator", rel.Source)
+	assert.Equal(t, "Think阶段", rel.Target)
+}
+
+// TestParseGraphExtraction_NoValidJSON 非 JSON 响应返回错误而非 panic。
+func TestParseGraphExtraction_NoValidJSON(t *testing.T) {
+	s := &documentProcessorService{idGenerator: id.NewIDGenerator()}
+	_, err := s.parseGraphExtraction("抱歉，我无法提取。")
+	assert.Error(t, err)
 }

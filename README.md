@@ -68,6 +68,8 @@ Link 不是简单的"数据助手"，而是新一代企业级 **AI 数据专家*
 #### Data Agent（DaDa 数据智能体）
 - **单一 ReAct 内核**：对话驱动的自主取数 → 分析 → 操作闭环，preset `agent-data-agent`
 - **语义选表 + 指标语义层**：从自然语言定位相关表，按指标语义构造 SQL，避免盲选全库
+- **语义层建模入口**：语义模型 REST 建模 / 发布（`/api/v1/semantic-models`），让 `semantic_query` 走治理主路径而非恒回退词法 NL2SQL；附治理命中率覆盖统计（covered / cache_hit / fallback）
+- **多数据源接入**：外部数据源注册接入（模型 / 服务 / 工具 / 前端全链路），Agent 查询工具跨源取数
 - **A2UI 生成式 UI**：`render_ui` 工具随流实时下发 UISpec，图表/表格/结论边推理边画到结果画布，不等流结束
 - **Result Store**：中间结果落库，多面板动态渲染，会话重开从 `agent_steps.ui_surfaces` 恢复画布
 - **子代理委派**：主 ReAct 内核可将渲染 / 分析 / 操作子任务委派给专用能力
@@ -87,29 +89,39 @@ Link 不是简单的"数据助手"，而是新一代企业级 **AI 数据专家*
 - **记忆管理**：记忆存储、检索、遗忘机制
 - **向量检索**：基于 Milvus 的语义记忆检索
 - **用户偏好**：保存用户个性化偏好
+- **跨轮对话记忆**：会话间上下文延续，知识库助手已接通
 
-#### RAG 检索系统
-- **向量检索**：基于 Milvus 的语义向量检索
-- **BM25 全文检索**：支持关键词精准匹配
-- **混合检索**：向量 + 全文融合，自动重排序
-- **检索优化**：HyDE、查询重写 / 扩展、多跳检索按需开启
-- **知识库范围**：范围由会话入口选定并经 ctx 强制透传（不选 = 全部已启用库），工具层求交拒绝越权，LLM 无需也无法在参数中指定 kb_id
+#### Agentic RAG 检索系统
+- **混合检索管线**：Milvus 语义向量 + BM25 全文关键词双路召回，融合后经重排序模型精排
+- **检索优化三件套**：HyDE（假设文档增强）、查询重写 / 扩展、多跳检索，可单独或组合开启（OptimizedRetrieve），并有独立 REST 配置入口按需调参
+- **Agent 自主检索闭环**：检索不是一次性调用而是 ReAct 循环的一部分——Agent 自主决定何时检索（`rag_query`）、查看可用库（`kb_list`）、图谱补检（`graph_query`）、交叉验证，召回不足时自行改写查询补检
+- **知识库范围强制**：范围由会话入口选定并经 ctx 强制透传（不选 = 全部已启用库），工具层求交拒绝越权，LLM 无需也无法在参数中指定 kb_id
+- **跨轮对话记忆**：知识库助手接通跨轮记忆，多轮追问不丢上下文；检索参数会话级持久化
 - **图谱增强**：一键开启后 `graph_query` 补充实体关系并启用多跳推理，做关系 / 关联 / 溯源类问答
 
 #### 知识图谱
-- **Neo4j 存储**：高性能图数据库支持
-- **实体关系抽取**：从文本自动抽取知识三元组
-- **图谱检索**：基于关系的多跳查询
+- **LLM 实体关系抽取**：文档入库时从分块并发抽取知识三元组，抽取器经接口注入可替换，支持多种抽取模式
+- **Neo4j 存储**：图数据存 Neo4j；`graph_*` 元数据表按需懒加载建表，与业务表迁移解耦
+- **图谱检索**：基于关系的多跳查询，与 RAG 融合支撑关系 / 关联 / 溯源类问答
+- **分层开关**：图谱提取 = 库级开关（kb_settings，建库后可在设置页随时开关）；图谱检索 = 提问级开关（会话上下文），互不干扰
+- **一键补建**：对已完成解析的文档复用已存分块幂等重建图谱，无需重新上传解析，历史库随开随补
+- **图谱管理**：节点 / 关系的增删改查、节点搜索、关系类型管理、健康检查全套 REST API
 - **图谱统计**：节点 / 关系规模、类型分布等图谱概览
 - **节点详情**：点选实体查看属性与邻接关系
-- **图谱可视化**：直观展示知识网络
+- **图谱可视化**：图谱列表 + 交互式图谱视图，直观展示知识网络
 
 #### 评测系统 (Python)
-- **检索评测**：Recall@K、MRR、NDCG 等指标
-- **生成评测**：BLEU、ROUGE 等生成质量指标
-- **LLM 评测**：基于大模型的智能评分
-- **评测策略**：零样本、数据驱动、集成评测
-- **自定义指标**：支持扩展评测维度
+- **三类评测**：QA / RAG / Agent 评测，指标按评测类型由后端过滤下发，前端即选即用
+- **检索指标**：Recall@K、Precision@K、MRR、NDCG
+- **生成指标**：BLEU、ROUGE、语义相似度
+- **RAG 专项指标**：忠实度（faithfulness）、答案相关性、正确性
+- **Agent 专项指标**：答案准确性、工具选择评分、执行轨迹匹配度
+- **LLM-as-a-Judge**：1-5 分多维裁判（事实正确性、内容安全性等），支持自定义评分口径
+- **评分器注册表**：内置规则 / 检索 / 生成 / 语义 / LLM 评分器，可注册自定义 grader 扩展新指标
+- **评测策略**：零样本、数据驱动（从标注样本学习校准分数）、集成（ensemble）、条件（conditional）
+- **数据集管理**：评测数据集创建 / 管理，内置示例数据集
+- **服务形态**：独立 FastAPI 评测服务（默认 :18888）承载评测计算；Go 侧负责评测任务编排、进度管理与结果结构化落库
+- **前端闭环**：评测任务创建、指标可视化配置、结果明细与详情页一体化
 
 #### 数据质量管理中心 (Quality)
 - **质量维度**：完整性、一致性、准确性、有效性、唯一性
@@ -131,12 +143,14 @@ Link 不是简单的"数据助手"，而是新一代企业级 **AI 数据专家*
 - **租户隔离**：数据与权限完全隔离
 - **权限管理**：细粒度的 RBAC 权限控制
 - **用户管理**：用户注册、登录、个人资料
-- **审计日志**：操作审计与追溯
+- **审计日志**：请求级结构化审计（audit_logs）与操作追溯，租户越权隔离加固
+- **可观测性**：request_id 全链路透传，Loki 日志采集与审计记录同 rid 关联
 
 ### 规划中 🚧
 
 | 模块 | 功能 | 优先级 |
 |------|------|--------|
+| **Data Agent 自我修复** | 结构化错误分级（`error_kind`/`hint`）、schema 线索引导修复、重复失败护栏与动态重规划、skill 可执行 handler 下沉子代理 | P0（进行中） |
 | **Agentic RL** | Agent 强化学习、自主优化、策略迭代 | P1 |
 | **AI 数据能力** | 数据收集、数据标注、智能打标、特征存储 | P1 |
 | **AI 原生能力** | 数据自描述、自适应处理、模型数据闭环、自主学习 | P2 |
@@ -497,6 +511,18 @@ Link 不是简单的"数据助手"，而是新一代企业级 **AI 数据专家*
 Link 采用 **Go + Python** 异构多服务架构：
 
 ```
+link/
+├── link-go/        # Go 主后端（API / 编排 / Agent / RAG / 图谱）
+├── link-python/    # Python 计算服务（文档解析 / 评测 / 质量，gRPC + MCP）
+├── link-web/       # Vue 3 前端（Vite）
+├── proto/          # gRPC 契约（buf 管理，单一数据源）
+├── deploy/         # 部署与依赖编排（docker-compose、Loki 等）
+├── config/         # 配置
+├── datasets/       # 演示 / 评测数据集
+├── skills/         # Agent Skill 定义
+├── openspec/       # OpenSpec 变更提案与规范
+└── docs/           # 文档
+```
 
 ---
 
@@ -609,261 +635,6 @@ npm run preview
 
 ---
 
-## 使用示例
-
-### RAG 检索
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "link/internal/application/usecases/rag"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // 创建 RAG 服务
-    ragService := rag.NewService(/* 依赖 */)
-
-    // 执行检索
-    resp, err := ragService.Search(ctx, &rag.SearchRequest{
-        Query:          "什么是知识图谱？",
-        KnowledgeBaseID: "kb_001",
-        TopK:           5,
-        SearchType:     "hybrid", // 混合检索
-    })
-    if err != nil {
-        panic(err)
-    }
-
-    for _, doc := range resp.Documents {
-        fmt.Printf("Score: %.2f, Content: %s\n", doc.Score, doc.Content)
-    }
-}
-```
-
-### Agent 对话（流式）
-
-```go
-package main
-
-import (
-    "context"
-    "link/internal/application/usecases/agent"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // 创建 Agent 服务
-    agentService := agent.NewService(/* 依赖 */)
-
-    // 流式对话
-    stream, err := agentService.ChatStream(ctx, &agent.ChatRequest{
-        AgentID: "agent_001",
-        Message: "分析最近一周的销售数据，给出结论和建议",
-    })
-    if err != nil {
-        panic(err)
-    }
-
-    for chunk := range stream {
-        fmt.Print(chunk.Content)
-    }
-}
-```
-
-### Agent Hooks（数据结论生成）
-
-```go
-package main
-
-import (
-    "context"
-    "time"
-
-    "link/internal/domain/agent"
-    "link/internal/infrastructure/agent/hooks"
-    "link/internal/infrastructure/llm/chat"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // 创建 LLM 客户端
-    llm := chat.NewClient(/* 配置 */)
-
-    // 配置结论生成 Hook
-    conclusionGen := hooks.NewConclusionGenerator(llm).
-        Enable().
-        AddDataTools("sql_query", "data_query").
-        WithTimeout(30 * time.Second)
-
-    // 通过 Builder 配置 Agent
-    builder := agent.New(llm).
-        Name("数据分析 Agent").
-        WithConclusion(conclusionGen)
-
-    ag, err := builder.Build(ctx)
-    if err != nil {
-        panic(err)
-    }
-
-    // Agent 响应会自动包含数据结论
-    resp, err := ag.Chat(ctx, "分析最近一周的销售数据")
-    if err != nil {
-        panic(err)
-    }
-
-    // resp.Metadata["conclusion"] 包含结构化结论
-    fmt.Println(resp.Metadata["conclusion"])
-}
-```
-
-### Agent Hooks（意图澄清）
-
-```go
-package main
-
-import (
-    "context"
-    "link/internal/domain/agent"
-    "link/internal/infrastructure/agent/hooks"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // 配置意图澄清 Hook
-    clarifier := hooks.NewIntentClarifier(llm).
-        Enable().
-        WithMaxRounds(2).
-        WithBusinessContext("销售分析")
-
-    // 通过 Builder 配置 Agent
-    builder := agent.New(llm).
-        Name("销售分析 Agent").
-        WithClarification(clarifier)
-
-    ag, err := builder.Build(ctx)
-    if err != nil {
-        panic(err)
-    }
-
-    // 用户查询模糊时自动澄清
-    resp, err := ag.Chat(ctx, "分析销售数据")
-    if err != nil {
-        // 返回 ClarificationNeededError，包含澄清问题
-        if clarErr, ok := err.(*agent.ClarificationNeededError); ok {
-            fmt.Printf("需要澄清：%v\n", clarErr.Questions)
-        }
-    }
-}
-```
-
-### 从配置文件创建 Agent
-
-```go
-package main
-
-import (
-    "context"
-    "link/internal/domain/agent"
-)
-
-func main() {
-    ctx := context.Background()
-
-    config := &agent.AgentConfig{
-        MaxIterations: 10,
-        HookConfig: &agent.HookConfig{
-            EnableConclusion: true,
-            DataTools:        []string{"sql_query", "data_query"},
-            Timeout:          30,
-            EnableClarification: true,
-            BusinessContext:      "销售数据分析",
-            MaxRounds:            2,
-        },
-    }
-
-    ag, err := agent.NewAgentFromConfig(chatModel, config)
-    if err != nil {
-        panic(err)
-    }
-
-    // 使用 Agent
-    resp, err := ag.Chat(ctx, "分析销售数据")
-    // ...
-}
-```
-
-### 知识图谱查询
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "link/internal/application/usecases/graph"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // 创建图谱服务
-    graphService := graph.NewService(/* 依赖 */)
-
-    // 执行图谱查询
-    resp, err := graphService.Query(ctx, &graph.QueryRequest{
-        EntityType: "Person",
-        Conditions: map[string]interface{}{
-            "name": "张三",
-        },
-        Depth: 2, // 两跳关系
-    })
-    if err != nil {
-        panic(err)
-    }
-
-    for _, node := range resp.Nodes {
-        fmt.Printf("Entity: %s, Properties: %v\n", node.ID, node.Properties)
-    }
-
-    for _, edge := range resp.Edges {
-        fmt.Printf("Relation: %s -> %s [%s]\n", edge.From, edge.To, edge.Type)
-    }
-}
-```
-
-### Python 文档处理
-
-```python
-from link_python.services.document import DocumentProcessor
-from link_python.services.document.chunking import ChunkingStrategy
-
-# 创建文档处理器
-processor = DocumentProcessor()
-
-# 处理文档
-result = processor.process(
-    file_path="document.pdf",
-    chunking_strategy=ChunkingStrategy.SEMANTIC,
-    chunk_size=500,
-    chunk_overlap=50
-)
-
-# 获取分块结果
-for chunk in result.chunks:
-    print(f"Content: {chunk.content}")
-    print(f"Metadata: {chunk.metadata}")
-```
-
----
-
 ## 开发规范
 
 - [Go 语言规范](link-go/CLAUDE.md) - Clean Architecture、设计模式应用
@@ -899,6 +670,10 @@ for chunk in result.chunks:
 - [x] 反思机制
 - [x] Data Agent（DaDa · 单一 ReAct 内核）
 - [x] Python Skill 集成 (MCP)
+- [x] 外部多数据源接入
+- [x] 指标语义层建模入口 + 治理覆盖统计
+- [x] 可观测性（request_id 全链路 + 审计日志 + Loki）
+- [ ] Data Agent 自我修复（错误分级 / 修复引导 / skill handler 下沉）🚧
 
 ### Phase 2：AI 数据能力 (2025 Q4-Q1)
 
