@@ -72,6 +72,23 @@ def _read_json_bytes(raw: bytes) -> pd.DataFrame:
 
     if df.empty:
         raise ValueError("JSON 数据不含任何记录，无法评估")
+
+    # 二维表的单元格必须是标量：若某字段的值是数组/对象（嵌套结构），
+    # 建表阶段不会报错，但后续维度评估（唯一性/一致性等）会对单元格取哈希，
+    # 遇到 list/dict 抛出难懂的 "unhashable type: 'list'"。这里提前拦截，
+    # 给出可读提示——最常见的诱因是误把「评估结果报告」当「待评估数据」粘入。
+    nested_cols = [
+        str(col)
+        for col in df.columns
+        if df[col].map(lambda v: isinstance(v, (list, dict))).any()
+    ]
+    if nested_cols:
+        raise ValueError(
+            "JSON 记录包含嵌套的数组/对象字段（"
+            + "、".join(nested_cols)
+            + "），无法作为二维表评估。请提供扁平的记录——每个字段为文本/数字/布尔，"
+            "例如 [{\"id\":1,\"name\":\"Alice\",\"age\":30}]，而不是嵌套结构或结果报告。"
+        )
     return df
 
 

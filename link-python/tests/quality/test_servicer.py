@@ -127,6 +127,24 @@ class TestQualityServicer:
         assert response.success is False
         assert "JSON 格式错误" in response.error_message
 
+    def test_evaluate_quality_nested_json_rejected(self, servicer, mock_context):
+        """误把「结果报告」当「待评估数据」粘入：字段值含数组/对象时，
+        应给出可读的中文提示，而非泄露 'unhashable type: list'。"""
+        request = quality_pb2.EvaluateQualityRequest(
+            csv_data=(
+                b'[{"overall_score":100,"record_count":1,'
+                b'"issues":[{"dimension":"completeness","level":"info"}],'
+                b'"metadata":{"dimensions_evaluated":"6"}}]'
+            ),
+            config={"format": "json"},
+        )
+
+        response = servicer.EvaluateQuality(request, mock_context)
+
+        assert response.success is False
+        assert "无法作为二维表评估" in response.error_message
+        assert "unhashable" not in response.error_message
+
     def test_evaluate_quality_with_config(self, servicer, mock_context, sample_csv_data):
         """测试带配置的评估。"""
         request = quality_pb2.EvaluateQualityRequest(

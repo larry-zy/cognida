@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { qualityApi } from '@/api/quality'
+import toast from '@/utils/toast'
 import { datasourceApi } from '@/api/datasource'
 import type { Datasource } from '@/api/datasource'
 import { useAsyncTask } from '@/composables/useAsyncTask'
@@ -19,6 +20,7 @@ import type {
 import UiPageHeader from '@/components/layout/UiPageHeader.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import UiCard from '@/components/ui/UiCard.vue'
+import UiModal from '@/components/ui/UiModal.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTable from '@/components/ui/UiTable.vue'
@@ -366,6 +368,8 @@ const pageSize = ref(10)
 const filterType = ref<QualityCheckType | ''>('')
 const detail = ref<CheckRecordDetail | null>(null)
 const detailLoading = ref(false)
+// 详情以居中弹窗展示：避免详情卡片渲染在长表格下方、超出视口而“点了没反应”。
+const detailVisible = ref(false)
 
 const typeLabels: Record<QualityCheckType, string> = {
   structured: '结构化评估',
@@ -400,18 +404,36 @@ function onFilterType(t: QualityCheckType | '') {
 async function viewDetail(row: CheckRecordItem) {
   detailLoading.value = true
   detail.value = null
+  // 先打开弹窗给出即时反馈（加载态在弹窗内展示），再拉详情。
+  detailVisible.value = true
   try {
     const res = await qualityApi.getRecord(row.id)
-    detail.value = res.data ?? null
+    if (!res.data) {
+      toast.error('记录详情为空或未返回')
+      detailVisible.value = false
+      return
+    }
+    detail.value = res.data
+  } catch (e: any) {
+    // 不吞错误：请求失败（如代理 502）时给出明确反馈，避免“点击无反应”
+    toast.error(e?.message || '加载记录详情失败')
+    detailVisible.value = false
   } finally {
     detailLoading.value = false
   }
 }
 
 async function removeRecord(row: CheckRecordItem) {
-  await qualityApi.deleteRecord(row.id)
-  if (detail.value?.id === row.id) detail.value = null
-  loadRecords()
+  try {
+    await qualityApi.deleteRecord(row.id)
+    if (detail.value?.id === row.id) {
+      detail.value = null
+      detailVisible.value = false
+    }
+    loadRecords()
+  } catch (e: any) {
+    toast.error(e?.message || '删除记录失败')
+  }
 }
 
 function onPageChange(p: number) {
@@ -750,13 +772,24 @@ function fmtTime(s: string): string {
             </UiTable>
           </UiCard>
 
-          <UiCard v-if="detail" :title="`记录详情 · ${detail.source_name}`" variant="bordered" class="result-card">
-            <div class="detail-summary">{{ detail.summary || '无摘要' }}</div>
-            <pre class="report-json">{{ JSON.stringify(detail.report, null, 2) }}</pre>
-          </UiCard>
         </div>
       </template>
     </UiTabs>
+
+    <!-- 记录详情弹窗：居中展示，避免详情渲染在长表格下方超出视口。 -->
+    <UiModal
+      v-model="detailVisible"
+      :title="detail ? `记录详情 · ${detail.source_name}` : '记录详情'"
+      size="lg"
+      centered
+    >
+      <div v-if="detailLoading" class="detail-loading">加载中…</div>
+      <template v-else-if="detail">
+        <div class="detail-summary">{{ detail.summary || '无摘要' }}</div>
+        <pre class="report-json">{{ JSON.stringify(detail.report, null, 2) }}</pre>
+      </template>
+      <UiEmpty v-else title="暂无详情" description="未获取到记录详情" />
+    </UiModal>
   </div>
 </template>
 
@@ -952,6 +985,12 @@ function fmtTime(s: string): string {
 }
 .muted {
   color: var(--text-muted, #6b7280);
+}
+.detail-loading {
+  padding: var(--space-6, 24px);
+  text-align: center;
+  color: var(--text-secondary, #9ca3af);
+  font-size: 14px;
 }
 .detail-summary {
   color: var(--text-secondary, #9ca3af);

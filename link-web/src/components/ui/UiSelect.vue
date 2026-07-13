@@ -7,6 +7,7 @@
 
     <div class="ui-select__container">
       <div
+        ref="triggerRef"
         :class="triggerClasses"
         tabindex="0"
         @click="toggleDropdown"
@@ -43,6 +44,7 @@
         <Transition name="ui-select-dropdown">
           <div
             v-if="isOpen"
+            ref="dropdownRef"
             :class="dropdownClasses"
             :style="dropdownStyle"
           >
