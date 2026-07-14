@@ -195,48 +195,20 @@ class QualityPipeline:
             质量报告
         """
         from ..rules import RuleEngine
+        from ..rules.engine import get_engine
 
         # 加载规则
         rule_engine = RuleEngine()
         rules = rule_engine.load_rules(config.get("rule_file"))
 
-        # 执行各维度评估
-        dimensions = []
-        all_issues = []
-
-        for dim_rule in rules.dimension_rules:
-            if not dim_rule.enabled:
-                continue
-
-            evaluator = EvaluatorRegistry.get_instance(dim_rule.name)
-            if evaluator:
-                result = evaluator.evaluate(
-                    data, rules.field_rules, {**config, **dim_rule.config}
-                )
-                dimensions.append(result)
-                all_issues.extend(result.issues)
-
-        # 计算总体分数
-        if dimensions:
-            total_weight = sum(dimension.weight for dimension in rules.dimension_rules if dimension.enabled)
-            weighted_score = sum(
-                d.score * next(
-                    r.weight for r in rules.dimension_rules if r.name == d.name
-                )
-                for d in dimensions
-            )
-            overall_score = weighted_score / total_weight if total_weight > 0 else 0
-        else:
-            overall_score = 0.0
-
-        # 排序问题
-        all_issues.sort(key=lambda i: (i.severity.value, -i.count), reverse=True)
-
-        return QualityReport(
-            overall_score=overall_score,
-            dimensions=dimensions,
-            issues=all_issues,
-            record_count=len(data),
+        # 与 EvaluateQuality 入口共用同一评估核心：规则引擎按维度分桶执行、
+        # 加权汇总、按严重级别排序问题（消除此前与 evaluator 各写一遍、
+        # 且排序 key 有误、config 合并顺序相反的重复实现）。
+        return get_engine().assemble_report(
+            data=data,
+            field_rules=rules.field_rules,
+            dimension_metas=rules.dimension_rules,
+            config=config,
         )
 
     def _quick_evaluate_unstructured(

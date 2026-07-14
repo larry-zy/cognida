@@ -9,6 +9,10 @@
 - Timeliness: 时效性评估
 """
 
+# 触发内置规则注册：维度评估器已退化为委托规则引擎的「薄壳」，
+# 其检查逻辑下沉在 rules.builtins 中，必须在这里导入以完成 @register_rule 注册。
+from ..rules import builtins as _builtins  # noqa: F401
+
 from .base import DimensionEvaluator
 from .completeness import CompletenessEvaluator
 from .accuracy import AccuracyEvaluator

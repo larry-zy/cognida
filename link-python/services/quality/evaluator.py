@@ -11,6 +11,7 @@ import pandas as pd
 from .models import QualityReport, UnstructuredQualityReport
 from .registry import EvaluatorRegistry
 from .rules import RuleEngine
+from .rules.engine import get_engine
 
 # 显式导入内置维度包，触发各维度的 @register_evaluator 装饰器完成注册。
 # 结构化维度过去仅因 pipeline.executor 间接 import dimensions.base 才“碰巧”注册，
@@ -114,63 +115,14 @@ class DataQualityEvaluator:
         # 加载规则
         rules = self.rule_engine.load_rules(rule_file)
 
-        # 如果没有指定维度，使用规则中启用的维度
-        if dimensions is None:
-            dimensions = [r.name for r in rules.dimension_rules if r.enabled]
-
-        # 执行评估
-        all_dimensions = []
-        all_issues = []
-
-        for dim_name in dimensions:
-            evaluator = EvaluatorRegistry.get_instance(dim_name)
-            if evaluator:
-                dim_config = {}
-                # 从规则中获取维度配置
-                for dim_rule in rules.dimension_rules:
-                    if dim_rule.name == dim_name:
-                        dim_config = dim_rule.config
-                        break
-
-                result = evaluator.evaluate(
-                    data,
-                    rules.field_rules,
-                    {**dim_config, **config},
-                )
-                all_dimensions.append(result)
-                all_issues.extend(result.issues)
-
-        # 计算总体分数
-        if all_dimensions:
-            total_weight = sum(
-                next(
-                    (r.weight for r in rules.dimension_rules if r.name == d.name),
-                    1.0,
-                )
-                for d in all_dimensions
-            )
-            weighted_score = sum(
-                d.score
-                * next(
-                    (r.weight for r in rules.dimension_rules if r.name == d.name),
-                    1.0,
-                )
-                for d in all_dimensions
-            )
-            overall_score = weighted_score / total_weight if total_weight > 0 else 0
-        else:
-            overall_score = 0.0
-
-        # 按严重级别排序问题
-        severity_priority = {"critical": 1, "warning": 2, "info": 3}
-        all_issues.sort(key=lambda i: (severity_priority.get(i.severity.value, 99), -i.count))
-
-        return QualityReport(
-            overall_score=overall_score,
-            dimensions=all_dimensions,
-            issues=all_issues,
-            record_count=len(data),
-            metadata={"dimensions_evaluated": len(all_dimensions)},
+        # 交由规则引擎统一编排：按维度分桶执行规则、加权汇总、排序问题。
+        # 维度选择、维度配置、权重均来自 rules.dimension_rules 元数据。
+        return get_engine().assemble_report(
+            data=data,
+            field_rules=rules.field_rules,
+            dimension_metas=rules.dimension_rules,
+            config=config,
+            dimensions=dimensions,
         )
 
     def evaluate_unstructured(
