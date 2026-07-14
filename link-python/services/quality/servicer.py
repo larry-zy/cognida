@@ -256,13 +256,16 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
         """执行端到端流程。"""
         try:
             config = dict(request.config) if request.config else {}
+            # 输入格式（csv/json，默认 csv）经 config 透传，与 EvaluateQuality/CleanData 一致；
+            # 端到端结果不回传导出数据（PipelineResult 仅含清洗计数/操作），故无 output_format。
+            input_format = config.pop("format", "csv")
 
             if request.is_structured:
                 # 处理结构化数据
                 if request.file_path:
                     data = self.evaluator.load_data(request.file_path)
                 elif request.csv_data:
-                    data = _read_csv_bytes(request.csv_data)
+                    data = _read_tabular_bytes(request.csv_data, input_format)
                 else:
                     return quality_pb2.ProcessPipelineResponse(
                         success=False,

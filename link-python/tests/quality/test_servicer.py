@@ -283,6 +283,24 @@ class TestQualityServicer:
         assert response.result is not None
         assert response.result.HasField("structured_report")
 
+    def test_process_pipeline_structured_json_input(self, servicer, mock_context):
+        """format=json 时端到端流程按对象数组解析输入并成功产出结构化报告。"""
+        payload = (
+            b'[{"id":1,"name":"Alice","age":25},'
+            b'{"id":2,"name":"Bob","age":30},'
+            b'{"id":3,"name":"Carol","age":35}]'
+        )
+        request = quality_pb2.ProcessPipelineRequest(
+            csv_data=payload,
+            is_structured=True,
+            config={"format": "json", "accept_threshold": "80"},
+        )
+
+        response = servicer.ProcessPipeline(request, mock_context)
+
+        assert response.success is True
+        assert response.result.HasField("structured_report")
+
     def test_process_pipeline_unstructured(self, servicer, mock_context):
         """测试非结构化数据流程处理。"""
         text = "这是一段测试文本，用于评估质量。"
