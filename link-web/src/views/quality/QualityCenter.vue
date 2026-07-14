@@ -285,6 +285,8 @@ const textIssueColumns = [
 // ==================== 数据清洗 ====================
 const cleanInput = ref('')
 const cleanSource = ref('')
+const cleanFormat = ref<'csv' | 'json'>('csv')
+const cleanOutputFormat = ref<'csv' | 'json'>('csv')
 const cleanTask = useAsyncTask<CleaningReport | null>()
 const cleanReport = ref<CleaningReport | null>(null)
 const cleanError = ref('')
@@ -304,7 +306,7 @@ function toggleCleaner(key: string) {
 
 async function runClean() {
   if (!cleanInput.value.trim()) {
-    cleanError.value = '请粘贴 CSV 数据'
+    cleanError.value = cleanFormat.value === 'json' ? '请粘贴 JSON 数据' : '请粘贴 CSV 数据'
     return
   }
   cleanError.value = ''
@@ -312,8 +314,13 @@ async function runClean() {
   await cleanTask.run(
     async () => {
       const res = await qualityApi.clean(
-        { csv_data: cleanInput.value, source_name: cleanSource.value || '粘贴数据' },
-        selectedCleaners.value
+        {
+          csv_data: cleanInput.value,
+          source_name: cleanSource.value || '粘贴数据',
+          format: cleanFormat.value
+        },
+        selectedCleaners.value,
+        cleanOutputFormat.value
       )
       cleanReport.value = res.data ?? null
       loadRecords()
@@ -343,11 +350,13 @@ function onCleanFile(e: Event) {
 
 function downloadCleaned() {
   if (!cleanReport.value?.cleaned_csv) return
-  const blob = new Blob([cleanReport.value.cleaned_csv], { type: 'text/csv;charset=utf-8' })
+  const fmt = cleanReport.value.cleaned_format || 'csv'
+  const mime = fmt === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8'
+  const blob = new Blob([cleanReport.value.cleaned_csv], { type: mime })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `cleaned_${cleanSource.value || 'data'}.csv`
+  a.download = `cleaned_${cleanSource.value || 'data'}.${fmt}`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -678,10 +687,29 @@ function fmtTime(s: string): string {
         <div class="tab-body">
           <UiCard title="输入数据" variant="bordered">
             <div class="input-row">
+              <div class="fmt-toggle" role="group" aria-label="输入格式">
+                <button
+                  type="button"
+                  class="fmt-btn"
+                  :class="{ active: cleanFormat === 'csv' }"
+                  @click="cleanFormat = 'csv'"
+                >CSV</button>
+                <button
+                  type="button"
+                  class="fmt-btn"
+                  :class="{ active: cleanFormat === 'json' }"
+                  @click="cleanFormat = 'json'"
+                >JSON</button>
+              </div>
               <input type="text" class="q-input" v-model="cleanSource" placeholder="来源名称（可选）" />
               <label class="file-btn">
-                上传 CSV
-                <input type="file" accept=".csv,text/csv" hidden @change="onCleanFile" />
+                {{ cleanFormat === 'json' ? '上传 JSON' : '上传 CSV' }}
+                <input
+                  type="file"
+                  :accept="cleanFormat === 'json' ? '.json,application/json' : '.csv,text/csv'"
+                  hidden
+                  @change="onCleanFile"
+                />
               </label>
             </div>
             <div class="cleaner-picker">
@@ -693,9 +721,26 @@ function fmtTime(s: string): string {
                 @click="toggleCleaner(c.key)"
               >{{ c.label }}</span>
             </div>
+            <div class="fmt-row">
+              <span class="fmt-row-label">导出格式</span>
+              <div class="fmt-toggle" role="group" aria-label="导出格式">
+                <button
+                  type="button"
+                  class="fmt-btn"
+                  :class="{ active: cleanOutputFormat === 'csv' }"
+                  @click="cleanOutputFormat = 'csv'"
+                >CSV</button>
+                <button
+                  type="button"
+                  class="fmt-btn"
+                  :class="{ active: cleanOutputFormat === 'json' }"
+                  @click="cleanOutputFormat = 'json'"
+                >JSON</button>
+              </div>
+            </div>
             <UiTextarea
               v-model="cleanInput"
-              placeholder="粘贴 CSV 数据，首行为表头"
+              :placeholder="cleanFormat === 'json' ? '粘贴 JSON 数据，形如 [{&quot;id&quot;:1,&quot;name&quot;:&quot;张三&quot;}]' : '粘贴 CSV 数据，首行为表头'"
               :rows="8"
             />
             <div v-if="cleanError" class="err">{{ cleanError }}</div>
@@ -720,7 +765,9 @@ function fmtTime(s: string): string {
             </UiTable>
 
             <div v-if="cleanReport.cleaned_csv" class="download-row">
-              <UiButton variant="secondary" @click="downloadCleaned">下载清洗后 CSV</UiButton>
+              <UiButton variant="secondary" @click="downloadCleaned">
+                下载清洗后数据（{{ (cleanReport.cleaned_format || 'csv').toUpperCase() }}）
+              </UiButton>
             </div>
           </UiCard>
         </div>
@@ -837,6 +884,16 @@ function fmtTime(s: string): string {
 .fmt-btn.active {
   background: var(--primary, #6366f1);
   color: #fff;
+}
+.fmt-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  margin-bottom: var(--space-3, 12px);
+}
+.fmt-row-label {
+  font-size: 13px;
+  color: var(--text-secondary, #9ca3af);
 }
 .q-input {
   flex: 1;

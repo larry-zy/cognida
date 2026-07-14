@@ -141,14 +141,28 @@ func (s *Service) EvaluateUnstructured(ctx context.Context, tenantID, userID int
 // 数据清洗
 // ========================================
 
-// Clean 清洗 CSV 数据，返回清洗结果与清洗后的 CSV，并落库。
-func (s *Service) Clean(ctx context.Context, tenantID, userID int64, sourceName string, csv []byte, cleaners []string) (*CleaningReport, error) {
+// Clean 清洗数据，返回清洗结果与清洗后的数据，并落库。
+// format 指定输入解析方式（csv/json，默认 csv）；outputFormat 指定导出格式
+// （csv/json），为空时 Python 端跟随输入格式。二者均经 config 透传，无需改 proto。
+func (s *Service) Clean(ctx context.Context, tenantID, userID int64, sourceName string, data []byte, cleaners []string, format, outputFormat string) (*CleaningReport, error) {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	config := make(map[string]string)
+	if f := strings.ToLower(strings.TrimSpace(format)); f == "json" {
+		config["format"] = "json"
+	}
+	if of := strings.ToLower(strings.TrimSpace(outputFormat)); of == "json" || of == "csv" {
+		config["output_format"] = of
+	}
+	if len(config) == 0 {
+		config = nil
+	}
+
 	resp, err := s.gateway.CleanData(callCtx, &qualitypb.CleanDataRequest{
-		Data:     &qualitypb.CleanDataRequest_CsvData{CsvData: csv},
+		Data:     &qualitypb.CleanDataRequest_CsvData{CsvData: data},
 		Cleaners: cleaners,
+		Config:   config,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("数据清洗失败: %w", err)
@@ -159,12 +173,26 @@ func (s *Service) Clean(ctx context.Context, tenantID, userID int64, sourceName 
 
 	report := mapCleaningReport(resp.GetResult())
 	report.CleanedCSV = string(resp.GetCleanedData())
+	// 导出格式：显式指定优先，否则跟随输入格式（与 Python 端缺省逻辑一致）
+	report.CleanedFormat = resolveCleanedFormat(outputFormat, format)
 	summary := fmt.Sprintf("原 %d 行 → 清洗后 %d 行（移除 %d）",
 		report.OriginalCount, report.CleanedCount, report.RemovedCount)
 	// 清洗记录不含质量分，落库时 score 记 0，record_count 记原始行数。
 	s.persist(ctx, tenantID, userID, domain_quality.CheckTypeCleaning, sourceName,
 		0, report.OriginalCount, summary, report)
 	return report, nil
+}
+
+// resolveCleanedFormat 推导清洗结果的实际导出格式，供前端决定下载文件扩展名/MIME。
+// 与 Python 端一致：显式 outputFormat 优先，其次跟随输入 format，默认 csv。
+func resolveCleanedFormat(outputFormat, inputFormat string) string {
+	if of := strings.ToLower(strings.TrimSpace(outputFormat)); of == "json" || of == "csv" {
+		return of
+	}
+	if strings.ToLower(strings.TrimSpace(inputFormat)) == "json" {
+		return "json"
+	}
+	return "csv"
 }
 
 // ========================================

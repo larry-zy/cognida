@@ -178,24 +178,28 @@ func (h *QualityHandler) EvaluateUnstructured(c *gin.Context) {
 // CleanData 数据清洗
 // @Router /api/v1/quality/clean [post]
 func (h *QualityHandler) CleanData(c *gin.Context) {
-	// 复用 CSV 提取逻辑，dimensions/format 位在清洗场景不用；cleaners 单独取。
-	csv, sourceName, _, _, ok := h.readCSVInput(c)
+	// 复用数据提取逻辑：dimensions 位在清洗场景不用；format 为输入格式；
+	// cleaners 与 output_format（导出格式）单独取。
+	data, sourceName, _, format, ok := h.readCSVInput(c)
 	if !ok {
 		return
 	}
+	// body 已被 readCSVInput 读走，cleaners/output_format 从表单或 query 兜底获取。
 	var cleaners []string
+	var outputFormat string
 	if strings.HasPrefix(c.ContentType(), "multipart/form-data") {
 		if cl := c.PostForm("cleaners"); cl != "" {
 			cleaners = splitCSVParam(cl)
 		}
+		outputFormat = c.PostForm("output_format")
 	} else {
-		// JSON body 已被 readCSVInput 读走，cleaners 从 query 兜底获取。
 		if cl := c.Query("cleaners"); cl != "" {
 			cleaners = splitCSVParam(cl)
 		}
+		outputFormat = c.Query("output_format")
 	}
 	report, err := h.service.Clean(
-		c.Request.Context(), GetTenantID(c), GetUserID(c), sourceName, csv, cleaners)
+		c.Request.Context(), GetTenantID(c), GetUserID(c), sourceName, data, cleaners, format, outputFormat)
 	if err != nil {
 		respondEvalError(c, err)
 		return

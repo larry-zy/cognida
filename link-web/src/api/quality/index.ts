@@ -70,7 +70,10 @@ export interface CleaningReport {
   cleaned_count: number
   removed_count: number
   operations: CleaningOperation[]
+  /** 清洗后的数据文本（预览/下载）；实际格式见 cleaned_format */
   cleaned_csv?: string
+  /** cleaned_csv 的格式：csv 或 json，决定下载文件的扩展名与 MIME */
+  cleaned_format?: 'csv' | 'json'
 }
 
 /** 支持的质量维度说明 */
@@ -125,6 +128,8 @@ export interface UnstructuredRequest {
 export interface CleanRequest {
   csv_data: string
   source_name?: string
+  /** 输入格式，默认 csv；json 表示 csv_data 内是对象数组 */
+  format?: 'csv' | 'json'
 }
 
 export interface DatasourceEvaluateRequest {
@@ -168,11 +173,12 @@ export const qualityApi = {
     return http.post<UnstructuredReport>('/quality/evaluate/unstructured', data)
   },
 
-  /** 数据清洗（粘贴 CSV 文本）。cleaners 通过 query 传递，与后端 handler 约定一致。 */
-  clean(data: CleanRequest, cleaners?: string[]) {
-    const config = cleaners && cleaners.length
-      ? { params: { cleaners: cleaners.join(',') } }
-      : undefined
+  /** 数据清洗（粘贴文本）。cleaners、output_format 通过 query 传递，与后端 handler 约定一致。 */
+  clean(data: CleanRequest, cleaners?: string[], outputFormat?: 'csv' | 'json') {
+    const params: Record<string, string> = {}
+    if (cleaners && cleaners.length) params.cleaners = cleaners.join(',')
+    if (outputFormat) params.output_format = outputFormat
+    const config = Object.keys(params).length ? { params } : undefined
     return http.post<CleaningReport>('/quality/clean', data, config)
   },
 

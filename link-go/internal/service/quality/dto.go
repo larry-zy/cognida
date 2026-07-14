@@ -67,8 +67,12 @@ type CleaningReport struct {
 	CleanedCount  int32               `json:"cleaned_count"`
 	RemovedCount  int32               `json:"removed_count"`
 	Operations    []CleaningOperation `json:"operations"`
-	// CleanedCSV 清洗后的 CSV 文本，供前端预览/下载。
+	// CleanedCSV 清洗后的数据文本，供前端预览/下载。内容格式由 CleanedFormat 指示
+	// （csv 或 json），字段名保留 cleaned_csv 以兼容既有前端契约。
 	CleanedCSV string `json:"cleaned_csv,omitempty"`
+	// CleanedFormat 标注 CleanedCSV 的实际格式（csv/json），供前端决定下载文件的
+	// 扩展名与 MIME 类型。
+	CleanedFormat string `json:"cleaned_format,omitempty"`
 }
 
 // DimensionInfo 支持的质量维度说明

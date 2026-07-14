@@ -213,6 +213,62 @@ class TestQualityServicer:
         assert response.success is False
         assert "No data provided" in response.error_message
 
+    def test_clean_data_json_input_output(self, servicer, mock_context):
+        """format=json 时输入按对象数组解析，output_format=json 时导出对象数组。"""
+        payload = (
+            b'[{"id":1,"name":" Alice "},'
+            b'{"id":1,"name":" Alice "},'
+            b'{"id":2,"name":"Bob"}]'
+        )
+        request = quality_pb2.CleanDataRequest(
+            csv_data=payload,
+            cleaners=["trim", "dedup"],
+            config={"format": "json", "output_format": "json"},
+        )
+
+        response = servicer.CleanData(request, mock_context)
+
+        assert response.success is True
+        # 导出为可回读的对象数组 JSON
+        import json
+
+        records = json.loads(response.cleaned_data.decode("utf-8"))
+        assert isinstance(records, list)
+        # 去重后应剩 2 条，且首尾空白被 trim
+        assert len(records) == 2
+        assert any(r["name"] == "Alice" for r in records)
+
+    def test_clean_data_output_format_follows_input(self, servicer, mock_context):
+        """未指定 output_format 时，JSON 输入默认 JSON 导出。"""
+        payload = b'[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]'
+        request = quality_pb2.CleanDataRequest(
+            csv_data=payload,
+            cleaners=["trim"],
+            config={"format": "json"},
+        )
+
+        response = servicer.CleanData(request, mock_context)
+
+        assert response.success is True
+        import json
+
+        records = json.loads(response.cleaned_data.decode("utf-8"))
+        assert [r["name"] for r in records] == ["Alice", "Bob"]
+
+    def test_clean_data_csv_default_unchanged(self, servicer, mock_context, sample_csv_data):
+        """未带 format 时保持 CSV 输入/导出的历史行为。"""
+        request = quality_pb2.CleanDataRequest(
+            csv_data=sample_csv_data,
+            cleaners=["trim"],
+        )
+
+        response = servicer.CleanData(request, mock_context)
+
+        assert response.success is True
+        text = response.cleaned_data.decode("utf-8")
+        # CSV 首行为表头
+        assert text.splitlines()[0].split(",")[0] == "id"
+
     def test_process_pipeline_structured(self, servicer, mock_context, sample_csv_data):
         """测试结构化数据流程处理。"""
         request = quality_pb2.ProcessPipelineRequest(

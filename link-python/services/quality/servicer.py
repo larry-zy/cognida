@@ -99,6 +99,24 @@ def _read_tabular_bytes(raw: bytes, fmt: str) -> pd.DataFrame:
     return _read_csv_bytes(raw)
 
 
+def _write_tabular_bytes(df: pd.DataFrame, fmt: str) -> bytes:
+    """把 DataFrame 序列化为字节流，与 :func:`_read_tabular_bytes` 对称（csv/json）。
+
+    - csv：与历史行为一致，`to_csv(index=False)`；
+    - json：对象数组 [{...}, {...}]，`force_ascii=False` 保留中文，日期按 ISO 输出，
+      可被 :func:`_read_json_bytes` 无损回读，形成清洗「JSON 入 → JSON 出」的闭环。
+    """
+    from io import BytesIO
+
+    if (fmt or "csv").strip().lower() == "json":
+        return df.to_json(
+            orient="records", force_ascii=False, date_format="iso"
+        ).encode("utf-8")
+    output = BytesIO()
+    df.to_csv(output, index=False)
+    return output.getvalue()
+
+
 class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
     """质量服务 gRPC 实现。"""
 
@@ -188,11 +206,20 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
     ) -> quality_pb2.CleanDataResponse:
         """清洗数据。"""
         try:
+            # format 提示经 config 透传（避免改 proto），与 EvaluateQuality 保持一致：
+            #   format        —— 输入解析格式（csv/json），默认 csv；
+            #   output_format —— 清洗结果导出格式（csv/json），缺省跟随输入格式，
+            #                    因此「JSON 入 → JSON 出」开箱即用，前端也可显式覆盖。
+            # 先从 config 取出，避免污染下游清洗器配置。
+            config = dict(request.config) if request.config else {}
+            input_format = config.pop("format", "csv")
+            output_format = config.pop("output_format", "") or input_format
+
             # 加载数据
             if request.file_path:
                 data = self.evaluator.load_data(request.file_path)
             elif request.csv_data:
-                data = _read_csv_bytes(request.csv_data)
+                data = _read_tabular_bytes(request.csv_data, input_format)
             else:
                 return quality_pb2.CleanDataResponse(
                     success=False,
@@ -201,23 +228,17 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
 
             # 执行清洗
             cleaners = list(request.cleaners) if request.cleaners else None
-            config = dict(request.config) if request.config else {}
-
             if cleaners:
                 config["cleaners"] = cleaners
 
             result = self.pipeline._clean_data(data, config)
 
-            # 转换清洗后的数据
-            from io import BytesIO
-
-            output = BytesIO()
+            # 按 output_format 序列化清洗后的数据（csv/json）
             cleaned_data = result.cleaned_data if result.cleaned_data is not None else data
-            cleaned_data.to_csv(output, index=False)
 
             return quality_pb2.CleanDataResponse(
                 result=self._convert_cleaning_result(result),
-                cleaned_data=output.getvalue(),
+                cleaned_data=_write_tabular_bytes(cleaned_data, output_format),
                 success=True,
             )
 
