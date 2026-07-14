@@ -306,11 +306,23 @@ func (s *authService) ValidateToken(tokenString string) (*user.TokenClaims, erro
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		// 逐字段 comma-ok 提取：缺失/类型不符的声明返回可控错误（上游 401），
+		// 而非裸类型断言 panic 成 500。user_id 为身份主键，缺失即视为无效令牌。
+		userID, ok := claims["user_id"].(float64)
+		if !ok {
+			return nil, errors.New("无效的Token：缺少 user_id")
+		}
 		tokenClaims := &user.TokenClaims{
-			UserID:    int64(claims["user_id"].(float64)),
-			Username:  claims["username"].(string),
-			Email:     claims["email"].(string),
-			TokenType: claims["token_type"].(string),
+			UserID: int64(userID),
+		}
+		if username, ok := claims["username"].(string); ok {
+			tokenClaims.Username = username
+		}
+		if email, ok := claims["email"].(string); ok {
+			tokenClaims.Email = email
+		}
+		if tokenType, ok := claims["token_type"].(string); ok {
+			tokenClaims.TokenType = tokenType
 		}
 		// 尝试获取 tenant_id（如果存在）
 		if tenantID, ok := claims["tenant_id"].(float64); ok {
