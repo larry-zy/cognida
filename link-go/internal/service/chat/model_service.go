@@ -4,9 +4,16 @@ package chat
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"link/internal/model/llm"
 )
+
+// chatChainFactory 是模型工厂的可选能力：按有序配置装配一条 chat 弹性降级链。
+// 工厂未实现时退化为单目标创建。
+type chatChainFactory interface {
+	CreateChatModelChain(configs []*llm.ModelConfig) (llm.LLMClient, error)
+}
 
 // ========================================
 // Model 管理 Service
@@ -165,12 +172,48 @@ func (s *ModelService) CreateChatModel(ctx context.Context, tenantID, modelID in
 		return nil, fmt.Errorf("模型类型不匹配")
 	}
 
+	// 工厂支持链式时，装配「主模型 + 同租户其它可用 chat 模型」降级链。
+	if chainFactory, ok := s.modelFactory.(chatChainFactory); ok {
+		model, err := chainFactory.CreateChatModelChain(s.buildChatChain(ctx, tenantID, config))
+		if err != nil {
+			return nil, fmt.Errorf("创建聊天模型失败: %w", err)
+		}
+		return model, nil
+	}
+
 	model, err := s.modelFactory.CreateChatModel(config)
 	if err != nil {
 		return nil, fmt.Errorf("创建聊天模型失败: %w", err)
 	}
 
 	return model, nil
+}
+
+// buildChatChain 组装 chat 降级链：主模型置首，其余同租户可用 chat 模型按
+// 「默认优先、再按 ID 升序」排在后备位。查询失败时退化为仅主模型。
+func (s *ModelService) buildChatChain(ctx context.Context, tenantID int64, primary *llm.ModelConfig) []*llm.ModelConfig {
+	chain := []*llm.ModelConfig{primary}
+
+	others, err := s.modelRepo.GetByType(ctx, tenantID, llm.ModelTypeChat)
+	if err != nil {
+		return chain
+	}
+
+	candidates := make([]*llm.ModelConfig, 0, len(others))
+	for _, c := range others {
+		if c == nil || c.ID == primary.ID || !c.Enabled {
+			continue
+		}
+		candidates = append(candidates, c)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].IsDefault != candidates[j].IsDefault {
+			return candidates[i].IsDefault
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+
+	return append(chain, candidates...)
 }
 
 // CreateEmbeddingModel 创建嵌入向量模型实例

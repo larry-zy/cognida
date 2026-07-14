@@ -23,11 +23,12 @@ import (
 
 // openaiChatRepo OpenAI 聊天仓储实现
 type openaiChatRepo struct {
-	baseURL   string
-	apiKey    string
-	model     string
-	client    *http.Client
-	tools     []*domainllm.Tool
+	provider domainllm.Provider
+	baseURL  string
+	apiKey   string
+	model    string
+	client   *http.Client
+	tools    []*domainllm.Tool
 }
 
 // NewOpenAIChatRepo 创建 OpenAI LLM 客户端
@@ -41,11 +42,17 @@ func NewOpenAIChatRepo(config *domainllm.ModelConfig) (domainllm.LLMClient, erro
 		baseURL = "https://api.openai.com/v1"
 	}
 
+	provider := config.Provider
+	if provider == "" {
+		provider = domainllm.ProviderOpenAI
+	}
+
 	return &openaiChatRepo{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		apiKey:  config.APIKey,
-		model:   config.ModelName,
-		client:  &http.Client{
+		provider: provider,
+		baseURL:  strings.TrimSuffix(baseURL, "/"),
+		apiKey:   config.APIKey,
+		model:    config.ModelName,
+		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 	}, nil
@@ -59,14 +66,14 @@ func (r *openaiChatRepo) Chat(ctx context.Context, req *domainllm.ChatRequest) (
 	// 发送请求
 	resp, err := r.sendRequest(ctx, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("send request failed: %w", err)
+		return nil, apiErrorFromTransport(r.provider, r.model, err)
 	}
 	defer resp.Body.Close()
 
 	// 解析响应
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
+		return nil, apiErrorFromResponse(r.provider, r.model, resp, body)
 	}
 
 	var openaiResp openaiChatResponse
@@ -121,13 +128,13 @@ func (r *openaiChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequ
 	// 发送请求
 	resp, err := r.sendRequest(ctx, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("send request failed: %w", err)
+		return nil, apiErrorFromTransport(r.provider, r.model, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
+		return nil, apiErrorFromResponse(r.provider, r.model, resp, body)
 	}
 
 	// 创建流式通道
@@ -385,14 +392,179 @@ func NewOllamaChatRepo(config *domainllm.ModelConfig) (domainllm.LLMClient, erro
 
 // Chat 执行非流式聊天
 func (r *ollamaChatRepo) Chat(ctx context.Context, req *domainllm.ChatRequest) (*domainllm.ChatResponse, error) {
-	// TODO: 实现 Ollama API 调用
-	return nil, fmt.Errorf("ollama chat not implemented yet")
+	resp, err := r.sendRequest(ctx, req, false)
+	if err != nil {
+		return nil, apiErrorFromTransport(domainllm.ProviderOllama, r.model, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, apiErrorFromResponse(domainllm.ProviderOllama, r.model, resp, body)
+	}
+
+	var oResp ollamaChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&oResp); err != nil {
+		return nil, fmt.Errorf("decode response failed: %w", err)
+	}
+
+	role := oResp.Message.Role
+	if role == "" {
+		role = domainllm.RoleAssistant
+	}
+
+	return &domainllm.ChatResponse{
+		Message: &domainllm.Message{
+			Role:    role,
+			Content: oResp.Message.Content,
+		},
+		Content:      oResp.Message.Content,
+		Usage:        oResp.usage(),
+		FinishReason: oResp.DoneReason,
+		Metadata: map[string]interface{}{
+			"model": oResp.Model,
+		},
+	}, nil
 }
 
 // ChatStream 执行流式聊天
 func (r *ollamaChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequest) (<-chan *domainllm.ChatChunk, error) {
-	// TODO: 实现 Ollama 流式 API 调用
-	return nil, fmt.Errorf("ollama stream chat not implemented yet")
+	resp, err := r.sendRequest(ctx, req, true)
+	if err != nil {
+		return nil, apiErrorFromTransport(domainllm.ProviderOllama, r.model, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, apiErrorFromResponse(domainllm.ProviderOllama, r.model, resp, body)
+	}
+
+	resultChan := make(chan *domainllm.ChatChunk, 10)
+
+	go func() {
+		defer close(resultChan)
+		defer resp.Body.Close()
+
+		// Ollama 流式返回 NDJSON，逐行一个 JSON 对象
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+
+			var chunk ollamaChatResponse
+			if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+				continue
+			}
+
+			if chunk.Message.Content != "" {
+				select {
+				case resultChan <- &domainllm.ChatChunk{
+					Content: chunk.Message.Content,
+					Role:    chunk.Message.Role,
+				}:
+				case <-ctx.Done():
+					return
+				}
+			}
+
+			if chunk.Done {
+				select {
+				case resultChan <- &domainllm.ChatChunk{Done: true}:
+				case <-ctx.Done():
+				}
+				return
+			}
+		}
+	}()
+
+	return resultChan, nil
+}
+
+// sendRequest 构建并发送 Ollama /api/chat 请求
+func (r *ollamaChatRepo) sendRequest(ctx context.Context, req *domainllm.ChatRequest, stream bool) (*http.Response, error) {
+	messages := make([]ollamaMessage, len(req.Messages))
+	for i, msg := range req.Messages {
+		messages[i] = ollamaMessage{Role: msg.Role, Content: msg.Content}
+	}
+
+	oReq := ollamaChatRequest{
+		Model:    r.model,
+		Messages: messages,
+		Stream:   stream,
+	}
+
+	if req.Options != nil {
+		opts := map[string]interface{}{}
+		if req.Options.Temperature > 0 {
+			opts["temperature"] = req.Options.Temperature
+		}
+		if req.Options.TopP > 0 {
+			opts["top_p"] = req.Options.TopP
+		}
+		if req.Options.TopK > 0 {
+			opts["top_k"] = req.Options.TopK
+		}
+		if req.Options.MaxTokens > 0 {
+			opts["num_predict"] = req.Options.MaxTokens
+		}
+		if len(req.Options.Stop) > 0 {
+			opts["stop"] = req.Options.Stop
+		}
+		if len(opts) > 0 {
+			oReq.Options = opts
+		}
+	}
+
+	body, err := json.Marshal(oReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request failed: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", r.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	return r.client.Do(httpReq)
+}
+
+// ========================================
+// Ollama API Types
+// ========================================
+
+type ollamaChatRequest struct {
+	Model    string                 `json:"model"`
+	Messages []ollamaMessage        `json:"messages"`
+	Stream   bool                   `json:"stream"`
+	Options  map[string]interface{} `json:"options,omitempty"`
+}
+
+type ollamaMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ollamaChatResponse struct {
+	Model           string        `json:"model"`
+	Message         ollamaMessage `json:"message"`
+	Done            bool          `json:"done"`
+	DoneReason      string        `json:"done_reason"`
+	PromptEvalCount int           `json:"prompt_eval_count"`
+	EvalCount       int           `json:"eval_count"`
+}
+
+func (o *ollamaChatResponse) usage() *domainllm.Usage {
+	return &domainllm.Usage{
+		PromptTokens:     o.PromptEvalCount,
+		CompletionTokens: o.EvalCount,
+		TotalTokens:      o.PromptEvalCount + o.EvalCount,
+	}
 }
 
 // GetModelInfo 获取模型信息

@@ -396,7 +396,7 @@ func ProvideModelRepository(db *gorm.DB) llm.ModelRepository {
 
 // ProvideModelFactory provides the model factory
 func ProvideModelFactory() llm.ModelFactory {
-	return llm2.NewModelFactory()
+	return llm2.NewModelFactoryWithObservability()
 }
 
 // ProvideChatModel 基于聊天配置创建 model.ChatModel，
