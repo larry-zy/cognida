@@ -86,6 +86,7 @@ class Cleaner(ABC):
             removed_count=removed_count,
             operations=operations,
             metadata=metadata or {},
+            cleaned_data=cleaned_data,
         )
 
 

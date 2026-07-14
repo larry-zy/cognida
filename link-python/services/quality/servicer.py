@@ -212,7 +212,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
             from io import BytesIO
 
             output = BytesIO()
-            cleaned_data = data.iloc[: result.cleaned_count]
+            cleaned_data = result.cleaned_data if result.cleaned_data is not None else data
             cleaned_data.to_csv(output, index=False)
 
             return quality_pb2.CleanDataResponse(

@@ -6,9 +6,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class SeverityLevel(str, Enum):
@@ -250,6 +253,7 @@ class CleaningResult:
         removed_count: 移除的记录数
         operations: 应用的清洗操作列表
         metadata: 额外元数据
+        cleaned_data: 清洗后的数据帧（用于产出 CSV，不参与序列化/比较）
     """
 
     original_count: int
@@ -258,6 +262,11 @@ class CleaningResult:
     operations: list[CleaningOperation]
     metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
+    # frozen 数据类会据 compare 字段生成 __eq__/__hash__；DataFrame 既不可哈希
+    # 也无法安全比较，故 compare=False 将其排除，同时不进入 repr/to_dict。
+    cleaned_data: "pd.DataFrame | None" = field(
+        default=None, compare=False, repr=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典。"""

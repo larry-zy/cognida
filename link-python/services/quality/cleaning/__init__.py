@@ -14,6 +14,11 @@ from .dedup import DedupProcessor
 from .denoiser import Denoiser
 from .format_converter import FormatConverter
 from .pii_masker import PIIMasker
+from .dataframe_ops import (
+    TrimCleaner,
+    NormalizeWhitespaceCleaner,
+    DropEmptyRowsCleaner,
+)
 
 __all__ = [
     "Cleaner",
@@ -22,4 +27,7 @@ __all__ = [
     "Denoiser",
     "FormatConverter",
     "PIIMasker",
+    "TrimCleaner",
+    "NormalizeWhitespaceCleaner",
+    "DropEmptyRowsCleaner",
 ]

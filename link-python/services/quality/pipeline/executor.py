@@ -325,20 +325,34 @@ class QualityPipeline:
         cleaned_data = data.copy()
         all_operations = []
 
+        from ..models import CleaningOperation, CleaningResult
+
         for cleaner_name in cleaners:
             cleaner = CleanerRegistry.get_instance(cleaner_name)
-            if cleaner:
-                result = cleaner.clean(cleaned_data, config)
-                cleaned_data = cleaned_data.iloc[: result.cleaned_count]
-                all_operations.extend(result.operations)
+            if cleaner is None:
+                # 未知清洗器不静默忽略：记录一条操作，让前端可见
+                all_operations.append(
+                    CleaningOperation(
+                        type="skipped",
+                        field=None,
+                        count=0,
+                        description=f"未识别的清洗器 '{cleaner_name}'，已跳过",
+                    )
+                )
+                continue
 
-        from ..models import CleaningResult
+            result = cleaner.clean(cleaned_data, config)
+            # 采用清洗器真正产出的数据帧（转换/删行都生效），而非按行数截断
+            if result.cleaned_data is not None:
+                cleaned_data = result.cleaned_data
+            all_operations.extend(result.operations)
 
         return CleaningResult(
             original_count=len(data),
             cleaned_count=len(cleaned_data),
             removed_count=len(data) - len(cleaned_data),
             operations=all_operations,
+            cleaned_data=cleaned_data,
         )
 
     def _make_decision(self, score: float, config: dict[str, Any]) -> Decision:

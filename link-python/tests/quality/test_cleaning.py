@@ -358,3 +358,87 @@ class TestPIIMasker:
 
         assert isinstance(result, CleaningResult)
         assert len(result.operations) > 0
+
+
+class TestDataFrameOps:
+    """结构清洗器（trim/normalize_ws/drop_empty）测试。
+
+    这些是前端「数据清洗」页四个基础操作里的三个，回归此前
+    「只有 dedup 生效、其余名字被静默跳过」的缺陷。
+    """
+
+    def _messy(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            "name": ["  Alice  ", "Bob", " ", "Alice"],
+            "note": ["hello    world", "  spaced   out  ", "   ", "hi"],
+        })
+
+    def test_trim_strips_edges(self):
+        """trim 去除首尾空白且行数不变。"""
+        from services.quality.cleaning.dataframe_ops import TrimCleaner
+
+        result = TrimCleaner().clean(self._messy())
+        assert result.cleaned_data is not None
+        assert result.cleaned_count == result.original_count  # 只转换不删行
+        assert result.cleaned_data["name"].iloc[0] == "Alice"
+        # 内部多余空格不属于 trim 职责，应保留
+        assert result.cleaned_data["note"].iloc[0] == "hello    world"
+
+    def test_normalize_ws_collapses_runs(self):
+        """normalize_ws 压缩内部连续空白并去首尾。"""
+        from services.quality.cleaning.dataframe_ops import (
+            NormalizeWhitespaceCleaner,
+        )
+
+        result = NormalizeWhitespaceCleaner().clean(self._messy())
+        assert result.cleaned_data is not None
+        assert result.cleaned_data["note"].iloc[0] == "hello world"
+        assert result.cleaned_data["note"].iloc[1] == "spaced out"
+
+    def test_drop_empty_removes_blank_rows(self):
+        """drop_empty 删除全空白行。"""
+        from services.quality.cleaning.dataframe_ops import DropEmptyRowsCleaner
+
+        result = DropEmptyRowsCleaner().clean(self._messy())
+        assert result.cleaned_data is not None
+        assert result.removed_count == 1  # 第三行 name/note 均为空白
+        assert len(result.cleaned_data) == 3
+
+
+class TestCleanDataFlow:
+    """清洗管线端到端数据流：清洗后的 DataFrame 必须真正产出。"""
+
+    def test_pipeline_applies_transforms_not_truncation(self):
+        """回归：此前管线按行数截断、丢弃转换结果；现应链式应用真实清洗。"""
+        from services.quality.pipeline.executor import QualityPipeline
+        import services.quality.cleaning  # noqa: F401 触发注册
+
+        data = pd.DataFrame({
+            "name": ["  Alice  ", "Alice", "Bob", " "],
+            "note": ["hello    world", "hello world", "  x  ", "  "],
+        })
+        pipeline = QualityPipeline.__new__(QualityPipeline)
+        result = pipeline._clean_data(
+            data,
+            {"cleaners": ["trim", "normalize_ws", "drop_empty", "dedup"]},
+        )
+
+        assert result.cleaned_data is not None
+        # 空行删除 + 去重后剩 Alice / Bob 两行
+        assert result.cleaned_count == 2
+        names = list(result.cleaned_data["name"])
+        assert names == ["Alice", "Bob"]
+        assert result.cleaned_data["note"].iloc[0] == "hello world"
+
+    def test_unknown_cleaner_is_surfaced_not_silent(self):
+        """未知清洗器名不再静默跳过，应记录 skipped 操作。"""
+        from services.quality.pipeline.executor import QualityPipeline
+        import services.quality.cleaning  # noqa: F401
+
+        data = pd.DataFrame({"a": ["x", "x", "y"]})
+        pipeline = QualityPipeline.__new__(QualityPipeline)
+        result = pipeline._clean_data(data, {"cleaners": ["nope", "dedup"]})
+
+        skipped = [op for op in result.operations if op.type == "skipped"]
+        assert len(skipped) == 1
+        assert "nope" in skipped[0].description
