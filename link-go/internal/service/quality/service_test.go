@@ -15,6 +15,11 @@ type fakeGateway struct {
 	lastConfig map[string]string
 	resp       *qualitypb.EvaluateQualityResponse
 	err        error
+
+	// 清洗相关：记录最后一次清洗请求，返回预置响应
+	lastCleanReq *qualitypb.CleanDataRequest
+	cleanResp    *qualitypb.CleanDataResponse
+	cleanErr     error
 }
 
 func (f *fakeGateway) EvaluateQuality(_ context.Context, req *qualitypb.EvaluateQualityRequest) (*qualitypb.EvaluateQualityResponse, error) {
@@ -29,8 +34,20 @@ func (f *fakeGateway) EvaluateQuality(_ context.Context, req *qualitypb.Evaluate
 func (f *fakeGateway) EvaluateUnstructuredQuality(context.Context, *qualitypb.EvaluateUnstructuredQualityRequest) (*qualitypb.EvaluateUnstructuredQualityResponse, error) {
 	return nil, errors.New("not implemented")
 }
-func (f *fakeGateway) CleanData(context.Context, *qualitypb.CleanDataRequest) (*qualitypb.CleanDataResponse, error) {
-	return nil, errors.New("not implemented")
+func (f *fakeGateway) CleanData(_ context.Context, req *qualitypb.CleanDataRequest) (*qualitypb.CleanDataResponse, error) {
+	f.lastCleanReq = req
+	if f.cleanErr != nil {
+		return nil, f.cleanErr
+	}
+	if f.cleanResp != nil {
+		return f.cleanResp, nil
+	}
+	// 默认：成功、空清洗结果、回显 csv_data 作为清洗后数据
+	return &qualitypb.CleanDataResponse{
+		Success:     true,
+		Result:      &qualitypb.CleaningResult{},
+		CleanedData: req.GetCsvData(),
+	}, nil
 }
 func (f *fakeGateway) ListDimensions(context.Context, *qualitypb.ListDimensionsRequest) (*qualitypb.ListDimensionsResponse, error) {
 	return nil, errors.New("not implemented")
@@ -165,5 +182,49 @@ func TestEvaluateDatasourceHappyPath(t *testing.T) {
 	// 抽到的 CSV 被推给 gateway（Python 不直连库）
 	if string(gw.lastCSV) != "id,name\n1,a\n" {
 		t.Errorf("gateway 收到的 CSV 不符: %q", gw.lastCSV)
+	}
+}
+
+// TestCleanForwardsFormatToGateway 校验清洗入口把输入/导出格式经 config 透传给 Python，
+// 且 CleanedFormat 正确回填——覆盖前端「格式切换」到 gRPC 请求的契约。
+func TestCleanForwardsFormatToGateway(t *testing.T) {
+	cases := []struct {
+		name         string
+		format       string
+		outputFormat string
+		wantFormat   string // config["format"] 期望值，"" 表示不应存在该键
+		wantOutput   string // config["output_format"] 期望值
+		wantCleaned  string // report.CleanedFormat 期望值
+	}{
+		{"csv 默认不设 format", "csv", "csv", "", "csv", "csv"},
+		{"json 入 json 出", "json", "json", "json", "json", "json"},
+		{"json 入 csv 出", "json", "csv", "json", "csv", "csv"},
+		{"未指定导出跟随输入", "json", "", "json", "", "json"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gw := &fakeGateway{}
+			s := NewService(gw, 0, nil, nil, nil)
+
+			report, err := s.Clean(context.Background(), 1, 10, "src",
+				[]byte(`[{"id":1}]`), []string{"trim"}, tc.format, tc.outputFormat)
+			if err != nil {
+				t.Fatalf("Clean 失败: %v", err)
+			}
+			cfg := gw.lastCleanReq.GetConfig()
+			if got := cfg["format"]; got != tc.wantFormat {
+				t.Errorf("config[format]=%q, 期望 %q", got, tc.wantFormat)
+			}
+			if got := cfg["output_format"]; got != tc.wantOutput {
+				t.Errorf("config[output_format]=%q, 期望 %q", got, tc.wantOutput)
+			}
+			if report.CleanedFormat != tc.wantCleaned {
+				t.Errorf("CleanedFormat=%q, 期望 %q", report.CleanedFormat, tc.wantCleaned)
+			}
+			// cleaners 也应透传
+			if len(gw.lastCleanReq.GetCleaners()) != 1 || gw.lastCleanReq.GetCleaners()[0] != "trim" {
+				t.Errorf("cleaners 透传错误: %v", gw.lastCleanReq.GetCleaners())
+			}
+		})
 	}
 }
