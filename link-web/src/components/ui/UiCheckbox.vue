@@ -1,14 +1,18 @@
 <template>
   <label :class="wrapperClasses">
+    <!--
+      仅用 :checked + @change 单向驱动，不要再挂原生 v-model：
+      数组（复选组）模式下原生 v-model 会把「新数组」喂给 setter，而 setter 把任何
+      真值塌缩成布尔 trueValue，于是与 handleChange 各 emit 一次、互相打架，可能把
+      父层的数组选中态写坏成布尔 true。isChecked 已统一处理数组/布尔两种回显。
+    -->
     <input
-      v-model="checkboxValue"
       type="checkbox"
       :class="inputClasses"
       :disabled="disabled"
       :indeterminate="indeterminate"
       :value="value"
-      :true-value="trueValue"
-      :false-value="falseValue"
+      :checked="isChecked"
       @change="handleChange"
     >
 
@@ -53,22 +57,12 @@ const props = withDefaults(defineProps<Props>(), {
   color: 'primary'
 })
 
-const emit = defineEmits<{
-  'update:modelValue': [value: boolean | string | number]
-  'change': [value: boolean | string | number]
-}>()
+type CheckboxModel = boolean | string | number | (string | number | boolean)[]
 
-const checkboxValue = computed({
-  get: () => {
-    if (props.modelValue === undefined) return props.falseValue
-    return props.modelValue
-  },
-  set: (value) => {
-    if (props.indeterminate) return
-    const newValue = value ? props.trueValue : props.falseValue
-    emit('update:modelValue', newValue)
-  }
-})
+const emit = defineEmits<{
+  'update:modelValue': [value: CheckboxModel]
+  'change': [value: CheckboxModel]
+}>()
 
 const wrapperClasses = computed(() => [
   'ui-checkbox',
