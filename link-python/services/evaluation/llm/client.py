@@ -23,12 +23,28 @@ for env_path in possible_env_paths:
     if env_path.exists():
         load_dotenv(env_path)
         break
+import httpx
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+
+
+def _direct_httpx_clients(timeout: float = 60.0) -> tuple[httpx.Client, httpx.AsyncClient]:
+    """构造忽略环境代理的 httpx 客户端（同步 + 异步）。
+
+    评测裁判走的是 DeepSeek 等自有 LLM 接口，不应经过开发机上的 SOCKS/HTTP
+    代理（如 Clash 的 all_proxy=socks5://…）。而 httpx 默认 trust_env=True 会在
+    构造阶段就为 socks5 代理创建传输，一旦缺少 socksio 依赖便直接抛
+    ImportError——这正是历史上 llm_judge 静默失败、评分恒为 null 的根因。
+    显式 trust_env=False 让裁判直连、免疫宿主机代理环境，稳定可复现。
+    """
+    return (
+        httpx.Client(trust_env=False, timeout=timeout),
+        httpx.AsyncClient(trust_env=False, timeout=timeout),
+    )
 
 
 class LLMClient:
@@ -77,12 +93,17 @@ class LLMClient:
         }
 
         if self.provider == "openai":
+            sync_client, async_client = _direct_httpx_clients()
             return ChatOpenAI(
                 model=self.model or "gpt-4",
                 api_key=self.api_key,
+                http_client=sync_client,
+                http_async_client=async_client,
                 **common_kwargs,
             )
         elif self.provider == "anthropic":
+            # ChatAnthropic 不接受 http_client 参数，无法用同款方式注入直连客户端；
+            # 评测裁判当前统一走 deepseek/openai，此分支保持原状。
             return ChatAnthropic(
                 model=self.model or "claude-3-sonnet-20240229",
                 api_key=self.api_key or os.getenv("ANTHROPIC_API_KEY", ""),
@@ -90,10 +111,13 @@ class LLMClient:
             )
         elif self.provider == "deepseek":
             # DeepSeek 兼容 OpenAI API
+            sync_client, async_client = _direct_httpx_clients()
             return ChatOpenAI(
                 model=self.model or "deepseek-chat",
                 api_key=self.api_key or os.getenv("DEEPSEEK_API_KEY", ""),
                 base_url=self.base_url or "https://api.deepseek.com",
+                http_client=sync_client,
+                http_async_client=async_client,
                 **common_kwargs,
             )
         else:
