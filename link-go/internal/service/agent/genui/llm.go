@@ -9,6 +9,8 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	prompts "link/internal/prompt"
 )
 
 // LLM 是本包所需的最小生成接口；eino 的 model.BaseChatModel / ToolCallingChatModel 均满足，
@@ -17,25 +19,8 @@ type LLM interface {
 	Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error)
 }
 
-const llmSystemPrompt = `你是「生成式 UI」布局设计器。你的唯一职责是为一份数据分析结果设计组件布局，
-输出一个 JSON 对象 {"components": [...]}（组件邻接表）。
-
-【铁律】
-1. 你绝不输出任何具体数字或数据值。所有数据一律用绑定引用真实数据模型：{"path": "/..."}（JSON Pointer）。
-2. 只能使用 catalog 中的组件类型，且必须有且仅有一个 id 为 "root" 的容器节点。
-3. 每个组件形如：{"id": "唯一id", "type": "类型", "props": {...}, "children": ["子id", ...]}。
-   - 容器（Column/Row）用 children 组织子节点；叶子组件用 props。
-4. {path} 只能引用「可用数据路径」清单中列出的路径，不得臆造路径。
-
-【catalog 组件】
-- Column / Row：布局容器（纵向 / 横向），用 children。
-- Text：文本，props.text 可为字符串或 {path}，props.variant ∈ title|subtitle|body|caption。
-- MetricCard：指标卡，props.label（字符串标题）、props.value（{path} 绑定）、props.unit（可选）。
-- Callout：结论条，props.title、props.text、props.tone ∈ info|success|warning。
-- Table：数据表，props.data 必须绑定 {path} 指向 {columns, rows}。
-- LineChart：折线图，props.title、props.series 必须绑定 {path} 指向 {labels, actual, forecast}。
-
-只输出 JSON，不要解释，不要 markdown 代码围栏。`
+// llmSystemPrompt 正文集中于 internal/prompt/configs/genui.yaml。
+var llmSystemPrompt = prompts.MustGet("genui", "system")
 
 // LLMCompose 是 Level 2：让 LLM 依据可用数据路径设计组件布局，Go 端组装 DataModel 并校验。
 // 任一环节失败（生成、解析、校验）都返回 error，由调用方回退到 TemplateCompose。
@@ -91,7 +76,10 @@ func buildUserPrompt(dm *DataModel, root interface{}, question string) string {
 	}
 	b.WriteString("\ncatalog: " + strings.Join(Catalog, ", ") + "\n")
 	b.WriteString("\n请输出 {\"components\": [...]}，务必包含 id=\"root\" 容器，Table 绑定 /table，")
-	b.WriteString("有序列时用 LineChart 绑定 /series，关键指标用 MetricCard 绑定对应 /metrics/* 路径。")
+	b.WriteString("时序用 LineChart、分类对比用 BarChart（均绑定 /series），有 /scatter 时用 ScatterChart 看相关性，")
+	b.WriteString("关键指标用 MetricCard 绑定对应 /metrics/* 路径。")
+	b.WriteString("注意：MetricCard 的 value 只能绑定 /metrics/* 标量路径，切勿绑定 /table、/series 等容器路径")
+	b.WriteString("（否则卡片无值）；若上面没有任何 /metrics/* 路径，则不要使用 MetricCard。")
 	return b.String()
 }
 
@@ -108,6 +96,9 @@ func enumeratePaths(root interface{}) []string {
 	}
 	if _, ok := m["series"]; ok {
 		paths = append(paths, "/series")
+	}
+	if _, ok := m["scatter"]; ok {
+		paths = append(paths, "/scatter")
 	}
 	if metrics, ok := m["metrics"].(map[string]interface{}); ok {
 		keys := make([]string, 0, len(metrics))

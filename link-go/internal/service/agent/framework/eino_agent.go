@@ -17,9 +17,14 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
+	obs "link/internal/infrastructure/observability"
 	domainagent "link/internal/model/agent"
 	"link/internal/model/memory"
 )
+
+// frameworkTracer 供工具级 span 使用。otel 全局 tracer 走延迟委派，包初始化时创建、
+// SetTracerProvider 之后依旧生效；未注册真实 provider 时为 no-op，零开销。
+var frameworkTracer = obs.NewTracer()
 
 // ========================================
 // MemoryService and ContextBuilder 接口
@@ -126,6 +131,23 @@ type BeforeHook func(ctx context.Context, message string) (context.Context, stri
 // AfterHook is a function that runs after the agent generates a response.
 type AfterHook func(ctx context.Context, resp *Response) error
 
+// userQueryCtxKey 承载本轮用户原始问题（preProcess 入口写入）。
+type userQueryCtxKey struct{}
+
+// WithUserQuery 把本轮用户原始问题写入 ctx，供 Hook/Observer 按真实问题检索/聚类
+// （而非误用系统提示词或已注入 playbook 的消息）。
+func WithUserQuery(ctx context.Context, query string) context.Context {
+	return context.WithValue(ctx, userQueryCtxKey{}, query)
+}
+
+// UserQueryFromContext 读取本轮用户原始问题；不存在时返回空串。
+func UserQueryFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(userQueryCtxKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // agentImpl is the default implementation of Agent.
 type agentImpl struct {
 	name        string
@@ -135,7 +157,11 @@ type agentImpl struct {
 	tools       []tool.BaseTool
 	beforeHooks []BeforeHook
 	afterHooks  []AfterHook
-	middleware  []Middleware
+	// observerHooks 是回答生成完成后触发的只读观察者：与 afterHooks 不同，它不得改写 resp
+	// （流式路径正文可能已逐块下发无法回收），因此对所有 sink（含纯流式）都会触发，best-effort
+	// （返回 error 仅记录不阻断）。用于异步自我进化等旁路消费最终回答。
+	observerHooks []AfterHook
+	middleware    []Middleware
 	maxIter     int // 最大迭代次数（用于工具调用循环）
 	tokenBudget int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
 
@@ -143,6 +169,18 @@ type agentImpl struct {
 	memoryService  MemoryService  // 记忆服务接口
 	contextBuilder ContextBuilder // 上下文构建器接口
 	enableMemory   bool           // 是否启用记忆功能
+
+	// outputGuardrailActive 标记启用了输出护栏：流式会话需强制走缓冲交付，
+	// 让 AfterHook（含输出护栏）在最终内容下发前完成脱敏/替换。
+	outputGuardrailActive bool
+
+	// toolOutputHook 逐工具 post-invoke 输出护栏缝（任务 5）：工具返回后、回灌前脱敏；
+	// nil 时零开销、观察逐字节不变。
+	toolOutputHook ToolOutputHook
+
+	// collabRegistry 子代理协作注册表（可为 nil）：非空时于 run 入口只读注入执行 ctx，
+	// 使工具/skill handler 能经 InlineDelegate inline 编排子代理（design D7/D8）。
+	collabRegistry *CollaborationRegistry
 }
 
 // New creates a new Builder for constructing an Agent.
@@ -156,6 +194,9 @@ func New(chatModel model.BaseChatModel) *Builder {
 // preProcess 统一前置流程：beforeHooks + middleware.Before。
 // 记忆分支与非记忆分支都必须经过（旧实现记忆分支提前 return，绕过全部 hooks/middleware）。
 func (a *agentImpl) preProcess(ctx context.Context, message string) (context.Context, string, error) {
+	// 入口即固化用户原始问题：此刻 message 尚未被任何 hook（playbook/skill 注入等）改写，
+	// 后续 Hook/Observer 可经 UserQueryFromContext 取到干净的真实问题。
+	ctx = WithUserQuery(ctx, message)
 	for _, hook := range a.beforeHooks {
 		var err error
 		ctx, message, err = hook(ctx, message)
@@ -235,8 +276,14 @@ func (a *agentImpl) Stream(ctx context.Context, message string) (<-chan *Chunk, 
 }
 
 // runStream 在独立 goroutine 中驱动流式主干，负责 close(ch)。
+// 启用输出护栏时切到 bufferedStreamSink：正文先缓冲跑完 + 过 AfterHook（含输出护栏脱敏/替换），
+// 再把最终安全内容一次性下发——已逐块流出的 token 无法事后回收，故必须强制缓冲交付。
 func (a *agentImpl) runStream(ctx context.Context, req runRequest, ch chan *Chunk) {
 	defer close(ch)
+	if a.outputGuardrailActive {
+		_, _ = a.run(ctx, req, &bufferedStreamSink{a: a, ch: ch})
+		return
+	}
 	_, _ = a.run(ctx, req, &streamSink{a: a, ch: ch})
 }
 
@@ -252,6 +299,18 @@ func (a *agentImpl) run(ctx context.Context, req runRequest, sink execSink) (*Re
 		sink.fail(ctx, err)
 		return nil, err
 	}
+
+	// 委派痕迹侧信道：安装一个空累积器，委派边界（executeDelegation）在子代理返回后
+	// 把子代理内部真实工具轨迹与用量追加进来（否则被上下文防火墙吞掉）。子委派的
+	// 子代理 run 会各自安装自己的痕迹，逐层向上冒泡（executeDelegation 读取子代理已并入的
+	// Response 再追加到本层痕迹），使 data_agent 等指挥官型 agent 的顶层 Response 反映
+	// 全链路工具/用量，供 Agent 评测消费。
+	trace := &delegationTrace{}
+	ctx = withDelegationTrace(ctx, trace)
+
+	// 协作注册表只读注入：使本 run 内的工具/skill handler 能经 InlineDelegate inline
+	// 编排子代理（design D7/D8）。nil 时 WithCollaborationRegistry 原样返回，取用方走降级。
+	ctx = WithCollaborationRegistry(ctx, a.collabRegistry)
 
 	// MemoryStrategy：构建初始消息 + 落库本轮用户消息。
 	messages, rc := a.buildInitialMessages(ctx, req)
@@ -274,10 +333,29 @@ func (a *agentImpl) run(ctx context.Context, req runRequest, sink execSink) (*Re
 
 	response.Content = res.content
 
+	// 并入委派痕迹：把子代理内部工具轨迹接到顶层轨迹尾部（顺序为 delegate_to_agent 后紧跟
+	// 其真实子工具），运行时用量累加进本轮，随后由 fillMetadata 统一写入 Metadata。
+	if tcs, tok, iters := trace.drain(); len(tcs) > 0 || tok > 0 || iters > 0 {
+		response.ToolCalls = append(response.ToolCalls, tcs...)
+		res.tokensUsed += tok
+		res.iterations += iters
+	}
+
 	// MemoryStrategy：落库助手响应 + 更新协作摘要（仅记忆激活时）。
 	a.persistResult(ctx, rc, messages, res.content)
 
 	a.fillMetadata(response.Metadata, rc, hasTools, res)
+
+	// 只读响应观察者：最终内容此刻已组装完毕（response.Content 对所有 sink 均已就绪），
+	// 在下发/收尾前触发。与 afterHooks 不同，observer 对纯流式 sink 同样生效——这是
+	// 异步自我进化能捕获流式回答的关键（afterHooks 在纯流式路径被刻意跳过）。best-effort。
+	if len(a.observerHooks) > 0 {
+		for _, hook := range a.observerHooks {
+			if err := hook(ctx, response); err != nil {
+				log.Printf("[agent] observer hook 出错（忽略）: %v", err)
+			}
+		}
+	}
 
 	if err := sink.finish(ctx, response); err != nil {
 		return response, err
@@ -327,7 +405,7 @@ func (s *bufferedSink) generate(ctx context.Context, m model.BaseChatModel, msgs
 
 func (s *bufferedSink) onToolCall(context.Context, *ToolCallInStream) bool        { return true }
 func (s *bufferedSink) onToolResult(context.Context, *ToolCallInStream, int) bool { return true }
-func (s *bufferedSink) fail(context.Context, error)                              {}
+func (s *bufferedSink) fail(context.Context, error)                               {}
 
 // finish 在 buffered 路径执行 middleware.After（逆序）+ afterHooks。
 // 注意：流式路径正文已逐块下发、无完整 *Response 可供事后变换，故 After/afterHooks
@@ -439,6 +517,100 @@ func (s *streamSink) fail(ctx context.Context, err error) {
 
 // finish 发送 end 事件，并从 response.Metadata 透传 iterations/terminated_by/partial。
 func (s *streamSink) finish(ctx context.Context, response *Response) error {
+	meta := map[string]interface{}{"event": string(EventEnd)}
+	if it, ok := response.Metadata["iterations"]; ok {
+		meta["iterations"] = it
+	}
+	if tb, ok := response.Metadata["terminated_by"]; ok {
+		meta["terminated_by"] = tb
+		if tb == TerminatedByMaxIter {
+			meta["max_reached"] = true
+		}
+	}
+	if p, ok := response.Metadata["partial"]; ok {
+		meta["partial"] = p
+	}
+	sendChunk(ctx, s.ch, &Chunk{Done: true, Metadata: meta})
+	return nil
+}
+
+// bufferedStreamSink 是「启用输出护栏的流式会话」的输出侧：正文按缓冲方式产出（不逐块下发
+// content），工具事件仍即时下发以保留进度 UX；finish 时先跑 middleware.After + afterHooks
+// （含输出护栏脱敏/替换），再把最终安全内容作为单个 content 分块下发，最后发 end 事件。
+// 这样兼顾「流式接口契约（仍是 chunk 流）」与「输出护栏必须作用于完整回答」两个约束。
+type bufferedStreamSink struct {
+	a  *agentImpl
+	ch chan *Chunk
+}
+
+func (s *bufferedStreamSink) start(ctx context.Context) bool {
+	return sendChunk(ctx, s.ch, &Chunk{Metadata: map[string]interface{}{"event": "start"}})
+}
+
+// generate 缓冲生成：直接 Generate 出完整消息，不逐块下发 content（护栏需作用于完整回答）。
+func (s *bufferedStreamSink) generate(ctx context.Context, m model.BaseChatModel, msgs []*schema.Message, _ int) (*schema.Message, bool, error) {
+	msg, err := m.Generate(ctx, msgs)
+	return msg, false, err
+}
+
+// onToolCall / onToolResult 与 streamSink 一致：工具进度仍即时下发。
+func (s *bufferedStreamSink) onToolCall(ctx context.Context, ev *ToolCallInStream) bool {
+	return sendChunk(ctx, s.ch, &Chunk{
+		Metadata: map[string]interface{}{
+			"event":     string(EventToolCall),
+			"tool_call": ev,
+		},
+	})
+}
+
+func (s *bufferedStreamSink) onToolResult(ctx context.Context, ev *ToolCallInStream, iteration int) bool {
+	return sendChunk(ctx, s.ch, &Chunk{
+		Metadata: map[string]interface{}{
+			"event":     string(EventToolResult),
+			"tool_call": ev,
+			"iteration": iteration,
+		},
+	})
+}
+
+func (s *bufferedStreamSink) fail(ctx context.Context, err error) {
+	sendChunk(ctx, s.ch, &Chunk{
+		Done: true,
+		Metadata: map[string]interface{}{
+			"event": string(EventError),
+			"error": err.Error(),
+		},
+	})
+}
+
+// finish 先跑 middleware.After（逆序）+ afterHooks（含输出护栏），对完整 *Response 收尾脱敏，
+// 再一次性下发最终安全内容与 end 事件。
+func (s *bufferedStreamSink) finish(ctx context.Context, response *Response) error {
+	for i := len(s.a.middleware) - 1; i >= 0; i-- {
+		if err := s.a.middleware[i].After(ctx, response); err != nil {
+			return err
+		}
+	}
+	for _, hook := range s.a.afterHooks {
+		if err := hook(ctx, response); err != nil {
+			return err
+		}
+	}
+
+	// 下发最终（已过护栏）内容为单个 content 分块。
+	if response.Content != "" {
+		if !sendChunk(ctx, s.ch, &Chunk{
+			Content: response.Content,
+			Metadata: map[string]interface{}{
+				"event":    string(EventContent),
+				"buffered": true,
+			},
+		}) {
+			return nil // 客户端已断开
+		}
+	}
+
+	// end 事件：透传与 streamSink.finish 一致的元数据。
 	meta := map[string]interface{}{"event": string(EventEnd)}
 	if it, ok := response.Metadata["iterations"]; ok {
 		meta["iterations"] = it
@@ -735,6 +907,8 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	// ReAct 循环受 maxIter 与 token 预算共同约束：任一到达上限即终止并收尾。
 	var res execResult
 	naturalFinish := false // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
+	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
+	guard := newFailureGuard()
 	for i := 0; i < a.maxIter; i++ {
 		// token 预算前置检查：预算已耗尽则不再发起新一轮生成。
 		if a.tokenBudget > 0 && res.tokensUsed >= a.tokenBudget {
@@ -769,11 +943,22 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 
 		// 处理工具调用
 		for _, tc := range msg.ToolCalls {
-			obs, ok := a.handleToolCall(ctx, tc, i+1, sink, response)
+			obs, ok := a.handleToolCall(ctx, tc, i+1, sink, response, guard)
 			if !ok {
 				return execResult{aborted: true}, nil
 			}
 			messages = append(messages, obs)
+		}
+
+		// 自我修复护栏：同一失败签名达阈值 → 注入一次再规划提示（引导换路径，非盲目重试）。
+		if note := guard.replanNote(); note != "" {
+			messages = append(messages, schema.SystemMessage(note))
+		}
+		// 累计失败过多（原地打转）→ 提前收尾，交由下方 wind-down 给出诚实的部分结论。
+		if guard.shouldWindDown() {
+			res.terminatedBy = TerminatedByRepairExhausted
+			res.iterations = i + 1
+			break
 		}
 
 		// 本轮工具执行后再判预算：耗尽则标记终止，交由下方 wind-down 收尾。
@@ -814,7 +999,7 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 // → 返回追加到历史的观察消息。ok=false 表示下游断开（streaming）。
 // 愈合：参数不可解析时合成错误观察、不执行工具（原 buffered 变体会带残缺参数执行）；
 // 无论解析成败都追加一条 tool 消息，保证 assistant.tool_calls 与 tool 消息严格 1:1。
-func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iteration int, sink execSink, response *Response) (*schema.Message, bool) {
+func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iteration int, sink execSink, response *Response, guard *failureGuard) (*schema.Message, bool) {
 	toolCall := &ToolCall{Name: tc.Function.Name}
 
 	// 解析参数
@@ -858,7 +1043,15 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 	}
 
 	// 执行工具
-	output, execErr := a.invokeTool(ctx, tc)
+	output, synthetic, execErr := a.invokeTool(ctx, tc)
+
+	// 逐工具输出护栏（post-invoke，任务 5）：成功观察在回灌 LLM 与下发事件前脱敏；
+	// 未装配时零开销、观察逐字节不变；错误观察不脱敏（保留原始报错供自我修正）。
+	// synthetic（工具门合成的 tool_blocked / pending_confirm 控制面载荷）不脱敏——
+	// 其非真实工具观察，且携 confirm_token 等控制字段，脱敏会破坏确认续跑（不可误伤）。
+	if execErr == nil && !synthetic && a.toolOutputHook != nil {
+		output = a.toolOutputHook(ctx, tc.Function.Name, output)
+	}
 
 	// 组装工具结果事件
 	resultEvent := &ToolCallInStream{
@@ -868,13 +1061,26 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 		Status: "success",
 		Output: output,
 	}
+	// 可修复观察（RepairableToolError）不是裸报错：其 Observation 为结构化 JSON（error_kind/
+	// retriable/hint/detail），应原样回灌 LLM 引导定向修正，而非渲染成 "Error: %v"。
+	// 同时把 error_kind 计入失败签名（下方 recordToolFailure），触发再规划/提前收尾。
+	obs := output
 	if execErr != nil {
 		toolCall.Error = execErr
-		toolCall.Output = fmt.Sprintf("Error: %v", execErr)
 		resultEvent.Status = "error"
 		resultEvent.Error = execErr.Error()
+		if repair, ok := AsRepairable(execErr); ok {
+			obs = repair.Observation
+			toolCall.Output = repair.Observation
+			guard.recordFailure(tc.Function.Name, repair.ErrorKind)
+		} else {
+			obs = fmt.Sprintf("Error: %v", execErr)
+			toolCall.Output = obs
+			guard.recordFailure(tc.Function.Name, "")
+		}
 	} else {
 		toolCall.Output = output
+		guard.recordSuccess(tc.Function.Name)
 	}
 
 	if !sink.onToolResult(ctx, resultEvent, iteration) {
@@ -883,19 +1089,30 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 	response.ToolCalls = append(response.ToolCalls, toolCall)
 
 	// 追加该 tool_call 对应的结果消息
-	obs := output
-	if execErr != nil {
-		obs = fmt.Sprintf("Error: %v", execErr)
-	}
 	return schema.ToolMessage(compactObservation(obs), tc.ID), true
 }
 
-// invokeTool 执行单个工具调用
-func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (string, error) {
-	// 执行前硬工具门（Phase 6）：skill 策略 + 会话 scope 同为必要条件。
-	// 被拒调用不触达底层执行，以合成 tool_blocked ToolMessage 回灌 LLM。
-	if blocked, ok := gateToolCall(ctx, toolCall.Function.Name); !ok {
-		return blocked, nil
+// invokeTool 执行单个工具调用。synthetic 为 true 时 output 为工具门合成的控制面载荷
+// （tool_blocked / pending_confirm，未触达底层工具），调用方据此跳过逐工具输出护栏，
+// 避免脱敏破坏 confirm_token 等控制字段。
+func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (output string, synthetic bool, err error) {
+	// 工具级 span：挂在外层 agent.chat 之下，还原调用链瀑布（含被门拒/待确认的合成结果，
+	// 便于排查为何某工具未真正执行）。otel 未注册真实 provider 时为 no-op、零开销。
+	ctx, span := frameworkTracer.StartToolSpan(ctx, a.name, toolCall.Function.Name, toolCall.Function.Arguments)
+	defer func() {
+		span.SetAttribute("tool.output_length", len(output))
+		span.SetAttribute("tool.synthetic", synthetic)
+		if err != nil {
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+
+	// 执行前硬工具门（Phase 6 + 护栏三值门）：skill 策略 + 会话 scope 同为必要条件，
+	// 其上叠加写/导出审批第三态。被拒/需审批调用不触达底层执行，以合成
+	// tool_blocked / 待人工确认 ToolMessage 回灌 LLM。
+	if blocked, ok := gateToolCall(ctx, toolCall.Function.Name, toolCall.Function.Arguments); !ok {
+		return blocked, true, nil
 	}
 
 	// 查找工具
@@ -912,17 +1129,18 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (s
 	}
 
 	if selectedTool == nil {
-		return "", fmt.Errorf("tool not found: %s", toolCall.Function.Name)
+		return "", false, fmt.Errorf("tool not found: %s", toolCall.Function.Name)
 	}
 
 	// 执行工具
 	switch t := selectedTool.(type) {
 	case tool.InvokableTool:
-		return t.InvokableRun(ctx, toolCall.Function.Arguments)
+		out, runErr := t.InvokableRun(ctx, toolCall.Function.Arguments)
+		return out, false, runErr
 	case tool.StreamableTool:
 		stream, err := t.StreamableRun(ctx, toolCall.Function.Arguments)
 		if err != nil {
-			return "", fmt.Errorf("streamable run failed: %w", err)
+			return "", false, fmt.Errorf("streamable run failed: %w", err)
 		}
 
 		// 收集流式结果
@@ -935,14 +1153,14 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (s
 					break
 				}
 				stream.Close()
-				return "", fmt.Errorf("recv failed: %w", err)
+				return "", false, fmt.Errorf("recv failed: %w", err)
 			}
 			result.WriteString(chunk)
 		}
 		stream.Close()
-		return result.String(), nil
+		return result.String(), false, nil
 	default:
-		return "", fmt.Errorf("unsupported tool type: %T", t)
+		return "", false, fmt.Errorf("unsupported tool type: %T", t)
 	}
 }
 

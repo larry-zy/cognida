@@ -146,7 +146,12 @@ func (o *opTools) sqlMutate(ctx context.Context, req *SQLMutateRequest) (*SQLMut
 		tx.Rollback()
 		o.recordAudit(ctx, operations.OpMutate, target, req.SQL, req.IdempotencyKey,
 			operations.StatusFailed, res.Error.Error(), nil)
-		return nil, fmt.Errorf("执行失败: %w", res.Error)
+		// 写失败也产出结构化可修复观察（分级 error_kind + 定向列/表线索 + 脱敏摘要）：
+		// 交 Operation 子代理（或简单直接写的主循环）按修复纪律本地定向重试，而非盲目重试。
+		// 写库恒为内部业务库（外部源已在入口拒绝），detail 经脱敏截断透传；错误细节留在
+		// 本工具调用者上下文——经委派边界时 executeDelegation 只回传紧凑 handle/结论，不回灌指挥官。
+		// 每次失败尝试（含修复重试）都已先落 agent_operation_audit（上一行）。
+		return nil, newRepairableSQLError(ctx, o.writeQueryTarget(), req.SQL, res.Error)
 	}
 	affected := res.RowsAffected
 

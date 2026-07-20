@@ -13,6 +13,7 @@ import (
 
 	agentctx "link/internal/model/agent"
 	"link/internal/model/agent/operations"
+	"link/internal/service/agent/framework"
 	"link/internal/service/agent/pendingaction"
 	"link/internal/service/agent/resultstore"
 )
@@ -85,6 +86,17 @@ func (o *opTools) recordAudit(ctx context.Context, opType, target, sqlText, idem
 	if err := o.cfg.Audit.Record(ctx, audit); err != nil {
 		log.Printf("[操作审计] 写入失败: %v (type=%s target=%s status=%s)", err, opType, target, status)
 	}
+}
+
+// recordGuardrailAudit 把一次护栏事件落审计（type=guardrail）：拦截/脱敏/写审批各类事件
+// 统一经此写 agent_operation_audit，携事件类型、命中工具、原因，rid/session/tenant 由 recordAudit
+// 从 ctx 透传（guardrail-runtime 任务 6/7）。
+func (o *opTools) recordGuardrailAudit(ctx context.Context, evt framework.GuardrailEvent) {
+	o.recordAudit(ctx, operations.OpGuardrail, evt.Tool, "", "",
+		guardrailAuditStatus(evt.Type), evt.Detail, map[string]interface{}{
+			"event": evt.Type,
+			"tool":  evt.Tool,
+		})
 }
 
 // RecordUnsupportedConfirmKind 留痕「已消费但类型不支持」的确认请求：
@@ -185,6 +197,21 @@ func (o *opTools) isRedlineTable(target string) bool {
 		}
 	}
 	return false
+}
+
+// writeQueryTarget 把写库连接（o.cfg.DB）包成查询目标，供写失败路径检索定向 schema 线索
+// （列不存在→可用列清单、表不存在→候选表名）。写库恒为内部业务库（external=false），错误摘要
+// 走内部脱敏截断路径；DB 未初始化或取底层连接失败时返回 nil，newRepairableSQLError 自动降级为
+// 通用提示，绝不因线索检索失败而阻断可修复观察产出。
+func (o *opTools) writeQueryTarget() *queryTarget {
+	if o.cfg.DB == nil {
+		return nil
+	}
+	db, err := o.cfg.DB.DB()
+	if err != nil {
+		return nil
+	}
+	return &queryTarget{db: db, gormDB: o.cfg.DB}
 }
 
 // etlTargetNameRe ETL 派生对象名白名单模式（前缀强校验 + 标识符字符集，防注入）。

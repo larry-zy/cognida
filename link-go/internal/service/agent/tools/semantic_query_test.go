@@ -91,7 +91,7 @@ func TestSemanticQuery_CoveredGeneratesSQLAndCaches(t *testing.T) {
 	res, err := semanticQuery(ctx, &SemanticQueryRequest{
 		Metrics:    []string{"营收"},
 		Dimensions: []string{"区域"},
-	}, repo, c, sink)
+	}, repo, c, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestSemanticQuery_UncoveredFallsBackToLexical(t *testing.T) {
 	ctx, repo, c := withSemantic(t, &stubSemanticRepo{bundle: salesBundle()}, semanticcache.NewMemoryCache())
 
 	sink := &recordingCoverageSink{}
-	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"利润"}}, repo, c, sink)
+	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"利润"}}, repo, c, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestSemanticQuery_CacheHitReturnsTrustedSQL(t *testing.T) {
 	}
 
 	sink := &recordingCoverageSink{}
-	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"营收"}, Dimensions: []string{"区域"}}, repo, c, sink)
+	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"营收"}, Dimensions: []string{"区域"}}, repo, c, sink, nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestSemanticQuery_CoveredPassesThroughDatabaseID(t *testing.T) {
 	res, err := semanticQuery(ctx, &SemanticQueryRequest{
 		Metrics:    []string{"营收"},
 		Dimensions: []string{"区域"},
-	}, repo, c, &recordingCoverageSink{})
+	}, repo, c, &recordingCoverageSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestSemanticQuery_CacheHitPassesThroughDatabaseID(t *testing.T) {
 		t.Fatalf("seed cache: %v", err)
 	}
 
-	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"营收"}, Dimensions: []string{"区域"}}, repo, c, &recordingCoverageSink{})
+	res, err := semanticQuery(ctx, &SemanticQueryRequest{Metrics: []string{"营收"}, Dimensions: []string{"区域"}}, repo, c, &recordingCoverageSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestSemanticQuery_UnboundModelOmitsDatabaseID(t *testing.T) {
 	res, err := semanticQuery(ctx, &SemanticQueryRequest{
 		Metrics:    []string{"营收"},
 		Dimensions: []string{"区域"},
-	}, repo, c, &recordingCoverageSink{})
+	}, repo, c, &recordingCoverageSink{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

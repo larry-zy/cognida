@@ -396,7 +396,52 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 	// 填充指标
 	w.fillMetrics(evalResult, resp)
 
+	// Agent 类型：补充由 Go 执行器采集的运行时基础指标（耗时/Token/LLM 调用次数/成功率）。
+	// 需在 fillMetrics 之后执行——后者会用 Python 结果整体替换逐条 Scores，此处再合并注入。
+	if config.Type == domeval.EvaluationTypeAgent {
+		augmentAgentRuntimeMetrics(evalResult)
+	}
+
 	return evalResult, nil
+}
+
+// augmentAgentRuntimeMetrics 为 Agent 评测补充运行时基础指标：逐条把耗时/Token/LLM 调用次数
+// 注入 QAResult.Scores，并在任务级 evalResult.Scores 汇总均值 + 成功率。
+// 这些指标由 Go 执行器直接采集（非 Python 计算），全部走既有 scores JSON 列持久化，无需迁移。
+func augmentAgentRuntimeMetrics(evalResult *EvaluationResult) {
+	if evalResult == nil || len(evalResult.QAResults) == 0 {
+		return
+	}
+	var sumLatency, sumTokens, sumCalls float64
+	var successCnt, n int
+	for _, qa := range evalResult.QAResults {
+		if qa == nil {
+			continue
+		}
+		n++
+		if qa.Scores == nil {
+			qa.Scores = make(map[string]float64, 3)
+		}
+		qa.Scores["latency_ms"] = float64(qa.LatencyMs)
+		qa.Scores["tokens_used"] = float64(qa.TokensUsed)
+		qa.Scores["llm_calls"] = float64(qa.LLMCalls)
+		sumLatency += float64(qa.LatencyMs)
+		sumTokens += float64(qa.TokensUsed)
+		sumCalls += float64(qa.LLMCalls)
+		if qa.Success {
+			successCnt++
+		}
+	}
+	if n == 0 {
+		return
+	}
+	if evalResult.Scores == nil {
+		evalResult.Scores = make(map[string]float64, 4)
+	}
+	evalResult.Scores["latency_ms"] = sumLatency / float64(n)
+	evalResult.Scores["tokens_used"] = sumTokens / float64(n)
+	evalResult.Scores["llm_calls"] = sumCalls / float64(n)
+	evalResult.Scores["success_rate"] = float64(successCnt) / float64(n)
 }
 
 // agentGraders 与 Python fastapi_app._AGENT_GRADERS 保持一致：命中其中任一名即触发
@@ -699,6 +744,9 @@ func convertQAResultsToApp(results []*domeval.QAResult) []*QAResult {
 			ToolsUsed:          r.ToolsUsed,
 			Trajectory:         r.Trajectory,
 			TotalSteps:         r.TotalSteps,
+			LatencyMs:          r.LatencyMs,
+			TokensUsed:         r.TokensUsed,
+			LLMCalls:           r.LLMCalls,
 			ExpectedTools:      r.ExpectedTools,
 			ExpectedSteps:      r.ExpectedSteps,
 			Precision:          r.Precision,

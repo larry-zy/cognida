@@ -60,7 +60,13 @@ func Spec(
 	toolModel model.ToolCallingChatModel,
 	msgRepo conversation.MessageRepository,
 	registry *toolregistry.ToolRegistry,
+	guardrail ...infraagent.GuardrailDecorator,
 ) infraagent.AgentSpec {
+	// 组合根护栏装配器（可选变参，避免破坏既有 Spec 调用）；未传 → nil 恒等（零回归）。
+	var gd infraagent.GuardrailDecorator
+	if len(guardrail) > 0 {
+		gd = guardrail[0]
+	}
 	return infraagent.AgentSpec{
 		ID:          DataAgentID,
 		Name:        "data_agent",
@@ -73,7 +79,7 @@ func Spec(
 			"kernel":  "reason-act-observe",
 		},
 		Build: func(ctx context.Context) (infraagent.Agent, error) {
-			return buildDataAgent(ctx, toolModel, msgRepo, registry)
+			return buildDataAgent(ctx, toolModel, msgRepo, registry, gd)
 		},
 	}
 }
@@ -85,6 +91,7 @@ func buildDataAgent(
 	toolModel model.ToolCallingChatModel,
 	msgRepo conversation.MessageRepository,
 	registry *toolregistry.ToolRegistry,
+	guardrail infraagent.GuardrailDecorator,
 ) (infraagent.Agent, error) {
 	if toolModel == nil {
 		return nil, fmt.Errorf("data agent 预设需要 ToolCallingChatModel")
@@ -98,6 +105,10 @@ func buildDataAgent(
 	if err := RegisterDataSubAgents(ctx, collabRegistry, toolModel, registry); err != nil {
 		return nil, fmt.Errorf("注册 Data 子代理失败: %w", err)
 	}
+
+	// 复杂任务下沉 skill（多维归因/经营报告）：幂等注册可执行 skill，handler 内经注入 ctx 的
+	// collabRegistry inline 编排上述子代理群（复用委派内核与护栏），主循环只见一次 skill 调用。
+	RegisterDataComplexSkills()
 
 	tools := collectCapabilityTools(ctx, registry)
 	if len(tools) == 0 {
@@ -119,6 +130,10 @@ func buildDataAgent(
 		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支
 		builder = builder.WithContextBuilder(convcontext.NewConversationContextBuilder(msgRepo))
 	}
+	// 组合根护栏装配（默认关闭 → 恒等，零回归）：输入把关 + 逐工具/最终输出脱敏，
+	// 与硬工具门/写审批叠加，构成 Data Agent 的多层安全缝。
+	builder = guardrail.Apply(builder)
+
 	reactAgent, err := builder.Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("构建 Data Agent 失败: %w", err)

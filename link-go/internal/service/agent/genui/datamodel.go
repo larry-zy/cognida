@@ -63,9 +63,171 @@ func AssembleDataModel(sqlJSON, analysisJSON string) *DataModel {
 		dm.Metrics = flattenMetrics(an)
 	}
 
+	// 单行结果（如 KPI 汇总查询）：数值列派生为标量指标，供 MetricCard 绑定 /metrics/<列>。
+	// 已有的分析指标优先，不被行派生覆盖。
+	if len(sqlOut.Samples) == 1 {
+		if dm.Metrics == nil {
+			dm.Metrics = map[string]interface{}{}
+		}
+		for k, v := range deriveRowMetrics(sqlOut) {
+			if _, exists := dm.Metrics[k]; !exists {
+				dm.Metrics[k] = v
+			}
+		}
+	}
+
 	// 序列：优先用分析结果给出的 value_col / time_col 与 forecast，否则从行集启发式推断。
 	dm.Series = buildSeries(sqlOut, an, hasAnalysis)
+	// 散点：行集含 ≥2 个数值列时构造二维点集（供散点图/相关性可视化）。
+	dm.Scatter = buildScatter(sqlOut)
 	return dm
+}
+
+// AssembleReportDataModel 把一次回答里的「多个」sql_execute 信封与「多个」data_analysis
+// 输出融合成一份 DataModel，用于报告/综合解读这类会跑多段查询的场景：
+//   - 取样本最多的（多行优先）结果作为主表/序列/散点；
+//   - 其余单行结果的数值列派生为标量指标（/metrics/<列>）——这是 KPI 汇总卡的数据来源；
+//   - 叠加各 data_analysis 提炼的语义指标（同名以分析结果为准）。
+//
+// 与单结果的 AssembleDataModel 一致：所有数字均取自真实工具输出，绝不臆造；
+// 无任何可展示数据时返回 nil。
+//
+// 说明：不跨结果集把某次 data_analysis 的 value_col/forecast 强行套到主表上
+// （二者未必对应同一 result_id），主表的序列/散点仅按其自身行集形态推断，避免错配。
+func AssembleReportDataModel(sqlJSONs, analysisJSONs []string) *DataModel {
+	var results []sqlExecuteOutput
+	for _, s := range sqlJSONs {
+		var o sqlExecuteOutput
+		if s == "" || json.Unmarshal([]byte(s), &o) != nil || len(o.Samples) == 0 {
+			continue
+		}
+		results = append(results, o)
+	}
+	var analyses []analysisOutput
+	for _, s := range analysisJSONs {
+		var a analysisOutput
+		if s == "" || json.Unmarshal([]byte(s), &a) != nil || !a.Success {
+			continue
+		}
+		analyses = append(analyses, a)
+	}
+	if len(results) == 0 && len(analyses) == 0 {
+		return nil
+	}
+
+	// 主结果 = 样本最多者（多行优先，作为主表/序列/散点）。
+	primaryIdx := -1
+	for i := range results {
+		if primaryIdx == -1 || len(results[i].Samples) > len(results[primaryIdx].Samples) {
+			primaryIdx = i
+		}
+	}
+
+	dm := &DataModel{Meta: map[string]interface{}{}}
+	metrics := map[string]interface{}{}
+
+	if primaryIdx >= 0 {
+		primary := results[primaryIdx]
+		dm.Table = &TableData{Columns: primary.Columns, Rows: primary.Samples}
+		dm.Meta["row_count"] = primary.RowCount
+		if primary.RowCount > len(primary.Samples) {
+			dm.Meta["truncated"] = true
+			if primary.ResultID != "" {
+				dm.Meta["result_id"] = primary.ResultID
+			}
+		}
+		if primary.ExecutedSQL != "" {
+			dm.Meta["executed_sql"] = primary.ExecutedSQL
+		}
+		dm.Series = buildSeries(primary, analysisOutput{}, false)
+		dm.Scatter = buildScatter(primary)
+	}
+
+	// 非主结果里的单行结果 → 数值列派生标量指标。
+	for i := range results {
+		if i == primaryIdx {
+			continue
+		}
+		for k, v := range deriveRowMetrics(results[i]) {
+			metrics[k] = v
+		}
+	}
+	// 主结果本身即单行（无多行结果时）：其数值列也派生为指标。
+	if primaryIdx >= 0 && len(results[primaryIdx].Samples) == 1 {
+		for k, v := range deriveRowMetrics(results[primaryIdx]) {
+			if _, exists := metrics[k]; !exists {
+				metrics[k] = v
+			}
+		}
+	}
+
+	// 分析提炼的语义指标叠加（同名以分析为准）。
+	for _, a := range analyses {
+		for k, v := range flattenMetrics(a) {
+			metrics[k] = v
+		}
+	}
+	// 仅当恰有一次分析时才标注 analysis_type（多次分析无法确定主图口径，交由数据形态决定）。
+	if len(analyses) == 1 {
+		dm.Meta["analysis_type"] = analyses[0].AnalysisType
+	}
+	if len(metrics) > 0 {
+		dm.Metrics = metrics
+	}
+
+	if dm.Table == nil && len(dm.Metrics) == 0 && dm.Series == nil && dm.Scatter == nil {
+		return nil
+	}
+	return dm
+}
+
+// deriveRowMetrics 从「恰好一行」的结果里把数值列扁平成标量指标（列名 → 数值）。
+// 非单行结果、非数值列一律跳过——MetricCard 的 value 需要标量，行集/多行表格不适用。
+func deriveRowMetrics(o sqlExecuteOutput) map[string]interface{} {
+	m := map[string]interface{}{}
+	if len(o.Samples) != 1 {
+		return m
+	}
+	row := o.Samples[0]
+	for _, col := range o.Columns {
+		if f, ok := toFloat(row[col]); ok {
+			m[col] = f
+		}
+	}
+	return m
+}
+
+// buildScatter 从行集的前两个数值列构造散点图点集（X=首个数值列，Y=次个数值列）。
+// 少于两个数值列，或有效点不足 3 个时返回 nil（不构造）。
+func buildScatter(sqlOut sqlExecuteOutput) *ScatterData {
+	xCol, yCol := "", ""
+	for _, col := range sqlOut.Columns {
+		if _, ok := toFloat(sqlOut.Samples[0][col]); !ok {
+			continue
+		}
+		if xCol == "" {
+			xCol = col
+		} else {
+			yCol = col
+			break
+		}
+	}
+	if xCol == "" || yCol == "" {
+		return nil
+	}
+	s := &ScatterData{Name: yCol + " vs " + xCol, XLabel: xCol, YLabel: yCol}
+	for _, row := range sqlOut.Samples {
+		x, xok := toFloat(row[xCol])
+		y, yok := toFloat(row[yCol])
+		if xok && yok {
+			s.X = append(s.X, x)
+			s.Y = append(s.Y, y)
+		}
+	}
+	if len(s.X) < 3 {
+		return nil
+	}
+	return s
 }
 
 // flattenMetrics 依 analysis_type 从 data_analysis 结果中挑出关键指标，扁平成

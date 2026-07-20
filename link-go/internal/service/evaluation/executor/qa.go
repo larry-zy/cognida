@@ -9,6 +9,7 @@ import (
 
 	domeval "link/internal/model/evaluation"
 	"link/internal/model/rag"
+	prompts "link/internal/prompt"
 )
 
 // QAExecutor QA 评测执行器（直接 LLM 生成）
@@ -65,7 +66,7 @@ func (e *QAExecutor) generate(ctx context.Context, question string) (string, err
 	log.Printf("[QAExecutor] Calling LLM for question: %s", question)
 
 	messages := []rag.LLMMessage{
-		{Role: "system", Content: "You are a helpful assistant. Answer the user's question accurately and concisely."},
+		{Role: "system", Content: prompts.MustGet("evaluation", "qa_system")},
 		{Role: "user", Content: question},
 	}
 

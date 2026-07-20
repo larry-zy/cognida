@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	
 	domainrag "link/internal/model/rag"
+	prompts "link/internal/prompt"
 )
 
 // ========================================
@@ -190,17 +190,7 @@ func (m *MultiHopRetrieverImpl) generateFinalAnswer(
 
 // getReasoningSystemPrompt 获取推理系统 prompt
 func (m *MultiHopRetrieverImpl) getReasoningSystemPrompt() string {
-	return `你是一个专业的多步推理助手。你的任务是根据检索结果，判断：
-1. 当前查询是否得到了足够的答案
-2. 是否需要继续检索更多信息
-3. 下一步应该查询什么
-
-请以 JSON 格式输出：
-{
-  "intermediate_answer": "基于当前检索结果的中间答案",
-  "should_continue": true/false,
-  "next_query": "如果需要继续，下一步的查询内容"
-}`
+	return prompts.MustGet("knowledge", "reasoning_system")
 }
 
 // buildReasoningPrompt 构建推理 prompt
@@ -232,13 +222,7 @@ func (m *MultiHopRetrieverImpl) buildReasoningPrompt(
 
 // getFinalAnswerSystemPrompt 获取最终答案系统 prompt
 func (m *MultiHopRetrieverImpl) getFinalAnswerSystemPrompt() string {
-	return `你是一个专业的综合分析助手。你的任务是根据多跳检索的中间结果，生成最终答案。
-
-最终答案应该：
-1. 直接回答原始问题
-2. 综合所有检索结果的信息
-3. 结构清晰、逻辑严谨
-4. 引用关键信息来源`
+	return prompts.MustGet("knowledge", "final_answer_system")
 }
 
 // buildFinalAnswerPrompt 构建最终答案 prompt

@@ -42,6 +42,11 @@ type QAResult struct {
 	Trajectory []string `json:"trajectory,omitempty"`  // 实际步骤序列
 	TotalSteps int      `json:"total_steps,omitempty"` // 步骤总数
 
+	// Agent 运行时基础指标（由 Go 执行器直接采集，非 Python 计算）
+	LatencyMs  int64 `json:"latency_ms,omitempty"`  // 单轮对话墙钟耗时（毫秒）
+	TokensUsed int   `json:"tokens_used,omitempty"` // 本轮消耗总 token 数
+	LLMCalls   int   `json:"llm_calls,omitempty"`   // 本轮 LLM 调用次数（ReAct 迭代数）
+
 	// Agent 评测期望标注（从 QAPair 透传，供 Worker 组装 references；QA/RAG 留空）
 	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名
 	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列

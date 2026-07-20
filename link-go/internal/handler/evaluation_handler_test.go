@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	domagent "link/internal/model/agent"
+	domeval "link/internal/model/evaluation"
 )
 
 // stubAgentRegistry 仅用于评测 handler 的 agent_id 校验测试：只关心 Exists。
@@ -63,6 +65,21 @@ func TestCreateTask_AgentMissingID(t *testing.T) {
 	})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing agent_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleError_DatasetTypeMismatch 数据集类型与评测类型不匹配（如给 agent 评测选了
+// llm 数据集）应映射为 400，而非 500——历史上缺此 case 会掩盖成服务器错误，前端无可读提示。
+func TestHandleError_DatasetTypeMismatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	h := &EvaluationHandler{}
+	// 复现 service 层包裹形式：fmt.Errorf("%w: ...", ErrDatasetTypeMismatch, ...)
+	err := fmt.Errorf("%w: expected llm, got agent", domeval.ErrDatasetTypeMismatch)
+	h.handleError(c, err)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for dataset type mismatch, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

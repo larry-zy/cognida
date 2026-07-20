@@ -50,8 +50,8 @@ func setupGraphAPI(t *testing.T) (*gin.Engine, *neo4jrepo.Neo4jRepository, strin
 	return r, repo, "test-kb-graph-api"
 }
 
-// envelope 解析统一响应
-type envelope struct {
+// graphEnvelope 解析统一响应
+type graphEnvelope struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data"`
@@ -91,7 +91,7 @@ func TestGraphStatsAPI(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var env envelope
+	var env graphEnvelope
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 
 	var stats knowledgeapp.GraphStatsDTO
@@ -119,7 +119,7 @@ func TestNodeDetailAPI(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var env envelope
+	var env graphEnvelope
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 
 	var detail struct {

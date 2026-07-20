@@ -3,9 +3,12 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	domaincache "link/internal/model/cache"
 )
@@ -174,31 +177,125 @@ func (ff *FeatureFlag) GetAllConfigs() *AllConfigs {
 // Config File Loading
 // ========================================
 
-// LoadConfigFromFile 从文件加载配置到 FeatureFlag
-func LoadConfigFromFile(ff *FeatureFlag, configPath string) error {
-	// TODO: 实现 YAML 配置文件解析
-	// 这里使用简化的实现，实际应该使用 viper 或类似库
-	// 预期格式：
-	// enabled: true
-	// threshold: 0.85
-	// ttl: 24h
-	// top_k: 5
-	// agents:
-	//   rag_agent:
-	//     enabled: true
-	//     threshold: 0.90
-	//     ttl: 24h
-	//     top_k: 3
+// yamlAgentConfig 单个 Agent 的 YAML 配置。TTL 用字符串承载（如 "24h"），
+// 因为 yaml.v3 会把 time.Duration 当作纳秒整数解析。
+type yamlAgentConfig struct {
+	Enabled   bool    `yaml:"enabled"`
+	Threshold float32 `yaml:"threshold"`
+	TTL       string  `yaml:"ttl"`
+	TopK      int     `yaml:"top_k"`
+}
 
-	// 简化实现：直接返回 nil，实际需要解析 YAML
+// yamlCacheConfig 顶层缓存配置文件结构。
+type yamlCacheConfig struct {
+	Enabled   bool                       `yaml:"enabled"`
+	Threshold float32                    `yaml:"threshold"`
+	TTL       string                     `yaml:"ttl"`
+	TopK      int                        `yaml:"top_k"`
+	Agents    map[string]yamlAgentConfig `yaml:"agents"`
+}
+
+// parseTTL 解析时长字符串，空串返回 0（表示沿用默认值）。
+func parseTTL(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid ttl %q: %w", s, err)
+	}
+	return d, nil
+}
+
+// LoadConfigFromFile 从 YAML 文件加载配置并应用到 FeatureFlag。
+// 预期格式：
+//
+//	enabled: true
+//	threshold: 0.85
+//	ttl: 24h
+//	top_k: 5
+//	agents:
+//	  rag_agent:
+//	    enabled: true
+//	    threshold: 0.90
+//	    ttl: 24h
+//	    top_k: 3
+func LoadConfigFromFile(ff *FeatureFlag, configPath string) error {
+	strategy, err := loadConfigFromFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	ff.SetGlobal(strategy.Global.Enabled)
+	for agentType, config := range strategy.Agents {
+		cfg := config // 复制，避免取到循环变量地址
+		ff.SetAgentConfig(agentType, &cfg)
+	}
+
 	return nil
 }
 
-// loadConfigFromFile 加载配置文件（内部使用）
+// loadConfigFromFile 读取并解析 YAML 配置文件为领域策略对象。
 func loadConfigFromFile(configPath string) (*domaincache.AgentCacheStrategy, error) {
-	// TODO: 实现 YAML 文件解析
-	// 这里返回一个空策略
-	return &domaincache.AgentCacheStrategy{}, nil
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("read config file failed: %w", err)
+	}
+
+	var raw yamlCacheConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse yaml config failed: %w", err)
+	}
+
+	globalTTL, err := parseTTL(raw.TTL)
+	if err != nil {
+		return nil, err
+	}
+
+	defaults := domaincache.AgentCacheConfig{
+		Enabled:   raw.Enabled,
+		Threshold: raw.Threshold,
+		TTL:       globalTTL,
+		TopK:      raw.TopK,
+	}
+
+	strategy := &domaincache.AgentCacheStrategy{
+		Global: domaincache.SemanticCacheConfig{
+			Enabled:   raw.Enabled,
+			Threshold: raw.Threshold,
+			TTL:       globalTTL,
+			TopK:      raw.TopK,
+		},
+		Defaults: defaults,
+		Agents:   make(map[string]domaincache.AgentCacheConfig, len(raw.Agents)),
+	}
+
+	for name, ac := range raw.Agents {
+		ttl, err := parseTTL(ac.TTL)
+		if err != nil {
+			return nil, fmt.Errorf("agent %q: %w", name, err)
+		}
+		// 未显式设置的字段沿用默认值
+		threshold := ac.Threshold
+		if threshold == 0 {
+			threshold = defaults.Threshold
+		}
+		if ttl == 0 {
+			ttl = defaults.TTL
+		}
+		topK := ac.TopK
+		if topK == 0 {
+			topK = defaults.TopK
+		}
+		strategy.Agents[name] = domaincache.AgentCacheConfig{
+			Enabled:   ac.Enabled,
+			Threshold: threshold,
+			TTL:       ttl,
+			TopK:      topK,
+		}
+	}
+
+	return strategy, nil
 }
 
 // ========================================

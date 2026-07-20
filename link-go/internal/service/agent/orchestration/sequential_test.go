@@ -10,10 +10,13 @@ import (
 )
 
 // mockToolAgent 返回带工具调用轨迹的响应，用于验证 Sequential 跨段累积 ToolCalls。
+// tokens/iterations 用于验证跨段运行时用量求和。
 type mockToolAgent struct {
-	name     string
-	response string
-	tools    []string
+	name       string
+	response   string
+	tools      []string
+	tokens     int
+	iterations int
 }
 
 func (m *mockToolAgent) Chat(ctx context.Context, message string) (*framework.Response, error) {
@@ -21,7 +24,14 @@ func (m *mockToolAgent) Chat(ctx context.Context, message string) (*framework.Re
 	for _, t := range m.tools {
 		calls = append(calls, &framework.ToolCall{Name: t})
 	}
-	return &framework.Response{Content: m.response, ToolCalls: calls}, nil
+	return &framework.Response{
+		Content:   m.response,
+		ToolCalls: calls,
+		Metadata: map[string]interface{}{
+			"tokens_used": m.tokens,
+			"iterations":  m.iterations,
+		},
+	}, nil
 }
 
 func (m *mockToolAgent) Stream(ctx context.Context, message string) (<-chan *framework.Chunk, error) {
@@ -95,6 +105,25 @@ func TestSequential_AccumulatesToolCalls(t *testing.T) {
 		got = append(got, tc.Name)
 	}
 	assert.Equal(t, []string{"get_schema", "sql_execute", "data_analysis"}, got)
+}
+
+// TestSequential_AggregatesRuntimeMetrics 验证 Sequential 把各段的 tokens_used/iterations
+// 跨段求和写回末段 Metadata——回归 PER（text2sql）等管道中，末段（Reflect）Metadata 只反映
+// 自身单次调用，导致评测运行时指标 llm_calls/tokens_used 大幅低估的缺陷。
+func TestSequential_AggregatesRuntimeMetrics(t *testing.T) {
+	plan := &mockToolAgent{name: "plan", response: "planned", tools: []string{"get_schema"}, tokens: 120, iterations: 2}
+	exec := &mockToolAgent{name: "execute", response: "executed", tools: []string{"sql_execute"}, tokens: 300, iterations: 3}
+	reflect := &mockToolAgent{name: "reflect", response: "final", tokens: 80, iterations: 1}
+
+	seqAgent := Sequential(plan, exec, reflect)
+
+	resp, err := seqAgent.Chat(context.Background(), "test")
+	assert.NoError(t, err)
+	// 跨段求和：tokens_used = 120+300+80 = 500；iterations = 2+3+1 = 6
+	assert.Equal(t, 500, resp.Metadata["tokens_used"])
+	assert.Equal(t, 6, resp.Metadata["iterations"])
+	// 轨迹仍完整合并
+	assert.Len(t, resp.ToolCalls, 2)
 }
 
 // TestSequential_SingleAgent tests Sequential with one agent.

@@ -7,8 +7,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
+
+// defaultWatchInterval 默认目录轮询间隔
+const defaultWatchInterval = 3 * time.Second
 
 // ========================================
 // SkillManager Skill 管理器
@@ -61,7 +66,8 @@ type skillManager struct {
 	registry    SkillRegistry
 	loader      SkillLoader
 	sources     map[string]string // skill name -> source path
-	watchers    map[string]struct{} // watched directories
+	watchers    map[string]chan struct{} // watched directory -> stop channel
+	watchInterval time.Duration          // 轮询间隔（0 时用默认值）
 	mu          sync.RWMutex
 }
 
@@ -74,7 +80,7 @@ func NewSkillManager(opts ...ManagerOption) SkillManager {
 		registry: registry,
 		loader:   loader,
 		sources:  make(map[string]string),
-		watchers: make(map[string]struct{}),
+		watchers: make(map[string]chan struct{}),
 	}
 
 	// 应用选项
@@ -99,6 +105,13 @@ func WithRegistry(registry SkillRegistry) ManagerOption {
 func WithLoader(loader SkillLoader) ManagerOption {
 	return func(m *skillManager) {
 		m.loader = loader
+	}
+}
+
+// WithWatchInterval 设置目录轮询间隔
+func WithWatchInterval(interval time.Duration) ManagerOption {
+	return func(m *skillManager) {
+		m.watchInterval = interval
 	}
 }
 
@@ -277,7 +290,8 @@ func (m *skillManager) GetSkillSource(name string) (string, bool) {
 	return source, exists
 }
 
-// Watch 监听目录变化（TODO）
+// Watch 监听目录变化并在检测到改动时自动重新加载 Skill。
+// 采用轮询（扫描文件 mtime）实现，避免引入额外的文件系统监听依赖。
 func (m *skillManager) Watch(dir string) error {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
@@ -285,12 +299,23 @@ func (m *skillManager) Watch(dir string) error {
 	}
 
 	m.mu.Lock()
-	m.watchers[absDir] = struct{}{}
+	if _, exists := m.watchers[absDir]; exists {
+		m.mu.Unlock()
+		return fmt.Errorf("directory already being watched: %s", absDir)
+	}
+	interval := m.watchInterval
+	if interval <= 0 {
+		interval = defaultWatchInterval
+	}
+	stop := make(chan struct{})
+	m.watchers[absDir] = stop
 	m.mu.Unlock()
 
-	log.Printf("[SkillManager] Watching directory: %s", absDir)
+	log.Printf("[SkillManager] Watching directory: %s (interval=%s)", absDir, interval)
 
-	// TODO: 实现 fsnotify 监听
+	// 同步捕获基线指纹，避免 goroutine 启动前发生的改动被当成基线而漏加载。
+	baseline := dirFingerprint(absDir)
+	go m.watchLoop(absDir, interval, baseline, stop)
 
 	return nil
 }
@@ -303,12 +328,63 @@ func (m *skillManager) StopWatch(dir string) error {
 	}
 
 	m.mu.Lock()
-	delete(m.watchers, absDir)
+	stop, exists := m.watchers[absDir]
+	if exists {
+		delete(m.watchers, absDir)
+	}
 	m.mu.Unlock()
 
+	if !exists {
+		return fmt.Errorf("directory not being watched: %s", absDir)
+	}
+
+	close(stop)
 	log.Printf("[SkillManager] Stopped watching: %s", absDir)
 
 	return nil
+}
+
+// watchLoop 周期性扫描目录指纹，发现变化则重新加载 Skill。
+func (m *skillManager) watchLoop(dir string, interval time.Duration, baseline string, stop <-chan struct{}) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	last := baseline
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			current := dirFingerprint(dir)
+			if current == last {
+				continue
+			}
+			last = current
+			if _, err := m.LoadSkills(dir); err != nil {
+				log.Printf("[SkillManager] Reload on change failed for %s: %v", dir, err)
+			} else {
+				log.Printf("[SkillManager] Reloaded skills after change in %s", dir)
+			}
+		}
+	}
+}
+
+// dirFingerprint 计算目录内容指纹，用文件路径+大小+修改时间聚合，
+// 任意文件的新增/删除/修改都会导致指纹变化。
+func dirFingerprint(dir string) string {
+	var sb strings.Builder
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		fmt.Fprintf(&sb, "%s|%d|%d;", path, info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	return sb.String()
 }
 
 // ========================================

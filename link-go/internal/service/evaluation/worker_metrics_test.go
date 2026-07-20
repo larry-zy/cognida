@@ -213,3 +213,61 @@ func TestConvertQAResultsToApp_CarriesRetrievedPIDs(t *testing.T) {
 		t.Errorf("RetrievedChunks 未透传：got %v", app[0].RetrievedChunks)
 	}
 }
+
+// TestConvertQAResultsToApp_CarriesAgentRuntimeMetrics 验证 domain→app 转换保留
+// Agent 运行时基础指标（耗时/Token/LLM 调用次数）。
+func TestConvertQAResultsToApp_CarriesAgentRuntimeMetrics(t *testing.T) {
+	domainResults := []*domeval.QAResult{
+		{Question: "Q", LatencyMs: 1234, TokensUsed: 567, LLMCalls: 3},
+	}
+	app := convertQAResultsToApp(domainResults)
+	if len(app) != 1 {
+		t.Fatalf("expected 1 app result, got %d", len(app))
+	}
+	if app[0].LatencyMs != 1234 || app[0].TokensUsed != 567 || app[0].LLMCalls != 3 {
+		t.Errorf("运行时指标未透传：latency=%d tokens=%d calls=%d",
+			app[0].LatencyMs, app[0].TokensUsed, app[0].LLMCalls)
+	}
+}
+
+// TestAugmentAgentRuntimeMetrics 验证 Agent 运行时基础指标：逐条注入 QAResult.Scores，
+// 任务级 Scores 汇总均值 + 成功率。
+func TestAugmentAgentRuntimeMetrics(t *testing.T) {
+	evalResult := &EvaluationResult{
+		QAResults: []*QAResult{
+			{LatencyMs: 100, TokensUsed: 200, LLMCalls: 2, Success: true},
+			{LatencyMs: 300, TokensUsed: 400, LLMCalls: 4, Success: false},
+		},
+	}
+
+	augmentAgentRuntimeMetrics(evalResult)
+
+	// 逐条注入
+	if got := evalResult.QAResults[0].Scores["latency_ms"]; got != 100 {
+		t.Errorf("QA0 latency_ms = %v, want 100", got)
+	}
+	if got := evalResult.QAResults[1].Scores["tokens_used"]; got != 400 {
+		t.Errorf("QA1 tokens_used = %v, want 400", got)
+	}
+	// 任务级均值
+	if got := evalResult.Scores["latency_ms"]; got != 200 {
+		t.Errorf("agg latency_ms = %v, want 200", got)
+	}
+	if got := evalResult.Scores["tokens_used"]; got != 300 {
+		t.Errorf("agg tokens_used = %v, want 300", got)
+	}
+	if got := evalResult.Scores["llm_calls"]; got != 3 {
+		t.Errorf("agg llm_calls = %v, want 3", got)
+	}
+	// 成功率：2 条 1 成功 = 0.5
+	if got := evalResult.Scores["success_rate"]; got != 0.5 {
+		t.Errorf("agg success_rate = %v, want 0.5", got)
+	}
+
+	// 空结果不应 panic 且不写入
+	empty := &EvaluationResult{}
+	augmentAgentRuntimeMetrics(empty)
+	if empty.Scores != nil {
+		t.Errorf("空结果不应写入 Scores，got %v", empty.Scores)
+	}
+}

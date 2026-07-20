@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	agentctx "link/internal/model/agent"
+	model_datasource "link/internal/model/datasource"
 	"link/internal/model/semantic"
 	"link/internal/service/agent/metricsql"
 	"link/internal/service/agent/semanticcache"
@@ -155,6 +156,9 @@ type SemanticQueryRequest struct {
 	OrderBy []metricsql.OrderKey `json:"order_by" jsonschema:"description=排序键，field 须为已选的指标或维度名"`
 	// Limit 行数上限
 	Limit int `json:"limit" jsonschema:"description=返回行数上限"`
+	// TimeGrain 时间粒度：day/week/month/quarter/year。设置后单个指标按该粒度沿时间维度自动上卷，
+	// 引擎按数据源方言生成日期分桶（MySQL DATE_FORMAT / PG TO_CHAR）。未显式选时间维度时自动注入主时间维度。
+	TimeGrain string `json:"time_grain" jsonschema:"description=时间粒度 day/week/month/quarter/year，设置后指标按该粒度沿时间维度自动上卷"`
 }
 
 // SemanticQueryResult 结构化取数结果：治理口径 SQL + 覆盖报告。
@@ -188,9 +192,9 @@ type SemanticQueryResult struct {
 
 // NewSemanticQueryTool 创建结构化取数工具；repo 语义仓储、cache 受信缓存、grounder 术语接地器、
 // sink 覆盖埋点端口经参数注入（均可为 nil）。
-func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder, sink semantic.CoverageSink) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
+func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder, sink semantic.CoverageSink, dsp model_datasource.ConnectionProvider) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
 	handler := func(ctx context.Context, req *SemanticQueryRequest) (*SemanticQueryResult, error) {
-		return semanticQuery(ctx, req, repo, cache, sink)
+		return semanticQuery(ctx, req, repo, cache, sink, dsp)
 	}
 	return NewTypedBaseTool("semantic_query",
 		`按受治理的指标语义模型生成 SQL（NL2Semantics 查询主路径）。
@@ -211,12 +215,14 @@ func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, g
 - model: 语义模型名（可选）
 - metrics / dimensions: 语义名列表
 - filters: [{field, op, values}]，op ∈ = != > >= < <= like in
-- order_by: [{field, desc}]；limit: 行数上限`,
+- order_by: [{field, desc}]；limit: 行数上限
+- time_grain: 时间粒度 day/week/month/quarter/year（可选）。设置后指标沿时间维度按该粒度自动上卷，
+  引擎按数据源方言生成日期分桶；未显式选时间维度时自动注入模型主时间维度。`,
 		handler,
 	)
 }
 
-func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache, sink semantic.CoverageSink) (*SemanticQueryResult, error) {
+func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache, sink semantic.CoverageSink, dsp model_datasource.ConnectionProvider) (*SemanticQueryResult, error) {
 	if semanticRepo == nil {
 		return &SemanticQueryResult{
 			Covered:      false,
@@ -252,6 +258,15 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 		Filters:    req.Filters,
 		OrderBy:    req.OrderBy,
 		Limit:      req.Limit,
+	}
+	// 时间智能：仅在指定 time_grain 时按数据源方言生成日期分桶，避免为无时间需求的
+	// 请求平白引入方言维度（否则会拆散缓存键）。方言从模型绑定数据源推导，缺省 MySQL（业务库）。
+	// dialectConfident=false 表示方言是在数据源解析失败时的兜底猜测，此时不得写入受信缓存
+	// （避免把可能错方言的 SQL 固化，污染后续同签名请求）。
+	dialectConfident := true
+	if grain := strings.TrimSpace(req.TimeGrain); grain != "" {
+		query.TimeGrain = metricsql.TimeGrain(strings.ToLower(grain))
+		query.Dialect, dialectConfident = resolveDialect(ctx, tenantID, dbID, dsp)
 	}
 
 	// 受信查询缓存：键含模型版本，版本 bump 后旧键自然失效。命中即返回受信 SQL，
@@ -293,7 +308,8 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 		res.DatabaseID = dbID
 		recordCoverage(ctx, sink, tenantID, bundle.Model.Name, semantic.CoverageCovered, nil)
 		// 覆盖命中的治理 SQL 写入受信缓存（Verified），供后续同签名请求复用。
-		if semanticQueryCache != nil && cacheKey != "" {
+		// 方言为兜底猜测时跳过写缓存，防止把可能错方言的 SQL 固化污染缓存。
+		if semanticQueryCache != nil && cacheKey != "" && dialectConfident {
 			_ = semanticQueryCache.Put(ctx, cacheKey, &semanticcache.Entry{
 				SQL:          out.SQL,
 				ModelVersion: bundle.Model.Version,
@@ -348,6 +364,27 @@ func bundleDatabaseID(bundle *semantic.ModelBundle) string {
 		}
 	}
 	return seen
+}
+
+// resolveDialect 推导治理 SQL 目标数据源的方言，用于时间智能的日期分桶。
+//   - dbID 为空 / dsp 为空 → 模型未绑定外部数据源，SQL 打向业务库（MySQL），返回 (MySQL, true)；
+//   - Acquire 失败 → best-effort 回落 MySQL，但标记 confident=false（真正连接错误会在 sql_execute
+//     阶段暴露；调用方据此跳过写缓存，避免固化可能错方言的 SQL）；
+//   - 命中外部数据源 → 按其 Type 映射（postgres → Postgres，其余 → MySQL），confident=true。
+//
+// 返回值 confident 表示方言是否可信推导得到（false 仅用于避免缓存污染）。
+func resolveDialect(ctx context.Context, tenantID int64, dbID string, dsp model_datasource.ConnectionProvider) (metricsql.Dialect, bool) {
+	if dbID == "" || dsp == nil {
+		return metricsql.DialectMySQL, true
+	}
+	_, ds, err := dsp.Acquire(ctx, tenantID, dbID)
+	if err != nil || ds == nil {
+		return metricsql.DialectMySQL, false
+	}
+	if ds.Type == model_datasource.TypePostgres {
+		return metricsql.DialectPostgres, true
+	}
+	return metricsql.DialectMySQL, true
 }
 
 // resolveBundle 解析目标语义模型：指定名则精确取；未指定且恰有一个生效模型则自动选用；

@@ -24,6 +24,11 @@ type BaseTool struct {
 	// Description 工具描述
 	Description string
 
+	// ParamsOneOf 可选：机器可读的参数 schema（下发给 LLM 的 function parameters）。
+	// 为 nil 时工具仅凭 Description 文本约束入参；非 nil 时 Info() 会带上，
+	// 让参数形状在格式层被 LLM 遵循（推荐用 eino utils.GoStruct2ParamsOneOf 从入参 struct 反射生成）。
+	ParamsOneOf *schema.ParamsOneOf
+
 	// Handler 工具处理函数
 	Handler func(ctx context.Context, args string) (string, error)
 
@@ -212,8 +217,9 @@ func truncateString(s string, maxLen int) string {
 // Info 实现 tool.InvokableTool 接口
 func (t *BaseTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: t.Name,
-		Desc: t.Description,
+		Name:        t.Name,
+		Desc:        t.Description,
+		ParamsOneOf: t.ParamsOneOf, // 为 nil 时等价于无参数 schema（纯描述驱动）
 	}, nil
 }
 

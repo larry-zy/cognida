@@ -11,11 +11,13 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/google/uuid"
 
 	agentctx "link/internal/model/agent"
@@ -32,10 +34,178 @@ type RenderUIRequest struct {
 	// Title UI 面板标题（可选，建议用用户问题或结论）
 	Title string `json:"title" jsonschema:"description=UI面板标题，建议用用户问题或分析结论"`
 
-	// Components 自定义组件布局（可选）。邻接表，必须含且仅含一个 id=="root" 的节点；
-	// 数据经 {"path": "/..."} RFC6901 Pointer 绑定引用，可用路径：/table /series /metrics/<名> /meta/<键>。
+	// Components 自定义组件布局（可选）。含且仅含一个 id=="root" 的节点；
+	// 数据经 {"path": "/..."} RFC6901 Pointer 绑定引用，可用路径：/table /series /scatter /metrics/<名> /meta/<键>。
 	// 留空则使用确定性模板布局（指标卡 + 折线图 + 数据表）。
-	Components []genui.Component `json:"components" jsonschema:"description=可选的自定义组件布局（邻接表，须含唯一root节点）。组件类型仅限catalog白名单；数据用{\"path\":\"/table\"}等JSON Pointer绑定引用，禁止内联具体数字。留空用默认模板"`
+	//
+	// 反序列化容忍两种形态（见 UnmarshalJSON）：扁平邻接表（children 填子节点 id 字符串）
+	// 或内联嵌套树（children 直接放子组件对象）；后者会被自动摊平成邻接表。
+	Components []genui.Component `json:"components" jsonschema:"description=可选的自定义组件布局（含唯一root节点；children可填子节点id数组或直接内联子组件对象，均可）。组件类型仅限catalog白名单；数据用{\"path\":\"/table\"}等JSON Pointer绑定引用，禁止内联具体数字。留空用默认模板"`
+}
+
+// looseComponent 是 genui.Component 的宽松镜像：children 允许两种 JSON 形态——
+// 字符串 id 数组（标准邻接表）或内联子组件对象数组（LLM 常产出的嵌套树）。
+// 用 json.RawMessage 延迟到 flattenComponents 中按实际形态分派。
+type looseComponent struct {
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Props    map[string]interface{} `json:"props,omitempty"`
+	Children json.RawMessage        `json:"children,omitempty"`
+}
+
+// UnmarshalJSON 容忍 LLM 产出的两种 components 形态，统一摊平为邻接表：
+//  1. 标准扁平邻接表：[{id,type,props,children:[id...]}, ...]
+//  2. 内联嵌套树：单个 root 对象（或对象数组），children 直接内联子组件对象。
+//
+// 内联形态会被摊平成邻接表（为缺失 id 的节点自动编号，避让既有 id），
+// 从而对 LLM 的结构差异鲁棒——历史 bug：LLM 传嵌套对象导致
+// "cannot unmarshal object into []genui.Component"，渲染整体失败。
+func (r *RenderUIRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ResultID   string          `json:"result_id"`
+		Title      string          `json:"title"`
+		Components json.RawMessage `json:"components"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.ResultID = raw.ResultID
+	r.Title = raw.Title
+	r.Components = nil
+
+	trimmed := bytes.TrimSpace(raw.Components)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+	comps, err := flattenComponents(trimmed)
+	if err != nil {
+		return err
+	}
+	r.Components = comps
+	return nil
+}
+
+// flattenComponents 把 components 原始 JSON（扁平数组或内联嵌套树）统一摊平为邻接表。
+func flattenComponents(raw []byte) ([]genui.Component, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+
+	// 顶层允许「组件数组」或「单个 root 对象」。
+	var roots []looseComponent
+	switch trimmed[0] {
+	case '[':
+		if err := json.Unmarshal(trimmed, &roots); err != nil {
+			return nil, fmt.Errorf("components 数组解析失败: %w", err)
+		}
+	case '{':
+		var single looseComponent
+		if err := json.Unmarshal(trimmed, &single); err != nil {
+			return nil, fmt.Errorf("components 对象解析失败: %w", err)
+		}
+		// 单个 root 对象若省略 id，补成固定根 id，避免因缺 root 被 Validate 拒绝。
+		if single.ID == "" {
+			single.ID = genui.RootID
+		}
+		roots = []looseComponent{single}
+	default:
+		return nil, fmt.Errorf("components 须为组件数组或单个 root 节点对象")
+	}
+
+	// 先收集所有显式 id，供自动编号避让，防止生成 id 与既有 id 冲突。
+	// 逐元素下钻：只有内联对象子节点才递归，字符串 id 子节点是对既有节点的引用。
+	used := map[string]bool{}
+	var collect func(n looseComponent)
+	collect = func(n looseComponent) {
+		if n.ID != "" {
+			used[n.ID] = true
+		}
+		for _, el := range childElems(n.Children) {
+			if child, ok := elemAsComponent(el); ok {
+				collect(child)
+			}
+		}
+	}
+	for _, n := range roots {
+		collect(n)
+	}
+
+	counter := 0
+	genID := func() string {
+		for {
+			counter++
+			id := fmt.Sprintf("c%d", counter)
+			if !used[id] {
+				used[id] = true
+				return id
+			}
+		}
+	}
+
+	var out []genui.Component
+	var walk func(n looseComponent) string
+	walk = func(n looseComponent) string {
+		id := n.ID
+		if id == "" {
+			id = genID()
+		}
+		comp := genui.Component{ID: id, Type: n.Type, Props: n.Props}
+		// children 逐元素处理，容忍「字符串 id」与「内联对象」混用：
+		// 字符串 → 直接作为引用；对象 → 递归摊平并回填其（生成的）id。
+		for _, el := range childElems(n.Children) {
+			if ref, ok := elemAsID(el); ok {
+				comp.Children = append(comp.Children, ref)
+			} else if child, ok := elemAsComponent(el); ok {
+				comp.Children = append(comp.Children, walk(child))
+			}
+		}
+		out = append(out, comp)
+		return id
+	}
+	for _, n := range roots {
+		walk(n)
+	}
+	return out, nil
+}
+
+// childElems 把 children 拆成逐个原始 JSON 元素；非数组返回 nil。
+func childElems(raw json.RawMessage) []json.RawMessage {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || t[0] != '[' {
+		return nil
+	}
+	var elems []json.RawMessage
+	if err := json.Unmarshal(t, &elems); err != nil {
+		return nil
+	}
+	return elems
+}
+
+// elemAsID 把一个 children 元素解析为非空字符串 id 引用；非字符串返回 false。
+func elemAsID(el json.RawMessage) (string, bool) {
+	t := bytes.TrimSpace(el)
+	if len(t) == 0 || t[0] != '"' {
+		return "", false
+	}
+	var id string
+	if err := json.Unmarshal(t, &id); err != nil || id == "" {
+		return "", false
+	}
+	return id, true
+}
+
+// elemAsComponent 把一个 children 元素解析为内联子组件对象；非对象返回 false。
+func elemAsComponent(el json.RawMessage) (looseComponent, bool) {
+	t := bytes.TrimSpace(el)
+	if len(t) == 0 || t[0] != '{' {
+		return looseComponent{}, false
+	}
+	var c looseComponent
+	if err := json.Unmarshal(t, &c); err != nil {
+		return looseComponent{}, false
+	}
+	return c, true
 }
 
 // RenderUIResult render_ui 工具出参。
@@ -73,24 +243,53 @@ func NewRenderUITool(rs resultstore.Store, ui uibinding.Store) *TypedBaseTool[Re
 	handler := func(ctx context.Context, req *RenderUIRequest) (*RenderUIResult, error) {
 		return renderUI(ctx, req, rs, ui)
 	}
-	return NewTypedBaseTool("render_ui",
+	t := NewTypedBaseTool("render_ui",
 		fmt.Sprintf(`把查询/分析结果渲染成交互式 UI 面板，立即推送给用户（可多次调用，每次一个独立面板）。
 
 用法：
 - result_id：必填，来自 sql_execute 等工具返回的 result_id；所有数字都取自该结果集，你不需要也不允许内联具体数值
 - title：面板标题（建议用用户问题或结论）
-- components：可选自定义布局（邻接表，必须含唯一 id=="root" 节点）；留空用默认模板（指标卡+图表+数据表）
+- components：可选自定义布局，必须含唯一 id=="root" 节点。两种写法皆可：扁平邻接表（每个节点的 children 填子节点 id 字符串数组）或内联嵌套树（children 直接放子组件对象，后端自动摊平）；留空用默认模板（指标卡+图表+数据表）
 
 组件白名单（catalog）：%v
 数据绑定：props 中用 {"path": "/table"} 形式的 RFC6901 JSON Pointer 引用真实数据，可用路径：
 - /table            → {columns, rows}（有界快照）
-- /series           → {labels, actual, forecast}（折线图序列）
+- /series           → {labels, actual, forecast}（LineChart 时序 / BarChart 分类对比）
+- /scatter          → {x, y, xLabel, yLabel}（ScatterChart 两数值列相关性，仅在有该路径时）
 - /metrics/<名称>    → 单个指标值
 - /meta/<键>        → row_count / truncated / result_id 等元信息
+
+做「有解读」的富布局（别只堆指标卡+表格）：首个组件恒用 Callout 写一句关键结论
+（props: title, text, tone=info|success|warning|error），必要时用 Text 补叙述/小标题（variant=title|subtitle|body|caption）。
+主承载组件按场景选型：
+- 时序趋势 → LineChart（series 绑定 /series，含 forecast）
+- 分类对比 / 归因 drivers 排序 → BarChart
+- 两数值列相关 → ScatterChart（绑定 /scatter）
+- 单值/单指标 → MetricCard
+- 明细行集 → Table；行多或可按维筛选时加 Filter、Pagination（action.name=filter/paginate，前端会回源续跑）
+- 异常场景 → Callout 用 tone=warning 点明异常
+数字一律用 {path} 绑定，禁止内联具体数值。
+
+自定义布局示例（扁平邻接表，text 是解读、数字全走 {path} 绑定）：
+[
+  {"id":"root","type":"Column","children":["insight","kpis","trend","tbl"]},
+  {"id":"insight","type":"Callout","props":{"title":"结论","text":"近 6 个月销售额稳步上升","tone":"success"}},
+  {"id":"kpis","type":"Row","children":["m1"]},
+  {"id":"m1","type":"MetricCard","props":{"label":"总销售额","value":{"path":"/metrics/总销售额"}}},
+  {"id":"trend","type":"LineChart","props":{"title":"销售额趋势","series":{"path":"/series"}}},
+  {"id":"tbl","type":"Table","props":{"title":"明细","data":{"path":"/table"}}}
+]
 
 校验失败（非法 result_id / 越界 Pointer / 目录外组件）会返回错误，请修正后重试。`, genui.Catalog),
 		handler,
 	)
+	// 注入机器可读的参数 schema：由入参 struct + jsonschema tag 反射生成，
+	// 下发给 LLM 的 function parameters 里 components 是「对象数组」而非自由文本，
+	// 让 LLM 在格式层就遵循邻接表形状（修复其误当嵌套树内联 children 的偏差）。
+	if p, err := utils.GoStruct2ParamsOneOf[RenderUIRequest](); err == nil {
+		t.BaseTool.ParamsOneOf = p
+	}
+	return t
 }
 
 // renderUI 执行渲染：取数 → 装配 DataModel → 组装/校验 UISpec。
@@ -143,7 +342,7 @@ func renderUI(ctx context.Context, req *RenderUIRequest, rs resultstore.Store, u
 
 	// 4. 校验守门：目录外组件 / 越界 Pointer / 结构缺陷一律拒绝（回灌 LLM 自纠）。
 	if err := genui.Validate(spec); err != nil {
-		return nil, fmt.Errorf("UI 规格校验失败: %v。组件类型仅限 %v，{path} 绑定须能在数据树上解析（/table /series /metrics/<名> /meta/<键>）", err, genui.Catalog)
+		return nil, fmt.Errorf("UI 规格校验失败: %v。组件类型仅限 %v，{path} 绑定须能在数据树上解析（/table /series /scatter /metrics/<名> /meta/<键>）", err, genui.Catalog)
 	}
 
 	// 5. 交互绑定状态：surface ↔ result_id + token 落 Redis（会话 TTL），

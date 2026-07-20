@@ -23,6 +23,7 @@ import (
 	"link/internal/repository/mysql"
 	neo4jrepo "link/internal/repository/neo4j"
 	agentadapters "link/internal/service/agent/adapters"
+	experiencesvc "link/internal/service/agent/experience"
 	"link/internal/service/agent/genui"
 	agentinit "link/internal/service/agent/initializer"
 	"link/internal/service/agent/pendingaction"
@@ -131,6 +132,9 @@ func main() {
 		log.Fatalf("❌ 应用初始化失败: %v", err)
 	}
 
+	// 会话经验自动沉淀 Worker（在 Agent 初始化块内用同一 toolModel 装配后启动）。
+	var experienceWorker *experiencesvc.Worker
+
 	// ==================== 调用链追踪（自建 in-app trace）====================
 	// AGENT_TRACING_ENABLED=true 时：注册真实 TracerProvider（否则默认 no-op provider
 	// 会丢弃所有 span），并把「全部 agent」经 SpecRegistry 装饰钩子统一叠加遥测中间件，
@@ -169,6 +173,25 @@ func main() {
 		if err != nil {
 			log.Printf("⚠️  创建 ToolModel 失败: %v", err)
 		} else {
+			// ==================== 装配会话经验自动沉淀 Worker ====================
+			// 复用 toolModel 作蒸馏 LLM、db 建仓储、GraphService 的图谱仓储写经验节点。
+			// 总开关 EXPERIENCE_DISTILL_ENABLED 默认关；关闭时仍装配但不启动。
+			expCfg := experiencesvc.ConfigFromEnv()
+			if expCfg.Enabled {
+				var graphSink *experiencesvc.GraphSink
+				if app.GraphService != nil {
+					graphSink = experiencesvc.NewGraphSink(app.GraphService.GetGraphRepo())
+				}
+				experienceWorker = experiencesvc.NewWorker(
+					expCfg,
+					mysql.NewExperienceRepository(db),
+					msgRepo,
+					experiencesvc.NewSummarizer(toolModel),
+					graphSink,
+					experiencesvc.NewSkillSink(experiencesvc.SkillDirFromEnv()),
+				)
+			}
+
 			// ==================== 装配工具依赖（ToolDeps）====================
 			// 依赖在构造期显式注入 NewToolRegistry，替代旧的包级 Init* 逐一全局注入。
 
@@ -321,7 +344,8 @@ func main() {
 
 				// 工具注册表就绪后构造 Initializer（工具注册表构造期显式注入，
 				// 替代 tools 包级 GetTool/GetToolsByGroup 全局查询）。
-				initializer := agentinit.NewInitializer(app.AgentRegistry, reg, msgRepo)
+				initializer := agentinit.NewInitializer(app.AgentRegistry, reg, msgRepo).
+					WithEmbedder(app.Embedder)
 
 				// 初始化所有 Agents
 				if err := initializer.Initialize(ctx, toolModel); err != nil {
@@ -342,6 +366,16 @@ func main() {
 			}
 		}()
 		log.Println("✅ 评测 Worker 已启动")
+	}
+
+	// 启动会话经验自动沉淀 Worker（EXPERIENCE_DISTILL_ENABLED=true 时装配）
+	if experienceWorker != nil {
+		log.Println("🔧 启动会话经验沉淀 Worker...")
+		if err := experienceWorker.Run(); err != nil {
+			log.Printf("❌ 经验沉淀 Worker 启动失败: %v", err)
+		} else {
+			log.Println("✅ 会话经验沉淀 Worker 已启动")
+		}
 	}
 
 	// 启动外部数据源健康检查（默认关闭；DATASOURCE_HEALTHCHECK_ENABLED=true 开启）
@@ -394,6 +428,11 @@ func main() {
 
 		if err := app.Shutdown(ctx); err != nil {
 			log.Printf("❌ 应用关闭失败: %v", err)
+		}
+
+		// 停止经验沉淀 Worker（等待在途蒸馏完成）
+		if experienceWorker != nil {
+			experienceWorker.Stop()
 		}
 
 		// 关闭追踪：flush 批量队列里未导出的 span，避免退出丢尾。

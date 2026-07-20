@@ -77,6 +77,8 @@ func main() {
 		&mysqlrepo.QualityCheckRecordModel{},
 		// Data Agent 操作审计
 		&mysqlrepo.OperationAuditModel{},
+		// 会话经验自动沉淀
+		&mysqlrepo.AgentExperienceModel{},
 		// 外部数据源注册表
 		&mysqlrepo.DataSourceModel{},
 		// 调用链追踪（OTel span 落库）

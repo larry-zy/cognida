@@ -2,14 +2,19 @@ package metricsql
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"link/internal/model/semantic"
 )
 
+// metricRefRe 匹配派生指标表达式中对其它指标/度量的引用：{指标名} / {度量名}。
+var metricRefRe = regexp.MustCompile(`\{([^{}]+)\}`)
+
 // index 是语义模型 bundle 的解析索引：把名称/同义词映射到构件，并缓存逻辑表别名。
 type index struct {
-	bundle *semantic.ModelBundle
+	bundle  *semantic.ModelBundle
+	dialect Dialect // 目标方言，决定标识符引用（`` vs ""）；空视作 MySQL
 
 	dimByKey  map[string]*semantic.Dimension
 	measByKey map[string]*semantic.Measure
@@ -69,19 +74,88 @@ func (idx *index) metric(name string) (*semantic.Metric, bool) {
 	return m, ok
 }
 
-// metricTableID 推断指标的归属逻辑表：扫描 Expr 是否引用某度量名，取该度量的表；
-// 否则若模型只有一张逻辑表则绑定该表；再否则返回空（由 chooseBase 兜底/回退）。
-func (idx *index) metricTableID(m *semantic.Metric) string {
-	lowerExpr := strings.ToLower(m.Expr)
-	for _, ms := range idx.bundle.Measures {
-		if strings.Contains(lowerExpr, strings.ToLower(ms.Name)) {
-			return ms.LogicalTableID
+// primaryTimeDimension 返回模型的主时间维度：按 bundle 顺序取首个时间类型维度，
+// 供 time_grain 在未显式选择时间维度时自动注入。无则返回 nil。
+func (idx *index) primaryTimeDimension() *semantic.Dimension {
+	for i, d := range idx.bundle.Dimensions {
+		if isTimeType(d.DataType) {
+			return idx.bundle.Dimensions[i]
 		}
 	}
-	if len(idx.bundle.LogicalTables) == 1 {
-		return idx.bundle.LogicalTables[0].ID
+	return nil
+}
+
+// expandMetric 递归展开派生/复合指标 Expr 中的 {指标名}/{度量名} 引用，直至无引用，
+// 得到最终可直接进 SELECT 的物理 SQL 片段。seen 记录当前展开路径上的指标（按归一化名）
+// 用于环检测：A→B→A 立即报错，避免无限展开。
+//
+// 信任边界：{ref} 里的名称经语义模型解析后被丢弃，替换进来的是被引指标/度量本身受治理的
+// Expr（同样是建模侧录入的可信片段），故展开结果仍全部来自治理表达式，不含用户输入。
+func (idx *index) expandMetric(m *semantic.Metric) (string, error) {
+	return idx.expandExpr(m.Name, m.Expr, map[string]bool{})
+}
+
+// expandExpr 展开单个表达式：把 {name} 替换为被引指标（递归展开、括号包裹）或度量
+// （套默认聚合 + 限定表别名）的表达式。任一引用无法解析或成环即返回 error。
+func (idx *index) expandExpr(selfName, expr string, seen map[string]bool) (string, error) {
+	k := key(selfName)
+	if seen[k] {
+		return "", fmt.Errorf("派生指标存在循环引用: %s", selfName)
 	}
-	return ""
+	seen[k] = true
+	defer delete(seen, k)
+
+	var expandErr error
+	out := metricRefRe.ReplaceAllStringFunc(expr, func(tok string) string {
+		if expandErr != nil {
+			return tok
+		}
+		name := strings.TrimSpace(tok[1 : len(tok)-1])
+		if ref, ok := idx.metric(name); ok {
+			sub, err := idx.expandExpr(ref.Name, ref.Expr, seen)
+			if err != nil {
+				expandErr = err
+				return tok
+			}
+			return "(" + sub + ")"
+		}
+		if ms, ok := idx.measure(name); ok {
+			return "(" + applyAgg(ms.Aggregation, qualify(idx, ms.LogicalTableID, ms.Expr)) + ")"
+		}
+		expandErr = fmt.Errorf("派生指标 %s 引用了未知指标/度量: %s", selfName, name)
+		return tok
+	})
+	if expandErr != nil {
+		return "", expandErr
+	}
+	return out, nil
+}
+
+// inferTables 从（已展开的）指标表达式推断其涉及的全部逻辑表：优先按逻辑表别名的
+// `alias.` 限定前缀扫描（覆盖跨表派生指标，如毛利同时引用 order_items 与 products），
+// 其次按度量名子串，最后单表模型兜底。返回可能为空（由 chooseBase 兜底/回退）。
+func (idx *index) inferTables(expr string) map[string]struct{} {
+	lower := strings.ToLower(expr)
+	out := map[string]struct{}{}
+	for id, alias := range idx.aliasByID {
+		if alias == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(alias)+".") {
+			out[id] = struct{}{}
+		}
+	}
+	if len(out) == 0 {
+		for _, ms := range idx.bundle.Measures {
+			if ms.LogicalTableID != "" && strings.Contains(lower, strings.ToLower(ms.Name)) {
+				out[ms.LogicalTableID] = struct{}{}
+			}
+		}
+	}
+	if len(out) == 0 && len(idx.bundle.LogicalTables) == 1 {
+		out[idx.bundle.LogicalTables[0].ID] = struct{}{}
+	}
+	return out
 }
 
 // chooseBase 选基表：优先取某个指标/度量归属的表（事实表），否则取首个维度的表，
@@ -119,7 +193,7 @@ func (idx *index) planFrom(base string, needed map[string]struct{}) (string, err
 	}
 	included := map[string]bool{base: true}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s %s", quoteIdent(baseTable.PhysicalTable), idx.aliasByID[base]))
+	sb.WriteString(fmt.Sprintf("%s %s", quoteIdent(idx.dialect, baseTable.PhysicalTable), idx.aliasByID[base]))
 
 	// 反复扫描 relations，把与已含表相连的表接进来，直至无新增。
 	for {
@@ -141,7 +215,7 @@ func (idx *index) planFrom(base string, needed map[string]struct{}) (string, err
 				continue
 			}
 			joinKw := joinKeyword(rel.JoinType)
-			sb.WriteString(fmt.Sprintf(" %s %s %s ON %s", joinKw, quoteIdent(nt.PhysicalTable), idx.aliasByID[newID], rel.JoinCondition))
+			sb.WriteString(fmt.Sprintf(" %s %s %s ON %s", joinKw, quoteIdent(idx.dialect, nt.PhysicalTable), idx.aliasByID[newID], rel.JoinCondition))
 			included[newID] = true
 			added = true
 			_ = knownID
@@ -238,8 +312,12 @@ func sanitizeIdent(s string) string {
 	return b.String()
 }
 
-// quoteIdent 用反引号包裹标识符（表名/列别名），内部反引号转义。
-func quoteIdent(s string) string {
+// quoteIdent 按方言包裹标识符（表名/列别名）：PostgreSQL 用双引号，其余（MySQL/空）
+// 用反引号；同引号字符按各自规则内部转义（双写）。
+func quoteIdent(dialect Dialect, s string) string {
+	if dialect == DialectPostgres {
+		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+	}
 	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 }
 
@@ -253,4 +331,60 @@ func sqlLiteral(v string) string {
 // key 归一化名称/同义词为查找键。
 func key(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// isTimeType 判断维度数据类型是否为时间类（可套时间粒度上卷）。
+func isTimeType(dataType string) bool {
+	switch strings.ToLower(strings.TrimSpace(dataType)) {
+	case "date", "datetime", "timestamp", "time":
+		return true
+	default:
+		return false
+	}
+}
+
+// validGrain 校验时间粒度取值。
+func validGrain(g TimeGrain) bool {
+	switch g {
+	case GrainDay, GrainWeek, GrainMonth, GrainQuarter, GrainYear:
+		return true
+	default:
+		return false
+	}
+}
+
+// grainExpr 把时间维度表达式按粒度 + 方言包裹为「时间桶」表达式（同时用于 SELECT 与
+// GROUP BY，保证分组键与展示列一致）。方言差异：MySQL 用 DATE_FORMAT/QUARTER，
+// PostgreSQL 用 TO_CHAR。expr 为已限定表别名的时间列表达式。
+func grainExpr(dialect Dialect, expr string, g TimeGrain) string {
+	if dialect == DialectPostgres {
+		switch g {
+		case GrainDay:
+			return fmt.Sprintf("TO_CHAR(%s, 'YYYY-MM-DD')", expr)
+		case GrainWeek:
+			return fmt.Sprintf("TO_CHAR(%s, 'IYYY-\"W\"IW')", expr)
+		case GrainMonth:
+			return fmt.Sprintf("TO_CHAR(%s, 'YYYY-MM')", expr)
+		case GrainQuarter:
+			return fmt.Sprintf("TO_CHAR(%s, 'YYYY-\"Q\"Q')", expr)
+		case GrainYear:
+			return fmt.Sprintf("TO_CHAR(%s, 'YYYY')", expr)
+		}
+		return expr
+	}
+	// 默认 MySQL。日粒度也用 DATE_FORMAT 输出字符串，与周/月/季/年保持同为
+	// VARCHAR 的列类型（避免跨粒度切换时桶列类型在 DATE 与字符串间摇摆）。
+	switch g {
+	case GrainDay:
+		return fmt.Sprintf("DATE_FORMAT(%s, '%%Y-%%m-%%d')", expr)
+	case GrainWeek:
+		return fmt.Sprintf("DATE_FORMAT(%s, '%%x-W%%v')", expr)
+	case GrainMonth:
+		return fmt.Sprintf("DATE_FORMAT(%s, '%%Y-%%m')", expr)
+	case GrainQuarter:
+		return fmt.Sprintf("CONCAT(YEAR(%s), '-Q', QUARTER(%s))", expr, expr)
+	case GrainYear:
+		return fmt.Sprintf("DATE_FORMAT(%s, '%%Y')", expr)
+	}
+	return expr
 }

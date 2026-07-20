@@ -120,6 +120,142 @@ func TestToolPolicy_NilPermitsAll(t *testing.T) {
 	}
 }
 
+// TestToolPolicy_EvaluateThreeValued 三值门：deny/scope 优先于审批、未标记退化二态、
+// 标记写类返回 approval_required。
+func TestToolPolicy_EvaluateThreeValued(t *testing.T) {
+	// 标记审批的写工具（scope 已授满）→ approval_required
+	p := &ToolPolicy{Approve: []string{"sql_mutate"}, Scope: ScopeWrite}
+	if v, reason := p.Evaluate("sql_mutate"); v != VerdictApprovalRequired || reason != ReasonApprovalRequired {
+		t.Fatalf("标记审批的写工具应判 approval_required, v=%d reason=%s", v, reason)
+	}
+
+	// 未标记审批的工具 → 退化为放行二态
+	if v, _ := p.Evaluate("sql_execute"); v != VerdictAllow {
+		t.Errorf("未标记审批工具应放行, v=%d", v)
+	}
+
+	// deny 优先于审批：同时 deny 与 approve → 直接 Deny
+	pd := &ToolPolicy{Deny: []string{"sql_mutate"}, Approve: []string{"sql_mutate"}, Scope: ScopeWrite}
+	if v, reason := pd.Evaluate("sql_mutate"); v != VerdictDeny || reason != BlockReasonDisallowed {
+		t.Fatalf("deny 必须优先于审批, v=%d reason=%s", v, reason)
+	}
+
+	// scope 拒绝优先于审批：只读会话 + 标记审批的写工具 → 直接 Deny(scope)
+	ps := &ToolPolicy{Approve: []string{"sql_mutate"}, Scope: ScopeRead}
+	if v, reason := ps.Evaluate("sql_mutate"); v != VerdictDeny || reason != BlockReasonScopeDenied {
+		t.Fatalf("scope 拒绝必须优先于审批, v=%d reason=%s", v, reason)
+	}
+
+	// nil 策略 = 不设门 → 放行
+	var pn *ToolPolicy
+	if v, _ := pn.Evaluate("sql_mutate"); v != VerdictAllow {
+		t.Errorf("nil 策略应放行, v=%d", v)
+	}
+}
+
+// TestGateToolCall_ApprovalDegradesToBlock 未挂接审批处理器时，approval_required 降级为
+// 硬拦截（宁拒不闯）：回灌 tool_blocked、不触达底层工具。
+func TestGateToolCall_ApprovalDegradesToBlock(t *testing.T) {
+	prev := toolApprovalHandler
+	toolApprovalHandler = nil // 显式无处理器
+	defer func() { toolApprovalHandler = prev }()
+
+	ctx := WithToolPolicy(context.Background(), &ToolPolicy{Approve: []string{"sql_mutate"}, Scope: ScopeWrite})
+	out, ok := gateToolCall(ctx, "sql_mutate", `{"sql":"UPDATE t SET a=1","idempotency_key":"k1"}`)
+	if ok {
+		t.Fatal("无审批处理器时需审批调用不得放行")
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("降级载荷必须是 JSON: %v (out=%s)", err, out)
+	}
+	if payload["error"] != "tool_blocked" || payload["reason"] != ReasonApprovalRequired {
+		t.Errorf("无审批通道应降级为 tool_blocked(approval-required): %s", out)
+	}
+}
+
+// TestGateToolCall_ApprovalHandlerInvoked 挂接审批处理器时，approval_required 调用委托
+// 处理器生成待确认载荷回灌，且不放行底层执行；处理器收到原始参数与工具名。
+func TestGateToolCall_ApprovalHandlerInvoked(t *testing.T) {
+	prev := toolApprovalHandler
+	var gotReq ApprovalRequest
+	toolApprovalHandler = func(ctx context.Context, req ApprovalRequest) (string, error) {
+		gotReq = req
+		return `{"status":"pending_confirm","confirm_token":"tok-1"}`, nil
+	}
+	defer func() { toolApprovalHandler = prev }()
+
+	ctx := WithToolPolicy(context.Background(), &ToolPolicy{Approve: []string{"data_export"}, Scope: ScopeWrite, Skill: "export-skill"})
+	out, ok := gateToolCall(ctx, "data_export", `{"query":"SELECT 1"}`)
+	if ok {
+		t.Fatal("需审批调用不得直接放行执行")
+	}
+	if gotReq.Tool != "data_export" || gotReq.Arguments != `{"query":"SELECT 1"}` || gotReq.Skill != "export-skill" {
+		t.Errorf("审批处理器未收到正确请求: %+v", gotReq)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("待确认载荷必须是 JSON: %v (out=%s)", err, out)
+	}
+	if payload["status"] != "pending_confirm" || payload["confirm_token"] != "tok-1" {
+		t.Errorf("应回灌处理器生成的待确认载荷: %s", out)
+	}
+}
+
+// TestGateToolCall_ApprovalRecordsGuardrailEvent 审批放行到人工确认时，须统一护栏留痕
+// write_approval_required（与输入拦截/输出脱敏事件同源），供组合根落审计（任务 6.2）。
+func TestGateToolCall_ApprovalRecordsGuardrailEvent(t *testing.T) {
+	prevH := toolApprovalHandler
+	toolApprovalHandler = func(ctx context.Context, req ApprovalRequest) (string, error) {
+		return `{"status":"pending_confirm","confirm_token":"tok"}`, nil
+	}
+	defer func() { toolApprovalHandler = prevH }()
+
+	prevR := guardrailRecorder
+	var events []GuardrailEvent
+	guardrailRecorder = func(ctx context.Context, evt GuardrailEvent) { events = append(events, evt) }
+	defer func() { guardrailRecorder = prevR }()
+
+	ctx := WithToolPolicy(context.Background(), &ToolPolicy{Approve: []string{"sql_mutate"}, Scope: ScopeWrite})
+	if _, ok := gateToolCall(ctx, "sql_mutate", `{"sql":"UPDATE t SET a=1","idempotency_key":"k"}`); ok {
+		t.Fatal("需审批调用不得直接放行")
+	}
+	if len(events) != 1 {
+		t.Fatalf("审批放行应恰好留痕一条护栏事件, got %d", len(events))
+	}
+	if events[0].Type != GuardrailEventWriteApprovalNeeded || events[0].Tool != "sql_mutate" {
+		t.Fatalf("护栏事件类型/工具不符: %+v", events[0])
+	}
+}
+
+// TestGateToolCall_ApprovalErrorNoGuardrailEvent 审批处理器异常时回灌 approval_unavailable，
+// 不得留痕 write_approval_required（未生成 pending_action）。
+func TestGateToolCall_ApprovalErrorNoGuardrailEvent(t *testing.T) {
+	prevH := toolApprovalHandler
+	toolApprovalHandler = func(ctx context.Context, req ApprovalRequest) (string, error) {
+		return "", context.DeadlineExceeded
+	}
+	defer func() { toolApprovalHandler = prevH }()
+
+	prevR := guardrailRecorder
+	var events []GuardrailEvent
+	guardrailRecorder = func(ctx context.Context, evt GuardrailEvent) { events = append(events, evt) }
+	defer func() { guardrailRecorder = prevR }()
+
+	ctx := WithToolPolicy(context.Background(), &ToolPolicy{Approve: []string{"sql_mutate"}, Scope: ScopeWrite})
+	out, ok := gateToolCall(ctx, "sql_mutate", `{"sql":"UPDATE t SET a=1","idempotency_key":"k"}`)
+	if ok {
+		t.Fatal("审批异常不得放行")
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil || payload["error"] != "approval_unavailable" {
+		t.Fatalf("审批异常应回灌 approval_unavailable: %s", out)
+	}
+	if len(events) != 0 {
+		t.Fatalf("审批异常不应留痕护栏事件, got %d", len(events))
+	}
+}
+
 // TestInvokeTool_GateBlocksBeforeExecution 拦截发生在工具执行前：
 // 被拒调用不触达底层工具，返回合成 tool_blocked ToolMessage（nil error 回灌 LLM）。
 func TestInvokeTool_GateBlocksBeforeExecution(t *testing.T) {
@@ -130,11 +266,14 @@ func TestInvokeTool_GateBlocksBeforeExecution(t *testing.T) {
 	}}
 	ctx := WithToolPolicy(context.Background(), &ToolPolicy{Scope: ScopeRead, Skill: "readonly-report"})
 
-	out, err := a.invokeTool(ctx, schema.ToolCall{
+	out, synthetic, err := a.invokeTool(ctx, schema.ToolCall{
 		Function: schema.FunctionCall{Name: "sql_mutate", Arguments: "{}"},
 	})
 	if err != nil {
 		t.Fatalf("拦截应以合成 ToolMessage 回灌而非报错: %v", err)
+	}
+	if !synthetic {
+		t.Errorf("被拒调用应标记 synthetic=true（跳过逐工具输出护栏）")
 	}
 	var payload map[string]interface{}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
@@ -149,18 +288,24 @@ func TestInvokeTool_GateBlocksBeforeExecution(t *testing.T) {
 	}
 
 	// 放行路径照常执行
-	out2, err2 := a.invokeTool(ctx, schema.ToolCall{
+	out2, synthetic2, err2 := a.invokeTool(ctx, schema.ToolCall{
 		Function: schema.FunctionCall{Name: "sql_execute", Arguments: "{}"},
 	})
 	if err2 != nil || out2 != "ok:sql_execute" {
 		t.Errorf("放行工具应正常执行, out=%s err=%v", out2, err2)
 	}
+	if synthetic2 {
+		t.Errorf("放行工具的真实观察不应标记 synthetic（须过逐工具输出护栏）")
+	}
 
 	// 未注入策略 = 不设门（既有 Agent 兼容）
-	out3, err3 := a.invokeTool(context.Background(), schema.ToolCall{
+	out3, synthetic3, err3 := a.invokeTool(context.Background(), schema.ToolCall{
 		Function: schema.FunctionCall{Name: "sql_mutate", Arguments: "{}"},
 	})
 	if err3 != nil || out3 != "ok:sql_mutate" {
 		t.Errorf("无策略时不设门, out=%s err=%v", out3, err3)
+	}
+	if synthetic3 {
+		t.Errorf("无策略放行的真实观察不应标记 synthetic")
 	}
 }

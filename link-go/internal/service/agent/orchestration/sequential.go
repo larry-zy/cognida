@@ -37,6 +37,11 @@ func (s *sequentialAgent) Chat(ctx context.Context, message string) (*infraagent
 	// 导致下游（评测轨迹指标、orchestrator.Execute 的工具信息）读到空 ToolCalls。
 	var trajectory []*infraagent.ToolCall
 
+	// 同理累积各段的运行时用量：末段 Metadata 只反映该段（如 Reflect）的 tokens_used/
+	// iterations，会大幅低估整条管道的真实 LLM 调用次数与 token 消耗。跨段求和后写回，
+	// 使评测运行时指标（llm_calls/tokens_used）反映 Plan+Execute+Reflect 全流程。
+	var totalTokens, totalIterations int
+
 	for i, a := range s.agents {
 		lastResponse, err = a.Chat(ctx, current)
 		if err != nil {
@@ -47,17 +52,43 @@ func (s *sequentialAgent) Chat(ctx context.Context, message string) (*infraagent
 		}
 
 		trajectory = append(trajectory, lastResponse.ToolCalls...)
+		totalTokens += metaInt(lastResponse.Metadata, "tokens_used")
+		totalIterations += metaInt(lastResponse.Metadata, "iterations")
 
 		// Pass content to next agent
 		current = lastResponse.Content
 	}
 
 	// 用跨段合并后的完整轨迹覆盖末段响应的 ToolCalls，保序（Plan→Execute→Reflect）。
+	// 并把跨段求和后的运行时用量写回末段 Metadata（保留末段 terminated_by/partial 等其它键）。
 	if lastResponse != nil {
 		lastResponse.ToolCalls = trajectory
+		if lastResponse.Metadata == nil {
+			lastResponse.Metadata = make(map[string]interface{})
+		}
+		lastResponse.Metadata["tokens_used"] = totalTokens
+		lastResponse.Metadata["iterations"] = totalIterations
 	}
 
 	return lastResponse, nil
+}
+
+// metaInt 从段响应 Metadata 中安全读取整型用量指标（缺失或类型不符按 0 计）。
+// 框架 fillMetadata 以 int 写入 tokens_used/iterations，此处兼容常见数值类型。
+func metaInt(meta map[string]interface{}, key string) int {
+	if meta == nil {
+		return 0
+	}
+	switch v := meta[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func (s *sequentialAgent) Stream(ctx context.Context, message string) (<-chan *infraagent.Chunk, error) {

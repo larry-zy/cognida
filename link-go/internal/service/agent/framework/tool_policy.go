@@ -68,23 +68,38 @@ func RequiredToolScope(tool string) string {
 
 // 拦截原因（拦截留痕与合成 ToolMessage 共用的稳定标识）。
 const (
-	BlockReasonDisallowed     = "disallowed"       // 命中 skill disallowed_tools
-	BlockReasonNotInAllowlist = "not-in-allowlist" // 白名单模式下不在 allowed_tools
-	BlockReasonScopeDenied    = "scope-denied"     // 会话 scope 未授予所需能力
+	BlockReasonDisallowed     = "disallowed"        // 命中 skill disallowed_tools
+	BlockReasonNotInAllowlist = "not-in-allowlist"  // 白名单模式下不在 allowed_tools
+	BlockReasonScopeDenied    = "scope-denied"      // 会话 scope 未授予所需能力
+	ReasonApprovalRequired    = "approval-required" // 策略标记为需人工审批（第三态，非拒绝）
+)
+
+// ToolVerdict 是执行前硬工具门的三值判定结果：放行 / 拒绝 / 需人工审批。
+type ToolVerdict int
+
+const (
+	// VerdictAllow 放行：工具可直接执行。
+	VerdictAllow ToolVerdict = iota
+	// VerdictDeny 拒绝：deny/白名单/scope 硬拦截，工具不得执行，回灌 tool_blocked。
+	VerdictDeny
+	// VerdictApprovalRequired 需审批：工具不直接执行，进入人机确认流程（生成 pending_action）。
+	VerdictApprovalRequired
 )
 
 // ToolPolicy 当前请求生效的工具策略：Allow/Deny 来自命中 skill 的
-// allowed_tools/disallowed_tools，Scope 来自会话授权。nil 策略 = 不设门（兼容
-// 未启用硬工具门的既有 Agent）。
+// allowed_tools/disallowed_tools，Scope 来自会话授权，Approve 为被会话/skill 标记
+// 需人工审批的写类工具。nil 策略 = 不设门（兼容未启用硬工具门的既有 Agent）。
 type ToolPolicy struct {
-	Allow []string // 非空即白名单模式：仅放行列表内工具
-	Deny  []string // 黑名单：命中即拒绝（deny 优先）
-	Scope string   // 会话 scope：read / write / etl；空按 read 最小权限
-	Skill string   // 命中的 skill 名（留痕用；纯 scope 策略可为空）
+	Allow   []string // 非空即白名单模式：仅放行列表内工具
+	Deny    []string // 黑名单：命中即拒绝（deny 优先）
+	Approve []string // 需人工审批的工具：通过 deny/scope 后仍需人工确认才执行
+	Scope   string   // 会话 scope：read / write / etl；空按 read 最小权限
+	Skill   string   // 命中的 skill 名（留痕用；纯 scope 策略可为空）
 }
 
-// Permits 判定工具是否放行；不放行时返回稳定的拒绝原因标识。
+// Permits 判定工具是否通过硬拦截（deny/白名单/scope）；不放行时返回稳定的拒绝原因标识。
 // 判定顺序：deny 优先 → 白名单模式 → scope 校验，三者均为必要条件。
+// 注意：Permits 只覆盖硬拦截二态，审批第三态由 Evaluate 在其之上叠加。
 func (p *ToolPolicy) Permits(tool string) (bool, string) {
 	if p == nil {
 		return true, ""
@@ -110,6 +125,35 @@ func (p *ToolPolicy) Permits(tool string) (bool, string) {
 		return false, BlockReasonScopeDenied
 	}
 	return true, ""
+}
+
+// requiresApproval 判定工具是否被策略标记为需人工审批。
+func (p *ToolPolicy) requiresApproval(tool string) bool {
+	if p == nil {
+		return false
+	}
+	for _, t := range p.Approve {
+		if t == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// Evaluate 是三值门：在 Permits 硬拦截之上叠加审批第三态。
+// 判定顺序 SHALL 为 deny/scope（硬拒绝）优先 → 审批标记；deny 与 scope 拒绝优先于审批。
+// 未被标记审批的工具，Evaluate 退化为 Permits 的放行/拒绝二态（向后兼容）。
+func (p *ToolPolicy) Evaluate(tool string) (ToolVerdict, string) {
+	if p == nil {
+		return VerdictAllow, ""
+	}
+	if ok, reason := p.Permits(tool); !ok {
+		return VerdictDeny, reason
+	}
+	if p.requiresApproval(tool) {
+		return VerdictApprovalRequired, ReasonApprovalRequired
+	}
+	return VerdictAllow, ""
 }
 
 // ========================================
@@ -154,6 +198,31 @@ func SetToolBlockRecorder(fn func(ctx context.Context, call BlockedToolCall)) {
 	toolBlockRecorder = fn
 }
 
+// ========================================
+// 写/导出审批第三态（approval_required）处理器
+// ========================================
+
+// ApprovalRequest 一次被判定为需人工审批的工具调用（供审批处理器构建 pending_action）。
+type ApprovalRequest struct {
+	Tool      string // 需审批的工具名（sql_mutate / data_export / etl_run）
+	Arguments string // 原始 JSON 参数，供处理器解析构建待确认动作
+	Skill     string // 生效 skill（可为空）
+	Scope     string // 会话 scope
+	SessionID string
+	RequestID string
+	TenantID  int64
+}
+
+// toolApprovalHandler 可插拔审批处理器：组合根（操作工具注入点）挂接后，
+// 负责把需审批的工具调用转为待确认动作（复用 pendingaction/ConfirmToken/确认卡片），
+// 并返回回灌 LLM 的「待人工确认」ToolMessage 载荷。未挂接时门降级为拒绝（宁拒不闯）。
+var toolApprovalHandler func(ctx context.Context, req ApprovalRequest) (string, error)
+
+// SetToolApprovalHandler 挂接写/导出审批处理器（组合根调用）。
+func SetToolApprovalHandler(fn func(ctx context.Context, req ApprovalRequest) (string, error)) {
+	toolApprovalHandler = fn
+}
+
 // recordBlockedToolCall 留痕一次拦截：必落日志，已挂接记录器则同步写审计。
 func recordBlockedToolCall(ctx context.Context, policy *ToolPolicy, tool, reason string) {
 	call := BlockedToolCall{
@@ -184,6 +253,8 @@ func blockedToolResult(policy *ToolPolicy, tool, reason string) string {
 	case BlockReasonScopeDenied:
 		hint = fmt.Sprintf("会话 scope 为 %s，未授予工具 %s 所需的 %s 能力；请改走只读路径或告知用户需要更高授权",
 			policy.Scope, tool, RequiredToolScope(tool))
+	case ReasonApprovalRequired:
+		hint = fmt.Sprintf("工具 %s 需人工审批，但审批通道未启用，操作被拒绝；请告知用户需人工确认后方可执行", tool)
 	default:
 		hint = fmt.Sprintf("工具 %s 被策略拦截", tool)
 	}
@@ -202,17 +273,64 @@ func blockedToolResult(policy *ToolPolicy, tool, reason string) string {
 	return string(b)
 }
 
-// gateToolCall 执行前硬工具门：放行返回 ("", true)；拦截时留痕并返回合成
-// ToolMessage 载荷。所有工具执行路径（统一主干 run→handleToolCall→invokeTool）统一经此门。
-func gateToolCall(ctx context.Context, tool string) (string, bool) {
+// gateToolCall 执行前硬工具门（三值）：放行返回 ("", true)；拒绝/需审批时返回合成
+// ToolMessage 载荷（第二返回值 false 表示不放行、不执行底层工具）。所有工具执行路径
+// （统一主干 run→handleToolCall→invokeTool）统一经此门。arguments 为原始 JSON 参数，
+// 仅在需审批时用于构建待确认动作。
+func gateToolCall(ctx context.Context, tool, arguments string) (string, bool) {
 	policy := ToolPolicyFromContext(ctx)
 	if policy == nil {
 		return "", true
 	}
-	ok, reason := policy.Permits(tool)
-	if ok {
+	switch verdict, reason := policy.Evaluate(tool); verdict {
+	case VerdictAllow:
 		return "", true
+	case VerdictApprovalRequired:
+		return handleApprovalRequired(ctx, policy, tool, arguments), false
+	default: // VerdictDeny
+		recordBlockedToolCall(ctx, policy, tool, reason)
+		return blockedToolResult(policy, tool, reason), false
 	}
-	recordBlockedToolCall(ctx, policy, tool, reason)
-	return blockedToolResult(policy, tool, reason), false
+}
+
+// handleApprovalRequired 处理需人工审批的工具调用：委托审批处理器生成待确认动作并
+// 返回「待人工确认」ToolMessage 载荷回灌 LLM。未挂接处理器时降级为拒绝（宁拒不闯），
+// 以硬拦截留痕并回灌 tool_blocked。
+func handleApprovalRequired(ctx context.Context, policy *ToolPolicy, tool, arguments string) string {
+	if toolApprovalHandler == nil {
+		// 无审批通道：宁拒不闯，按硬拦截留痕并回灌 tool_blocked。
+		recordBlockedToolCall(ctx, policy, tool, ReasonApprovalRequired)
+		return blockedToolResult(policy, tool, ReasonApprovalRequired)
+	}
+	payload, err := toolApprovalHandler(ctx, ApprovalRequest{
+		Tool:      tool,
+		Arguments: arguments,
+		Skill:     policy.Skill,
+		Scope:     policy.Scope,
+		SessionID: domainagent.MustGetSessionID(ctx),
+		RequestID: domainagent.MustGetRequestID(ctx),
+		TenantID:  domainagent.MustGetTenantID(ctx),
+	})
+	if err != nil {
+		// 审批通道异常：不闯，回灌错误说明由 LLM 转达用户。
+		log.Printf("[工具门] 审批处理失败: tool=%s err=%v", tool, err)
+		return approvalErrorResult(tool, err)
+	}
+	// 统一护栏留痕（任务 6.2）：写审批已生成待确认动作，与拦截/脱敏事件同源落审计。
+	recordGuardrailEvent(ctx, GuardrailEventWriteApprovalNeeded, tool, "策略级写审批：已生成 pending_action 待人工确认")
+	return payload
+}
+
+// approvalErrorResult 审批处理异常时的合成 ToolMessage：不执行工具，说明需人工确认但暂不可用。
+func approvalErrorResult(tool string, err error) string {
+	payload := map[string]interface{}{
+		"error":  "approval_unavailable",
+		"tool":   tool,
+		"detail": fmt.Sprintf("工具 %s 需人工审批，但审批通道暂不可用：%v。请稍后重试或联系管理员。", tool, err),
+	}
+	b, mErr := json.Marshal(payload)
+	if mErr != nil {
+		return fmt.Sprintf(`{"error":"approval_unavailable","tool":%q}`, tool)
+	}
+	return string(b)
 }

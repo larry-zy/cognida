@@ -3,6 +3,7 @@ package tools
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,6 +16,29 @@ import (
 	model_datasource "link/internal/model/datasource"
 	"link/internal/service/agent/resultstore"
 )
+
+// transientRetryBackoffs 瞬时故障（死锁/锁等待/连接抖动）的 in-tool 有界重试退避序列。
+// 仅 SELECT 幂等，可安全重试；非瞬时错误立即返回交由分级修复。
+var transientRetryBackoffs = []time.Duration{100 * time.Millisecond, 300 * time.Millisecond}
+
+// queryWithTransientRetry 执行只读查询，对瞬时故障做有界退避重试；其余错误立即返回。
+func queryWithTransientRetry(ctx context.Context, target *queryTarget, execSQL string) (*sql.Rows, error) {
+	for attempt := 0; ; attempt++ {
+		rows, err := target.db.QueryContext(ctx, execSQL)
+		if err == nil {
+			return rows, nil
+		}
+		kind, _ := classifySQLError(err)
+		if kind != sqlErrTransient || attempt >= len(transientRetryBackoffs) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(transientRetryBackoffs[attempt]):
+		}
+	}
+}
 
 // ========================================
 // SQL Execute Tool
@@ -125,14 +149,10 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// 执行查询
-	rows, err := target.db.QueryContext(queryCtx, execSQL)
+	// 执行查询（瞬时故障 in-tool 有界重试；失败则产出分级「可修复观察」引导定向修正）。
+	rows, err := queryWithTransientRetry(queryCtx, target, execSQL)
 	if err != nil {
-		if target.external {
-			// 外部数据源错误不透传底层细节（可能含主机/账号信息）
-			return nil, fmt.Errorf("外部数据源查询执行失败: %w", err)
-		}
-		return nil, fmt.Errorf("查询执行失败: %w", err)
+		return nil, newRepairableSQLError(ctx, target, req.SQL, err)
 	}
 	defer rows.Close()
 
@@ -166,12 +186,9 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 		}
 		rowData = append(rowData, row)
 	}
-	// 迭代中途出错（网络/游标）不得静默返回部分结果
+	// 迭代中途出错（网络/游标）不得静默返回部分结果——同样产出可修复观察。
 	if err := rows.Err(); err != nil {
-		if target.external {
-			return nil, fmt.Errorf("外部数据源读取结果失败: %w", err)
-		}
-		return nil, fmt.Errorf("读取结果行失败: %w", err)
+		return nil, newRepairableSQLError(ctx, target, req.SQL, err)
 	}
 
 	// 检查结果数量

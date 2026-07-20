@@ -14,8 +14,9 @@ const (
 	OpMutate   = "mutate"    // sql_mutate DML 写库
 	OpETL      = "etl"       // etl_run 派生新对象
 	OpExport   = "export"    // data_export 按 result_id 导出
-	OpToolGate = "tool_gate" // 硬工具门/scope 拦截留痕（Phase 6）
-	OpDelegate = "delegate"  // 子代理委派留痕（Phase 7，携治理元数据 risk_class/scope）
+	OpToolGate  = "tool_gate" // 硬工具门/scope 拦截留痕（Phase 6）
+	OpDelegate  = "delegate"  // 子代理委派留痕（Phase 7，携治理元数据 risk_class/scope）
+	OpGuardrail = "guardrail" // 护栏拦截/脱敏/审批留痕（guardrail-runtime，携 event/tool）
 )
 
 // 操作结果状态

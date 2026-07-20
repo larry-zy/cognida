@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"link/internal/model/agent/reflection"
+	criticpkg "link/internal/service/agent/reflection/critic"
 )
 
 // ========================================
@@ -160,9 +161,17 @@ func (h *ReflectionHook) Refine(ctx context.Context, task string, initialContent
 		}
 	}
 
-	// 如果达到最大迭代次数仍未通过，记录失败经验
-	if !result.Success && h.memory != nil {
-		go h.storeFailure(context.Background(), task, result.FinalContent, initialCritique, result.Iterations)
+	// 迭代耗尽仍未通过：兜底把最后一次改写内容作为最终结果，避免 FinalContent 空串
+	// （否则上层 AfterHook 会用空串覆盖原始回答，造成回归）。
+	if !result.Success {
+		result.FinalContent = currentContent
+		if initialCritique != nil {
+			result.FinalScore = initialCritique.OverallScore
+		}
+		// 记录失败经验
+		if h.memory != nil {
+			go h.storeFailure(context.Background(), task, result.FinalContent, initialCritique, result.Iterations)
+		}
 	}
 
 	result.Duration = time.Since(startTime)
@@ -285,17 +294,18 @@ func NewReflectionHookFromConfig(
 		return &ReflectionHook{config: config, agentID: agentID}, nil
 	}
 
-	// 适配 actor 为 ChatModel 接口
+	// 适配 actor 为简化版 ChatModel 接口，供 Refine 迭代改写使用。
 	chatModel := &einoModelAdapter{model: actor}
 
-	// 创建 Critic
-	critic, err := createCritic(config, chatModel)
+	// 创建 Critic：使用真实的 critic 工厂（LLMCritic 会解析模型返回的 JSON 评分/问题/建议，
+	// RuleCritic 走规则评估），而非早期的内联桩实现。critic 包只依赖 model 层，无循环依赖。
+	critic, err := criticpkg.Factory(config.CriticType, actor, config.Dimensions)
 	if err != nil {
 		return nil, err
 	}
 
-	// 注意：Memory 需要由调用者单独创建并传入
-	// 因为 memory 包依赖于外部 embedder 和 Milvus 客户端
+	// 注意：Memory 需要由调用者单独创建并传入（见 Builder.WithReflection 的 memory 参数），
+	// 因为 memory 包依赖于外部 embedder 和 Milvus 客户端。
 	return NewReflectionHook(chatModel, critic, nil, config, agentID), nil
 }
 
@@ -323,52 +333,12 @@ func (a *einoModelAdapter) Chat(ctx context.Context, messages []Message, opts in
 		}
 	}
 
-	// 调用模型
-	return a.model.Generate(ctx, einoMessages)
-}
-
-// createCritic 创建 Critic 实例
-func createCritic(config *reflection.ReflectionConfig, llm ChatModel) (reflection.Critic, error) {
-	// 这里简化处理，实际应该从 application 层导入 factory
-	// 由于跨层导入限制，这里简单创建 LLMCritic
-	return &llmCriticImpl{llm: llm, config: config}, nil
-}
-
-// llmCriticImpl 简单的 LLM Critic 实现
-type llmCriticImpl struct {
-	llm    ChatModel
-	config *reflection.ReflectionConfig
-}
-
-func (c *llmCriticImpl) Evaluate(ctx context.Context, task, output string) (*reflection.CritiqueResult, error) {
-	prompt := c.buildPrompt(task, output)
-	_, err := c.llm.Chat(ctx, []Message{{Role: "user", Content: prompt}}, nil)
+	// 调用模型并归一化为 ChatResponse：Refine 只认 ChatResponse 提取改写内容，
+	// 若直接回传 eino 的 *schema.Message，类型断言会失败导致改写结果被静默丢弃。
+	resp, err := a.model.Generate(ctx, einoMessages)
 	if err != nil {
 		return nil, err
 	}
-	// 简化：返回默认结果
-	return &reflection.CritiqueResult{
-		OverallScore: 0.8,
-		Dimensions:   make(map[string]reflection.DimensionScore),
-		ShouldRefine: false,
-	}, nil
+	return ChatResponse{Content: resp.Content}, nil
 }
 
-func (c *llmCriticImpl) ShouldRefine(result *reflection.CritiqueResult) bool {
-	return result.OverallScore < 0.7 || len(result.Issues) > 0
-}
-
-func (c *llmCriticImpl) buildPrompt(task, output string) string {
-	return fmt.Sprintf(`评估以下回答的质量：
-
-任务：%s
-
-回答：%s
-
-请返回 JSON 格式评估：
-{
-    "overall_score": 0-1的评分,
-    "issues": ["问题列表"],
-    "should_refine": true/false
-}`, task, output)
-}

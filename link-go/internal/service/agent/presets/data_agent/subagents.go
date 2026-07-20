@@ -101,7 +101,12 @@ var leafSubAgentSpecs = []subAgentSpec{
 		id:          "Viz",
 		description: "可视化专家：按 result_id 生成 A2UI 图表/表格界面",
 		prompt: `你是可视化专家（Viz）。
-职责：对委派输入中的 result_id 指向的结果调用 render_ui，选择合适的图表/表格形态生成界面。
+职责：对委派输入中的 result_id 指向的结果调用 render_ui，生成「有解读」的生成式 UI，而不是只堆指标卡+表格。
+渲染要求：
+- 传自定义 components（扁平邻接表，唯一 root），别留空退回默认模板；
+- 首个组件用 Callout 写一句最关键的结论/洞察（tone 按语气取 info/success/warning/error），必要时用 Text 补充叙述或小标题；
+- 用 MetricCard/LineChart/BarChart/ScatterChart/Table 承载数字，所有数字一律用 {"path":"/..."} 绑定，禁止内联具体数值；
+- 结果行多或可按维度筛选时，加 Filter/Pagination 交互组件。
 你不能查询或修改数据，只能渲染既有结果。`,
 		toolNames: []string{"render_ui"},
 		maxIter:   4,

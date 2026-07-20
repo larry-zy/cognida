@@ -59,6 +59,9 @@ type canonicalQuery struct {
 	Filters    []metricsql.Filter   `json:"f,omitempty"`
 	OrderBy    []metricsql.OrderKey `json:"o,omitempty"`
 	Limit      int                  `json:"l,omitempty"`
+	// 时间粒度与方言影响生成的 SQL，必须进签名，避免不同粒度/方言复用同一缓存条目。
+	TimeGrain string `json:"tg,omitempty"`
+	Dialect   string `json:"dl,omitempty"`
 }
 
 // signature 返回请求的稳定 SHA-256 签名。
@@ -68,6 +71,8 @@ func signature(q metricsql.Query) string {
 		Dimensions: normNames(q.Dimensions),
 		OrderBy:    make([]metricsql.OrderKey, 0, len(q.OrderBy)),
 		Limit:      q.Limit,
+		TimeGrain:  norm(string(q.TimeGrain)),
+		Dialect:    norm(string(q.Dialect)),
 	}
 	for _, f := range q.Filters {
 		cq.Filters = append(cq.Filters, metricsql.Filter{

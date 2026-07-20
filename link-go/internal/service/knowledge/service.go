@@ -4,6 +4,7 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/cloudwego/eino/components/model"
 
@@ -72,15 +73,52 @@ func (s *RAGService) Retrieve(ctx context.Context, tenantID int64, req *Retrieve
 }
 
 // ExtractGraph delegates to GraphService
-// TODO: Implement proper graph extraction method
+// 从单个文档块抽取图谱（节点+关系），不落库，仅返回抽取结果 DTO。
 func (s *RAGService) ExtractGraph(ctx context.Context, tenantID int64, req *GraphExtractRequest) (*GraphExtractResponse, error) {
-	return nil, fmt.Errorf("not implemented: use graph service directly")
+	if s.graphService == nil {
+		return nil, fmt.Errorf("graph service not initialized")
+	}
+
+	mode := ToDomainExtractionMode(req.Mode)
+	input := &domain_knowledge.ChunkExtractionInput{
+		KnowledgeBaseID: req.KnowledgeBaseID,
+		ChunkID:         req.ChunkID,
+		Document:        req.Document,
+		Query:           req.Query,
+		Mode:            mode,
+	}
+
+	data, err := s.graphService.ExtractGraphFromChunksWithMode(ctx, []*domain_knowledge.ChunkExtractionInput{input}, mode)
+	if err != nil {
+		return nil, fmt.Errorf("extract graph failed: %w", err)
+	}
+
+	nodes, relations := FromDomainGraphData(data)
+	return &GraphExtractResponse{
+		ChunkID:   req.ChunkID,
+		Nodes:     nodes,
+		Relations: relations,
+	}, nil
 }
 
 // QueryGraph delegates to GraphService
-// TODO: Implement proper graph query method
+// 按给定节点名在租户/知识库命名空间下检索图谱子图。
 func (s *RAGService) QueryGraph(ctx context.Context, tenantID int64, req *GraphQueryRequest) (*GraphQueryResponse, error) {
-	return nil, fmt.Errorf("not implemented: use graph service directly")
+	if s.graphService == nil {
+		return nil, fmt.Errorf("graph service not initialized")
+	}
+
+	namespace := ToDomainNameSpace(req.KnowledgeBaseID, strconv.FormatInt(tenantID, 10))
+	data, err := s.graphService.SearchNode(ctx, namespace, req.Nodes)
+	if err != nil {
+		return nil, fmt.Errorf("query graph failed: %w", err)
+	}
+
+	nodes, relations := FromDomainGraphData(data)
+	return &GraphQueryResponse{
+		Nodes:     nodes,
+		Relations: relations,
+	}, nil
 }
 
 // StrengthenQuery delegates to Retriever

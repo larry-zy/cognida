@@ -18,8 +18,10 @@ package genui
 //	Text        → 标题/正文（props: text | {path}, variant）
 //	MetricCard  → 指标卡（props: label, value{path}, unit, trend）
 //	Callout     → 结论/提示条（props: title, text, tone）
-//	Table       → 数据表（props: data{path} → {columns, rows}）—— 融合 sql_execute 行集
-//	LineChart   → 折线图（props: title, series{path} → {labels, actual, forecast}）—— 融合分析序列
+//	Table        → 数据表（props: data{path} → {columns, rows}）—— 融合 sql_execute 行集
+//	LineChart    → 折线图（props: title, series{path} → {labels, actual, forecast}）—— 时序趋势
+//	BarChart     → 柱状图（props: title, series{path} → {labels, actual}）—— 分类对比（复用序列）
+//	ScatterChart → 散点图（props: title, points{path} → {x, y, xLabel, yLabel}）—— 两数值列相关性
 //
 // 交互组件（回调驱动后续轮次，action 经 SSE 之外的 follow-up 通道回传）：
 //
@@ -36,6 +38,8 @@ const (
 	CompCallout    = "Callout"
 	CompTable      = "Table"
 	CompLineChart  = "LineChart"
+	CompBarChart   = "BarChart"
+	CompScatter    = "ScatterChart"
 
 	// 交互组件
 	CompButton     = "Button"
@@ -47,7 +51,8 @@ const (
 
 // Catalog 是允许出现在规格中的组件类型全集。
 var Catalog = []string{
-	CompColumn, CompRow, CompText, CompMetricCard, CompCallout, CompTable, CompLineChart,
+	CompColumn, CompRow, CompText, CompMetricCard, CompCallout, CompTable,
+	CompLineChart, CompBarChart, CompScatter,
 	CompButton, CompConfirm, CompForm, CompFilter, CompPagination,
 }
 
@@ -89,7 +94,8 @@ type UISpec struct {
 type DataModel struct {
 	Table   *TableData             `json:"table,omitempty"`   // 来自 sql_execute
 	Metrics map[string]interface{} `json:"metrics,omitempty"` // 来自 data_analysis 的关键指标（扁平）
-	Series  *SeriesData            `json:"series,omitempty"`  // 供折线图使用的序列
+	Series  *SeriesData            `json:"series,omitempty"`  // 供折线图/柱状图使用的一维序列
+	Scatter *ScatterData           `json:"scatter,omitempty"` // 供散点图使用的二维点集（两数值列）
 	Meta    map[string]interface{} `json:"meta,omitempty"`    // analysis_type / row_count / executed_sql 等
 }
 
@@ -99,10 +105,21 @@ type TableData struct {
 	Rows    []map[string]interface{} `json:"rows"`
 }
 
-// SeriesData 是一维时间序列，actual 为真实观测，forecast 为分析预测（可空）。
+// SeriesData 是一维序列：actual 为真实观测，forecast 为分析预测（可空）。
+// 折线图按时序渲染；柱状图把 labels 当分类、actual 当柱高——两者共用本结构。
 type SeriesData struct {
 	Name     string        `json:"name,omitempty"`
 	Labels   []interface{} `json:"labels,omitempty"`
 	Actual   []float64     `json:"actual,omitempty"`
 	Forecast []float64     `json:"forecast,omitempty"`
+}
+
+// ScatterData 是散点图的二维点集：X/Y 一一对应，取自行集中的前两个数值列，
+// 用于展示两个数值变量的相关性（配合 correlation 分析）。
+type ScatterData struct {
+	Name   string    `json:"name,omitempty"`
+	XLabel string    `json:"xLabel,omitempty"`
+	YLabel string    `json:"yLabel,omitempty"`
+	X      []float64 `json:"x,omitempty"`
+	Y      []float64 `json:"y,omitempty"`
 }

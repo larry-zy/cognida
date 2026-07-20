@@ -36,6 +36,20 @@ func (t *queryTarget) databaseName() (string, error) {
 	return t.dbName, nil
 }
 
+// databaseNameContext 同 databaseName，但把惰性解析的 SELECT DATABASE() 纳入传入 ctx 的超时预算。
+// 失败线索检索路径复用其短超时上下文（hintQueryTTL），避免 DB 挂起时库名解析无界阻塞。
+func (t *queryTarget) databaseNameContext(ctx context.Context) (string, error) {
+	if t.dbName != "" {
+		return t.dbName, nil
+	}
+	name := t.gormDB.WithContext(ctx).Migrator().CurrentDatabase()
+	if name == "" {
+		return "", fmt.Errorf("无法解析当前数据库名")
+	}
+	t.dbName = name
+	return t.dbName, nil
+}
+
 // resolveQueryTarget 解析查询目标：
 //   - databaseID 为空时先以会话上下文的 datasource_id 兜底（会话级默认数据源）；
 //   - 最终仍为空 → businessDB 当前业务库（向后兼容）；

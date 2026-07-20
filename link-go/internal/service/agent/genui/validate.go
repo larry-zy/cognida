@@ -69,12 +69,24 @@ func Validate(spec *UISpec) error {
 			if !ok {
 				continue
 			}
-			if _, ok := ResolvePointer(root, ptr); !ok {
+			resolved, ok := ResolvePointer(root, ptr)
+			if !ok {
 				return fmt.Errorf("component %q prop %q binds unresolved path: %s", c.ID, key, ptr)
+			}
+			// 标量约束：期望标量的 prop（如 MetricCard.value）若绑到容器对象（/table、/series 等），
+			// 前端会渲染成空卡——此处直接判失败，交由 Compose 回退模板（模板只对真实标量出卡）。
+			if expectsScalarBinding(c.Type, key) && !isScalar(resolved) {
+				return fmt.Errorf("component %q prop %q 期望标量，但路径 %s 解析为非标量 (%T)", c.ID, key, ptr, resolved)
 			}
 		}
 	}
 	return nil
+}
+
+// expectsScalarBinding 声明哪些 (组件类型, prop) 的绑定值必须解析为标量。
+// 目前仅 MetricCard.value——指标卡展示单个数字/文本，绑到容器路径会渲染成空卡。
+func expectsScalarBinding(compType, prop string) bool {
+	return compType == CompMetricCard && prop == "value"
 }
 
 // bindingPath 判断一个 prop 值是否是数据绑定 {"path": "/..."}，是则返回指针字符串。

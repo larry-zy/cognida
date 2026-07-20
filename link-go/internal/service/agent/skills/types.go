@@ -3,7 +3,22 @@
 // Skill 可以是纯指导性的（无工具调用），也可以调用工具
 package skills
 
-import "time"
+import (
+	"context"
+	"time"
+)
+
+// ========================================
+// 可执行 Skill Handler（design D7）
+// ========================================
+
+// SkillHandler 是一个可执行 Skill 的执行体：接收 JSON 入参、返回紧凑输出（约定为
+// result_id + 结论摘要）。复杂任务 skill 在 handler 内经注入 ctx 的 collabRegistry
+// inline 编排子代理群（见 framework.InlineDelegate），只把结论回传主循环。
+//
+// 契约：handler MUST NOT 依赖非注入的全局状态；取不到子代理注册表时应据实降级报错。
+// handler 内部 panic 由 skill_invoke 侧 recover 兜底为普通 skill 错误，不崩整个循环。
+type SkillHandler func(ctx context.Context, input string) (string, error)
 
 // ========================================
 // Skill 核心类型
@@ -27,6 +42,10 @@ type Skill struct {
 
 	// 特殊标志
 	DisableModelInvocation bool `json:"disable_model_invocation,omitempty"` // 禁用模型调用（纯指导性 Skill）
+
+	// 可执行体（design D7；向后兼容：缺省即纯指导文档，行为不变）
+	CanInvoke bool         `json:"can_invoke,omitempty"` // 是否为可执行 skill；缺省 false
+	Handler   SkillHandler `json:"-"`                    // 可执行 skill 的执行体；nil 时退化为纯指导
 
 	// 内容
 	Content string `json:"content,omitempty"` // Markdown 正文（frontmatter 之后的内容）

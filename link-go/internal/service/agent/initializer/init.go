@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
@@ -16,7 +17,6 @@ import (
 	"link/internal/service/agent/convcontext"
 	infraagent "link/internal/service/agent/framework"
 	dataagent "link/internal/service/agent/presets/data_agent"
-	"link/internal/service/agent/presets/text2sql"
 	"link/internal/service/agent/skills"
 	toolregistry "link/internal/service/agent/tools"
 )
@@ -30,6 +30,12 @@ type Initializer struct {
 	tools *toolregistry.ToolRegistry
 	// messageRepo 供 Data Agent 启用跨轮对话记忆（读 messages 表回放历史）；nil 时记忆退化。
 	messageRepo conversation.MessageRepository
+	// guardrail 是组合根下发的护栏装配器：按会话/agent 级开关把护栏 Hook 装配进各 Agent 的
+	// Builder。默认 nil（恒等装配）→ 所有 Agent 不获得任何护栏 Hook，构建行为逐字节不变（零回归）。
+	guardrail infraagent.GuardrailDecorator
+	// embedder 是组合根下发的向量化组件：供 Data Agent 反思记忆（自我进化）向量化任务/教训。
+	// 默认 nil → data_agent 反思退化为「仅评估不沉淀」，不影响主流程（零回归）。
+	embedder embedding.Embedder
 }
 
 // NewInitializer 创建初始化器。
@@ -44,6 +50,22 @@ func NewInitializer(registry *infraagent.SpecRegistry, tools *toolregistry.ToolR
 	if len(messageRepo) > 0 {
 		init.messageRepo = messageRepo[0]
 	}
+	return init
+}
+
+// WithGuardrail 挂接组合根护栏装配器（会话/agent 级开关，默认全关）。
+// 传入 nil 或未调用 → 恒等装配，所有 Agent 不获得任何护栏 Hook（零回归）。
+// 返回自身以支持链式调用。
+func (init *Initializer) WithGuardrail(decorator infraagent.GuardrailDecorator) *Initializer {
+	init.guardrail = decorator
+	return init
+}
+
+// WithEmbedder 挂接组合根下发的向量化组件，供 Data Agent 反思记忆接线自我进化闭环。
+// 传入 nil 或未调用 → data_agent 反思无记忆（仅评估、不检索/沉淀经验），零回归。
+// 返回自身以支持链式调用。
+func (init *Initializer) WithEmbedder(embedder embedding.Embedder) *Initializer {
+	init.embedder = embedder
 	return init
 }
 
@@ -70,17 +92,12 @@ func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
 		return fmt.Errorf("注册 RAG Agent 失败: %w", err)
 	}
 
-	// 2. 注册 Text2SQL Agent
-	if err := init.registerText2SQLAgent(ctx, chatModel); err != nil {
-		log.Printf("⚠️  注册 Text2SQL Agent 失败: %v", err)
-	}
-
-	// 3. 注册简单聊天 Agent
+	// 2. 注册简单聊天 Agent
 	if err := init.registerChatAgent(ctx, chatModel); err != nil {
 		return fmt.Errorf("注册 Chat Agent 失败: %w", err)
 	}
 
-	// 4. 注册 Data Agent（单一 ReAct 内核）
+	// 3. 注册 Data Agent（单一 ReAct 内核）
 	if err := init.registerDataAgent(ctx, chatModel); err != nil {
 		log.Printf("⚠️  注册 Data Agent 失败: %v", err)
 	}
@@ -153,6 +170,8 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 			if len(tools) > 0 {
 				builder = builder.Tools(tools...)
 			}
+			// 组合根护栏装配（默认关闭 → 恒等，零回归）。
+			builder = init.guardrail.Apply(builder)
 			return builder.Build(ctx)
 		},
 	}
@@ -268,30 +287,13 @@ func (init *Initializer) buildRAGAgent(ctx context.Context, toolModel model.Tool
 	if init.messageRepo != nil {
 		ragBuilder = ragBuilder.WithContextBuilder(convcontext.NewConversationContextBuilder(init.messageRepo))
 	}
+	// 组合根护栏装配（默认关闭 → 恒等，零回归）。
+	ragBuilder = init.guardrail.Apply(ragBuilder)
 	ragAgent, err := ragBuilder.Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("构建 RAG Agent 失败: %w", err)
 	}
 	return ragAgent, nil
-}
-
-// registerText2SQLAgent 注册 Text2SQL Agent (Plan-Execute-Reflect 模式)
-func (init *Initializer) registerText2SQLAgent(ctx context.Context, chatModel any) error {
-	// 类型断言：获取 ToolCallingChatModel
-	var toolModel model.ToolCallingChatModel
-	if tm, ok := chatModel.(model.ToolCallingChatModel); ok {
-		toolModel = tm
-	} else {
-		return fmt.Errorf("invalid model type: expected ToolCallingChatModel")
-	}
-
-	// 声明式注册：预设自带 Build 工厂装配 PER 管道（含历史别名 agent-text2sql-001）。
-	if err := init.registry.RegisterSpec(ctx, text2sql.Spec(toolModel, init.tools)); err != nil {
-		return err
-	}
-
-	log.Println("[Agent] ✓ Text2SQL PER agent registered: id=agent-text2sql-per, pattern=sequential+retry")
-	return nil
 }
 
 // registerDataAgent 注册 Data Agent（单一 ReAct 内核，查/析/渲/操四类能力）
@@ -305,7 +307,7 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 
 	// 声明式注册：预设 Build 工厂内部装配子代理协作注册表 + ReAct 内核 + 委派能力，
 	// msgRepo 非 nil 时启用跨轮对话记忆。
-	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools)); err != nil {
+	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools, init.guardrail)); err != nil {
 		return err
 	}
 
@@ -334,7 +336,7 @@ func (init *Initializer) registerChatAgent(ctx context.Context, chatModel any) e
 		},
 		Build: func(ctx context.Context) (infraagent.Agent, error) {
 			// 构建简单聊天 Agent
-			return infraagent.New(baseModel).
+			chatBuilder := infraagent.New(baseModel).
 				Name("聊天助手").
 				Prompt(`你是一个友好的 AI 助手。
 
@@ -342,8 +344,10 @@ func (init *Initializer) registerChatAgent(ctx context.Context, chatModel any) e
 - 回答用户的各种问题
 - 提供帮助和建议
 - 保持对话友好和连贯`).
-				Before(skills.AutoInjectHook(0)). // 命中 Skill 时自动注入其指导内容
-				Build(ctx)
+				Before(skills.AutoInjectHook(0)) // 命中 Skill 时自动注入其指导内容
+			// 组合根护栏装配（默认关闭 → 恒等，零回归）。
+			chatBuilder = init.guardrail.Apply(chatBuilder)
+			return chatBuilder.Build(ctx)
 		},
 	}
 

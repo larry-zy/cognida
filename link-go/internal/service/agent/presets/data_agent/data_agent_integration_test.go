@@ -6,7 +6,7 @@
 // 受 `integration` 构建标签门控。需要：真实 LLM（DEEPSEEK_API_KEY / CHAT_API_KEY /
 // OPENAI_API_KEY 任一）+ 真实 MySQL（.env 的 DB_* 或 MYSQL_* 变量）。
 //
-// 覆盖 Phase 2 task 3.6：查→析→渲端到端 + 旧 PER 双跑对比。
+// 覆盖 Phase 2 task 3.6：查→析→渲端到端。
 // 说明：渲（render_ui）为 Phase 3 能力，尚未注册；本测试按「present-if-registered」编排——
 // 查/析在工具就位时即端到端跑通，渲在 Phase 3 render_ui 落地后由同一用例自动覆盖。
 package dataagent
@@ -29,7 +29,6 @@ import (
 	"link/internal/infrastructure/llm/chat"
 	"link/internal/model/common"
 	infraagent "link/internal/service/agent/framework"
-	"link/internal/service/agent/presets/text2sql"
 	ragtool "link/internal/service/agent/tools"
 )
 
@@ -117,7 +116,7 @@ func createToolModel(t *testing.T) model.ToolCallingChatModel {
 	return tm
 }
 
-// TestDataAgent_FetchAnalyzeRenderE2E 端到端：查→（析→渲 present-if-registered），并与旧 PER 双跑对比。
+// TestDataAgent_FetchAnalyzeRenderE2E 端到端：查→（析→渲 present-if-registered）。
 func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 	loadEnvForTest(t)
 	ctx := context.Background()
@@ -136,17 +135,13 @@ func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 
 	registry := infraagent.NewSpecRegistry()
 
-	// 声明式注册 Data Agent（单一 ReAct）与 PER Text2SQL，用于双跑对比。
+	// 声明式注册 Data Agent（单一 ReAct）。
 	// msgRepo 传 nil：本用例不校验多轮记忆，ContextBuilder 不装配。
 	require.NoError(t, registry.RegisterSpec(ctx, Spec(toolModel, nil, reg)))
-	require.NoError(t, registry.RegisterSpec(ctx, text2sql.Spec(toolModel, reg)))
 
 	dataAgent, ok := registry.GetInstance(DataAgentID)
 	require.True(t, ok, "Data Agent 应已注册")
 	require.NotNil(t, dataAgent, "Data Agent 应已注册")
-	perAgent, ok := registry.GetInstance(text2sql.Text2SQLAgentID)
-	require.True(t, ok, "PER Agent 应已注册")
-	require.NotNil(t, perAgent, "PER Agent 应已注册")
 
 	question := "查询 dataagent_sales 表华东区各月的销售额，并分析其增长趋势"
 
@@ -173,12 +168,5 @@ func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 			t.Log("render_ui 未注册（Phase 3 前的预期）：渲染闭环留待 Phase 3 覆盖")
 		}
 		t.Logf("Data Agent 响应: %s", resp.Content)
-	})
-
-	t.Run("旧PER双跑对比", func(t *testing.T) {
-		resp, err := perAgent.Chat(ctx, question)
-		require.NoError(t, err, "PER Agent 执行应成功")
-		assert.NotEmpty(t, resp.Content, "PER Agent 应产出非空内容")
-		t.Logf("PER Agent 响应: %s", resp.Content)
 	})
 }

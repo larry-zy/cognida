@@ -189,7 +189,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
 	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig)
-	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository, writer, datasourceService, agentHandler)
+	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository, writer, datasourceService, agentHandler, embedder)
 	return app, nil
 }
 
@@ -1076,6 +1076,9 @@ type App struct {
 	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
 	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
 	AgentHandler *handler.AgentHandler
+	// Embedder 暴露给组合根：供 Agent 反思记忆（MilvusReflectionMemory）向量化任务/教训，
+	// 接线自我进化闭环（初始化器下发给 data_agent 预设）。
+	Embedder embedding.Embedder
 }
 
 func ProvideApp(
@@ -1091,6 +1094,7 @@ func ProvideApp(
 	auditWriter *audit.Writer,
 	dataSourceService *datasource2.Service,
 	agentHandler *handler.AgentHandler,
+	embedder embedding.Embedder,
 ) *App {
 	return &App{
 		Router:                  r,
@@ -1105,6 +1109,7 @@ func ProvideApp(
 		AuditWriter:             auditWriter,
 		DataSourceService:       dataSourceService,
 		AgentHandler:            agentHandler,
+		Embedder:                embedder,
 	}
 }
 

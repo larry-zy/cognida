@@ -50,7 +50,28 @@ func (a *agentServiceAdapter) Chat(ctx context.Context, agentID, message string)
 		ToolsUsed:  tools,
 		Trajectory: tools, // 首版轨迹即工具调用序列；后续可纳入思考步骤
 		TotalSteps: len(tools),
+		// 运行时基础指标：token 用量与 LLM 调用次数来自框架回填的 Response.Metadata
+		TokensUsed: metadataInt(resp.Metadata, "tokens_used"),
+		LLMCalls:   metadataInt(resp.Metadata, "iterations"),
 	}, nil
+}
+
+// metadataInt 从 Response.Metadata 安全读取整型指标（缺失或类型不符返回 0）。
+// 框架 fillMetadata 以 int 写入 tokens_used/iterations，此处兼容常见数值类型。
+func metadataInt(meta map[string]interface{}, key string) int {
+	if meta == nil {
+		return 0
+	}
+	switch v := meta[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 // GetAgent 从注册中心读取 Agent 元信息，用于评测前校验 Agent 是否存在。

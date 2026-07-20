@@ -128,6 +128,119 @@ func TestTemplateCompose_ProducesValidSpec(t *testing.T) {
 	if !hasType(spec, CompMetricCard) {
 		t.Error("template spec missing MetricCard")
 	}
+	// 富化：概览 Callout 与脚注 Text 应始终出现，且 Callout 置于根容器首位。
+	if !hasType(spec, CompCallout) {
+		t.Error("template spec missing Callout summary")
+	}
+	if !hasType(spec, CompText) {
+		t.Error("template spec missing Text footnote")
+	}
+	if root := findNode(spec, RootID); root == nil {
+		t.Fatal("template spec missing root node")
+	} else if len(root.Children) == 0 || root.Children[0] != "summary" {
+		t.Errorf("root children = %v, want summary first", root.Children)
+	}
+}
+
+// findNode 按 id 取组件节点（测试辅助）。
+func findNode(spec *UISpec, id string) *Component {
+	for i := range spec.Components {
+		if spec.Components[i].ID == id {
+			return &spec.Components[i]
+		}
+	}
+	return nil
+}
+
+// 分类样本：各地区销售额，标签为离散类目（非日期/非数值），应触发柱状图。
+const sampleCategorical = `{
+  "result_id": "rs_region",
+  "columns": ["region", "revenue"],
+  "samples": [
+    {"region": "华东", "revenue": 320},
+    {"region": "华南", "revenue": 280},
+    {"region": "华北", "revenue": 210},
+    {"region": "西南", "revenue": 150}
+  ],
+  "row_count": 4,
+  "executed_sql": "SELECT region, revenue FROM sales GROUP BY region"
+}`
+
+// 双数值列样本：广告投放 vs 销售额，用于散点图/相关性。
+const sampleTwoNumeric = `{
+  "result_id": "rs_corr",
+  "columns": ["ad_spend", "sales"],
+  "samples": [
+    {"ad_spend": 10, "sales": 105},
+    {"ad_spend": 20, "sales": 190},
+    {"ad_spend": 30, "sales": 305},
+    {"ad_spend": 40, "sales": 402}
+  ],
+  "row_count": 4,
+  "executed_sql": "SELECT ad_spend, sales FROM campaigns"
+}`
+
+// correlation 分析输出（对齐 correlation_tool 的返回结构）。
+const sampleCorrelation = `{
+  "analysis_type": "correlation",
+  "success": true,
+  "data": {
+    "significant_pairs": [{"a": "ad_spend", "b": "sales", "r": 0.999}]
+  }
+}`
+
+func TestTemplateCompose_CategoricalUsesBarChart(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	if dm == nil {
+		t.Fatal("expected non-nil datamodel")
+	}
+	spec := TemplateCompose(dm, "各地区营收对比")
+	if err := Validate(spec); err != nil {
+		t.Fatalf("template spec failed validation: %v", err)
+	}
+	if !hasType(spec, CompBarChart) {
+		t.Error("categorical labels should yield BarChart")
+	}
+	if hasType(spec, CompLineChart) {
+		t.Error("categorical labels should not yield LineChart")
+	}
+}
+
+func TestBuildScatter_TwoNumericColumns(t *testing.T) {
+	dm := AssembleDataModel(sampleTwoNumeric, "")
+	if dm == nil {
+		t.Fatal("expected non-nil datamodel")
+	}
+	if dm.Scatter == nil {
+		t.Fatal("two numeric columns should yield scatter data")
+	}
+	if dm.Scatter.XLabel != "ad_spend" || dm.Scatter.YLabel != "sales" {
+		t.Errorf("scatter labels = %q/%q, want ad_spend/sales", dm.Scatter.XLabel, dm.Scatter.YLabel)
+	}
+	if len(dm.Scatter.X) != 4 || dm.Scatter.X[0] != 10 || dm.Scatter.Y[3] != 402 {
+		t.Errorf("scatter points = %v / %v, want real values", dm.Scatter.X, dm.Scatter.Y)
+	}
+	// 单数值列不应构造散点
+	if noScatter := AssembleDataModel(sampleSQL, ""); noScatter.Scatter != nil {
+		t.Error("single numeric column should not yield scatter")
+	}
+}
+
+func TestTemplateCompose_CorrelationUsesScatter(t *testing.T) {
+	dm := AssembleDataModel(sampleTwoNumeric, sampleCorrelation)
+	if dm == nil {
+		t.Fatal("expected non-nil datamodel")
+	}
+	spec := TemplateCompose(dm, "广告投放与销售额相关性")
+	if err := Validate(spec); err != nil {
+		t.Fatalf("template spec failed validation: %v", err)
+	}
+	if !hasType(spec, CompScatter) {
+		t.Error("correlation analysis with scatter data should yield ScatterChart")
+	}
+	if hasType(spec, CompLineChart) || hasType(spec, CompBarChart) {
+		t.Error("correlation should prefer ScatterChart over line/bar")
+	}
 }
 
 func TestValidate_RejectsNonCatalogAndBadBinding(t *testing.T) {
@@ -230,7 +343,7 @@ func TestCompose_FallsBackToTemplateOnBadLLM(t *testing.T) {
 	defer SetModel(nil)
 
 	spec := Compose(context.Background(), ComposeInput{
-		Question: "营收趋势", SQLOutput: sampleSQL, AnalysisOutput: sampleTrend,
+		Question: "营收趋势", SQLOutputs: []string{sampleSQL}, AnalysisOutputs: []string{sampleTrend},
 	})
 	if spec == nil {
 		t.Fatal("compose should fall back, not return nil")
@@ -240,6 +353,91 @@ func TestCompose_FallsBackToTemplateOnBadLLM(t *testing.T) {
 	}
 	if err := Validate(spec); err != nil {
 		t.Errorf("fallback spec must be valid: %v", err)
+	}
+}
+
+// KPI 单行汇总结果（一行多数值列）：报告类查询的关键指标来源。
+const sampleKPI = `{
+  "result_id": "rs_kpi",
+  "columns": ["GMV", "订单数", "客单价"],
+  "samples": [{"GMV": 1250000, "订单数": 8600, "客单价": 145.3}],
+  "row_count": 1,
+  "executed_sql": "SELECT SUM(amount) GMV, COUNT(*) 订单数, AVG(amount) 客单价 FROM orders"
+}`
+
+// 报告场景：多段查询（单行 KPI 汇总 + 多行月度趋势）应融合成一份 DataModel——
+// 多行结果作主表/序列，单行 KPI 的数值列派生为可绑定的标量指标。
+func TestAssembleReportDataModel_MergesKPIScalarsAndTrendTable(t *testing.T) {
+	dm := AssembleReportDataModel([]string{sampleKPI, sampleSQL}, []string{sampleTrend})
+	if dm == nil {
+		t.Fatal("expected non-nil report datamodel")
+	}
+	// 主表来自多行趋势结果（4 行），而非最后传入的顺序。
+	if dm.Table == nil || len(dm.Table.Rows) != 4 {
+		t.Fatalf("table rows = %v, want 4 (多行趋势结果)", dm.Table)
+	}
+	// KPI 单行结果的数值列派生为标量指标。
+	if got := dm.Metrics["GMV"]; got != float64(1250000) {
+		t.Errorf("metrics GMV = %v, want 1250000", got)
+	}
+	if got := dm.Metrics["客单价"]; got != 145.3 {
+		t.Errorf("metrics 客单价 = %v, want 145.3", got)
+	}
+	// 分析语义指标同样并入。
+	if got := dm.Metrics["斜率"]; got != 15.6 {
+		t.Errorf("metrics 斜率 = %v, want 15.6 (分析指标应并入)", got)
+	}
+	// 序列取自主表行集。
+	if dm.Series == nil || len(dm.Series.Actual) != 4 {
+		t.Fatalf("series actual = %v, want 4", dm.Series)
+	}
+	// KPI 标量指标可被 MetricCard 绑定（标量校验通过）。
+	spec := &UISpec{
+		DataModel: dm,
+		Components: []Component{
+			{ID: RootID, Type: CompColumn, Children: []string{"gmv"}},
+			{ID: "gmv", Type: CompMetricCard, Props: map[string]interface{}{"label": "GMV", "value": binding("/metrics/GMV")}},
+		},
+	}
+	if err := Validate(spec); err != nil {
+		t.Errorf("MetricCard 绑定 /metrics/GMV 应通过: %v", err)
+	}
+}
+
+// 全空输入应返回 nil（无可展示数据）。
+func TestAssembleReportDataModel_EmptyReturnsNil(t *testing.T) {
+	if dm := AssembleReportDataModel(nil, nil); dm != nil {
+		t.Errorf("empty inputs should yield nil, got %v", dm)
+	}
+	if dm := AssembleReportDataModel([]string{"", `{"samples":[]}`}, []string{`{"success":false}`}); dm != nil {
+		t.Errorf("no usable results should yield nil, got %v", dm)
+	}
+}
+
+// Layer A：MetricCard.value 绑到容器路径（/table）应被校验拒绝，绑到标量指标应通过。
+func TestValidate_MetricCardValueMustBeScalar(t *testing.T) {
+	dm := AssembleDataModel(sampleSQL, sampleTrend)
+
+	bound := &UISpec{
+		DataModel: dm,
+		Components: []Component{
+			{ID: RootID, Type: CompColumn, Children: []string{"m"}},
+			{ID: "m", Type: CompMetricCard, Props: map[string]interface{}{"label": "x", "value": binding("/table")}},
+		},
+	}
+	if err := Validate(bound); err == nil {
+		t.Error("MetricCard.value 绑定到 /table（容器对象）应被拒绝")
+	}
+
+	ok := &UISpec{
+		DataModel: dm,
+		Components: []Component{
+			{ID: RootID, Type: CompColumn, Children: []string{"m"}},
+			{ID: "m", Type: CompMetricCard, Props: map[string]interface{}{"label": "斜率", "value": binding("/metrics/斜率")}},
+		},
+	}
+	if err := Validate(ok); err != nil {
+		t.Errorf("MetricCard 绑定标量指标 /metrics/斜率 应通过: %v", err)
 	}
 }
 
@@ -254,7 +452,10 @@ func hasType(spec *UISpec, typ string) bool {
 
 // 确保样本 JSON 合法（防止手写样本走样）。
 func TestSamplesAreValidJSON(t *testing.T) {
-	for name, s := range map[string]string{"sql": sampleSQL, "trend": sampleTrend} {
+	for name, s := range map[string]string{
+		"sql": sampleSQL, "trend": sampleTrend, "kpi": sampleKPI,
+		"categorical": sampleCategorical, "twoNumeric": sampleTwoNumeric, "correlation": sampleCorrelation,
+	} {
 		var v interface{}
 		if err := json.Unmarshal([]byte(s), &v); err != nil {
 			t.Errorf("sample %s invalid JSON: %v", name, err)

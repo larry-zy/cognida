@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	domainrag "link/internal/model/rag"
+	prompts "link/internal/prompt"
 )
 
 // ========================================
@@ -83,14 +84,9 @@ func (h *HyDEGeneratorImpl) GenerateMultiple(ctx context.Context, query string, 
 
 // getSystemPrompt 获取系统 prompt
 func (h *HyDEGeneratorImpl) getSystemPrompt(opts *domainrag.HyDEOptions) string {
-	basePrompt := `你是一个专业的文档生成助手。你的任务是根据用户查询，生成一个假设性的、理想的答案文档。
-
-生成的文档应该：
-1. 直接回答用户的问题
-2. 包含准确、具体的信息
-3. 使用清晰的结构和格式
-4. 保持在 200-500 字之间
-5. 只输出文档内容，不要包含其他解释`
+	// 基础提示词正文集中于 internal/prompt/configs/knowledge.yaml；
+	// 领域限定（第 6 条）为运行时按 opts.Domain 动态追加，保留在此处。
+	basePrompt := prompts.MustGet("knowledge", "hyde_system_base")
 
 	if opts.Domain != "" {
 		basePrompt += fmt.Sprintf(`
@@ -209,15 +205,7 @@ func (q *QueryRewriterImpl) ExpandQuery(ctx context.Context, query string, count
 		count = 3
 	}
 
-	prompt := fmt.Sprintf(`请为以下查询生成 %d 个不同的变体，用于提高检索覆盖率。
-
-原始查询：%s
-
-要求：
-1. 每个变体应该从不同角度表达相同的信息需求
-2. 使用不同的关键词和句式
-3. 保持原意不变
-4. 每行一个变体，不要编号`, count, query)
+	prompt := fmt.Sprintf(prompts.MustGet("knowledge", "query_expand"), count, query)
 
 	messages := []*schema.Message{
 		schema.UserMessage(prompt),
@@ -236,22 +224,7 @@ func (q *QueryRewriterImpl) ExpandQuery(ctx context.Context, query string, count
 
 // DecomposeQuery 分解复杂查询
 func (q *QueryRewriterImpl) DecomposeQuery(ctx context.Context, query string, opts *domainrag.RewriteOptions) ([]*domainrag.SubQuery, error) {
-	prompt := fmt.Sprintf(`请分析以下复杂查询，将其分解为 2-4 个可独立检索的子查询。
-
-查询：%s
-
-对于每个子查询，请提供：
-1. 子查询内容
-2. 优先级（1=最高，3=最低）
-3. 是否依赖其他子查询的结果
-
-请以 JSON 格式输出：
-{
-  "sub_queries": [
-    {"query": "子查询1", "priority": 1, "dependencies": []},
-    {"query": "子查询2", "priority": 2, "dependencies": [0]}
-  ]
-}`, query)
+	prompt := fmt.Sprintf(prompts.MustGet("knowledge", "query_decompose"), query)
 
 	messages := []*schema.Message{
 		schema.UserMessage(prompt),
@@ -274,14 +247,7 @@ func (q *QueryRewriterImpl) DecomposeQuery(ctx context.Context, query string, op
 
 // getRewriteSystemPrompt 获取重写系统 prompt
 func (q *QueryRewriterImpl) getRewriteSystemPrompt() string {
-	return `你是一个专业的查询优化助手。你的任务是重写用户查询，使其更适合信息检索。
-
-重写原则：
-1. 保持原意不变
-2. 添加必要的上下文信息
-3. 使用更精确的关键词
-4. 移除冗余词汇
-5. 输出重写后的查询，不要添加解释`
+	return prompts.MustGet("knowledge", "rewrite_system")
 }
 
 // buildRewritePrompt 构建重写 prompt

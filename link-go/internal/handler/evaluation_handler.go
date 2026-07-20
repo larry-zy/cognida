@@ -411,18 +411,33 @@ func (h *EvaluationHandler) ListDatasets(c *gin.Context) {
 		return
 	}
 
-	// 按类型过滤
-	if req.Type != "" {
-		filtered := make([]*evaluation.DatasetMetadata, 0)
-		for _, ds := range datasets {
-			if string(ds.EvalType) == req.Type {
-				filtered = append(filtered, ds)
-			}
+	// 拼装前端契约：外层包 {datasets: [...]}（前端读 res.data.datasets），
+	// 并把内部字段映射为前端字段名——eval_type=评测类型、dataset_type=存储类型
+	// （内部 DatasetMetadata 用 type=存储/evaluation_type=评测，与前端命名相反，
+	// 直接透传会导致类型徽标、过滤、及「数据库集才显示的样本管理按钮」全部失效）。
+	items := make([]gin.H, 0, len(datasets))
+	for _, ds := range datasets {
+		// 反归一到前端类型词表（rag/qa/agent）：后端 llm 是 qa 的历史别名，
+		// 直接透传会让 QA 集徽标显示 LLM、且点「QA」筛选被漏掉。
+		evalType := string(ds.EvalType)
+		if evalType == string(evaluation.EvaluationTypeLLM) {
+			evalType = string(evaluation.EvaluationTypeQA)
 		}
-		datasets = filtered
+		if req.Type != "" && evalType != req.Type {
+			continue
+		}
+		items = append(items, gin.H{
+			"id":           ds.ID,
+			"name":         ds.Name,
+			"description":  ds.Description,
+			"eval_type":    evalType,
+			"dataset_type": ds.Type,
+			"qa_count":     ds.QACount,
+			"updated_at":   ds.ModifiedAt,
+		})
 	}
 
-	OK(c, datasets)
+	OK(c, gin.H{"datasets": items})
 }
 
 // GetDatasetInfo 获取数据集信息
@@ -456,7 +471,9 @@ func (h *EvaluationHandler) handleError(c *gin.Context, err error) {
 		NotFound(c, err.Error())
 	case errors.Is(err, domeval.ErrDatasetSampleNotFound):
 		NotFound(c, err.Error())
-	case errors.Is(err, domeval.ErrInvalidConfig), errors.Is(err, domeval.ErrInvalidEvalType), errors.Is(err, domeval.ErrDatasetNameEmpty):
+	case errors.Is(err, domeval.ErrInvalidConfig), errors.Is(err, domeval.ErrInvalidEvalType), errors.Is(err, domeval.ErrDatasetNameEmpty), errors.Is(err, domeval.ErrDatasetTypeMismatch):
+		// 数据集类型与评测类型不匹配属于请求侧配置错误（如给 agent 评测选了 llm 数据集），
+		// 应返回 400 让前端给出可读提示，而非 500 掩盖成服务器错误。
 		BadRequest(c, err.Error())
 	default:
 		InternalError(c, err.Error())

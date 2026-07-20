@@ -1,4 +1,4 @@
-// Package handler 端到端测试 - Text2SQL Agent 全流程
+// Package handler 端到端测试 - Data Agent 全流程
 //go:build integration
 // +build integration
 
@@ -24,7 +24,7 @@ import (
 	"gorm.io/gorm"
 
 	agentinit "link/internal/service/agent/initializer"
-	"link/internal/service/agent/presets/text2sql"
+	dataagent "link/internal/service/agent/presets/data_agent"
 	ragtool "link/internal/service/agent/tools"
 	infraagent "link/internal/service/agent/framework"
 	"link/internal/infrastructure/llm/chat"
@@ -69,7 +69,7 @@ func setupE2ETest(t *testing.T) *TestStack {
 		return nil
 	}
 
-	// 6. 初始化 Text2SQL Agent
+	// 6. 初始化 Agent（含 Data Agent）
 	ctx := context.Background()
 	registry, err := initE2EAgents(ctx, chatModel, reg)
 	require.NoError(t, err, "初始化 Agent 失败")
@@ -93,10 +93,10 @@ func setupE2ETest(t *testing.T) *TestStack {
 			return
 		}
 
-		// 使用 Text2SQL Agent（从 SpecRegistry 解析运行实例）
-		agent, ok := registry.GetInstance(text2sql.Text2SQLAgentID)
+		// 使用 Data Agent（从 SpecRegistry 解析运行实例）
+		agent, ok := registry.GetInstance(dataagent.DataAgentID)
 		if !ok || agent == nil {
-			InternalError(c, "Text2SQL Agent 未初始化")
+			InternalError(c, "Data Agent 未初始化")
 			return
 		}
 
@@ -111,7 +111,7 @@ func setupE2ETest(t *testing.T) *TestStack {
 
 		OK(c, map[string]interface{}{
 			"content":    agentResp.Content,
-			"agent_id":   "agent-text2sql-001",
+			"agent_id":   dataagent.DataAgentID,
 			"request_id": "test-request-001",
 		})
 	})
@@ -225,7 +225,7 @@ func initE2EAgents(ctx context.Context, chatModel interface{}, reg *ragtool.Tool
 // 端到端测试
 // ========================================
 
-func TestE2E_Text2SQL_AgentFlow(t *testing.T) {
+func TestE2E_DataAgent_AgentFlow(t *testing.T) {
 	stack := setupE2ETest(t)
 	if stack == nil {
 		return
@@ -267,7 +267,7 @@ func TestE2E_Text2SQL_AgentFlow(t *testing.T) {
 	})
 }
 
-func TestE2E_Text2SQL_VariousQueries(t *testing.T) {
+func TestE2E_DataAgent_VariousQueries(t *testing.T) {
 	stack := setupE2ETest(t)
 	if stack == nil {
 		return

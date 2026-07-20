@@ -42,6 +42,10 @@ type AgentChatResult struct {
 	Trajectory []string
 	// TotalSteps 步骤总数（默认取工具调用数），供 step_efficiency。
 	TotalSteps int
+	// TokensUsed 本轮消耗的总 token 数（来自 Response.Metadata["tokens_used"]），供 tokens_used 指标。
+	TokensUsed int
+	// LLMCalls 本轮 LLM 调用次数（ReAct 迭代数，来自 Metadata["iterations"]），供 llm_calls 指标。
+	LLMCalls int
 }
 
 // AgentInfo Agent 信息
@@ -94,9 +98,11 @@ func (e *AgentExecutor) Execute(ctx context.Context, task *EvaluationTaskConfig,
 			ExpectedSteps:   qa.ExpectedSteps,
 		}
 
-		// 为每个 QA 设置单独的超时
+		// 为每个 QA 设置单独的超时，并测量墙钟耗时（供 latency_ms 指标，失败路径也记录）
 		qaCtx, cancel := context.WithTimeout(ctx, e.timeout)
+		start := time.Now()
 		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		results[i].LatencyMs = time.Since(start).Milliseconds()
 		cancel()
 
 		if err != nil {
@@ -122,6 +128,8 @@ func applyAgentChatResult(result *QAResult, chatResult *AgentChatResult) {
 	result.ToolsUsed = chatResult.ToolsUsed
 	result.Trajectory = chatResult.Trajectory
 	result.TotalSteps = chatResult.TotalSteps
+	result.TokensUsed = chatResult.TokensUsed
+	result.LLMCalls = chatResult.LLMCalls
 }
 
 // ExecuteSequential 顺序执行 Agent 评测（用于调试）
@@ -150,9 +158,11 @@ func (e *AgentExecutor) ExecuteSequential(ctx context.Context, task *EvaluationT
 			ExpectedSteps:   qa.ExpectedSteps,
 		}
 
-		// 为每个 QA 设置单独的超时
+		// 为每个 QA 设置单独的超时，并测量墙钟耗时（供 latency_ms 指标）
 		qaCtx, cancel := context.WithTimeout(ctx, e.timeout)
+		start := time.Now()
 		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		result.LatencyMs = time.Since(start).Milliseconds()
 		cancel()
 
 		if err != nil {

@@ -15,11 +15,15 @@ func SetModel(m LLM) {
 	composeModel = m
 }
 
-// ComposeInput 是一次 UI 生成所需的原料：用户问题 + 真实工具输出（JSON 字符串）。
+// ComposeInput 是一次 UI 生成所需的原料：用户问题 + 本次回答里「全部」真实工具输出。
+//
+// 一次回答（尤其报告/综合解读）常跑多段 sql_execute / data_analysis：KPI 汇总、明细趋势、
+// 分组对比各是独立结果集。收全后交给 AssembleReportDataModel 融合，单行 KPI 结果派生标量指标、
+// 多行结果作主表/序列，避免「只取最后一段」导致 KPI 卡无数据。
 type ComposeInput struct {
-	Question       string // 用户自然语言问题
-	SQLOutput      string // sql_execute 工具的 tool_output（JSON）
-	AnalysisOutput string // data_analysis 工具的 tool_output（JSON，可空）
+	Question        string   // 用户自然语言问题
+	SQLOutputs      []string // 本次回答里全部 sql_execute 的 tool_output（JSON，按发生顺序）
+	AnalysisOutputs []string // 本次回答里全部 data_analysis 的 tool_output（JSON，可空）
 }
 
 // Compose 是本包对外入口：把真实工具输出装配成 DataModel，再生成 UISpec。
@@ -29,7 +33,7 @@ type ComposeInput struct {
 //
 // 无论哪条路径，dataModel 中的数字都来自真实工具输出，LLM 只决定布局。
 func Compose(ctx context.Context, in ComposeInput) *UISpec {
-	dm := AssembleDataModel(in.SQLOutput, in.AnalysisOutput)
+	dm := AssembleReportDataModel(in.SQLOutputs, in.AnalysisOutputs)
 	if dm == nil {
 		return nil
 	}

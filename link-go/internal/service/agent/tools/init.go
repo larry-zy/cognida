@@ -5,8 +5,8 @@ package tools
 import (
 	"context"
 
-	"link/internal/service/agent/framework"
 	"link/internal/model/agent/operations"
+	"link/internal/service/agent/framework"
 	"link/internal/service/agent/termgrounding"
 )
 
@@ -114,7 +114,7 @@ func (r *ToolRegistry) registerSemanticTools() error {
 			return err
 		}
 	}
-	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder, r.deps.CoverageSink)
+	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder, r.deps.CoverageSink, r.deps.DatasourceProvider)
 	if queryTool != nil {
 		if err := r.Register("semantic", queryTool); err != nil {
 			return err
@@ -203,6 +203,15 @@ func (r *ToolRegistry) registerOperationTools() error {
 			})
 	})
 
+	// 挂接策略级写审批处理器（guardrail-runtime 任务 4）：被标记审批的写类工具
+	// 经框架门转本处理器生成 pending_action，复用 sql_mutate 危险级同一确认通道。
+	framework.SetToolApprovalHandler(o.handleWriteApproval)
+
+	// 挂接护栏审计记录器（guardrail-runtime 任务 6/7）：输入拦截/越狱/输出脱敏/
+	// 逐工具脱敏/写审批各类护栏事件统一落 agent_operation_audit（type=guardrail），
+	// 携 request_id/session_id/tenant_id 与事件类型、命中工具、原因。
+	framework.SetGuardrailRecorder(o.recordGuardrailAudit)
+
 	mutateTool := NewSQLMutateTool(o)
 	if mutateTool != nil {
 		if err := r.Register("operation", mutateTool); err != nil {
@@ -222,6 +231,20 @@ func (r *ToolRegistry) registerOperationTools() error {
 		}
 	}
 	return nil
+}
+
+// guardrailAuditStatus 把护栏事件类型映射到审计状态：
+// 拦截类（输入/越狱）→ rejected；写审批 → pending_confirm；脱敏类 → success（脱敏后放行）。
+func guardrailAuditStatus(eventType string) string {
+	switch eventType {
+	case framework.GuardrailEventInputBlocked, framework.GuardrailEventJailbreakBlocked:
+		return operations.StatusRejected
+	case framework.GuardrailEventWriteApprovalNeeded:
+		return operations.StatusPendingConfirm
+	default:
+		// input_redacted / output_redacted / tool_output_redacted：脱敏成功放行
+		return operations.StatusSuccess
+	}
 }
 
 // registerSkillTools 注册 Skill 工具（工具发现和推荐）

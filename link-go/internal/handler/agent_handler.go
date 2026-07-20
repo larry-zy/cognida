@@ -65,6 +65,8 @@ type agentToolGateway interface {
 	// UI 回调等会话态读写经它统一 owner 归属，替代散在各处的手拼 OwnerKey + 直取 store。
 	SessionState(tenantID int64, sessionID string) *agentstate.AgentState
 	ExecuteConfirmedMutation(ctx context.Context, action *pendingaction.PendingAction) (*ragtool.SQLMutateResult, error)
+	ExecuteConfirmedETL(ctx context.Context, action *pendingaction.PendingAction) (*ragtool.ETLRunResult, error)
+	ExecuteConfirmedExport(ctx context.Context, action *pendingaction.PendingAction) (*ragtool.DataExportResult, error)
 	RecordUnsupportedConfirmKind(ctx context.Context, action *pendingaction.PendingAction)
 	FetchSchema(ctx context.Context, databaseID, tableName string) (*ragtool.GetSchemaResult, error)
 }
@@ -215,7 +217,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 	var toolCalls []agentuc.ToolCallInfo
 	var steps []map[string]interface{}
 	var uiSurfaces []*genui.UISpec
-	var sqlOutput, analysisOutput string // 捕获真实工具输出，供旧路径 genUI 兜底融合
+	var sqlOutputs, analysisOutputs []string // 捕获本次全部真实工具输出，供旧路径 genUI 兜底融合
 
 	// 客户端断开（request ctx 取消）即停止消费与下发；上游发送端同样以该 ctx 终止生成。
 	ctx := c.Request.Context()
@@ -236,9 +238,9 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 			// 兜底路径：未产生任何 render_ui surface 时才做 done 前一次性拼装。
 			if genUI.compose && len(uiSurfaces) == 0 {
 				if spec := genui.Compose(c.Request.Context(), genui.ComposeInput{
-					Question:       genUI.question,
-					SQLOutput:      sqlOutput,
-					AnalysisOutput: analysisOutput,
+					Question:        genUI.question,
+					SQLOutputs:      sqlOutputs,
+					AnalysisOutputs: analysisOutputs,
 				}); spec != nil {
 					uiSurfaces = append(uiSurfaces, spec)
 					sse.SendSSE(c.Writer, "ui", spec)
@@ -312,14 +314,14 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 						sse.SendSSE(c.Writer, "ui", spec)
 					}
 				}
-			// 捕获真实工具输出，供 done 前的旧路径 genUI 兜底（取最后一次成功结果）。
+			// 捕获真实工具输出，供 done 前的旧路径 genUI 兜底（收全部结果集，融合成一份 DataModel）。
 			case "sql_execute":
 				if toolOutput != "" {
-					sqlOutput = toolOutput
+					sqlOutputs = append(sqlOutputs, toolOutput)
 				}
 			case "data_analysis":
 				if toolOutput != "" {
-					analysisOutput = toolOutput
+					analysisOutputs = append(analysisOutputs, toolOutput)
 				}
 			}
 		}
@@ -817,19 +819,30 @@ func (h *AgentHandler) ConfirmOperation(c *gin.Context) {
 	ctx = agentctx.WithUserID(ctx, GetUserID(c))
 	ctx = agentctx.WithRequestID(ctx, resolveRequestID(c.Request.Context(), "confirm"))
 
+	// 按 pending action 类型分派恢复执行：写（危险级/策略级审批）、ETL、导出均走既有
+	// confirm-resume 通道；策略级审批的 etl/export 与危险级写共用同一确认端点（任务 4.3）。
+	var (
+		result  interface{}
+		execErr error
+	)
 	switch action.Kind {
 	case operations.OpMutate:
-		result, execErr := h.toolGateway.ExecuteConfirmedMutation(ctx, action)
-		if execErr != nil {
-			InternalError(c, execErr.Error())
-			return
-		}
-		OK(c, result)
+		result, execErr = h.toolGateway.ExecuteConfirmedMutation(ctx, action)
+	case operations.OpETL:
+		result, execErr = h.toolGateway.ExecuteConfirmedETL(ctx, action)
+	case operations.OpExport:
+		result, execErr = h.toolGateway.ExecuteConfirmedExport(ctx, action)
 	default:
 		// pending action 消费即失效：进不了执行分支也必须留痕，防静默丢弃
 		h.toolGateway.RecordUnsupportedConfirmKind(ctx, action)
 		BadRequest(c, fmt.Sprintf("不支持的待确认操作类型: %s", action.Kind))
+		return
 	}
+	if execErr != nil {
+		InternalError(c, execErr.Error())
+		return
+	}
+	OK(c, result)
 }
 
 // GetDatabaseSchema 获取数据库 schema

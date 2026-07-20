@@ -94,7 +94,7 @@ func salesBundle() *semantic.ModelBundle {
 	return &semantic.ModelBundle{
 		Model: &semantic.SemanticModel{
 			ID: modelID, TenantID: seedTenant, Name: "电商销售",
-			Description: "电商订单销售域：营收/客单价/折扣率等受治理指标，可按订单状态、支付方式、城市、性别、VIP 等级、下单日期分析。",
+			Description: "电商订单销售域：营收/净营收/客单价/折扣率/退款率等受治理指标，可按订单状态、支付方式、渠道、大区、省份、城市、性别、VIP 等级、注册渠道、下单日期（支持日/周/月/季/年上卷）分析。",
 			Version:     1, Status: semantic.ModelStatusActive,
 		},
 		LogicalTables: []*semantic.LogicalTable{
@@ -113,8 +113,11 @@ func salesBundle() *semantic.ModelBundle {
 			{ID: "seed_ms_total", ModelID: modelID, LogicalTableID: ltOrder, Name: "total_amount", Expr: "total_amount", Aggregation: semantic.AggSum, Description: "订单原价总额"},
 			{ID: "seed_ms_ordcnt", ModelID: modelID, LogicalTableID: ltOrder, Name: "订单数", Expr: "id", Aggregation: semantic.AggCount, Description: "订单笔数"},
 			{ID: "seed_ms_custcnt", ModelID: modelID, LogicalTableID: ltOrder, Name: "客户数", Expr: "COUNT(DISTINCT orders.customer_id)", Aggregation: semantic.AggNone, Description: "去重下单客户数"},
+			{ID: "seed_ms_refund", ModelID: modelID, LogicalTableID: ltOrder, Name: "退款额", Expr: "refund_amount", Aggregation: semantic.AggSum, Description: "退款金额"},
+			{ID: "seed_ms_ship", ModelID: modelID, LogicalTableID: ltOrder, Name: "运费", Expr: "shipping_fee", Aggregation: semantic.AggSum, Description: "运费"},
 		},
-		// 指标：口径钉死在 Expr，同义词供 grounding。
+		// 指标：口径钉死在 Expr，同义词供 grounding。派生指标以 {指标/度量名} 引用其它口径，
+		// 引擎递归展开（带环检测），保证跨口径一致（如净营收/退款率复用「营收」定义）。
 		Metrics: []*semantic.Metric{
 			{ID: "seed_mt_rev", ModelID: modelID, Name: "营收", Expr: "SUM(orders.pay_amount)",
 				Caliber: "已支付金额(pay_amount)之和", Format: "currency", Synonyms: []string{"revenue", "gmv", "销售额", "成交额"}},
@@ -122,14 +125,23 @@ func salesBundle() *semantic.ModelBundle {
 				Caliber: "客单价 = 支付总额 / 订单数", Format: "currency", Synonyms: []string{"aov", "客单"}},
 			{ID: "seed_mt_disc", ModelID: modelID, Name: "折扣率", Expr: "SUM(orders.discount_amount)/NULLIF(SUM(orders.total_amount),0)",
 				Caliber: "折扣率 = 优惠额 / 订单原价总额", Format: "percent", Synonyms: []string{"discount_rate", "折扣"}},
+			// ② 派生指标：引用其它指标/度量，引擎展开时钉死口径。
+			{ID: "seed_mt_netrev", ModelID: modelID, Name: "净营收", Expr: "{营收} - {退款额}",
+				Caliber: "净营收 = 营收 - 退款额", Format: "currency", Synonyms: []string{"net_revenue", "净收入", "净销售额"}},
+			{ID: "seed_mt_refrate", ModelID: modelID, Name: "退款率", Expr: "{退款额} / NULLIF({营收}, 0)",
+				Caliber: "退款率 = 退款额 / 营收", Format: "percent", Synonyms: []string{"refund_rate", "退货率", "退款占比"}},
 		},
 		Dimensions: []*semantic.Dimension{
 			{ID: "seed_d_status", ModelID: modelID, LogicalTableID: ltOrder, Name: "订单状态", Expr: "status", DataType: "string", Synonyms: []string{"状态", "order_status"}},
 			{ID: "seed_d_pay", ModelID: modelID, LogicalTableID: ltOrder, Name: "支付方式", Expr: "payment_method", DataType: "string", Synonyms: []string{"支付渠道", "payment_method"}},
-			{ID: "seed_d_date", ModelID: modelID, LogicalTableID: ltOrder, Name: "下单日期", Expr: "DATE(orders.created_at)", DataType: "date", Synonyms: []string{"日期", "date"}},
+			{ID: "seed_d_channel", ModelID: modelID, LogicalTableID: ltOrder, Name: "渠道", Expr: "channel", DataType: "string", Synonyms: []string{"下单渠道", "channel", "来源"}},
+			{ID: "seed_d_region", ModelID: modelID, LogicalTableID: ltOrder, Name: "大区", Expr: "region", DataType: "string", Synonyms: []string{"区域", "region", "地区"}},
+			{ID: "seed_d_date", ModelID: modelID, LogicalTableID: ltOrder, Name: "下单日期", Expr: "orders.created_at", DataType: "datetime", Synonyms: []string{"日期", "date", "下单时间"}},
 			{ID: "seed_d_city", ModelID: modelID, LogicalTableID: ltCust, Name: "城市", Expr: "city", DataType: "string", Synonyms: []string{"city", "所在城市"}},
+			{ID: "seed_d_province", ModelID: modelID, LogicalTableID: ltCust, Name: "省份", Expr: "province", DataType: "string", Synonyms: []string{"province", "所在省份"}},
 			{ID: "seed_d_gender", ModelID: modelID, LogicalTableID: ltCust, Name: "性别", Expr: "gender", DataType: "string", Synonyms: []string{"gender"}},
 			{ID: "seed_d_vip", ModelID: modelID, LogicalTableID: ltCust, Name: "VIP等级", Expr: "vip_level", DataType: "string", Synonyms: []string{"vip", "vip_level", "会员等级"}},
+			{ID: "seed_d_regchan", ModelID: modelID, LogicalTableID: ltCust, Name: "注册渠道", Expr: "register_channel", DataType: "string", Synonyms: []string{"register_channel", "获客渠道"}},
 		},
 	}
 }
@@ -149,7 +161,7 @@ func productBundle() *semantic.ModelBundle {
 	return &semantic.ModelBundle{
 		Model: &semantic.SemanticModel{
 			ID: modelID, TenantID: seedTenant, Name: "商品销售",
-			Description: "商品销售域（订单明细粒度）：销量/商品销售额/均价，可按品类、品牌、商品名称、商品状态分析。",
+			Description: "商品销售域（订单明细粒度）：销量/商品销售额/均价/商品成本/毛利/毛利率，可按品类、品牌、商品名称、商品状态分析。",
 			Version:     1, Status: semantic.ModelStatusActive,
 		},
 		LogicalTables: []*semantic.LogicalTable{
@@ -176,6 +188,14 @@ func productBundle() *semantic.ModelBundle {
 				Caliber: "商品销售额 = 明细小计之和", Format: "currency", Synonyms: []string{"销售额", "sales"}},
 			{ID: "seed_mt_avgprice", ModelID: modelID, Name: "均价", Expr: "SUM(order_items.subtotal)/NULLIF(SUM(order_items.quantity),0)",
 				Caliber: "均价 = 商品销售额 / 销量", Format: "currency", Synonyms: []string{"单价", "avg_price"}},
+			// ② 跨表派生：商品成本按下单数量 × 商品成本价聚合，引用 products 触发引擎自动 JOIN。
+			{ID: "seed_mt_cogs", ModelID: modelID, Name: "商品成本", Expr: "SUM(order_items.quantity * products.cost)",
+				Caliber: "商品成本 = Σ(明细数量 × 商品成本价)", Format: "currency", Synonyms: []string{"成本", "cogs", "销货成本"}},
+			// ② 派生：毛利引用「商品销售额」「商品成本」，毛利率再引用「毛利」（派生套派生，递归展开）。
+			{ID: "seed_mt_gp", ModelID: modelID, Name: "毛利", Expr: "{商品销售额} - {商品成本}",
+				Caliber: "毛利 = 商品销售额 - 商品成本", Format: "currency", Synonyms: []string{"gross_profit", "毛利润"}},
+			{ID: "seed_mt_gpm", ModelID: modelID, Name: "毛利率", Expr: "{毛利} / NULLIF({商品销售额}, 0)",
+				Caliber: "毛利率 = 毛利 / 商品销售额", Format: "percent", Synonyms: []string{"gross_margin", "毛利润率", "毛利占比"}},
 		},
 		Dimensions: []*semantic.Dimension{
 			{ID: "seed_d_cat", ModelID: modelID, LogicalTableID: ltCat, Name: "品类", Expr: "name", DataType: "string", Synonyms: []string{"分类", "category", "品类名"}},

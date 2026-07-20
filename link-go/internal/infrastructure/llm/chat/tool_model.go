@@ -20,7 +20,9 @@ func NewToolCallingChatModel(ctx context.Context, config *ChatConfig) (model.Too
 		return nil, err
 	}
 
-	return &toolCallingModelAdapter{client: client}, nil
+	// 用 DSML 归一化装饰器透明包裹：把 DeepSeek 系模型内联在正文里的原生工具调用
+	// 归一化回结构化 tool_calls（见 dsml_model.go / dsml.go）。与 provider 无关，正常路径零改动透传。
+	return NewDSMLNormalizingModel(&toolCallingModelAdapter{client: client}), nil
 }
 
 // Generate 实现 BaseChatModel 接口

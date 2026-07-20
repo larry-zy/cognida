@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	prompts "link/internal/prompt"
 	infraagent "link/internal/service/agent/framework"
 )
 
@@ -202,7 +203,7 @@ func (a *ResultAggregator) detectConflictsLLM(ctx context.Context, results []tag
 If there are no conflicts, respond with [].`)
 
 	messages := []*schema.Message{
-		schema.SystemMessage("You are a meticulous fact-checker that detects conflicts between sources. Output strict JSON only."),
+		schema.SystemMessage(prompts.MustGet("collaboration", "factcheck_system")),
 		schema.UserMessage(builder.String()),
 	}
 
@@ -304,16 +305,7 @@ func (a *ResultAggregator) synthesize(ctx context.Context, result *ExecutionResu
 	prompt := a.buildSynthesisPrompt(originalQuery, result)
 
 	messages := []*schema.Message{
-		schema.SystemMessage(`You are an expert at synthesizing information from multiple sources.
-
-Your task is to combine results from different agents into a coherent, comprehensive response that directly answers the user's question.
-
-Guidelines:
-- Integrate information from all successful tasks
-- Resolve any conflicts or inconsistencies
-- Present a clear, well-structured answer
-- If information is missing or conflicting, acknowledge it
-- Use markdown formatting for better readability`),
+		schema.SystemMessage(prompts.MustGet("collaboration", "synthesis_system")),
 		schema.UserMessage(prompt),
 	}
 
@@ -425,7 +417,7 @@ func (a *ResultAggregator) vote(ctx context.Context, result *ExecutionResult, re
 	}
 
 	messages := []*schema.Message{
-		schema.SystemMessage("You merge agreeing answers into a single authoritative response. Preserve all unique details."),
+		schema.SystemMessage(prompts.MustGet("collaboration", "merge_consensus_system")),
 		schema.UserMessage(builder.String()),
 	}
 	resp, err := a.llm.Generate(ctx, messages)
@@ -516,9 +508,7 @@ func (a *ResultAggregator) ResolveConflicts(ctx context.Context, response *Aggre
 	prompt := a.buildConflictResolutionPrompt(response)
 
 	messages := []*schema.Message{
-		schema.SystemMessage(`You are a mediator specializing in resolving conflicting information.
-
-Your task is to analyze the conflicts and suggest resolutions or determine which information is more reliable.`),
+		schema.SystemMessage(prompts.MustGet("collaboration", "conflict_resolution_system")),
 		schema.UserMessage(prompt),
 	}
 

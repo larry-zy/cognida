@@ -23,6 +23,11 @@ type fakeCollabAgent struct {
 	failSub string        // 消息含该子串时返回错误
 	delay   time.Duration // 模拟耗时（驱动并发重叠）
 
+	// 子代理内部真实执行痕迹：用于验证委派边界把工具轨迹/用量冒泡到父层。
+	toolNames  []string
+	tokens     int
+	iterations int
+
 	mu       sync.Mutex
 	messages []string
 	scopes   []string
@@ -57,7 +62,18 @@ func (f *fakeCollabAgent) Chat(ctx context.Context, message string) (*Response, 
 	if f.failSub != "" && strings.Contains(message, f.failSub) {
 		return nil, fmt.Errorf("injected failure")
 	}
-	return &Response{Content: f.reply}, nil
+	calls := make([]*ToolCall, 0, len(f.toolNames))
+	for _, n := range f.toolNames {
+		calls = append(calls, &ToolCall{Name: n})
+	}
+	return &Response{
+		Content:   f.reply,
+		ToolCalls: calls,
+		Metadata: map[string]interface{}{
+			"tokens_used": f.tokens,
+			"iterations":  f.iterations,
+		},
+	}, nil
 }
 
 func (f *fakeCollabAgent) Stream(ctx context.Context, message string) (<-chan *Chunk, error) {
@@ -205,6 +221,52 @@ func TestExecuteDelegation_HandleOnlyReturnAndScopedGrant(t *testing.T) {
 	// 指挥官自身链路不受子委派污染（路径式循环语义：可再次委派同一子代理）
 	if _, err := executeDelegation(ctx, registry, readEnvelope("Worker", "再查一次", ScopeRead)); err != nil {
 		t.Fatalf("对同一子代理的串行再委派应放行: %v", err)
+	}
+}
+
+// TestExecuteDelegation_TrajectoryBubblesUp 验证委派边界把子代理内部真实工具轨迹与
+// 运行时用量冒泡到父层痕迹——回归 data_agent 等指挥官型 agent 委派后，子代理真实执行的
+// get_schema/sql_execute 与 token 消耗被上下文防火墙吞掉、Agent 评测工具/用量指标失真的缺陷。
+// 回传给 LLM 的内容仍只是子代理最终摘要（防火墙不变）。
+func TestExecuteDelegation_TrajectoryBubblesUp(t *testing.T) {
+	worker := &fakeCollabAgent{
+		name:       "Worker",
+		reply:      "result_id=res-9；摘要：上月销量 12345",
+		toolNames:  []string{"get_schema", "sql_execute"},
+		tokens:     420,
+		iterations: 3,
+	}
+	registry := newDelegateTestRegistry(worker, nil)
+
+	// 模拟指挥官 run 安装的委派痕迹累积器
+	trace := &delegationTrace{}
+	ctx := withDelegationTrace(context.Background(), trace)
+
+	out, err := executeDelegation(ctx, registry, readEnvelope("Worker", "查销量", ScopeRead))
+	if err != nil {
+		t.Fatalf("委派失败: %v", err)
+	}
+	// 防火墙不变：回传仍只是子代理最终内容，不含内部工具往返
+	if out != worker.reply {
+		t.Fatalf("回传应只是子代理最终内容: got=%q", out)
+	}
+
+	// 子代理真实工具轨迹与用量已冒泡到父层痕迹
+	tcs, tok, iters := trace.drain()
+	got := make([]string, 0, len(tcs))
+	for _, tc := range tcs {
+		got = append(got, tc.Name)
+	}
+	if len(got) != 2 || got[0] != "get_schema" || got[1] != "sql_execute" {
+		t.Fatalf("子代理工具轨迹未冒泡: %v", got)
+	}
+	if tok != 420 || iters != 3 {
+		t.Fatalf("子代理运行时用量未冒泡: tokens=%d iterations=%d", tok, iters)
+	}
+
+	// 无痕迹累积器时（如非评测直连路径）不应 panic：nil 接收者按无操作
+	if _, err := executeDelegation(context.Background(), registry, readEnvelope("Worker", "再查", ScopeRead)); err != nil {
+		t.Fatalf("无痕迹累积器时委派应正常: %v", err)
 	}
 }
 

@@ -54,6 +54,24 @@ var (
 		Name: "agent_reflection_quality_score_after",
 		Help: "Quality score after reflection",
 	}, []string{"agent_id", "dimension"})
+
+	// enqueuedTotal 异步反思入队总数
+	enqueuedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "agent_reflection_enqueued_total",
+		Help: "Total reflection jobs enqueued for async processing",
+	}, []string{"agent_id"})
+
+	// droppedTotal 因队列已满被丢弃的入队总数（非阻塞降级，宁可少学不拖慢对话）
+	droppedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "agent_reflection_dropped_total",
+		Help: "Total reflection jobs dropped due to full queue",
+	}, []string{"agent_id"})
+
+	// processedTotal 后台处理的反思任务总数（按结果: stored/skipped/error）
+	processedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "agent_reflection_processed_total",
+		Help: "Total reflection jobs processed by outcome",
+	}, []string{"agent_id", "outcome"})
 )
 
 // ========================================
@@ -113,4 +131,19 @@ func RecordQualityBefore(agentID, dimension string, score float64) {
 // RecordQualityAfter 记录反思后质量分数
 func RecordQualityAfter(agentID, dimension string, score float64) {
 	qualityScoresAfter.WithLabelValues(agentID, dimension).Set(score)
+}
+
+// RecordEnqueued 记录一次异步反思入队
+func RecordEnqueued(agentID string) {
+	enqueuedTotal.WithLabelValues(agentID).Inc()
+}
+
+// RecordDropped 记录一次因队列已满的入队丢弃
+func RecordDropped(agentID string) {
+	droppedTotal.WithLabelValues(agentID).Inc()
+}
+
+// RecordProcessed 记录一次后台反思任务处理结果（outcome: stored/skipped/error）
+func RecordProcessed(agentID, outcome string) {
+	processedTotal.WithLabelValues(agentID, outcome).Inc()
 }

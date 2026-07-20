@@ -108,6 +108,22 @@ func (r *ToolRegistry) ExecuteConfirmedMutation(ctx context.Context, action *pen
 	return r.ops.ExecuteConfirmedMutation(ctx, action)
 }
 
+// ExecuteConfirmedETL 执行已人工确认的策略级审批 ETL（供 handler 层 confirm-resume 调用）。
+func (r *ToolRegistry) ExecuteConfirmedETL(ctx context.Context, action *pendingaction.PendingAction) (*ETLRunResult, error) {
+	if r.ops == nil {
+		return nil, fmt.Errorf("操作工具未初始化")
+	}
+	return r.ops.ExecuteConfirmedETL(ctx, action)
+}
+
+// ExecuteConfirmedExport 执行已人工确认的策略级审批导出（供 handler 层 confirm-resume 调用）。
+func (r *ToolRegistry) ExecuteConfirmedExport(ctx context.Context, action *pendingaction.PendingAction) (*DataExportResult, error) {
+	if r.ops == nil {
+		return nil, fmt.Errorf("操作工具未初始化")
+	}
+	return r.ops.ExecuteConfirmedExport(ctx, action)
+}
+
 // RecordUnsupportedConfirmKind 对不支持的确认类型留审计痕（供 handler 层调用，未初始化时静默跳过）。
 func (r *ToolRegistry) RecordUnsupportedConfirmKind(ctx context.Context, action *pendingaction.PendingAction) {
 	if r.ops == nil {

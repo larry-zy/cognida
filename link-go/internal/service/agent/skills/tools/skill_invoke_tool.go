@@ -78,6 +78,15 @@ func (t *skillInvokeTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		}
 	}
 
+	// 可执行 skill（design D7）：命中 CanInvoke 且挂了 handler，则执行 handler 并回传其
+	// 紧凑输出（result_id + 结论），复杂任务在 handler 内 inline 编排子代理、内部往返不回灌。
+	// 无 handler 的 skill 完全维持既有「返回 markdown 指导」行为（向后兼容）。
+	// 注意：handler 执行仍在同一 ctx 下——其经 InlineDelegate/注册表工具所触发的调用照旧
+	// 过工具门与 scope 校验（skill-tool-policy 不被绕过）。
+	if skill.CanInvoke && skill.Handler != nil {
+		return t.runHandler(ctx, skill, arguments)
+	}
+
 	// 格式化 Skill 内容
 	skillContext, err := t.integration.FormatForAgent(ctx, skill)
 	if err != nil {
@@ -122,6 +131,46 @@ func (t *skillInvokeTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
 
+	return string(resultBytes), nil
+}
+
+// runHandler 执行可执行 skill 的 handler，并把结果包成与纯指导路径一致的信封回传。
+// handler 内 panic 经 recover 兜底为普通 skill 错误（不崩整个 ReAct 循环）。
+func (t *skillInvokeTool) runHandler(ctx context.Context, skill *skills.Skill, arguments map[string]interface{}) (output string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// panic 兜底：转为普通错误回灌 LLM，交由护栏/修复纪律处置。
+			output = ""
+			err = fmt.Errorf("skill '%s' handler 执行异常: %v", skill.Name, r)
+		}
+	}()
+
+	// handler 入参：透传本次调用参数（task 等），handler 自行取用其所需字段。
+	inputJSON, mErr := json.Marshal(arguments)
+	if mErr != nil {
+		return "", fmt.Errorf("failed to marshal skill input: %w", mErr)
+	}
+
+	handlerOutput, hErr := skill.Handler(ctx, string(inputJSON))
+	if hErr != nil {
+		return "", fmt.Errorf("skill '%s' 执行失败: %w", skill.Name, hErr)
+	}
+
+	result := map[string]interface{}{
+		"success": true,
+		"skill": map[string]interface{}{
+			"name":        skill.Name,
+			"description": skill.Description,
+			"category":    skill.Category,
+			"executed":    true,
+		},
+		"output":      handlerOutput,
+		"instruction": fmt.Sprintf("Skill '%s' 已执行完成，以下为其紧凑结论；请据此推进，勿重复其内部步骤。", skill.Name),
+	}
+	resultBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
 	return string(resultBytes), nil
 }
 

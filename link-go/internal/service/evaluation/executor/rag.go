@@ -10,6 +10,7 @@ import (
 
 	domeval "link/internal/model/evaluation"
 	"link/internal/model/rag"
+	prompts "link/internal/prompt"
 )
 
 // RAGExecutor RAG 评测执行器
@@ -141,20 +142,12 @@ func (e *RAGExecutor) generate(ctx context.Context, question string, contexts []
 // buildSystemPrompt 构建系统提示词
 func (e *RAGExecutor) buildSystemPrompt(contexts []string) string {
 	if len(contexts) == 0 {
-		return "You are a helpful assistant. Answer the user's question based on your knowledge."
+		return prompts.MustGet("evaluation", "rag_system_no_context")
 	}
 
 	contextText := strings.Join(contexts, "\n\n")
 
-	return fmt.Sprintf(`You are a helpful assistant. Answer the user's question based on the following context:
-
-%s
-
-Instructions:
-1. Use only the information from the provided context to answer the question.
-2. If the context doesn't contain enough information to answer the question, say "I don't have enough information to answer this question."
-3. Be concise and direct in your answer.
-4. Do not mention that you are using context or reference materials.`, contextText)
+	return fmt.Sprintf(prompts.MustGet("evaluation", "rag_system_with_context"), contextText)
 }
 
 // getTopK 获取 top_k 配置

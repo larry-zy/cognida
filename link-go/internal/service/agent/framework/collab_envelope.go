@@ -215,6 +215,15 @@ func executeDelegation(ctx context.Context, registry *CollaborationRegistry, env
 	}
 	recordDelegation(ctx, registry, env, delegationStatusSuccess, "")
 
+	// 评测可观测性：把子代理的真实工具轨迹与运行时用量追加到父层委派痕迹（从入参 ctx 取，
+	// 即指挥官 run 安装的那个；childCtx 上的是子代理自己的痕迹，不能读）。resp.ToolCalls 已含
+	// 子代理递归并入的孙层工具，故逐层冒泡即得全链路轨迹。回传给 LLM 的内容仍只是 resp.Content。
+	delegationTraceFrom(ctx).add(
+		resp.ToolCalls,
+		metaUsageInt(resp.Metadata, "tokens_used"),
+		metaUsageInt(resp.Metadata, "iterations"),
+	)
+
 	// 只回传子代理最终内容（约定为 handle/摘要），不含其内部工具往返
 	return resp.Content, nil
 }

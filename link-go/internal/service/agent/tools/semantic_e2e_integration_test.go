@@ -81,7 +81,7 @@ func TestSemanticGovernanceE2E(t *testing.T) {
 		Metrics:    []string{"营收"},
 		Dimensions: []string{"城市"},
 		Limit:      10,
-	}, repo, cache, sink)
+	}, repo, cache, sink, nil)
 	require.NoError(t, err)
 	require.True(t, res.Covered, "「按城市看营收」应被语义模型覆盖走治理口径，got %+v", res)
 	require.NotEmpty(t, res.SQL, "covered 应产出治理 SQL")
@@ -109,7 +109,7 @@ func TestSemanticGovernanceE2E(t *testing.T) {
 	t.Logf("治理直出取到 %d 行（示例列 %v），executed=%s", exec.RowCount, exec.Columns, exec.ExecutedSQL)
 
 	// —— 3) 越界口径 → fallback（+未覆盖名称）——
-	fb, err := semanticQuery(ctx, &SemanticQueryRequest{Model: e2eModel, Metrics: []string{"毛利率"}}, repo, cache, sink)
+	fb, err := semanticQuery(ctx, &SemanticQueryRequest{Model: e2eModel, Metrics: []string{"毛利率"}}, repo, cache, sink, nil)
 	require.NoError(t, err)
 	assert.False(t, fb.Covered, "「毛利率」未建模应回退")
 	assert.Contains(t, fb.Uncovered, "毛利率")

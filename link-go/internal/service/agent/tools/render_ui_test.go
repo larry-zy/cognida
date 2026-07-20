@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -224,5 +225,247 @@ func TestRenderUI_NoBindingStoreDegrades(t *testing.T) {
 	}
 	if _, ok := r.UISpec.DataModel.Meta["surface_token"]; ok {
 		t.Error("无绑定存储时不应签发 token")
+	}
+}
+
+// TestRenderUIRequest_NestedTreeTolerated 复现历史 bug：LLM 把 components 传成
+// 内联嵌套树（单个 root 对象，children 直接内联子组件），过去导致
+// "cannot unmarshal object into []genui.Component"。现应被摊平并成功渲染。
+func TestRenderUIRequest_NestedTreeTolerated(t *testing.T) {
+	ctx, id, rs, ui := setupRenderTest(t, 5)
+
+	payload := fmt.Sprintf(`{
+		"result_id": %q,
+		"title": "🏆 工单看板",
+		"components": {
+			"id": "root",
+			"type": "Column",
+			"children": [
+				{"type": "Row", "children": [
+					{"type": "MetricCard", "props": {"label": "结果集", "value": {"path": "/meta/result_id"}}}
+				]},
+				{"type": "Table", "props": {"title": "明细", "data": {"path": "/table"}}},
+				{"type": "Callout", "props": {"title": "结论", "text": "看板", "tone": "info"}}
+			]
+		}
+	}`, id)
+
+	var req RenderUIRequest
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		t.Fatalf("嵌套树 components 应被容忍解析: %v", err)
+	}
+	// root(Column) + Row + MetricCard + Table + Callout = 5 个节点，摊平为邻接表。
+	if len(req.Components) != 5 {
+		t.Fatalf("摊平后组件数期望 5, got %d: %+v", len(req.Components), req.Components)
+	}
+	assertExactlyOneRoot(t, req.Components)
+	assertChildrenResolve(t, req.Components)
+
+	r, err := renderUI(ctx, &req, rs, ui)
+	if err != nil {
+		t.Fatalf("摊平后的自定义布局应通过校验并渲染: %v", err)
+	}
+	if r.GenMode != genui.GenModeLLM {
+		t.Errorf("自定义布局应为 llm 模式, got %q", r.GenMode)
+	}
+	if r.UISpec.Title != "🏆 工单看板" {
+		t.Errorf("标题未透传: %q", r.UISpec.Title)
+	}
+}
+
+// TestRenderUIRequest_FlatArrayUnchanged 标准扁平邻接表（children 为 id 字符串数组）
+// 经 UnmarshalJSON 后应原样保留、逐节点一一对应。
+func TestRenderUIRequest_FlatArrayUnchanged(t *testing.T) {
+	ctx, id, rs, ui := setupRenderTest(t, 3)
+
+	payload := fmt.Sprintf(`{
+		"result_id": %q,
+		"components": [
+			{"id": "root", "type": "Column", "children": ["tbl", "cal"]},
+			{"id": "tbl", "type": "Table", "props": {"title": "明细", "data": {"path": "/table"}}},
+			{"id": "cal", "type": "Callout", "props": {"title": "结论", "text": "ok", "tone": "info"}}
+		]
+	}`, id)
+
+	var req RenderUIRequest
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		t.Fatalf("扁平邻接表解析失败: %v", err)
+	}
+	if len(req.Components) != 3 {
+		t.Fatalf("组件数期望 3, got %d", len(req.Components))
+	}
+	if req.Components[0].ID != "root" || len(req.Components[0].Children) != 2 {
+		t.Errorf("root 节点未原样保留: %+v", req.Components[0])
+	}
+	assertExactlyOneRoot(t, req.Components)
+	assertChildrenResolve(t, req.Components)
+
+	if _, err := renderUI(ctx, &req, rs, ui); err != nil {
+		t.Fatalf("扁平邻接表应正常渲染: %v", err)
+	}
+}
+
+// TestRenderUIRequest_EmptyComponentsFallsBackToTemplate components 省略/为 null
+// 时走确定性模板路径。
+func TestRenderUIRequest_EmptyComponentsFallsBackToTemplate(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"缺省", `{"result_id": %q}`},
+		{"null", `{"result_id": %q, "components": null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, id, rs, ui := setupRenderTest(t, 3)
+			var req RenderUIRequest
+			if err := json.Unmarshal([]byte(fmt.Sprintf(tc.body, id)), &req); err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if req.Components != nil {
+				t.Errorf("空 components 应为 nil, got %+v", req.Components)
+			}
+			r, err := renderUI(ctx, &req, rs, ui)
+			if err != nil {
+				t.Fatalf("渲染失败: %v", err)
+			}
+			if r.GenMode != genui.GenModeTemplate {
+				t.Errorf("空布局应走模板模式, got %q", r.GenMode)
+			}
+		})
+	}
+}
+
+// TestRenderUIRequest_MixedChildrenPreserved children 混用「字符串 id 引用」与
+// 「内联子对象」时，两类都不能丢——逐元素处理而非整段丢弃。
+func TestRenderUIRequest_MixedChildrenPreserved(t *testing.T) {
+	ctx, id, rs, ui := setupRenderTest(t, 3)
+
+	// root.children 混用：字符串引用 "tbl" + 一个内联 Callout 对象。
+	payload := fmt.Sprintf(`{
+		"result_id": %q,
+		"components": [
+			{"id": "root", "type": "Column", "children": [
+				"tbl",
+				{"type": "Callout", "props": {"title": "结论", "text": "ok", "tone": "info"}}
+			]},
+			{"id": "tbl", "type": "Table", "props": {"title": "明细", "data": {"path": "/table"}}}
+		]
+	}`, id)
+
+	var req RenderUIRequest
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		t.Fatalf("混用 children 解析失败: %v", err)
+	}
+	// root + tbl + 摊平出的 Callout = 3 个节点。
+	if len(req.Components) != 3 {
+		t.Fatalf("混用 children 摊平后组件数期望 3, got %d: %+v", len(req.Components), req.Components)
+	}
+	// root 的两个子引用都应保留（"tbl" + 生成 id 的 Callout）。
+	var root *genui.Component
+	for i := range req.Components {
+		if req.Components[i].ID == genui.RootID {
+			root = &req.Components[i]
+		}
+	}
+	if root == nil || len(root.Children) != 2 {
+		t.Fatalf("root 应保留 2 个子引用（字符串+内联），got %+v", root)
+	}
+	assertExactlyOneRoot(t, req.Components)
+	assertChildrenResolve(t, req.Components)
+
+	if _, err := renderUI(ctx, &req, rs, ui); err != nil {
+		t.Fatalf("混用 children 应正常渲染: %v", err)
+	}
+}
+
+// TestRenderUIRequest_NestedRootWithoutID 单个 root 对象省略 id 时补成固定根 id，
+// 不因缺 root 被校验拒绝。
+func TestRenderUIRequest_NestedRootWithoutID(t *testing.T) {
+	ctx, id, rs, ui := setupRenderTest(t, 3)
+
+	payload := fmt.Sprintf(`{
+		"result_id": %q,
+		"components": {
+			"type": "Column",
+			"children": [
+				{"type": "Table", "props": {"title": "明细", "data": {"path": "/table"}}}
+			]
+		}
+	}`, id)
+
+	var req RenderUIRequest
+	if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	assertExactlyOneRoot(t, req.Components)
+	assertChildrenResolve(t, req.Components)
+
+	if _, err := renderUI(ctx, &req, rs, ui); err != nil {
+		t.Fatalf("补 root id 后应正常渲染: %v", err)
+	}
+}
+
+// TestRenderUITool_ExposesParamsSchema 断言 render_ui 工具的 Info() 带上了机器可读的
+// 参数 schema（由 RenderUIRequest 反射生成），且 components 是「对象数组」而非自由文本——
+// 这是让 LLM 在格式层遵循邻接表形状的根本手段（历史 bug：LLM 误传嵌套树）。
+func TestRenderUITool_ExposesParamsSchema(t *testing.T) {
+	tool := NewRenderUITool(nil, nil)
+	info, err := tool.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info 失败: %v", err)
+	}
+	if info.ParamsOneOf == nil {
+		t.Fatal("render_ui 应下发机器可读的 ParamsOneOf，got nil")
+	}
+	js, err := info.ParamsOneOf.ToJSONSchema()
+	if err != nil {
+		t.Fatalf("导出 JSON schema 失败: %v", err)
+	}
+	raw, err := json.Marshal(js)
+	if err != nil {
+		t.Fatalf("序列化 schema 失败: %v", err)
+	}
+	s := string(raw)
+	for _, want := range []string{"result_id", "components"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("schema 应含字段 %q, schema=%s", want, s)
+		}
+	}
+	// components 必须被反射为数组类型（array），而非退化成 string/自由文本。
+	if !strings.Contains(s, `"array"`) {
+		t.Errorf("components 应为对象数组(array)类型, schema=%s", s)
+	}
+}
+
+// assertExactlyOneRoot 断言邻接表含且仅含一个 id=="root" 的节点。
+func assertExactlyOneRoot(t *testing.T, comps []genui.Component) {
+	t.Helper()
+	n := 0
+	for _, c := range comps {
+		if c.ID == genui.RootID {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("应含且仅含一个 root 节点, got %d", n)
+	}
+}
+
+// assertChildrenResolve 断言所有 children 引用的 id 都能在邻接表内找到（无悬挂引用）。
+func assertChildrenResolve(t *testing.T, comps []genui.Component) {
+	t.Helper()
+	ids := make(map[string]bool, len(comps))
+	for _, c := range comps {
+		if c.ID == "" {
+			t.Error("摊平后仍存在空 id 节点")
+		}
+		if ids[c.ID] {
+			t.Errorf("摊平后出现重复 id: %s", c.ID)
+		}
+		ids[c.ID] = true
+	}
+	for _, c := range comps {
+		for _, child := range c.Children {
+			if !ids[child] {
+				t.Errorf("节点 %q 引用了不存在的子节点 %q", c.ID, child)
+			}
+		}
 	}
 }

@@ -37,6 +37,25 @@ var allowedOps = map[FilterOp]struct{}{
 	OpEq: {}, OpNe: {}, OpGt: {}, OpGte: {}, OpLt: {}, OpLte: {}, OpLike: {}, OpIn: {},
 }
 
+// TimeGrain 时间智能的上卷粒度（日/周/月/季/年）。空值表示不做时间上卷。
+type TimeGrain string
+
+const (
+	GrainDay     TimeGrain = "day"
+	GrainWeek    TimeGrain = "week"
+	GrainMonth   TimeGrain = "month"
+	GrainQuarter TimeGrain = "quarter"
+	GrainYear    TimeGrain = "year"
+)
+
+// Dialect SQL 方言，决定时间粒度等函数的生成形态。空值默认 MySQL。
+type Dialect string
+
+const (
+	DialectMySQL    Dialect = "mysql"
+	DialectPostgres Dialect = "postgres"
+)
+
 // Filter 是一条过滤条件，Field 为维度语义名（含同义词），Op 取算子白名单。
 type Filter struct {
 	Field  string   `json:"field"`
@@ -57,6 +76,11 @@ type Query struct {
 	Filters    []Filter   `json:"filters,omitempty"`
 	OrderBy    []OrderKey `json:"order_by,omitempty"`
 	Limit      int        `json:"limit,omitempty"`
+	// TimeGrain 时间智能上卷粒度（day/week/month/quarter/year）。非空时，引擎把选中的
+	// 时间维度（或模型主时间维度）按该粒度分桶；未选任何时间维度则自动注入主时间维度。
+	TimeGrain TimeGrain `json:"time_grain,omitempty"`
+	// Dialect 目标数据源 SQL 方言（mysql/postgres），影响时间粒度函数生成。空则 MySQL。
+	Dialect Dialect `json:"dialect,omitempty"`
 }
 
 // Coverage 报告本次请求被语义模型覆盖的情况。
@@ -81,6 +105,7 @@ type selectItem struct {
 	expr    string // 物理 SQL 表达式（已按需限定表别名）
 	tableID string // 归属逻辑表 ID（指标可能为空）
 	isDim   bool   // 维度进 GROUP BY，指标不进
+	isTime  bool   // 时间维度（可套时间粒度上卷）
 }
 
 // Build 依据语义模型 bundle 装配 SQL。任一名称未覆盖时返回 Covered=false（SQL 为空），
@@ -94,32 +119,53 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 	}
 
 	idx := newIndex(bundle)
+	idx.dialect = q.Dialect // 标识符引用按方言（空=MySQL）；与 grainExpr 的方言分桶一致
 	res := &Result{}
 	var uncovered []string
+	// needed 累积所有已解析字段涉及的逻辑表（含跨表派生指标推断出的多张表），供 JOIN 规划。
+	needed := map[string]struct{}{}
 
 	// 1) 解析维度。
 	dimItems := make([]selectItem, 0, len(q.Dimensions))
 	resolvedDims := make([]string, 0, len(q.Dimensions))
 	dimByAlias := map[string]selectItem{}
+	selectedTime := false // 是否已选中至少一个时间维度
 	for _, name := range q.Dimensions {
 		d, ok := idx.dimension(name)
 		if !ok {
 			uncovered = append(uncovered, name)
 			continue
 		}
-		item := selectItem{alias: d.Name, expr: qualify(idx, d.LogicalTableID, d.Expr), tableID: d.LogicalTableID, isDim: true}
+		item := selectItem{alias: d.Name, expr: qualify(idx, d.LogicalTableID, d.Expr), tableID: d.LogicalTableID, isDim: true, isTime: isTimeType(d.DataType)}
+		if item.isTime {
+			selectedTime = true
+		}
+		if item.tableID != "" {
+			needed[item.tableID] = struct{}{}
+		}
 		dimItems = append(dimItems, item)
 		dimByAlias[strings.ToLower(d.Name)] = item
 		resolvedDims = append(resolvedDims, d.Name)
 	}
 
-	// 2) 解析指标（先按指标名/同义词，再退化为度量名）。
+	// 2) 解析指标（先按指标名/同义词——含递归展开的派生指标，再退化为度量名）。
 	metricItems := make([]selectItem, 0, len(q.Metrics))
 	resolvedMetrics := make([]string, 0, len(q.Metrics))
 	metricByAlias := map[string]selectItem{}
 	for _, name := range q.Metrics {
 		if m, ok := idx.metric(name); ok {
-			item := selectItem{alias: m.Name, expr: m.Expr, tableID: idx.metricTableID(m)}
+			expr, err := idx.expandMetric(m)
+			if err != nil {
+				// 展开失败（未知引用/循环引用）视为未覆盖，回退词法 NL2SQL，并记录原因。
+				uncovered = append(uncovered, name)
+				res.Notes = append(res.Notes, err.Error())
+				continue
+			}
+			tset := idx.inferTables(expr)
+			item := selectItem{alias: m.Name, expr: expr, tableID: representativeTable(idx, tset)}
+			for tid := range tset {
+				needed[tid] = struct{}{}
+			}
 			metricItems = append(metricItems, item)
 			metricByAlias[strings.ToLower(m.Name)] = item
 			resolvedMetrics = append(resolvedMetrics, m.Name)
@@ -127,12 +173,47 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 		}
 		if ms, ok := idx.measure(name); ok {
 			item := selectItem{alias: ms.Name, expr: applyAgg(ms.Aggregation, qualify(idx, ms.LogicalTableID, ms.Expr)), tableID: ms.LogicalTableID}
+			if item.tableID != "" {
+				needed[item.tableID] = struct{}{}
+			}
 			metricItems = append(metricItems, item)
 			metricByAlias[strings.ToLower(ms.Name)] = item
 			resolvedMetrics = append(resolvedMetrics, ms.Name)
 			continue
 		}
 		uncovered = append(uncovered, name)
+	}
+
+	// 2.5) 时间智能：按 TimeGrain 把时间维度分桶（方言感知）。未选任何时间维度时
+	//      自动注入模型主时间维度，实现「单指标按粒度自动上卷」。
+	if q.TimeGrain != "" {
+		if !validGrain(q.TimeGrain) {
+			uncovered = append(uncovered, fmt.Sprintf("time_grain(%s)", q.TimeGrain))
+		} else {
+			dial := q.Dialect
+			if !selectedTime {
+				if d := idx.primaryTimeDimension(); d != nil {
+					item := selectItem{alias: d.Name, expr: qualify(idx, d.LogicalTableID, d.Expr), tableID: d.LogicalTableID, isDim: true, isTime: true}
+					if item.tableID != "" {
+						needed[item.tableID] = struct{}{}
+					}
+					dimItems = append(dimItems, item)
+					dimByAlias[strings.ToLower(d.Name)] = item
+					resolvedDims = append(resolvedDims, d.Name)
+				} else {
+					// 请求了时间上卷但模型无任何时间维度：不能满足口径。标记未覆盖触发回退，
+					// 而非静默返回一条不分桶的全时段聚合（会被误判 Covered 并写入受信缓存）。
+					uncovered = append(uncovered, fmt.Sprintf("time_grain(%s)：模型无时间维度", q.TimeGrain))
+				}
+			}
+			// 对全部时间维度套粒度桶（就地改写 expr，SELECT 与 GROUP BY 同步）。
+			for i := range dimItems {
+				if dimItems[i].isTime {
+					dimItems[i].expr = grainExpr(dial, dimItems[i].expr, q.TimeGrain)
+					dimByAlias[strings.ToLower(dimItems[i].alias)] = dimItems[i]
+				}
+			}
+		}
 	}
 
 	// 3) 解析过滤字段（必须是维度）。
@@ -157,13 +238,7 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 		return res, nil
 	}
 
-	// 4) 确定涉及的逻辑表与基表，并规划 JOIN。
-	needed := map[string]struct{}{}
-	for _, it := range append(append([]selectItem{}, dimItems...), metricItems...) {
-		if it.tableID != "" {
-			needed[it.tableID] = struct{}{}
-		}
-	}
+	// 4) 确定基表并规划 JOIN（needed 已在解析各字段时累积，含跨表派生指标的多张表）。
 	// 无法确定任何物理表（如仅有无表绑定的指标且模型多表）→ 回退。
 	base := idx.chooseBase(metricItems, dimItems, needed)
 	if base == "" {
@@ -180,13 +255,25 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 	}
 
 	// 5) 装配 SQL。
-	sql, err := assemble(dimItems, metricItems, fromSQL, filters, q.OrderBy, q.Limit, dimByAlias, metricByAlias)
+	sql, err := assemble(idx.dialect, dimItems, metricItems, fromSQL, filters, q.OrderBy, q.Limit, dimByAlias, metricByAlias)
 	if err != nil {
 		return nil, err
 	}
 	res.SQL = sql
 	res.Coverage = Coverage{Covered: true, ResolvedMetrics: resolvedMetrics, ResolvedDimensions: resolvedDims}
 	return res, nil
+}
+
+// representativeTable 从推断出的表集合里挑一个确定性代表（按别名字典序最小），
+// 供 chooseBase 选基表用；完整表集合已并入 needed，JOIN 规划不依赖此代表。
+func representativeTable(idx *index, tset map[string]struct{}) string {
+	best := ""
+	for id := range tset {
+		if best == "" || idx.aliasByID[id] < idx.aliasByID[best] {
+			best = id
+		}
+	}
+	return best
 }
 
 // genericFilter 是解析后的过滤条件（维度已限定为物理表达式）。
@@ -197,16 +284,16 @@ type genericFilter struct {
 }
 
 // assemble 拼装最终 SELECT。
-func assemble(dims, metrics []selectItem, fromSQL string, filters []genericFilter, orderBy []OrderKey, limit int, dimByAlias, metricByAlias map[string]selectItem) (string, error) {
+func assemble(dialect Dialect, dims, metrics []selectItem, fromSQL string, filters []genericFilter, orderBy []OrderKey, limit int, dimByAlias, metricByAlias map[string]selectItem) (string, error) {
 	var sb strings.Builder
 	sb.WriteString("SELECT ")
 
 	cols := make([]string, 0, len(dims)+len(metrics))
 	for _, d := range dims {
-		cols = append(cols, fmt.Sprintf("%s AS %s", d.expr, quoteIdent(d.alias)))
+		cols = append(cols, fmt.Sprintf("%s AS %s", d.expr, quoteIdent(dialect, d.alias)))
 	}
 	for _, m := range metrics {
-		cols = append(cols, fmt.Sprintf("%s AS %s", m.expr, quoteIdent(m.alias)))
+		cols = append(cols, fmt.Sprintf("%s AS %s", m.expr, quoteIdent(dialect, m.alias)))
 	}
 	sb.WriteString(strings.Join(cols, ", "))
 	sb.WriteString(" FROM ")

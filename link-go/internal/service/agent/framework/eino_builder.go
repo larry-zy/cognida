@@ -11,35 +11,45 @@ import (
 
 	"link/internal/model/agent"
 	agentreflection "link/internal/model/agent/reflection"
+	domainguardrail "link/internal/model/guardrail"
 	"link/internal/service/agent/framework/hooks"
 	reflecthooks "link/internal/service/agent/framework/reflection"
 )
 
 // Builder provides a fluent API for constructing Agent instances.
 type Builder struct {
-	model             model.BaseChatModel // 使用 BaseChatModel（ChatModel 已废弃）
-	toolModel         model.ToolCallingChatModel // 用于工具调用
-	name              string
-	description       string
-	prompt            string
-	tools             []tool.BaseTool
-	beforeHooks       []BeforeHook
-	afterHooks        []AfterHook
-	middleware        []Middleware
-	registry          ToolRegistry
-	ragService        RAGService
-	memory            Memory
-	sessionID         string
-	autoSelect        bool
-	maxIter           int // 最大迭代次数
-	tokenBudget       int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
-	collabRegistry    *CollaborationRegistry
-	collabConfig      *CollaborationConfig
+	model          model.BaseChatModel        // 使用 BaseChatModel（ChatModel 已废弃）
+	toolModel      model.ToolCallingChatModel // 用于工具调用
+	name           string
+	description    string
+	prompt         string
+	tools          []tool.BaseTool
+	beforeHooks    []BeforeHook
+	afterHooks     []AfterHook
+	observerHooks  []AfterHook // 只读响应观察者（对所有 sink 生效，含纯流式），供异步旁路消费最终回答
+	middleware     []Middleware
+	registry       ToolRegistry
+	ragService     RAGService
+	memory         Memory
+	sessionID      string
+	autoSelect     bool
+	maxIter        int // 最大迭代次数
+	tokenBudget    int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
+	collabRegistry *CollaborationRegistry
+	collabConfig   *CollaborationConfig
 
 	// Memory and Context Builder support (Phase 6)
-	memoryService   MemoryService  // 记忆服务接口
-	contextBuilder  ContextBuilder // 上下文构建器接口
-	enableMemory    bool           // 是否启用记忆功能
+	memoryService  MemoryService  // 记忆服务接口
+	contextBuilder ContextBuilder // 上下文构建器接口
+	enableMemory   bool           // 是否启用记忆功能
+
+	// 安全护栏支持（agent-guardrail-runtime）。
+	// 输入护栏 Hook 独立存放，Build() 时置于 beforeHooks 最前（最先把关）；
+	// 输出护栏 Hook 独立存放，Build() 时置于 afterHooks 最后（最后把关）。
+	inputGuardrailHook      BeforeHook
+	outputGuardrailHook     AfterHook
+	toolOutputGuardrailHook ToolOutputHook // 逐工具 post-invoke 脱敏缝（任务 5）
+	outputGuardrailActive   bool           // 启用输出护栏 → 流式会话强制走缓冲交付
 }
 
 // CollaborationConfig defines which collaboration tools are enabled.
@@ -123,6 +133,14 @@ func (b *Builder) Before(hook BeforeHook) *Builder {
 // After adds a hook that runs after the agent generates a response.
 func (b *Builder) After(hook AfterHook) *Builder {
 	b.afterHooks = append(b.afterHooks, hook)
+	return b
+}
+
+// Observe adds a read-only response observer that fires for every sink (including
+// pure streaming). Observers must not mutate the response (streamed content can't be
+// recalled); they run best-effort. Used by async self-evolution to capture final answers.
+func (b *Builder) Observe(hook AfterHook) *Builder {
+	b.observerHooks = append(b.observerHooks, hook)
 	return b
 }
 
@@ -303,17 +321,41 @@ func (b *Builder) WithClarification(clarifier *hooks.IntentClarifier) *Builder {
 	return b
 }
 
+// WithReflectionFromToolModel 用 Builder 已持有的 ToolCallingChatModel 作为反思的 Actor/Critic 模型，
+// 配置反思 Hook。供只持有 toolModel、拿不到 model.ChatModel 的调用方（如 data_agent 预设）使用：
+// 内部用 toolModelToChatModelAdapter 适配，无需调用方自行构造适配器。
+// memory 可为 nil（仅评估不沉淀经验）；非 nil 时反思会检索/存储历史教训（自我进化闭环）。
+func (b *Builder) WithReflectionFromToolModel(
+	config *agentreflection.ReflectionConfig,
+	agentID string,
+	memory agentreflection.ReflectionMemory,
+) *Builder {
+	if b.toolModel == nil {
+		return b
+	}
+	return b.WithReflection(&toolModelToChatModelAdapter{model: b.toolModel}, config, agentID, memory)
+}
+
 // WithReflection 配置反思 Hook。
 // 反思器会在 Agent 响应后进行自我评估和改进，提升输出质量。
+// memory 可为 nil（仅评估、不检索/沉淀历史经验）；非 nil 时启用自我进化闭环：
+// 第一次迭代检索历史教训注入 refine prompt，评估结束异步存储成功/失败经验。
 func (b *Builder) WithReflection(
 	chatModel model.ChatModel,
 	config *agentreflection.ReflectionConfig,
 	agentID string,
+	memory agentreflection.ReflectionMemory,
 ) *Builder {
 	// 创建 Reflection Hook
 	hook, err := reflecthooks.NewReflectionHookFromConfig(chatModel, config, agentID)
 	if err != nil || !hook.IsEnabled() {
 		return b
+	}
+
+	// 注入记忆（可选）：NewReflectionHookFromConfig 内部不建 memory（依赖外部 embedder/Milvus），
+	// 由调用方在拿到 embedder 的组合层构造后经此注入。
+	if memory != nil {
+		hook.SetMemory(memory)
 	}
 
 	// 将 ReflectionHook 的 Refine 方法转换为 AfterHook
@@ -373,6 +415,41 @@ func (b *Builder) WithAutoCompress(compressHook *hooks.AutoCompressHook) *Builde
 	return b
 }
 
+// WithInputGuardrail 装配输入护栏。生成的 BeforeHook 在 Build() 时置于 before 链最前，
+// 保证「最先把关」：越狱检测（不可脱敏，命中即中止）→ 通用输入检查（不安全时按 cfg.Sanitize
+// 中止或脱敏放行）。gs 为 nil 或所有开关皆关时为空操作（不改变既有行为）。
+func (b *Builder) WithInputGuardrail(gs domainguardrail.GuardrailService, cfg InputGuardrailConfig) *Builder {
+	if gs == nil || (!cfg.EnableJailbreak && !cfg.EnableInputCheck) {
+		return b
+	}
+	b.inputGuardrailHook = newInputGuardrailHook(gs, cfg)
+	return b
+}
+
+// WithOutputGuardrail 装配输出护栏。生成的 AfterHook 在 Build() 时置于 after 链最后，
+// 保证「最后把关」：对最终回答做 CheckOutput（含幻觉/PII），命中脱敏或替换安全兜底。
+// 启用输出护栏会置位 outputGuardrailActive，使流式会话强制走缓冲交付（见 eino_agent.go）。
+// gs 为 nil 时为空操作。
+func (b *Builder) WithOutputGuardrail(gs domainguardrail.GuardrailService, cfg OutputGuardrailConfig) *Builder {
+	if gs == nil {
+		return b
+	}
+	b.outputGuardrailHook = newOutputGuardrailHook(gs, cfg)
+	b.outputGuardrailActive = true
+	return b
+}
+
+// WithToolOutputGuardrail 装配逐工具输出护栏（post-invoke 第二阶段，任务 5）：工具返回后、
+// 回灌 LLM 前对纯文本观察脱敏；result_id 引用信封原样放行以保结构。与最终输出护栏各自独立
+// 开关（任务 7.1），可单独启用。gs 为 nil 时为空操作（零回归）。
+func (b *Builder) WithToolOutputGuardrail(gs domainguardrail.GuardrailService, cfg OutputGuardrailConfig) *Builder {
+	if gs == nil {
+		return b
+	}
+	b.toolOutputGuardrailHook = newToolOutputGuardrailHook(gs, cfg)
+	return b
+}
+
 // Build constructs the Agent with the configured options.
 func (b *Builder) Build(ctx context.Context) (Agent, error) {
 	// Apply default prompt if none set
@@ -414,21 +491,36 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 		}
 	}
 
+	// 护栏 Hook 排序：输入护栏最先把关（before 链最前），输出护栏最后把关（after 链最后）。
+	// 未装配护栏时两条链保持原样，行为逐字节不变（零回归）。
+	beforeHooks := b.beforeHooks
+	if b.inputGuardrailHook != nil {
+		beforeHooks = append([]BeforeHook{b.inputGuardrailHook}, beforeHooks...)
+	}
+	afterHooks := b.afterHooks
+	if b.outputGuardrailHook != nil {
+		afterHooks = append(append([]AfterHook{}, afterHooks...), b.outputGuardrailHook)
+	}
+
 	// Create the agent implementation
 	a := &agentImpl{
-		name:           b.name,
-		model:          b.model,
-		toolModel:      b.toolModel,
-		prompt:         b.prompt,
-		tools:          b.tools,
-		beforeHooks:    b.beforeHooks,
-		afterHooks:     b.afterHooks,
-		middleware:     b.middleware,
-		maxIter:        b.maxIter,
-		tokenBudget:    b.tokenBudget,
-		memoryService:  b.memoryService,
-		contextBuilder: b.contextBuilder,
-		enableMemory:   b.enableMemory,
+		name:                  b.name,
+		model:                 b.model,
+		toolModel:             b.toolModel,
+		prompt:                b.prompt,
+		tools:                 b.tools,
+		beforeHooks:           beforeHooks,
+		afterHooks:            afterHooks,
+		observerHooks:         b.observerHooks,
+		middleware:            b.middleware,
+		maxIter:               b.maxIter,
+		tokenBudget:           b.tokenBudget,
+		memoryService:         b.memoryService,
+		contextBuilder:        b.contextBuilder,
+		enableMemory:          b.enableMemory,
+		outputGuardrailActive: b.outputGuardrailActive,
+		toolOutputHook:        b.toolOutputGuardrailHook,
+		collabRegistry:        b.collabRegistry,
 	}
 
 	return a, nil
@@ -452,8 +544,8 @@ func NewSimpleAgent(chatModel model.ChatModel, name, prompt string) Agent {
 func NewToolAgent(toolModel model.ToolCallingChatModel, name, prompt string, toolsList ...tool.BaseTool) (Agent, error) {
 	// 创建一个直接使用 toolModel 的 builder
 	builder := &Builder{
-		model:     nil,          // 不使用普通 ChatModel
-		toolModel: toolModel,    // 直接使用 ToolCallingChatModel
+		model:     nil,       // 不使用普通 ChatModel
+		toolModel: toolModel, // 直接使用 ToolCallingChatModel
 		name:      name,
 		prompt:    prompt,
 		tools:     toolsList,
@@ -466,13 +558,13 @@ func NewToolAgent(toolModel model.ToolCallingChatModel, name, prompt string, too
 func NewAgentFromRegistry(toolModel model.ToolCallingChatModel, name, prompt string, registry ToolRegistry) (Agent, error) {
 	// 创建一个直接使用 toolModel 的 builder
 	builder := &Builder{
-		model:     nil,
-		toolModel: toolModel,
-		name:      name,
-		prompt:    prompt,
-		registry:  registry,
+		model:      nil,
+		toolModel:  toolModel,
+		name:       name,
+		prompt:     prompt,
+		registry:   registry,
 		autoSelect: true,
-		maxIter:   10,
+		maxIter:    10,
 	}
 	return builder.Build(context.Background())
 }
@@ -614,7 +706,7 @@ func NewAgentFromConfig(
 	if config.ReflectionConfig != nil && config.ReflectionConfig.Enabled {
 		// Reflection 需要一个 embedder，这里暂时使用 nil
 		// 实际使用时需要从外部注入 embedder
-		builder.WithReflection(chatModel, config.ReflectionConfig, "")
+		builder.WithReflection(chatModel, config.ReflectionConfig, "", nil)
 	}
 
 	return builder.Build(context.Background())
@@ -686,7 +778,7 @@ func NewAgentFromConfigWithTools(
 	if config.ReflectionConfig != nil && config.ReflectionConfig.Enabled {
 		// Reflection 需要一个 embedder，这里暂时使用 nil
 		// 实际使用时需要从外部注入 embedder
-		builder.WithReflection(chatModelAdapter, config.ReflectionConfig, "")
+		builder.WithReflection(chatModelAdapter, config.ReflectionConfig, "", nil)
 	}
 
 	return builder.Build(context.Background())

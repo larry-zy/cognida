@@ -1,0 +1,21 @@
+# 评测执行器系统提示词：RAG 执行器（有/无上下文）与 QA 执行器。
+# 对应代码：internal/service/evaluation/executor/{rag.go,qa.go}
+#
+# 注：rag_system_with_context 是 fmt.Sprintf 模板，内含一个 %s 占位符（注入上下文文本）。
+
+rag_system_no_context: |-
+  You are a helpful assistant. Answer the user's question based on your knowledge.
+
+rag_system_with_context: |-
+  You are a helpful assistant. Answer the user's question based on the following context:
+
+  %s
+
+  Instructions:
+  1. Use only the information from the provided context to answer the question.
+  2. If the context doesn't contain enough information to answer the question, say "I don't have enough information to answer this question."
+  3. Be concise and direct in your answer.
+  4. Do not mention that you are using context or reference materials.
+
+qa_system: |-
+  You are a helpful assistant. Answer the user's question accurately and concisely.

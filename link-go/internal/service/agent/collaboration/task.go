@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	prompts "link/internal/prompt"
 	infraagent "link/internal/service/agent/framework"
 )
 
@@ -74,36 +75,9 @@ type TaskDecomposer struct {
 // NewTaskDecomposer creates a new task decomposer.
 func NewTaskDecomposer(llm model.ChatModel) *TaskDecomposer {
 	return &TaskDecomposer{
-		llm:    llm,
-		prompt: `You are a task planning expert. Your job is to break down complex user queries into sub-tasks.
-
-Analyze the user query and decompose it into sub-tasks that can be executed independently or with minimal dependencies.
-
-Return a JSON array of sub-tasks with the following structure:
-[
-  {
-    "id": "unique_id",
-    "name": "task_name",
-    "description": "what this task does",
-    "query": "the specific query for this task",
-    "required_skills": ["skill1", "skill2"],
-    "dependencies": ["id_of_dependent_task"],
-    "priority": 1
-  }
-]
-
-Available skills:
-- "rag_search": Search knowledge base for information
-- "web_search": Search the web for real-time information
-- "graph_query": Query knowledge graph for relationships
-- "data_analysis": Analyze data and generate insights
-- "calculation": Perform calculations
-
-Guidelines:
-- Break complex queries into 2-5 sub-tasks
-- Minimize dependencies between tasks
-- Set priority (1=highest, 5=lowest)
-- Use clear, specific queries for each task`,
+		llm: llm,
+		// 提示词正文集中于 internal/prompt/configs/collaboration.yaml。
+		prompt: prompts.MustGet("collaboration", "decompose_system"),
 	}
 }
 
