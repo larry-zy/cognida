@@ -52,12 +52,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '设置' }
       },
       {
-        path: '/agent',
-        name: 'AgentList',
-        component: () => import('@/views/agent/AgentList.vue'),
-        meta: { title: 'Agent管理' }
-      },
-      {
         path: '/kb-assistant',
         name: 'KBAssistant',
         component: () => import('@/views/ai/KBAssistantView.vue'),
@@ -104,6 +98,12 @@ const routes: RouteRecordRaw[] = [
         name: 'AuditLogList',
         component: () => import('@/views/audit/AuditLogList.vue'),
         meta: { title: '审计日志' }
+      },
+      {
+        path: '/traces',
+        name: 'TraceList',
+        component: () => import('@/views/trace/TraceList.vue'),
+        meta: { title: '调用链追踪' }
       },
     ]
   },

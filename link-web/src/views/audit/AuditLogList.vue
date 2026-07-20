@@ -85,7 +85,16 @@
           {{ formatTime(row.CreatedAt) }}
         </template>
         <template #cell-RequestID="{ row }">
-          <span class="mono">{{ row.RequestID || '-' }}</span>
+          <router-link
+            v-if="row.RequestID"
+            class="mono trace-link"
+            :to="{ path: '/traces', query: { request_id: row.RequestID } }"
+            title="查看该请求的调用链"
+            @click.stop
+          >
+            {{ row.RequestID }}
+          </router-link>
+          <span v-else class="mono">-</span>
         </template>
         <template #cell-Status="{ row }">
           <UiTag size="sm" :variant="row.Status === 'success' ? 'success' : 'danger'">
@@ -121,7 +130,14 @@
           <UiDescriptionsItem label="ID">{{ current.ID }}</UiDescriptionsItem>
           <UiDescriptionsItem label="时间">{{ formatTime(current.CreatedAt) }}</UiDescriptionsItem>
           <UiDescriptionsItem label="Request ID">
-            <span class="mono">{{ current.RequestID || '-' }}</span>
+            <router-link
+              v-if="current.RequestID"
+              class="mono trace-link"
+              :to="{ path: '/traces', query: { request_id: current.RequestID } }"
+            >
+              {{ current.RequestID }}
+            </router-link>
+            <span v-else class="mono">-</span>
           </UiDescriptionsItem>
           <UiDescriptionsItem label="状态">
             <UiTag size="sm" :variant="current.Status === 'success' ? 'success' : 'danger'">
@@ -357,6 +373,16 @@ onMounted(() => {
 .mono {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
+}
+
+.trace-link {
+  color: var(--primary, #4f8cff);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.trace-link:hover {
+  text-decoration: underline;
 }
 
 .detail-block {

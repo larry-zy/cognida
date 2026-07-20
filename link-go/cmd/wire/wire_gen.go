@@ -31,6 +31,7 @@ import (
 	"link/internal/infrastructure/queue"
 	"link/internal/model/agent"
 	audit2 "link/internal/model/audit"
+	domaintrace "link/internal/model/trace"
 	"link/internal/model/common"
 	"link/internal/model/conversation"
 	"link/internal/model/datasource"
@@ -174,12 +175,14 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	semanticHandler := ProvideSemanticHandler(semanticService)
 	auditRepository := ProvideAuditRepository(db)
 	auditHandler := ProvideAuditHandler(auditRepository)
+	traceRepository := ProvideTraceRepository(db)
+	traceHandler := ProvideTraceHandler(traceRepository)
 	handler := ProvideWebHandler()
 	authMiddleware := ProvideAuthMiddleware(accountService)
 	tenantMiddleware := ProvideTenantMiddleware()
 	writer := ProvideAuditWriter(auditRepository)
 	auditMiddleware := ProvideAuditMiddleware(writer)
-	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, semanticHandler, auditHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
+	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, semanticHandler, auditHandler, traceHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
 	corsMiddleware := ProvideCORSMiddleware()
 	recoveryMiddleware := ProvideRecoveryMiddleware()
 	loggerMiddleware := ProvideLoggerMiddleware()
@@ -682,6 +685,14 @@ func ProvideAuditHandler(repo audit2.Repository) *handler.AuditHandler {
 	return handler.NewAuditHandler(repo)
 }
 
+func ProvideTraceRepository(db *gorm.DB) domaintrace.Repository {
+	return mysql.NewTraceRepository(db)
+}
+
+func ProvideTraceHandler(repo domaintrace.Repository) *handler.TraceHandler {
+	return handler.NewTraceHandler(repo)
+}
+
 func ProvideAuthHandler(accountService *account.AccountService) *handler.AuthHandler {
 	return handler.NewAuthHandler(accountService)
 }
@@ -903,6 +914,7 @@ func ProvideRouter(
 	dataSourceHandler *handler.DataSourceHandler,
 	semanticHandler *handler.SemanticHandler,
 	auditHandler *handler.AuditHandler,
+	traceHandler *handler.TraceHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
@@ -927,6 +939,7 @@ func ProvideRouter(
 		dataSourceHandler,
 		semanticHandler,
 		auditHandler,
+		traceHandler,
 		webHandler,
 		authMiddleware,
 		tenantMiddleware,

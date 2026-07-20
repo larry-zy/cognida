@@ -18,6 +18,10 @@ type SpecRegistry struct {
 	// mu 仅保护 instances；元信息的并发由内嵌 MemoryRegistry 自有锁保护。
 	mu        sync.RWMutex
 	instances map[string]Agent
+	// wrap 在实例入库前对其做统一装饰（如遥测/追踪）。为空则不装饰。
+	// 由组合根注入（telemetry.WrapAgent），避免 framework→telemetry 反向依赖：
+	// framework 只持有 func(Agent)Agent 钩子，装饰实现留在上层包。
+	wrap func(Agent) Agent
 }
 
 var _ AgentInstanceRegistry = (*SpecRegistry)(nil)
@@ -28,6 +32,15 @@ func NewSpecRegistry() *SpecRegistry {
 		MemoryRegistry: NewMemoryRegistry(),
 		instances:      make(map[string]Agent),
 	}
+}
+
+// SetWrap 注入实例装饰钩子（组合根在注册任何 spec 前调用一次）。
+// 传入后，RegisterSpec 构建出的每个 Agent 实例都会先经 wrap 包装再入库，
+// 从而对「全部 agent」统一叠加遥测/追踪等横切能力。传 nil 关闭装饰。
+func (r *SpecRegistry) SetWrap(wrap func(Agent) Agent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.wrap = wrap
 }
 
 // RegisterSpec 按 spec 构建实例并登记：先构建（失败即返回，不留半注册态），
@@ -53,6 +66,12 @@ func (r *SpecRegistry) RegisterSpec(ctx context.Context, spec AgentSpec) error {
 	}
 
 	r.mu.Lock()
+	// 统一装饰：主 ID 与所有别名共享同一被装饰实例（一次包装，别名复用）。
+	if r.wrap != nil {
+		if wrapped := r.wrap(inst); wrapped != nil {
+			inst = wrapped
+		}
+	}
 	r.instances[spec.ID] = inst
 	for _, alias := range spec.Aliases {
 		if alias != "" && alias != spec.ID {

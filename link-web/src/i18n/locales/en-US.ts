@@ -118,12 +118,12 @@ export default {
     dataAgent: 'Data Agent',
     knowledge: 'Knowledge',
     graph: 'Knowledge Graph',
-    agent: 'Agent',
     evaluation: 'Agent Eval',
     datasets: 'Datasets',
     quality: 'Data Quality',
     datasource: 'Datasources',
     audit: 'Audit Logs',
+    trace: 'Trace',
     settings: 'Settings'
   },
   tenant: {

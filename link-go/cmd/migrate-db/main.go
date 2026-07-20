@@ -79,6 +79,8 @@ func main() {
 		&mysqlrepo.OperationAuditModel{},
 		// 外部数据源注册表
 		&mysqlrepo.DataSourceModel{},
+		// 调用链追踪（OTel span 落库）
+		&mysqlrepo.TraceSpanModel{},
 	}
 
 	if err := db.AutoMigrate(models...); err != nil {

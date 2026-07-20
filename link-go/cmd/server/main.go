@@ -17,6 +17,8 @@ import (
 	"link/internal/infrastructure/config"
 	llmchat "link/internal/infrastructure/llm/chat"
 	"link/internal/infrastructure/mcp"
+	obstel "link/internal/infrastructure/observability"
+	agenttelemetry "link/internal/service/agent/telemetry"
 	"link/internal/repository/milvus"
 	"link/internal/repository/mysql"
 	neo4jrepo "link/internal/repository/neo4j"
@@ -127,6 +129,24 @@ func main() {
 	app, err := wire.InitializeApp(db)
 	if err != nil {
 		log.Fatalf("❌ 应用初始化失败: %v", err)
+	}
+
+	// ==================== 调用链追踪（自建 in-app trace）====================
+	// AGENT_TRACING_ENABLED=true 时：注册真实 TracerProvider（否则默认 no-op provider
+	// 会丢弃所有 span），并把「全部 agent」经 SpecRegistry 装饰钩子统一叠加遥测中间件，
+	// 使 agent.chat/工具调用/子代理委派/编排的 span 经 MySQL exporter 落到 trace_spans。
+	var traceShutdown func(context.Context) error
+	if os.Getenv("AGENT_TRACING_ENABLED") == "true" {
+		shutdown, err := obstel.InitTracing(mysql.NewTraceRepository(db))
+		if err != nil {
+			log.Printf("⚠️  调用链追踪初始化失败: %v", err)
+		} else {
+			traceShutdown = shutdown
+			if app.AgentRegistry != nil {
+				app.AgentRegistry.SetWrap(agenttelemetry.WrapAgent)
+			}
+			log.Println("✅ 调用链追踪已启用（TracerProvider + MySQL exporter + 全 agent 遥测）")
+		}
 	}
 
 	// 初始化 Agent 注册中心
@@ -374,6 +394,13 @@ func main() {
 
 		if err := app.Shutdown(ctx); err != nil {
 			log.Printf("❌ 应用关闭失败: %v", err)
+		}
+
+		// 关闭追踪：flush 批量队列里未导出的 span，避免退出丢尾。
+		if traceShutdown != nil {
+			if err := traceShutdown(ctx); err != nil {
+				log.Printf("❌ 调用链追踪关闭失败: %v", err)
+			}
 		}
 
 		// 关闭数据库

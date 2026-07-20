@@ -36,6 +36,7 @@ type Router struct {
 	dataSourceHandler    *handler.DataSourceHandler
 	semanticHandler      *handler.SemanticHandler
 	auditHandler         *handler.AuditHandler
+	traceHandler         *handler.TraceHandler
 	webHandler           *web.Handler
 	authMiddleware       *middleware.AuthMiddleware
 	tenantMiddleware     *middleware.TenantMiddleware
@@ -63,6 +64,7 @@ func NewRouter(
 	dataSourceHandler *handler.DataSourceHandler,
 	semanticHandler *handler.SemanticHandler,
 	auditHandler *handler.AuditHandler,
+	traceHandler *handler.TraceHandler,
 	webHandler *web.Handler,
 	// Middleware
 	authMiddleware *middleware.AuthMiddleware,
@@ -99,6 +101,7 @@ func NewRouter(
 		dataSourceHandler:    dataSourceHandler,
 		semanticHandler:      semanticHandler,
 		auditHandler:         auditHandler,
+		traceHandler:         traceHandler,
 		webHandler:           webHandler,
 		authMiddleware:       authMiddleware,
 		tenantMiddleware:     tenantMiddleware,
@@ -139,6 +142,7 @@ func (r *Router) Setup() {
 			r.setupDataSourceRoutes(auth)
 			r.setupSemanticRoutes(auth)
 			r.setupAuditRoutes(auth)
+			r.setupTraceRoutes(auth)
 		}
 
 		// 需要认证 + 租户的路由
@@ -521,6 +525,18 @@ func (r *Router) setupAuditRoutes(api *gin.RouterGroup) {
 		audit.GET("", r.auditHandler.ListAuditLogs)
 		audit.GET("/stats", r.auditHandler.GetAuditStats)
 		audit.GET("/:id", r.auditHandler.GetAuditLog)
+	}
+}
+
+// setupTraceRoutes 设置调用链追踪查询路由（只读）
+func (r *Router) setupTraceRoutes(api *gin.RouterGroup) {
+	if r.traceHandler == nil {
+		return
+	}
+	traces := api.Group("/traces")
+	{
+		traces.GET("", r.traceHandler.ListTraces)
+		traces.GET("/:traceID", r.traceHandler.GetTrace)
 	}
 }
 

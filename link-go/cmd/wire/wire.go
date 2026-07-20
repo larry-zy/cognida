@@ -19,6 +19,7 @@ import (
 
 	agent "link/internal/model/agent"
 	domain_audit "link/internal/model/audit"
+	domaintrace "link/internal/model/trace"
 	appAccount "link/internal/service/account"
 	auditsvc "link/internal/service/audit"
 	agentuc "link/internal/service/agent"
@@ -165,6 +166,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideAuditRepository,
 		ProvideAuditWriter,
 		ProvideAuditHandler,
+		ProvideTraceRepository,
+		ProvideTraceHandler,
 
 		// 中间件
 		ProvideAuthMiddleware,
@@ -751,6 +754,14 @@ func ProvideAuditHandler(repo domain_audit.Repository) *handler.AuditHandler {
 	return handler.NewAuditHandler(repo)
 }
 
+func ProvideTraceRepository(db *gorm.DB) domaintrace.Repository {
+	return mysql.NewTraceRepository(db)
+}
+
+func ProvideTraceHandler(repo domaintrace.Repository) *handler.TraceHandler {
+	return handler.NewTraceHandler(repo)
+}
+
 // ========================================
 // Handler Providers
 // ========================================
@@ -990,6 +1001,7 @@ func ProvideRouter(
 	dataSourceHandler *handler.DataSourceHandler,
 	semanticHandler *handler.SemanticHandler,
 	auditHandler *handler.AuditHandler,
+	traceHandler *handler.TraceHandler,
 	webHandler *web.Handler,
 	authMiddleware *middleware.AuthMiddleware,
 	tenantMiddleware *middleware.TenantMiddleware,
@@ -1014,6 +1026,7 @@ func ProvideRouter(
 		dataSourceHandler,
 		semanticHandler,
 		auditHandler,
+		traceHandler,
 		webHandler,
 		authMiddleware,
 		tenantMiddleware,

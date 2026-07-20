@@ -118,12 +118,12 @@ export default {
     dataAgent: '数据智能体',
     knowledge: '知识库',
     graph: '知识图谱',
-    agent: 'Agent',
     evaluation: 'Agent 测评',
     datasets: '数据集管理',
     quality: '数据质量',
     datasource: '数据源管理',
     audit: '审计日志',
+    trace: '调用链追踪',
     settings: '设置'
   },
   tenant: {
