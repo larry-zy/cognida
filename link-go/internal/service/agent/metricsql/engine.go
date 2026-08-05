@@ -228,7 +228,7 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 			uncovered = append(uncovered, f.Field)
 			continue
 		}
-		filters = append(filters, genericFilter{expr: qualify(idx, d.LogicalTableID, d.Expr), op: f.Op, vals: f.Values})
+		filters = append(filters, genericFilter{expr: qualify(idx, d.LogicalTableID, d.Expr), op: f.Op, vals: mapDimensionValues(d, f.Values)})
 	}
 
 	// 覆盖判定：任一未解析即回退，不生成部分 SQL（治理优先）。
@@ -274,6 +274,29 @@ func representativeTable(idx *index, tset map[string]struct{}) string {
 		}
 	}
 	return best
+}
+
+// mapDimensionValues 把过滤值经维度 ValueMap 从业务标签翻译为物理列值（Bug C 修复）：
+// 命中映射的值替换为物理枚举（如 已完成→completed），未命中的原样透传（值本就是物理值、
+// 或该维度无需映射时不受影响）。归一化键做小写去空白，容忍 LLM 传入的大小写/首尾空白差异
+// （中文无大小写，不受影响）。无映射或空值时零成本返回原切片。
+func mapDimensionValues(d *semantic.Dimension, vals []string) []string {
+	if len(d.ValueMap) == 0 || len(vals) == 0 {
+		return vals
+	}
+	norm := make(map[string]string, len(d.ValueMap))
+	for k, v := range d.ValueMap {
+		norm[strings.ToLower(strings.TrimSpace(k))] = v
+	}
+	out := make([]string, len(vals))
+	for i, v := range vals {
+		if phys, ok := norm[strings.ToLower(strings.TrimSpace(v))]; ok {
+			out[i] = phys
+		} else {
+			out[i] = v
+		}
+	}
+	return out
 }
 
 // genericFilter 是解析后的过滤条件（维度已限定为物理表达式）。

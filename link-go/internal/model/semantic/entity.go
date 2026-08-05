@@ -63,16 +63,21 @@ type LogicalTable struct {
 
 // Dimension 维度：可用于分组/过滤的语义列。
 type Dimension struct {
-	ID             string    `json:"id"`
-	ModelID        string    `json:"model_id"`
-	LogicalTableID string    `json:"logical_table_id"`
-	Name           string    `json:"name"`           // 维度语义名（如"区域"）
-	Expr           string    `json:"expr"`           // 物理列名或表达式
-	DataType       string    `json:"data_type,omitempty"`
-	Description    string    `json:"description,omitempty"`
-	Synonyms       []string  `json:"synonyms,omitempty"` // 业务同义词，供术语 grounding
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string   `json:"id"`
+	ModelID        string   `json:"model_id"`
+	LogicalTableID string   `json:"logical_table_id"`
+	Name           string   `json:"name"` // 维度语义名（如"区域"）
+	Expr           string   `json:"expr"` // 物理列名或表达式
+	DataType       string   `json:"data_type,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	Synonyms       []string `json:"synonyms,omitempty"` // 业务同义词，供术语 grounding
+	// ValueMap 维度「值映射」：业务标签值 → 物理列值（如 已完成→completed）。
+	// 语义层此前只翻译字段名（Synonyms grounding）而把过滤值原样透传进 SQL，
+	// 导致 status='已完成' 匹配 0 行、治理口径聚合恒为 NULL（Bug C）。有此映射后，
+	// 指标引擎在拼 filter 前把业务值翻译为物理枚举值；未命中的值原样透传（已是物理值/自由文本不受影响）。
+	ValueMap  map[string]string `json:"value_map,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
 }
 
 // Measure 度量：可聚合的原子列 + 默认聚合方式，是指标的构件。
@@ -95,8 +100,8 @@ type Measure struct {
 type Metric struct {
 	ID          string    `json:"id"`
 	ModelID     string    `json:"model_id"`
-	Name        string    `json:"name"`             // 指标名（如"营收"）
-	Expr        string    `json:"expr"`             // 计算表达式（可引用度量/列）
+	Name        string    `json:"name"`              // 指标名（如"营收"）
+	Expr        string    `json:"expr"`              // 计算表达式（可引用度量/列）
 	Caliber     string    `json:"caliber,omitempty"` // 口径说明（自然语言，人读）
 	Format      string    `json:"format,omitempty"`  // 展示格式（如 "currency" / "percent"）
 	Description string    `json:"description,omitempty"`

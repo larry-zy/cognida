@@ -111,6 +111,59 @@ func TestBuild_FilterInjectionEscaped(t *testing.T) {
 	}
 }
 
+// valueMapBundle 单表订单，订单状态维度带 ValueMap（业务标签→物理枚举）。
+func valueMapBundle() *semantic.ModelBundle {
+	b := singleTableBundle()
+	b.Dimensions = append(b.Dimensions, &semantic.Dimension{
+		ID: "d_status", ModelID: "m1", LogicalTableID: "lt_order", Name: "订单状态", Expr: "status",
+		Synonyms: []string{"状态"},
+		ValueMap: map[string]string{"已完成": "completed", "已取消": "cancelled"},
+	})
+	return b
+}
+
+// TestBuild_FilterValueMapped 命中 ValueMap 的业务标签值被翻译为物理枚举（Bug C 修复）：
+// status='已完成' 不再原样进 SQL（匹配 0 行致 NULL），而是翻译成 'completed'。
+func TestBuild_FilterValueMapped(t *testing.T) {
+	b := valueMapBundle()
+	res, err := Build(b, Query{
+		Metrics: []string{"金额"},
+		Filters: []Filter{{Field: "订单状态", Op: OpEq, Values: []string{"已完成"}}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !res.Coverage.Covered {
+		t.Fatalf("expected covered, uncovered=%v", res.Coverage.Uncovered)
+	}
+	if !strings.Contains(res.SQL, "orders.status = 'completed'") {
+		t.Errorf("业务值未翻译为物理枚举: %s", res.SQL)
+	}
+	if strings.Contains(res.SQL, "已完成") {
+		t.Errorf("业务标签值仍原样进入 SQL: %s", res.SQL)
+	}
+}
+
+// TestBuild_FilterValueUnmappedPassthrough 未命中 ValueMap 的值原样透传
+// （值本就是物理枚举 'cancelled'，或该维度无需映射），大小写/空白不敏感命中。
+func TestBuild_FilterValueUnmappedPassthrough(t *testing.T) {
+	b := valueMapBundle()
+	res, err := Build(b, Query{
+		Metrics: []string{"金额"},
+		// 'shipped' 未在 ValueMap → 原样透传；' 已取消 ' 带空白仍命中 → cancelled。
+		Filters: []Filter{{Field: "订单状态", Op: OpIn, Values: []string{"shipped", " 已取消 "}}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !strings.Contains(res.SQL, "'shipped'") {
+		t.Errorf("未映射的物理值应原样透传: %s", res.SQL)
+	}
+	if !strings.Contains(res.SQL, "'cancelled'") {
+		t.Errorf("带空白的业务值应归一化后命中映射: %s", res.SQL)
+	}
+}
+
 // twoTableBundle 构造 订单←→用户 两表并定义关系，验证 JOIN 规划。
 func twoTableBundle() *semantic.ModelBundle {
 	return &semantic.ModelBundle{
@@ -321,7 +374,7 @@ func TestBuild_TimeGrainPostgresDialect(t *testing.T) {
 	}
 }
 
-// PostgreSQL 方言下标识符须用双引号（`` 是 PG 语法错误），且时间分桶用 TO_CHAR。
+// PostgreSQL 方言下标识符须用双引号（“ 是 PG 语法错误），且时间分桶用 TO_CHAR。
 func TestBuild_PostgresQuotesIdentifiersWithDoubleQuote(t *testing.T) {
 	b := timeBundle()
 	res, err := Build(b, Query{Metrics: []string{"营收"}, Dimensions: []string{"下单日期"}, TimeGrain: GrainMonth, Dialect: DialectPostgres})

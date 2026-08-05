@@ -8,6 +8,7 @@
 // 落库对象：租户 tenant_id=1（dev 用户）、status=active 的两套语义模型：
 //   - 电商销售（grain=order，orders ⋈ customers）
 //   - 商品销售（grain=order_item，order_items ⋈ products ⋈ categories）
+//
 // 两套均为「扇出安全」：所有 JOIN 都是从事实表出发的 to-one 关系，聚合不虚增。
 //
 // 前置：ecommerce_demo 已 seed（cmd/seed-ecommerce），且 link 库已 migrate-db。
@@ -132,16 +133,23 @@ func salesBundle() *semantic.ModelBundle {
 				Caliber: "退款率 = 退款额 / 营收", Format: "percent", Synonyms: []string{"refund_rate", "退货率", "退款占比"}},
 		},
 		Dimensions: []*semantic.Dimension{
-			{ID: "seed_d_status", ModelID: modelID, LogicalTableID: ltOrder, Name: "订单状态", Expr: "status", DataType: "string", Synonyms: []string{"状态", "order_status"}},
-			{ID: "seed_d_pay", ModelID: modelID, LogicalTableID: ltOrder, Name: "支付方式", Expr: "payment_method", DataType: "string", Synonyms: []string{"支付渠道", "payment_method"}},
-			{ID: "seed_d_channel", ModelID: modelID, LogicalTableID: ltOrder, Name: "渠道", Expr: "channel", DataType: "string", Synonyms: []string{"下单渠道", "channel", "来源"}},
+			// ValueMap（Bug C）：业务标签值 → 物理枚举值，指标引擎在拼 filter 前翻译。
+			// 物理枚举取自 ecommerce_demo 实库（orders.status 等），未列出的值原样透传。
+			{ID: "seed_d_status", ModelID: modelID, LogicalTableID: ltOrder, Name: "订单状态", Expr: "status", DataType: "string", Synonyms: []string{"状态", "order_status"},
+				ValueMap: map[string]string{"已完成": "completed", "完成": "completed", "已取消": "cancelled", "取消": "cancelled", "已支付": "paid", "支付": "paid", "已付款": "paid", "已退款": "refunded", "退款": "refunded", "已发货": "shipped", "发货": "shipped"}},
+			{ID: "seed_d_pay", ModelID: modelID, LogicalTableID: ltOrder, Name: "支付方式", Expr: "payment_method", DataType: "string", Synonyms: []string{"支付渠道", "payment_method"},
+				ValueMap: map[string]string{"微信": "wechat", "微信支付": "wechat", "支付宝": "alipay", "银联": "unionpay", "银行卡": "card", "信用卡": "card", "刷卡": "card"}},
+			{ID: "seed_d_channel", ModelID: modelID, LogicalTableID: ltOrder, Name: "渠道", Expr: "channel", DataType: "string", Synonyms: []string{"下单渠道", "channel", "来源"},
+				ValueMap: map[string]string{"小程序": "mini_program", "线下": "offline", "网页": "web", "网站": "web", "移动端": "app", "手机": "app"}},
 			{ID: "seed_d_region", ModelID: modelID, LogicalTableID: ltOrder, Name: "大区", Expr: "region", DataType: "string", Synonyms: []string{"区域", "region", "地区"}},
 			{ID: "seed_d_date", ModelID: modelID, LogicalTableID: ltOrder, Name: "下单日期", Expr: "orders.created_at", DataType: "datetime", Synonyms: []string{"日期", "date", "下单时间"}},
 			{ID: "seed_d_city", ModelID: modelID, LogicalTableID: ltCust, Name: "城市", Expr: "city", DataType: "string", Synonyms: []string{"city", "所在城市"}},
 			{ID: "seed_d_province", ModelID: modelID, LogicalTableID: ltCust, Name: "省份", Expr: "province", DataType: "string", Synonyms: []string{"province", "所在省份"}},
-			{ID: "seed_d_gender", ModelID: modelID, LogicalTableID: ltCust, Name: "性别", Expr: "gender", DataType: "string", Synonyms: []string{"gender"}},
+			{ID: "seed_d_gender", ModelID: modelID, LogicalTableID: ltCust, Name: "性别", Expr: "gender", DataType: "string", Synonyms: []string{"gender"},
+				ValueMap: map[string]string{"女": "female", "女性": "female", "男": "male", "男性": "male"}},
 			{ID: "seed_d_vip", ModelID: modelID, LogicalTableID: ltCust, Name: "VIP等级", Expr: "vip_level", DataType: "string", Synonyms: []string{"vip", "vip_level", "会员等级"}},
-			{ID: "seed_d_regchan", ModelID: modelID, LogicalTableID: ltCust, Name: "注册渠道", Expr: "register_channel", DataType: "string", Synonyms: []string{"register_channel", "获客渠道"}},
+			{ID: "seed_d_regchan", ModelID: modelID, LogicalTableID: ltCust, Name: "注册渠道", Expr: "register_channel", DataType: "string", Synonyms: []string{"register_channel", "获客渠道"},
+				ValueMap: map[string]string{"广告": "ad", "自然流量": "organic", "自然": "organic", "推荐": "referral", "转介绍": "referral", "社交": "social", "社交媒体": "social", "线下": "offline"}},
 		},
 	}
 }
@@ -201,7 +209,8 @@ func productBundle() *semantic.ModelBundle {
 			{ID: "seed_d_cat", ModelID: modelID, LogicalTableID: ltCat, Name: "品类", Expr: "name", DataType: "string", Synonyms: []string{"分类", "category", "品类名"}},
 			{ID: "seed_d_brand", ModelID: modelID, LogicalTableID: ltProd, Name: "品牌", Expr: "brand", DataType: "string", Synonyms: []string{"brand"}},
 			{ID: "seed_d_pname", ModelID: modelID, LogicalTableID: ltProd, Name: "商品名称", Expr: "name", DataType: "string", Synonyms: []string{"商品", "product", "商品名"}},
-			{ID: "seed_d_pstatus", ModelID: modelID, LogicalTableID: ltProd, Name: "商品状态", Expr: "status", DataType: "string", Synonyms: []string{"product_status", "上架状态"}},
+			{ID: "seed_d_pstatus", ModelID: modelID, LogicalTableID: ltProd, Name: "商品状态", Expr: "status", DataType: "string", Synonyms: []string{"product_status", "上架状态"},
+				ValueMap: map[string]string{"在售": "on_sale", "上架": "on_sale", "已上架": "on_sale", "销售中": "on_sale", "下架": "off_shelf", "已下架": "off_shelf", "停售": "off_shelf"}},
 		},
 	}
 }

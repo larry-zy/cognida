@@ -122,6 +122,7 @@ type SemanticDimensionModel struct {
 	DataType       string    `gorm:"column:data_type;type:varchar(64)" json:"data_type,omitempty"`
 	Description    string    `gorm:"column:description;type:text" json:"description,omitempty"`
 	Synonyms       []byte    `gorm:"column:synonyms;type:json" json:"synonyms,omitempty"`
+	ValueMap       []byte    `gorm:"column:value_map;type:json" json:"value_map,omitempty"`
 	CreatedAt      time.Time `gorm:"column:created_at;not null" json:"created_at"`
 	UpdatedAt      time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
 }
@@ -140,6 +141,7 @@ func (m *SemanticDimensionModel) ToDomain() *semantic.Dimension {
 		DataType:       m.DataType,
 		Description:    m.Description,
 		Synonyms:       decodeStringSlice(m.Synonyms),
+		ValueMap:       decodeStringMap(m.ValueMap),
 		CreatedAt:      m.CreatedAt,
 		UpdatedAt:      m.UpdatedAt,
 	}
@@ -156,6 +158,7 @@ func FromDomainSemanticDimension(e *semantic.Dimension) *SemanticDimensionModel 
 		DataType:       e.DataType,
 		Description:    e.Description,
 		Synonyms:       encodeStringSlice(e.Synonyms),
+		ValueMap:       encodeStringMap(e.ValueMap),
 		CreatedAt:      e.CreatedAt,
 		UpdatedAt:      e.UpdatedAt,
 	}
@@ -331,6 +334,30 @@ func decodeStringSlice(raw []byte) []string {
 
 // encodeStringSlice 把字符串切片编码为 JSON 列（空返回 nil，不落 "[]" 噪声）。
 func encodeStringSlice(in []string) []byte {
+	if len(in) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(in)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// decodeStringMap 把 JSON 列解码为字符串映射（空/非法返回 nil）——维度 ValueMap 用。
+func decodeStringMap(raw []byte) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out map[string]string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// encodeStringMap 把字符串映射编码为 JSON 列（空返回 nil，不落 "{}" 噪声）。
+func encodeStringMap(in map[string]string) []byte {
 	if len(in) == 0 {
 		return nil
 	}

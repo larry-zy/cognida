@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	agentctx "link/internal/model/agent"
@@ -42,6 +43,23 @@ type DimensionCard struct {
 	Name     string   `json:"name"`
 	DataType string   `json:"data_type,omitempty"`
 	Synonyms []string `json:"synonyms,omitempty"`
+	// AllowedValues 该维度可用的业务标签值（ValueMap 键）。暴露给 LLM 以锚定过滤值：
+	// 用这些标签，引擎会翻译成物理枚举；否则未知标签会原样进 SQL 匹配 0 行（Bug C 症状）。
+	AllowedValues []string `json:"allowed_values,omitempty"`
+}
+
+// valueMapLabels 取维度 ValueMap 的业务标签键并排序（map 迭代序不定，排序保证卡片确定性）。
+// 空映射返回 nil，不在卡片里落 allowed_values 噪声。
+func valueMapLabels(vm map[string]string) []string {
+	if len(vm) == 0 {
+		return nil
+	}
+	labels := make([]string, 0, len(vm))
+	for k := range vm {
+		labels = append(labels, k)
+	}
+	sort.Strings(labels)
+	return labels
 }
 
 // SemanticModelCard 一个语义模型的目录视图。
@@ -133,7 +151,10 @@ func toModelCard(b *semantic.ModelBundle) SemanticModelCard {
 		card.Metrics = append(card.Metrics, MetricCard{Name: ms.Name})
 	}
 	for _, d := range b.Dimensions {
-		card.Dimensions = append(card.Dimensions, DimensionCard{Name: d.Name, DataType: d.DataType, Synonyms: d.Synonyms})
+		card.Dimensions = append(card.Dimensions, DimensionCard{
+			Name: d.Name, DataType: d.DataType, Synonyms: d.Synonyms,
+			AllowedValues: valueMapLabels(d.ValueMap),
+		})
 	}
 	return card
 }
