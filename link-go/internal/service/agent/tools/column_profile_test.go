@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -112,6 +113,45 @@ func TestAttachColumnFactsEmpty(t *testing.T) {
 	attachColumnFacts(table, nil, false) // 空画像不应 panic，也不挂载
 	if table.Columns[0].Facts != nil {
 		t.Error("空画像不应挂载 Facts")
+	}
+}
+
+// TestResolveProfileDB 验证后台画像按坐标重新取库：业务库走 gorm 池、外部走 provider，
+// 且两类缺失依赖时显式报错（不静默拿到 nil 句柄）。核心是「不捕获请求期 target.db」。
+func TestResolveProfileDB(t *testing.T) {
+	ctx := context.Background()
+
+	// 业务库路径：datasourceID 空 + businessDB 为 nil → 报错。
+	if _, err := resolveProfileDB(ctx, nil, nil, 1, ""); err == nil {
+		t.Error("业务库未初始化应报错")
+	}
+
+	// 外部路径：datasourceID 非空但 provider 未注入 → 报错。
+	if _, err := resolveProfileDB(ctx, nil, nil, 1, "ds-x"); err == nil {
+		t.Error("外部数据源提供者未注入应报错")
+	}
+
+	// 外部路径：命中 provider → 返回其池（证明是重新 Acquire，而非捕获 target.db）。
+	gormDB, _ := setupMockSchemaDB(t)
+	rawDB, _ := gormDB.DB()
+	dsp := &fakeConnProvider{id: "ds-ok", dbName: "extdb", db: rawDB}
+	got, err := resolveProfileDB(ctx, nil, dsp, 7, "ds-ok")
+	if err != nil {
+		t.Fatalf("外部数据源重新取库失败: %v", err)
+	}
+	if got != rawDB {
+		t.Error("应返回 provider 重新 Acquire 的池")
+	}
+
+	// 外部路径：无效 id → 透传 provider 的错误。
+	if _, err := resolveProfileDB(ctx, nil, dsp, 7, "ds-missing"); err == nil {
+		t.Error("无效数据源 id 应透传报错")
+	}
+
+	// 业务库路径：datasourceID 空 + 真实 gorm → 返回底层池。
+	bizDB, err := resolveProfileDB(ctx, gormDB, dsp, 1, "")
+	if err != nil || bizDB != rawDB {
+		t.Errorf("业务库应返回 gorm 底层池: db=%v err=%v", bizDB, err)
 	}
 }
 

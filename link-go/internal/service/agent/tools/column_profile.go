@@ -18,8 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
+
 	agentctx "link/internal/model/agent"
 	"link/internal/model/dataprofile"
+	model_datasource "link/internal/model/datasource"
 )
 
 const (
@@ -79,7 +82,8 @@ func effectiveDatasourceID(ctx context.Context, databaseID string) string {
 
 // attachAndRefreshProfiles 为精确返回的单表附上缓存中的数据事实，并在缺失/过期时
 // 触发后台刷新。store 为 nil（未接线）或非单表时静默跳过——零回归。
-func attachAndRefreshProfiles(ctx context.Context, store dataprofile.Store, target *queryTarget, databaseID string, table *TableSchema) {
+// businessDB/dsp 供后台画像重新路由目标库（而非捕获请求期 target.db，见 resolveProfileDB）。
+func attachAndRefreshProfiles(ctx context.Context, store dataprofile.Store, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, target *queryTarget, databaseID string, table *TableSchema) {
 	if store == nil || table == nil || len(table.Columns) == 0 {
 		return
 	}
@@ -98,8 +102,32 @@ func attachAndRefreshProfiles(ctx context.Context, store dataprofile.Store, targ
 	attachColumnFacts(table, cached, stale)
 
 	if stale {
-		triggerBackgroundProfile(store, target.db, tenantID, dsID, schema, *table)
+		triggerBackgroundProfile(store, businessDB, dsp, tenantID, dsID, schema, *table)
 	}
+}
+
+// resolveProfileDB 后台画像执行时（重新）取目标库连接池，而非捕获请求期的 target.db：
+//   - 业务库取 gorm 进程级池（长生命周期，永不被关，安全）；
+//   - 外部数据源经 provider 按坐标重新 Acquire——受管池即便被空闲回收或配置变更
+//     (Invalidate) 关闭，也能拿到当前版本的池，且 Acquire 会刷新 lastUsed 免被误回收。
+//
+// 消除「把受管连接池句柄捕获过异步边界」的隐患：请求返回后 target.db 可能被关闭，
+// 而这里在 goroutine 内按同一坐标重取，始终是有效句柄。
+func resolveProfileDB(ctx context.Context, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, tenantID int64, datasourceID string) (*sql.DB, error) {
+	if datasourceID == "" {
+		if businessDB == nil {
+			return nil, fmt.Errorf("业务库未初始化")
+		}
+		return businessDB.DB()
+	}
+	if dsp == nil {
+		return nil, fmt.Errorf("外部数据源提供者未注入")
+	}
+	db, _, err := dsp.Acquire(ctx, tenantID, datasourceID)
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 // profilesStale 判定画像是否需要（重新）采集：为空或最新一条已超过 TTL 即过期。
@@ -141,8 +169,9 @@ func attachColumnFacts(table *TableSchema, profiles []*dataprofile.ColumnProfile
 }
 
 // triggerBackgroundProfile 异步画像并写回缓存；用独立 background 上下文（本请求 ctx
-// 会随工具返回被取消），带超时与坐标级去重。失败仅记日志，不反哺调用方。
-func triggerBackgroundProfile(store dataprofile.Store, db *sql.DB, tenantID int64, datasourceID, schema string, table TableSchema) {
+// 会随工具返回被取消），带超时与坐标级去重。目标库在 goroutine 内按坐标重新取（不捕获
+// 请求期句柄，见 resolveProfileDB）。失败仅记日志，不反哺调用方。
+func triggerBackgroundProfile(store dataprofile.Store, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, tenantID int64, datasourceID, schema string, table TableSchema) {
 	key := profileKey(tenantID, datasourceID, schema, table.TableName)
 	if _, loaded := profileInFlight.LoadOrStore(key, struct{}{}); loaded {
 		return // 同坐标已有画像在跑
@@ -159,6 +188,11 @@ func triggerBackgroundProfile(store dataprofile.Store, db *sql.DB, tenantID int6
 		ctx, cancel := context.WithTimeout(context.Background(), profileTimeout)
 		defer cancel()
 
+		db, err := resolveProfileDB(ctx, businessDB, dsp, tenantID, datasourceID)
+		if err != nil {
+			log.Printf("[column_profile] 取目标库失败 %s.%s: %v", schema, table.TableName, err)
+			return
+		}
 		profiles, err := computeColumnProfiles(ctx, db, tenantID, datasourceID, schema, table)
 		if err != nil {
 			log.Printf("[column_profile] 画像失败 %s.%s: %v", schema, table.TableName, err)

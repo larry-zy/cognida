@@ -137,7 +137,7 @@ func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, 
 			return nil, err
 		}
 		if len(tables) == 1 {
-			attachAndRefreshProfiles(ctx, profileStore, target, req.DatabaseID, &tables[0])
+			attachAndRefreshProfiles(ctx, profileStore, businessDB, dsp, target, req.DatabaseID, &tables[0])
 		}
 		return &GetSchemaResult{Tables: tables, Database: target.dbName}, nil
 	}
