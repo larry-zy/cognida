@@ -189,6 +189,7 @@ type EvaluationConfig struct {
 	WorkerEnabled       bool   // 是否启用 Worker，默认 true
 	PythonEndpoint      string // Python 评测服务地址，如: http://localhost:8000
 	DefaultTimeout      int    // 默认单 QA 超时时间（秒），默认 30
+	AgentTimeout        int    // Agent 单条评测超时时间（秒），默认 180——Agent 一问含多轮工具调用（get_schema→sql_execute→data_analysis→render_ui），60s 会误杀对比/图表等复杂题
 	MaxRetries          int    // 最大重试次数，默认 3
 	ProgressCacheExpiry int    // 进度缓存过期时间（秒），默认 3600
 }
@@ -658,6 +659,7 @@ func LoadEvaluationConfig() *EvaluationConfig {
 		WorkerEnabled:       getEnvAsBool("EVALUATION_WORKER_ENABLED", true),
 		PythonEndpoint:      getEnv("PYTHON_EVALUATION_ENDPOINT", "http://localhost:8000"),
 		DefaultTimeout:      getEnvAsInt("EVALUATION_DEFAULT_TIMEOUT", 30),
+		AgentTimeout:        getEnvAsInt("EVALUATION_AGENT_TIMEOUT", 180),
 		MaxRetries:          getEnvAsInt("EVALUATION_MAX_RETRIES", 3),
 		ProgressCacheExpiry: getEnvAsInt("EVALUATION_PROGRESS_CACHE_EXPIRY", 3600),
 	}

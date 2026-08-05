@@ -598,7 +598,13 @@ func ProvideEvaluationWorker(
 		log.Printf("[Worker] 注册 RAG 执行器失败: %v", err)
 	}
 	agentService := evaluation.NewAgentServiceAdapter(agentRegistry)
-	if err := registry.Register(executor.NewAgentExecutor(agentService, 60*time.Second)); err != nil {
+	// Agent 单条评测超时来自配置（EVALUATION_AGENT_TIMEOUT，默认 180s）：一问含多轮工具调用，
+	// 旧的硬编码 60s 会误杀对比/图表等复杂题（latency≈60000、llm_calls=0、空答案）。
+	agentTimeout := 180 * time.Second
+	if evalConfig != nil && evalConfig.AgentTimeout > 0 {
+		agentTimeout = time.Duration(evalConfig.AgentTimeout) * time.Second
+	}
+	if err := registry.Register(executor.NewAgentExecutor(agentService, agentTimeout)); err != nil {
 		log.Printf("[Worker] 注册 Agent 执行器失败: %v", err)
 	}
 

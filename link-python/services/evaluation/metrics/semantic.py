@@ -41,10 +41,9 @@ class SemanticMetrics(BaseModel):
 
         # 尝试使用 sentence-transformers
         try:
-            from sentence_transformers import SentenceTransformer
-
             if model is None:
-                model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+                # 复用进程级共享模型，避免逐条评测时重复加载（17 条 QA 会触发 17 次加载）。
+                model = _get_shared_st_model()
 
             # 编码文本
             ref_embeddings = model.encode(references, convert_to_numpy=True)
@@ -62,8 +61,10 @@ class SemanticMetrics(BaseModel):
                 max_similarity=float(np.max(similarities)),
             )
 
-        except ImportError:
-            # 降级到简单的 TF-IDF 余弦相似度
+        except Exception:
+            # 降级到简单的 TF-IDF 余弦相似度。注意：宿主机 SOCKS 代理 + 缺 socksio 会
+            # 让 SentenceTransformer 加载抛 ImportError（旧实现只 catch ImportError 也会命中），
+            # 静默降级导致语义分塌到词面重合（answer_accuracy 恒 0）。已装 socksio 且模型入缓存修复。
             from sklearn.feature_extraction.text import TfidfVectorizer
             from sklearn.metrics.pairwise import cosine_similarity
 
