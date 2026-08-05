@@ -242,6 +242,9 @@ func main() {
 				SQLDB:       db,
 				ResultStore: rs,
 				UIBinding:   uiBindingStore,
+				// 列画像（数据事实）：get_schema 精确取表时惰性附上空值率/基数/枚举分布，
+				// 写通落应用自身 MySQL；缺失时不带事实、零回归。
+				ColumnProfileStore: mysql.NewColumnProfileRepository(db),
 				// 指标语义层（NL2Semantics）：语义模型仓储 + 受信查询缓存 + 覆盖埋点
 				SemanticRepo:  mysql.NewSemanticRepository(db),
 				SemanticCache: sc,

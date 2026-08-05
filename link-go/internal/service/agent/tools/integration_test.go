@@ -269,7 +269,7 @@ func TestGetSchemaIntegration(t *testing.T) {
 			TableName: "integration_test_users",
 		}
 
-		result, err := getSchema(ctx, req, db, nil)
+		result, err := getSchema(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -323,7 +323,7 @@ func TestGetSchemaIntegration(t *testing.T) {
 			TableName: "",
 		}
 
-		result, err := getSchema(ctx, req, db, nil)
+		result, err := getSchema(ctx, req, db, nil, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -359,7 +359,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			TableName: "integration_test_users",
 		}
 
-		schema, err := getSchema(ctx, schemaReq, db, nil)
+		schema, err := getSchema(ctx, schemaReq, db, nil, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}

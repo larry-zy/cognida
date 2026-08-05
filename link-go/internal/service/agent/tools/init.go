@@ -22,7 +22,7 @@ func (r *ToolRegistry) registerRAGTools() error {
 // registerSQLTools 注册 SQL 工具
 func (r *ToolRegistry) registerSQLTools() error {
 	// get_schema
-	getSchemaTool := NewGetSchemaTool(r.deps.GetSchemaDB, r.deps.DatasourceProvider)
+	getSchemaTool := NewGetSchemaTool(r.deps.GetSchemaDB, r.deps.DatasourceProvider, r.deps.ColumnProfileStore)
 	if getSchemaTool != nil {
 		if err := r.Register("sql", getSchemaTool); err != nil {
 			return err

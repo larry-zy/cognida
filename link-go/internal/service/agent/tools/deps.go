@@ -4,6 +4,7 @@ package tools
 import (
 	"gorm.io/gorm"
 
+	"link/internal/model/dataprofile"
 	model_datasource "link/internal/model/datasource"
 	domain_knowledge "link/internal/model/knowledge"
 	"link/internal/model/semantic"
@@ -22,6 +23,9 @@ type ToolDeps struct {
 	SQLDB *gorm.DB
 	// GetSchemaDB get_schema 使用的库连接；nil 时回落 SQLDB。
 	GetSchemaDB *gorm.DB
+	// ColumnProfileStore 列画像（数据事实）存储（可选）；nil 时 get_schema 不附数据事实、零回归。
+	// 落库走应用自身 MySQL（非被探查的数据源），以物理坐标为键 upsert 快照。
+	ColumnProfileStore dataprofile.Store
 
 	// RAGService RAG 检索服务（可选）；nil 时 rag_query 返回未初始化提示。
 	RAGService RAGQueryService

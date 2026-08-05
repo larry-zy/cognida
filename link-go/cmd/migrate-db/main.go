@@ -83,6 +83,8 @@ func main() {
 		&mysqlrepo.DataSourceModel{},
 		// 调用链追踪（OTel span 落库）
 		&mysqlrepo.TraceSpanModel{},
+		// 列画像（数据事实：空值率/基数/枚举分布）
+		&mysqlrepo.ColumnProfileModel{},
 	}
 
 	if err := db.AutoMigrate(models...); err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"link/internal/model/dataprofile"
 	model_datasource "link/internal/model/datasource"
 )
 
@@ -44,6 +45,9 @@ type ColumnSchema struct {
 	Type        string `json:"type"`
 	Nullable    bool   `json:"nullable"`
 	Description string `json:"description,omitempty"`
+	// Facts 数据事实（空值率/基数/枚举分布），仅在精确返回单表且已接线列画像存储时附上；
+	// 缺失表示未接线或尚未画像。供 LLM 用真实取值替代猜测，提升 Text2SQL 准确率。
+	Facts *ColumnFacts `json:"facts,omitempty"`
 }
 
 // GetSchemaResult Schema 获取结果
@@ -67,10 +71,11 @@ const (
 )
 
 // NewGetSchemaTool 创建 Schema 获取工具
-// 使用基类 TypedBaseTool 实现类型安全；db 业务库、dsp 外部数据源提供者（可为 nil）经参数注入。
-func NewGetSchemaTool(db *gorm.DB, dsp model_datasource.ConnectionProvider) *TypedBaseTool[GetSchemaRequest, GetSchemaResult] {
+// 使用基类 TypedBaseTool 实现类型安全；db 业务库、dsp 外部数据源提供者（可为 nil）、
+// profileStore 列画像存储（可为 nil，缺失则不带数据事实、零回归）经参数注入。
+func NewGetSchemaTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, profileStore dataprofile.Store) *TypedBaseTool[GetSchemaRequest, GetSchemaResult] {
 	handler := func(ctx context.Context, req *GetSchemaRequest) (*GetSchemaResult, error) {
-		return getSchema(ctx, req, db, dsp)
+		return getSchema(ctx, req, db, dsp, profileStore)
 	}
 	return NewTypedBaseTool("get_schema",
 		`获取数据库表结构信息，用于生成 SQL 查询。
@@ -116,7 +121,7 @@ func FetchSchema(ctx context.Context, db *gorm.DB, dsp model_datasource.Connecti
 
 // getSchema 是 agent 工具处理器：施加「有界选表」策略，未指定表名时禁止全库详细注入。
 // database_id 非空时经 ConnectionProvider 路由到外部数据源；无效 id 显式报错不回落业务库。
-func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider) (*GetSchemaResult, error) {
+func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, profileStore dataprofile.Store) (*GetSchemaResult, error) {
 	target, err := resolveQueryTarget(ctx, req.DatabaseID, businessDB, dsp)
 	if err != nil {
 		return nil, err
@@ -125,11 +130,14 @@ func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, 
 		return nil, err
 	}
 
-	// 1) 指定表名：精确返回该表完整结构。
+	// 1) 指定表名：精确返回该表完整结构，并惰性附上数据事实（写通刷新过期画像）。
 	if req.TableName != "" {
 		tables, err := queryTableSchemas(ctx, target, []string{req.TableName})
 		if err != nil {
 			return nil, err
+		}
+		if len(tables) == 1 {
+			attachAndRefreshProfiles(ctx, profileStore, target, req.DatabaseID, &tables[0])
 		}
 		return &GetSchemaResult{Tables: tables, Database: target.dbName}, nil
 	}

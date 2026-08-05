@@ -72,7 +72,7 @@ func TestGetSchema(t *testing.T) {
 		expectLoadTableCards(mock, "main", tableRows, colRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: ""}
-		result, err := getSchema(ctx, req, gormDB, dsp)
+		result, err := getSchema(ctx, req, gormDB, dsp, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -119,7 +119,7 @@ func TestGetSchema(t *testing.T) {
 		)).WithArgs("main", "orders").WillReturnRows(sqlmock.NewRows([]string{"column_name"}).AddRow("id"))
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "", Keywords: "orders"}
-		result, err := getSchema(ctx, req, gormDB, dsp)
+		result, err := getSchema(ctx, req, gormDB, dsp, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -149,7 +149,7 @@ func TestGetSchema(t *testing.T) {
 		expectLoadTableCards(mock, "main", tableRows, colRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "", Keywords: "不存在的关键词xyz"}
-		result, err := getSchema(ctx, req, gormDB, dsp)
+		result, err := getSchema(ctx, req, gormDB, dsp, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -180,7 +180,7 @@ func TestGetSchema(t *testing.T) {
 		)).WithArgs("main", "users").WillReturnRows(pkRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "users"}
-		result, err := getSchema(ctx, req, gormDB, dsp)
+		result, err := getSchema(ctx, req, gormDB, dsp, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -216,7 +216,7 @@ func TestGetSchema(t *testing.T) {
 			sqlmock.NewRows([]string{"column_name", "data_type", "is_nullable", "column_comment"}))
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "nonexistent"}
-		result, err := getSchema(ctx, req, gormDB, dsp)
+		result, err := getSchema(ctx, req, gormDB, dsp, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
@@ -232,7 +232,7 @@ func TestGetSchemaWithoutInit(t *testing.T) {
 	ctx := context.Background()
 	req := &GetSchemaRequest{DatabaseID: ""}
 
-	_, err := getSchema(ctx, req, nil, nil)
+	_, err := getSchema(ctx, req, nil, nil, nil)
 	if err == nil {
 		t.Error("expected error when DB not initialized")
 	}
@@ -263,7 +263,7 @@ func TestColumnNullable(t *testing.T) {
 	)).WithArgs("main", "users").WillReturnRows(pkRows)
 
 	req := &GetSchemaRequest{DatabaseID: "main", TableName: "users"}
-	result, err := getSchema(ctx, req, gormDB, dsp)
+	result, err := getSchema(ctx, req, gormDB, dsp, nil)
 	if err != nil {
 		t.Fatalf("getSchema() error = %v", err)
 	}
@@ -318,7 +318,7 @@ func TestGetSchemaWithComments(t *testing.T) {
 	)).WithArgs("main", "users").WillReturnRows(pkRows)
 
 	req := &GetSchemaRequest{DatabaseID: "main", TableName: "users"}
-	result, err := getSchema(ctx, req, gormDB, dsp)
+	result, err := getSchema(ctx, req, gormDB, dsp, nil)
 	if err != nil {
 		t.Fatalf("getSchema() error = %v", err)
 	}
