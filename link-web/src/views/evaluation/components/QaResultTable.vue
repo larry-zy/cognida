@@ -57,6 +57,15 @@
             <p>{{ row.generated_answer }}</p>
           </div>
 
+          <!-- Agent 评测：深链到本轮运行落成的 trace 调用链瀑布图，逐条 debug 工具入参/出参/绕路 -->
+          <div class="qa-detail-section" v-if="row.request_id">
+            <h5>调用链追踪</h5>
+            <UiButton size="sm" variant="secondary" @click.stop="openTrace(row.request_id)">
+              查看调用链瀑布图 ↗
+            </UiButton>
+            <span class="trace-rid mono">{{ row.request_id }}</span>
+          </div>
+
           <div class="qa-detail-section" v-if="hasMetrics(row)">
             <h5>评测指标</h5>
             <div class="qa-metrics-grid">
@@ -89,10 +98,19 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { UiTag, UiButton, UiAlert } from '@/components'
 import { hasMetrics, metricEntries, metricValue } from '../evaluation-config'
 
 const props = defineProps<{ results: Array<Record<string, any>> }>()
+
+const router = useRouter()
+
+/** 在新标签打开 trace 瀑布图（/traces 页按 request_id query 自动回填过滤），保留评测弹窗 */
+function openTrace(requestId: string): void {
+  const href = router.resolve({ path: '/traces', query: { request_id: requestId } }).href
+  window.open(href, '_blank')
+}
 
 // 记录已展开行的标识（无 id 时退回索引）
 const expandedKeys = ref<Set<string | number>>(new Set())
@@ -286,6 +304,16 @@ function llmScoreText(row: Record<string, any>): string {
   font-size: 16px;
   color: #22d3ee;
   font-weight: 600;
+}
+
+.trace-rid {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
 .reasoning-text {

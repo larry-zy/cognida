@@ -728,7 +728,15 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                 references=references,
                 outputs=outputs,
                 metrics=sorted(agent_requested),
+                return_items=True,
             )
+            # 逐条落库：compute_agent_metrics 已「逐样本算一次、聚合即其均值」，
+            # _items[i] 是第 i 条样本的扁平化分值 map（键名与聚合平铺后一致）。
+            # 直接并入 items_result[i].scores，前端评测详情即可逐条 debug 工具/轨迹/准确率，
+            # 不必再从任务级聚合反推是哪条样本的工具或轨迹拖低了分数。
+            for i, item_scores in enumerate(agent_result.get("_items", [])):
+                if i < len(items_result) and item_scores:
+                    items_result[i].scores.update(item_scores)
             # 将嵌套结果平铺进聚合 scores map（前端/Go 侧按 name->value 消费）
             if "answer_accuracy" in agent_result:
                 aggregate["answer_accuracy"] = agent_result["answer_accuracy"]

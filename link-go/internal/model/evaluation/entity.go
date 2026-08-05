@@ -47,6 +47,11 @@ type QAResult struct {
 	TokensUsed int   `json:"tokens_used,omitempty"` // 本轮消耗总 token 数
 	LLMCalls   int   `json:"llm_calls,omitempty"`   // 本轮 LLM 调用次数（ReAct 迭代数）
 
+	// RequestID 本条 QA 运行的子 request_id（<任务级 rid>#<序号>），指向该轮 Agent 运行落成的
+	// trace_spans 调用链。前端评测详情据此深链到既有 trace 瀑布图，逐条 debug 工具入参/出参/绕路，
+	// 无需在评测结果里重复存一份结构化轨迹。
+	RequestID string `json:"request_id,omitempty"`
+
 	// Agent 评测期望标注（从 QAPair 透传，供 Worker 组装 references；QA/RAG 留空）
 	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名
 	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列
@@ -250,6 +255,9 @@ type EvaluationResult struct {
 
 	// 动态指标载体:注册表驱动的 name->value(与上面固定字段并存以兼容)
 	Scores map[string]float64 `json:"scores,omitempty"`
+
+	// RequestID 本条 QA 运行的子 request_id（Agent 类型才有），前端据此深链到 trace 瀑布图。
+	RequestID string `json:"request_id,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 }

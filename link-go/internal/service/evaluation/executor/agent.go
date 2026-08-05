@@ -6,8 +6,20 @@ import (
 	"fmt"
 	"time"
 
+	agentctx "link/internal/model/agent"
 	domeval "link/internal/model/evaluation"
 )
+
+// withItemRequestID 在任务级 rid 基础上派生「每条 QA」的子 rid（形如 <base>#<序号>），
+// 使单条 Agent 会话在 audit_logs/Loki 中既可独立检索、又通过前缀归属同一评测任务。
+// 上游未注入 rid 时原样返回 ctx，不强行造 rid（保持"无 rid 即不追踪"语义）。
+func withItemRequestID(ctx context.Context, index int) context.Context {
+	base, ok := agentctx.GetRequestID(ctx)
+	if !ok || base == "" {
+		return ctx
+	}
+	return agentctx.WithRequestID(ctx, fmt.Sprintf("%s#%d", base, index+1))
+}
 
 // 类型别名，简化使用
 type (
@@ -99,7 +111,12 @@ func (e *AgentExecutor) Execute(ctx context.Context, task *EvaluationTaskConfig,
 		}
 
 		// 为每个 QA 设置单独的超时，并测量墙钟耗时（供 latency_ms 指标，失败路径也记录）
-		qaCtx, cancel := context.WithTimeout(ctx, e.timeout)
+		// 派生每条 QA 的子 rid，使被测 Agent 的本轮运行可独立追踪。
+		qaCtx, cancel := context.WithTimeout(withItemRequestID(ctx, i), e.timeout)
+		// 把派生出的子 rid 落到结果上，供前端深链到该轮 trace 瀑布图（失败路径也保留，便于查错）。
+		if rid, ok := agentctx.GetRequestID(qaCtx); ok {
+			results[i].RequestID = rid
+		}
 		start := time.Now()
 		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
 		results[i].LatencyMs = time.Since(start).Milliseconds()
@@ -149,7 +166,7 @@ func (e *AgentExecutor) ExecuteSequential(ctx context.Context, task *EvaluationT
 	results := make([]*QAResult, 0, len(dataset))
 
 	// 顺序执行
-	for _, qa := range dataset {
+	for i, qa := range dataset {
 		result := &QAResult{
 			Question:        qa.Question,
 			ReferenceAnswer: qa.ReferenceAnswer,
@@ -159,7 +176,10 @@ func (e *AgentExecutor) ExecuteSequential(ctx context.Context, task *EvaluationT
 		}
 
 		// 为每个 QA 设置单独的超时，并测量墙钟耗时（供 latency_ms 指标）
-		qaCtx, cancel := context.WithTimeout(ctx, e.timeout)
+		qaCtx, cancel := context.WithTimeout(withItemRequestID(ctx, i), e.timeout)
+		if rid, ok := agentctx.GetRequestID(qaCtx); ok {
+			result.RequestID = rid
+		}
 		start := time.Now()
 		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
 		result.LatencyMs = time.Since(start).Milliseconds()

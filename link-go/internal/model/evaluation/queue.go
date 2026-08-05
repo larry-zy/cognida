@@ -19,4 +19,11 @@ type TaskQueue interface {
 	AcquireSlot(ctx context.Context) (bool, error)
 	// ReleaseSlot 释放并发槽位
 	ReleaseSlot(ctx context.Context) error
+	// PendingIDs 返回当前仍排队（尚未出队）的任务 ID 快照。
+	// 供 Worker 启动恢复时去重：避免对合法排队中的任务重复入队。
+	PendingIDs(ctx context.Context) ([]string, error)
+	// ResetSlots 将并发槽位计数清零。
+	// 仅在 Worker 启动、本进程尚无任务持槽时调用——用于回收上次进程被杀时
+	// 因未 ReleaseSlot 而泄漏的槽位计数。
+	ResetSlots(ctx context.Context) error
 }

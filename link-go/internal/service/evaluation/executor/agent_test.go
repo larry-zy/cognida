@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	agentctx "link/internal/model/agent"
 	domeval "link/internal/model/evaluation"
 )
 
@@ -59,6 +60,44 @@ func TestAgentExecutor_CapturesRuntimeMetrics(t *testing.T) {
 	}
 	if r.LLMCalls != 5 {
 		t.Errorf("llm_calls = %d, want 5", r.LLMCalls)
+	}
+}
+
+// TestAgentExecutor_CapturesPerItemRequestID 验证每条 QA 派生并落上子 rid（<base>#<序号>），
+// 供前端深链到该轮 trace 瀑布图；失败路径也应保留 rid 以便查错。
+func TestAgentExecutor_CapturesPerItemRequestID(t *testing.T) {
+	okSvc := &fakeAgentService{result: &AgentChatResult{Answer: "A"}}
+	exec := NewAgentExecutor(okSvc, 5*time.Second)
+	config := &EvaluationTaskConfig{AgentID: "agent-1", Type: domeval.EvaluationTypeAgent}
+	dataset := []*QAPair{{Question: "Q1"}, {Question: "Q2"}}
+
+	ctx := agentctx.WithRequestID(context.Background(), "eval-abc123-def456")
+	results, err := exec.Execute(ctx, config, dataset)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if results[0].RequestID != "eval-abc123-def456#1" {
+		t.Errorf("item0 request_id = %q, want eval-abc123-def456#1", results[0].RequestID)
+	}
+	if results[1].RequestID != "eval-abc123-def456#2" {
+		t.Errorf("item1 request_id = %q, want eval-abc123-def456#2", results[1].RequestID)
+	}
+
+	// 失败路径也应带上 rid
+	errSvc := &fakeAgentService{err: errors.New("boom")}
+	execErr := NewAgentExecutor(errSvc, 5*time.Second)
+	failResults, _ := execErr.Execute(ctx, config, []*QAPair{{Question: "Q"}})
+	if failResults[0].Success {
+		t.Fatal("expected failure result")
+	}
+	if failResults[0].RequestID != "eval-abc123-def456#1" {
+		t.Errorf("失败路径 request_id = %q, want eval-abc123-def456#1", failResults[0].RequestID)
+	}
+
+	// 无 rid 上游（裸 ctx）不应造 rid，保持「无 rid 即不追踪」语义
+	bare, _ := exec.Execute(context.Background(), config, []*QAPair{{Question: "Q"}})
+	if bare[0].RequestID != "" {
+		t.Errorf("裸 ctx request_id = %q, want empty", bare[0].RequestID)
 	}
 }
 

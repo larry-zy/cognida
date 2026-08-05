@@ -162,6 +162,9 @@ type EvaluationResultModel struct {
 	// 用 []byte 而非 string:空时为 nil 写入 SQL NULL,避免空串 '' 触发 JSON 列非法文本错误(与 Metrics 列一致)。
 	Scores []byte `gorm:"column:scores;type:json" json:"scores,omitempty"`
 
+	// 本条 QA 运行的子 request_id（Agent 类型才有），前端据此深链到 trace 瀑布图。
+	RequestID string `gorm:"column:request_id;type:varchar(96);index:idx_request_id" json:"request_id,omitempty"`
+
 	CreatedAt time.Time `gorm:"column:created_at;not null" json:"created_at"`
 }
 
@@ -194,6 +197,7 @@ func (m *EvaluationResultModel) ToDomain() *evaluation.EvaluationResult {
 		LLMScore:           m.LLMScore,
 		LLMReasoning:       m.LLMReasoning,
 		SemanticSimilarity: m.SemanticSimilarity,
+		RequestID:          m.RequestID,
 		CreatedAt:          m.CreatedAt,
 	}
 
@@ -238,6 +242,7 @@ func FromDomainEvaluationResult(result *evaluation.EvaluationResult) *Evaluation
 		LLMScore:           result.LLMScore,
 		LLMReasoning:       result.LLMReasoning,
 		SemanticSimilarity: result.SemanticSimilarity,
+		RequestID:          result.RequestID,
 		CreatedAt:          result.CreatedAt,
 	}
 

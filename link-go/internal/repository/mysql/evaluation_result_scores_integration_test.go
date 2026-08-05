@@ -43,6 +43,8 @@ func TestEvaluationResultScoresRoundTrip(t *testing.T) {
 		ReferenceAnswer: "约 38 万公里",
 		GeneratedAnswer: "大约 384400 公里",
 		Success:         true,
+		// 本条 QA 的子 request_id（供前端深链到 trace 瀑布图）
+		RequestID: taskID + "-abcd1234#1",
 		// 固定指标列
 		Precision: f64(0.75),
 		ROUGE1:    f64(0.42),
@@ -87,6 +89,10 @@ func TestEvaluationResultScoresRoundTrip(t *testing.T) {
 	}
 	if r.GeneratedAnswer != want.GeneratedAnswer {
 		t.Errorf("generated_answer: want %q, got %q", want.GeneratedAnswer, r.GeneratedAnswer)
+	}
+	// 子 request_id 原样回读，供前端深链 trace 瀑布图
+	if r.RequestID != want.RequestID {
+		t.Errorf("request_id: want %q, got %q", want.RequestID, r.RequestID)
 	}
 }
 

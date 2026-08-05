@@ -6,11 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
-	"link/internal/service/evaluation/executor"
+	agentctx "link/internal/model/agent"
 	domeval "link/internal/model/evaluation"
+	"link/internal/service/evaluation/executor"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -88,12 +93,82 @@ func (w *EvaluationWorker) Run() error {
 	w.running = true
 	w.mu.Unlock()
 
+	// 启动恢复：把上次进程被杀（如部署重启）时遗留的在途任务重新入队，
+	// 并清零可能泄漏的并发槽位计数。必须在 workerLoop 之前、同步执行，
+	// 避免恢复入队与正常消费竞争，也确保 count 清零时本进程尚无 worker 持槽。
+	w.recoverStuckTasks(context.Background())
+
 	log.Printf("[Worker] Starting worker loop in goroutine")
 	w.wg.Add(1)
 	go w.workerLoop()
 
 	log.Printf("[Worker] Worker started successfully")
 	return nil
+}
+
+// recoverStuckTasks 启动时恢复被中断的评测任务。
+//
+// 背景：executeTask 全程不写 DB 的 running 状态（只写 Redis 进度），任务在 DB 中
+// 从 pending 直接跳到 completed/failed。若进程在执行途中被杀（部署重启等），任务已被
+// BRPOP 移出队列却永远停在 pending，无自动重试 —— 这正是孤儿任务的成因。
+//
+// 恢复策略（以 DB 为准）：扫描 DB 中未完结（pending/running）的任务，凡「已不在队列里」的
+// 一律重新入队。仍在队列中的 pending 任务会被正常消费，跳过以免重复入队 → 重复执行。
+func (w *EvaluationWorker) recoverStuckTasks(ctx context.Context) {
+	// 回收上次进程被杀泄漏的并发槽位计数（此刻本进程尚无 worker 持槽，清零安全）。
+	if err := w.queue.ResetSlots(ctx); err != nil {
+		log.Printf("[Worker][Recover] reset slots failed: %v", err)
+	}
+
+	// 当前仍排队中的任务 ID 集合，用于去重。
+	queued := make(map[string]struct{})
+	if ids, err := w.queue.PendingIDs(ctx); err != nil {
+		log.Printf("[Worker][Recover] read queue failed: %v", err)
+	} else {
+		for _, id := range ids {
+			queued[id] = struct{}{}
+		}
+	}
+
+	var recovered int
+	for _, st := range []domeval.TaskStatus{domeval.TaskStatusPending, domeval.TaskStatusRunning} {
+		status := st
+		tasks, _, err := w.taskRepo.List(ctx, &domeval.TaskFilter{
+			Status:   &status,
+			Page:     1,
+			PageSize: 1000,
+		})
+		if err != nil {
+			log.Printf("[Worker][Recover] list %s tasks failed: %v", status, err)
+			continue
+		}
+		for _, t := range tasks {
+			if t == nil {
+				continue
+			}
+			if _, ok := queued[t.ID]; ok {
+				continue // 仍在队列里，会被正常消费
+			}
+			// running 说明上次执行到一半被中断，重置回 pending 以恢复状态语义。
+			if t.Status == domeval.TaskStatusRunning {
+				if err := w.taskRepo.UpdateStatus(ctx, t.ID, domeval.TaskStatusPending); err != nil {
+					log.Printf("[Worker][Recover] reset task %s to pending failed: %v", t.ID, err)
+				}
+			}
+			if err := w.queue.Enqueue(ctx, t.ID); err != nil {
+				log.Printf("[Worker][Recover] re-enqueue task %s failed: %v", t.ID, err)
+				continue
+			}
+			recovered++
+			log.Printf("[Worker][Recover] re-enqueued stuck task %s (was %s)", t.ID, status)
+		}
+	}
+
+	if recovered > 0 {
+		log.Printf("[Worker][Recover] re-enqueued %d stuck task(s) on startup", recovered)
+	} else {
+		log.Printf("[Worker][Recover] no stuck tasks to recover")
+	}
 }
 
 // workerLoop Worker 主循环
@@ -194,7 +269,13 @@ func (w *EvaluationWorker) dequeue() (string, error) {
 
 // executeTask 执行评测任务
 func (w *EvaluationWorker) executeTask(taskID string) {
-	ctx := context.Background()
+	// 注入 task 级 request_id，使本次评测的全链路（被测 Agent 运行→其 LLM/工具调用→
+	// audit_logs/Loki→跨进程调 Python 指标计算的 X-Request-ID）统一挂在同一 rid 下，
+	// 可按 rid 检索一整次评测。rid 内嵌 taskID 便于反查，尾缀 uuid 区分同一任务的多次重跑。
+	// 被测 Agent 此前跑在裸 context.Background() 上，无 rid，运行完全脱离追踪链路。
+	requestID := fmt.Sprintf("%s-%s", taskID, uuid.New().String()[:8])
+	ctx := agentctx.WithRequestID(context.Background(), requestID)
+	log.Printf("[Worker] task %s trace request_id=%s", taskID, requestID)
 
 	// 更新进度：开始加载
 	w.updateProgress(ctx, taskID, &domeval.Progress{
@@ -217,6 +298,20 @@ func (w *EvaluationWorker) executeTask(taskID string) {
 	if err != nil {
 		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to parse config: %w", err), 0)
 		return
+	}
+
+	// 2.1 数据源上下文：让评测跑的 Agent 与线上执行的 Agent 走同一条数据链路。
+	// 生产在 agent_handler 用 WithDatasourceID 把查询类工具路由到会话选定的外部数据源
+	// （如 ecommerce_demo）；评测侧此前只挂 request_id，被测 Agent 落到默认业务库，
+	// 而数据集 golden 又是基于外部库算的 → 指标必然失真。此处从任务 config 读 datasource_id
+	// 注入 ctx（并补 tenant_id/tool_scope，外部数据源 Acquire 依赖租户、评测只读），
+	// 使 sql_execute/get_schema 等工具查到与 golden 同一个库。为空则保持查业务库，向后兼容。
+	if dsID := configString(config.Config, "datasource_id"); dsID != "" {
+		tenantID := configTenantID(config.Config, 1)
+		ctx = agentctx.WithDatasourceID(ctx, dsID)
+		ctx = agentctx.WithTenantID(ctx, tenantID)
+		ctx = agentctx.WithToolScope(ctx, "read")
+		log.Printf("[Worker] task %s routed to datasource_id=%s (tenant=%d)", taskID, dsID, tenantID)
 	}
 
 	// 3. 加载数据集
@@ -322,6 +417,36 @@ func (w *EvaluationWorker) parseTaskConfig(task *domeval.EvaluationTask) (*domev
 	}
 
 	return config, nil
+}
+
+// configString 从任务 config map 安全读取字符串值（缺失/类型不符返回空串）。
+func configString(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	if v, ok := m[key].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// configTenantID 从任务 config 读取 tenant_id（JSON 数字解析为 float64，也兼容字符串），
+// 缺省返回 def。外部数据源 Acquire 依赖 ctx 中的 tenant，评测默认落 dev 租户 1。
+func configTenantID(m map[string]interface{}, def int64) int64 {
+	if m == nil {
+		return def
+	}
+	switch n := m["tenant_id"].(type) {
+	case float64:
+		if n > 0 {
+			return int64(n)
+		}
+	case string:
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return def
 }
 
 // computeMetrics 计算评测指标
@@ -605,6 +730,9 @@ func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, confi
 
 			// 动态指标载体（注册表驱动，name->value）
 			Scores: qa.Scores,
+
+			// 本条 QA 的子 request_id，供前端深链到该轮 trace 瀑布图
+			RequestID: qa.RequestID,
 		}
 	}
 
@@ -747,6 +875,7 @@ func convertQAResultsToApp(results []*domeval.QAResult) []*QAResult {
 			LatencyMs:          r.LatencyMs,
 			TokensUsed:         r.TokensUsed,
 			LLMCalls:           r.LLMCalls,
+			RequestID:          r.RequestID,
 			ExpectedTools:      r.ExpectedTools,
 			ExpectedSteps:      r.ExpectedSteps,
 			Precision:          r.Precision,

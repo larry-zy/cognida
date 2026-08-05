@@ -131,6 +131,9 @@ type QAResult struct {
 	TokensUsed int   `json:"tokens_used,omitempty"` // 本轮消耗总 token 数
 	LLMCalls   int   `json:"llm_calls,omitempty"`   // 本轮 LLM 调用次数（ReAct 迭代数）
 
+	// RequestID 本条 QA 运行的子 request_id，供前端深链到 trace 瀑布图。
+	RequestID string `json:"request_id,omitempty"`
+
 	// 检索指标
 	Precision *float64 `json:"precision,omitempty"`
 	Recall    *float64 `json:"recall,omitempty"`

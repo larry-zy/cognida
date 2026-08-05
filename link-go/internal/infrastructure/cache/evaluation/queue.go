@@ -157,6 +157,22 @@ func (q *EvaluationQueue) GetSize(ctx context.Context) (int64, error) {
 	return q.client.LLen(ctx, QueueKey).Result()
 }
 
+// PendingIDs 返回当前仍在队列中（尚未出队）的任务 ID 快照。
+// 供 Worker 启动恢复去重使用——LRANGE 只读，不影响队列。
+func (q *EvaluationQueue) PendingIDs(ctx context.Context) ([]string, error) {
+	ids, err := q.client.LRange(ctx, QueueKey, 0, -1).Result()
+	if err != nil {
+		return nil, fmt.Errorf("list pending failed: %w", err)
+	}
+	return ids, nil
+}
+
+// ResetSlots 将并发槽位计数清零（删除 eval:count）。
+// 仅在 Worker 启动、本进程尚无任务持槽时调用，回收上次进程被杀泄漏的计数。
+func (q *EvaluationQueue) ResetSlots(ctx context.Context) error {
+	return q.client.Del(ctx, CountKey).Err()
+}
+
 // Clear 清空队列
 func (q *EvaluationQueue) Clear(ctx context.Context) error {
 	return q.client.Del(ctx, QueueKey).Err()
