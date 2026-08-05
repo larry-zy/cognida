@@ -64,7 +64,10 @@ class PrecisionGrader(BaseGrader):
                 metrics={"precision": 0.0},
             )
 
-        precision = precision_at_k([retrieved_relevant], k=k)
+        # precision_at_k 是「逐条」接口，入参为单条布尔相关性序列（1D）。
+        # 历史缺陷：此处包成 [retrieved_relevant]（2D），[:k] 取到唯一的内层 list、
+        # 非空即真 → 计数恒 1、除以 min(k,1)=1 → precision 恒 100%。去掉外层包裹。
+        precision = precision_at_k(retrieved_relevant, k=k)
         score = precision * 100  # 转换为百分比
 
         return GraderScore(
@@ -183,10 +186,12 @@ class NDCGGrader(BaseGrader):
             retrieved_gains: 检索结果的增益值 (优先使用)
             k: top-k 值
         """
+        # ndcg_at_k 接受单条相关性/增益序列（1D）。历史缺陷：包成 2D 后
+        # `float(r)` 作用在内层 list 上抛 TypeError 被基类吞 → ndcg 恒 0。去掉外层包裹。
         if retrieved_gains:
-            ndcg = ndcg_at_k([retrieved_gains], k=k)
+            ndcg = ndcg_at_k(retrieved_gains, k=k)
         elif retrieved_relevant:
-            ndcg = ndcg_at_k([retrieved_relevant], k=k)
+            ndcg = ndcg_at_k(retrieved_relevant, k=k)
         else:
             return GraderScore(
                 name=self.name,
@@ -248,7 +253,9 @@ class MRRGrader(BaseGrader):
                 metrics={"mrr": 0.0},
             )
 
-        mrr_value = mrr([retrieved_relevant])
+        # mrr 接受单条布尔序列（1D）。历史缺陷：包成 [retrieved_relevant]（2D），
+        # 首元素为非空内层 list、恒真 → 首命中排名恒 1 → mrr 恒 100%。去掉外层包裹。
+        mrr_value = mrr(retrieved_relevant)
         score = mrr_value * 100
 
         return GraderScore(
@@ -304,7 +311,9 @@ class MAPGrader(BaseGrader):
                 metrics={"map": 0.0},
             )
 
-        ap = ap_at_k([retrieved_relevant], k=k)
+        # 单查询 AP：map_at_k 对"查询列表"求 AP 均值，单元素列表即等价于该查询的 AP。
+        # （历史此处误用未导入的 ap_at_k，触发 NameError；map_at_k 已导入且语义一致。）
+        ap = map_at_k([retrieved_relevant], k=k)
         score = ap * 100
 
         return GraderScore(

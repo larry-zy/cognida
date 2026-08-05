@@ -1,19 +1,23 @@
 """生成评测指标 (ROUGE, BLEU)。"""
 
 import math
-import re
 from collections import Counter
 from typing import List, Sequence
 
 from pydantic import BaseModel
 
+from .tokenizer import remove_punctuation, tokenize
 
-def _normalize(text: str) -> str:
-    """标准化文本（小写、去除标点）。"""
-    text = text.lower()
-    text = re.sub(r"[^\w\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+
+def _tokens(text: str) -> List[str]:
+    """分词为 token 列表（中文走 jieba、英文按词切分、大小写归一）。
+
+    历史缺陷：旧实现 `re.sub(r"[^\\w\\s]"," ").split()` 只按空白切词，中文句子无空格
+    会整句塌成 1 个 token，导致 ROUGE/BLEU 在中文上恒近 0（除非逐字完全一致）。
+    改为复用 tokenizer.tokenize（jieba 中文分词 + 英文分词），去标点与空白 token。
+    """
+    toks = tokenize(remove_punctuation(text), language="auto")
+    return [t for t in (tok.strip().lower() for tok in toks) if t]
 
 
 def _get_ngrams(tokens: List[str], n: int) -> Counter:
@@ -79,8 +83,8 @@ def bleu_at_n(
     Returns:
         BLEU-@N 分数
     """
-    ref_tokens = _normalize(reference).split()
-    hyp_tokens = _normalize(hypothesis).split()
+    ref_tokens = _tokens(reference)
+    hyp_tokens = _tokens(hypothesis)
 
     if n < 1 or n > 4:
         raise ValueError("n must be between 1 and 4")
@@ -124,8 +128,8 @@ def rouge_l(reference: str, hypothesis: str) -> float:
 
         return dp[m][n]
 
-    ref_tokens = _normalize(reference).split()
-    hyp_tokens = _normalize(hypothesis).split()
+    ref_tokens = _tokens(reference)
+    hyp_tokens = _tokens(hypothesis)
 
     if not ref_tokens or not hyp_tokens:
         return 0.0
@@ -153,8 +157,8 @@ def rouge_n(reference: str, hypothesis: str, n: int = 2) -> float:
     Returns:
         ROUGE-N F1 分数
     """
-    ref_tokens = _normalize(reference).split()
-    hyp_tokens = _normalize(hypothesis).split()
+    ref_tokens = _tokens(reference)
+    hyp_tokens = _tokens(hypothesis)
 
     ref_ngrams = _get_ngrams(ref_tokens, n)
     hyp_ngrams = _get_ngrams(hyp_tokens, n)

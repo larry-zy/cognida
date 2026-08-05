@@ -22,17 +22,67 @@ def _graded_accuracy(sim: float) -> float:
     return (sim - _ACC_SIM_LOW) / (_ACC_SIM_HIGH - _ACC_SIM_LOW)
 
 
+# 字母+数字混合的 ID/编码（如 E2E001、ORD-123、SKU_9），大小写不敏感。
+_ID_RE = re.compile(r"(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{2,}")
+# 纯数字（含千分位与小数）：1,234 / 384400 / 3.14 / 12.0。
+_NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _normalize_number(raw: str) -> Optional[str]:
+    """把数字串归一化为可比字符串：去千分位、整数去 .0、无效返回 None。"""
+    try:
+        val = float(raw.replace(",", ""))
+    except ValueError:
+        return None
+    if val.is_integer():
+        return str(int(val))
+    return repr(val)
+
+
+def _salient_tokens(text: str) -> set:
+    """抽取答案里的"关键事实 token"：ID/编码 + 归一化后的数字。
+
+    数据类问答的正确性主要落在具体数值/单号上（金额、订单数、E2E001 之类的 ID）。
+    仅靠语义相似度时，"表述不同但数值全对"的答案会被压分——用这些 token 的覆盖率兜底。
+    先扣掉 ID 片段再抽数字，避免把 E2E001 里的 001 当独立数字重复计入。
+    """
+    ids = {m.group(0).lower() for m in _ID_RE.finditer(text)}
+    residual = _ID_RE.sub(" ", text)
+    nums = {n for n in (_normalize_number(m.group(0)) for m in _NUM_RE.finditer(residual)) if n}
+    return ids | nums
+
+
+def _numeric_coverage(reference: str, output: str) -> Optional[float]:
+    """参考答案里的关键事实 token 在输出中命中的比例；无此类 token 返回 None。"""
+    ref_tokens = _salient_tokens(reference)
+    if not ref_tokens:
+        return None
+    out_tokens = _salient_tokens(output)
+    return len(ref_tokens & out_tokens) / len(ref_tokens)
+
+
 def answer_accuracy_items(
     references: List[str],
     outputs: List[str],
 ) -> List[float]:
-    """逐样本的分级准确度（0-1），供逐条落库；聚合值即其均值。"""
+    """逐样本的分级准确度（0-1），供逐条落库；聚合值即其均值。
+
+    历史缺陷：仅用语义相似度做 answer_accuracy，数值型答案（"客单价 128.5 元""共 6 万单"）
+    表述稍有差异就被 _graded_accuracy 压到低分，冤枉了数值全对的回答。此处用关键事实
+    token（金额/数量/单号/ID）的覆盖率给准确度兜底：final = max(分级语义, 数值覆盖)。
+    参考答案里没有可比数值/ID 时（纯文字结论），退回纯语义分。
+    """
     if len(references) != len(outputs):
         raise ValueError("references 和 outputs 长度必须相同")
-    return [
-        _graded_accuracy(compute_semantic_metrics([ref], [out]).get("similarity", 0.0))
-        for ref, out in zip(references, outputs)
-    ]
+
+    items: List[float] = []
+    for ref, out in zip(references, outputs):
+        graded = _graded_accuracy(
+            compute_semantic_metrics([ref], [out]).get("similarity", 0.0)
+        )
+        cov = _numeric_coverage(ref, out)
+        items.append(max(graded, cov) if cov is not None else graded)
+    return items
 
 
 def answer_accuracy(

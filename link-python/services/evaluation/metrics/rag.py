@@ -5,6 +5,17 @@ from typing import Any, Dict, List
 from .retrieval import compute_retrieval_metrics
 from .generation import compute_generation_metrics
 from .semantic import compute_semantic_metrics
+from .tokenizer import remove_punctuation, tokenize
+
+
+def _word_set(text: str) -> set:
+    """把文本切成去重词集合（中文 jieba、英文按词、大小写归一）。
+
+    历史缺陷：faithfulness/context_relevance 用 re.findall(r"\\w+") 抽词，中文没有空格，
+    一整段中文会被 \\w+ 当作 1 个"词"，词集合几乎不可能相交 → 忠实度/相关性恒近 0。
+    改用 tokenizer.tokenize 做真正的中文分词。
+    """
+    return {t for t in (tok.strip().lower() for tok in tokenize(remove_punctuation(text), language="auto")) if t}
 
 
 def faithfulness(
@@ -28,23 +39,20 @@ def faithfulness(
     if not answers:
         return 0.0
 
-    import re
-
     total_faithfulness = 0.0
 
     for answer, contexts in zip(answers, retrieved_contexts):
         if not answer or not contexts:
             continue
 
-        # 提取答案中的关键词（去掉停用词后的词）
-        words = set(re.findall(r"\w+", answer.lower()))
+        # 提取答案中的关键词（中文分词后的词集合）
+        words = _word_set(answer)
 
         if not words:
             continue
 
         # 构建检索内容的词集合
-        context_text = " ".join(contexts).lower()
-        context_words = set(re.findall(r"\w+", context_text))
+        context_words = _word_set(" ".join(contexts))
 
         # 计算答案中有多少词出现在检索内容中
         overlap = len(words & context_words)
@@ -76,23 +84,20 @@ def context_relevance(
     if not questions:
         return 0.0
 
-    import re
-
     total_relevance = 0.0
 
     for question, contexts in zip(questions, retrieved_contexts):
         if not question or not contexts:
             continue
 
-        # 提取问题中的关键词
-        question_words = set(re.findall(r"\w+", question.lower()))
+        # 提取问题中的关键词（中文分词后的词集合）
+        question_words = _word_set(question)
 
         if not question_words:
             continue
 
         # 构建检索内容的词集合
-        context_text = " ".join(contexts).lower()
-        context_words = set(re.findall(r"\w+", context_text))
+        context_words = _word_set(" ".join(contexts))
 
         # 计算问题中有多少词在检索内容中
         overlap = len(question_words & context_words)
