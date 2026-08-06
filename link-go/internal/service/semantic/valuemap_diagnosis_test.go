@@ -40,27 +40,45 @@ func TestDiagnoseValueMap_DeadAndGap(t *testing.T) {
 		RowCount: 10, Distinct: 3,
 		TopValues: vf("completed", 6, "shipped", 3, "paid", 1),
 	}
-	dead, gaps, status := diagnoseValueMap(vm, p)
+	dead, suspects, gaps, status := diagnoseValueMap(vm, p)
 	if status != DiagStatusOK {
 		t.Fatalf("状态应为 ok, got %s", status)
 	}
 	if len(dead) != 1 || dead[0].PhysicalValue != "refunded" || dead[0].Label != "已退款" {
 		t.Errorf("死映射应为 已退款→refunded, got %+v", dead)
 	}
+	if len(suspects) != 0 {
+		t.Errorf("精确匹配不应产生大小写疑似: %+v", suspects)
+	}
 	if len(gaps) != 1 || gaps[0].Value != "paid" || gaps[0].Count != 1 {
 		t.Errorf("覆盖缺口应为 paid×1, got %+v", gaps)
 	}
 }
 
-func TestDiagnoseValueMap_CaseInsensitive(t *testing.T) {
-	// 纯大小写差异不应误判为死映射（_ci collation 口径，仅折叠大小写）。
+func TestDiagnoseValueMap_CaseOnlyIsSuspect(t *testing.T) {
+	// 纯大小写差异：_ci 下良性、不报硬死映射也不报缺口，但作大小写疑似软告警单列，
+	// 以便区分大小写的 collation（_bin/_cs）下能查出潜在死映射。
 	vm := map[string]string{"已完成": "Completed", "已发货": "SHIPPED"}
 	p := &dataprofile.ColumnProfile{
 		RowCount: 5, Distinct: 2, TopValues: vf("completed", 3, "shipped", 2),
 	}
-	dead, gaps, status := diagnoseValueMap(vm, p)
+	dead, suspects, gaps, status := diagnoseValueMap(vm, p)
 	if status != DiagStatusOK || len(dead) != 0 || len(gaps) != 0 {
-		t.Errorf("纯大小写差异不应产生死映射或缺口: dead=%+v gaps=%+v status=%s", dead, gaps, status)
+		t.Errorf("纯大小写差异不应产生硬死映射或缺口: dead=%+v gaps=%+v status=%s", dead, gaps, status)
+	}
+	if len(suspects) != 2 {
+		t.Fatalf("应有 2 条大小写疑似, got %+v", suspects)
+	}
+	// 已按标签排序：已发货 < 已完成（rune 序）。校验回指的真实值。
+	byLabel := map[string]SuspectMapping{}
+	for _, s := range suspects {
+		byLabel[s.Label] = s
+	}
+	if byLabel["已完成"].PhysicalValue != "Completed" || byLabel["已完成"].RealValue != "completed" {
+		t.Errorf("已完成 疑似项回指不符: %+v", byLabel["已完成"])
+	}
+	if byLabel["已发货"].RealValue != "shipped" {
+		t.Errorf("已发货 疑似项回指不符: %+v", byLabel["已发货"])
 	}
 }
 
@@ -69,12 +87,15 @@ func TestDiagnoseValueMap_WhitespaceIsDead(t *testing.T) {
 	// 这正是旧版 TrimSpace 会漏报的一类真实失效。
 	vm := map[string]string{"已完成": " completed"} // 前导空格笔误
 	p := &dataprofile.ColumnProfile{RowCount: 5, Distinct: 1, TopValues: vf("completed", 5)}
-	dead, gaps, status := diagnoseValueMap(vm, p)
+	dead, suspects, gaps, status := diagnoseValueMap(vm, p)
 	if status != DiagStatusOK {
 		t.Fatalf("状态应为 ok, got %s", status)
 	}
 	if len(dead) != 1 || dead[0].PhysicalValue != " completed" {
 		t.Errorf("带前导空白的映射应报死映射: %+v", dead)
+	}
+	if len(suspects) != 0 {
+		t.Errorf("前导空白属硬死映射、非大小写疑似: %+v", suspects)
 	}
 	// 真实 completed 无标签覆盖（映射侧带空白不匹配）→ 覆盖缺口。
 	if len(gaps) != 1 || gaps[0].Value != "completed" {
@@ -90,9 +111,9 @@ func TestDiagnoseValueMap_Unreliable(t *testing.T) {
 	}
 	for name, p := range cases {
 		t.Run(name, func(t *testing.T) {
-			dead, gaps, status := diagnoseValueMap(map[string]string{"x": "y"}, p)
-			if status != DiagStatusNotEnum || dead != nil || gaps != nil {
-				t.Errorf("不可靠画像应返回 not_enum 且不产出条目: dead=%+v gaps=%+v status=%s", dead, gaps, status)
+			dead, suspects, gaps, status := diagnoseValueMap(map[string]string{"x": "y"}, p)
+			if status != DiagStatusNotEnum || dead != nil || suspects != nil || gaps != nil {
+				t.Errorf("不可靠画像应返回 not_enum 且不产出条目: dead=%+v suspects=%+v gaps=%+v status=%s", dead, suspects, gaps, status)
 			}
 		})
 	}
@@ -101,9 +122,9 @@ func TestDiagnoseValueMap_Unreliable(t *testing.T) {
 func TestDiagnoseValueMap_NoValueMapAllGaps(t *testing.T) {
 	// 无 ValueMap 的枚举列：全部真实值都是覆盖缺口，无死映射。
 	p := &dataprofile.ColumnProfile{RowCount: 3, Distinct: 2, TopValues: vf("a", 2, "b", 1)}
-	dead, gaps, status := diagnoseValueMap(nil, p)
-	if status != DiagStatusOK || len(dead) != 0 || len(gaps) != 2 {
-		t.Errorf("无映射枚举列应全为缺口: dead=%+v gaps=%+v status=%s", dead, gaps, status)
+	dead, suspects, gaps, status := diagnoseValueMap(nil, p)
+	if status != DiagStatusOK || len(dead) != 0 || len(suspects) != 0 || len(gaps) != 2 {
+		t.Errorf("无映射枚举列应全为缺口: dead=%+v suspects=%+v gaps=%+v status=%s", dead, suspects, gaps, status)
 	}
 }
 
@@ -158,6 +179,8 @@ func newDiagBundle() *model.ModelBundle {
 				ValueMap: map[string]string{"x": "y"}},
 			{ID: "d5", LogicalTableID: "ltX", Name: "悬挂", Expr: "foo", // 逻辑表缺失 + 有映射 → no_table
 				ValueMap: map[string]string{"x": "y"}},
+			{ID: "d6", LogicalTableID: "lt1", Name: "支付方式", Expr: "pay_method", // 大小写疑似
+				ValueMap: map[string]string{"支付宝": "Alipay"}},
 		},
 	}
 }
@@ -172,6 +195,8 @@ func TestDiagnoseValueMaps_Service(t *testing.T) {
 			{SchemaName: "link", ColumnName: "channel", RowCount: 10, Distinct: 2,
 				TopValues: vf("web", 7, "app", 3)},
 			{SchemaName: "link", ColumnName: "amount", RowCount: 10, Distinct: 10}, // 高基数非枚举
+			{SchemaName: "link", ColumnName: "pay_method", RowCount: 10, Distinct: 2,
+				TopValues: vf("alipay", 6, "wechat", 4)}, // 真实小写 alipay，映射写成 Alipay → 疑似
 		},
 	}}
 	svc := NewService(repo, &seqIDGen{}, nil, reader)
@@ -209,6 +234,14 @@ func TestDiagnoseValueMaps_Service(t *testing.T) {
 	// d5：逻辑表缺失 → no_table。
 	if byDim["d5"].Status != DiagStatusNoTable {
 		t.Errorf("d5 应为 no_table: %+v", byDim["d5"])
+	}
+	// d6：Alipay vs 真实 alipay → 大小写疑似（非硬死映射），端到端流经 SuspectMappings。
+	d6 := byDim["d6"]
+	if d6.Status != DiagStatusOK || len(d6.DeadMappings) != 0 || len(d6.SuspectMappings) != 1 {
+		t.Errorf("d6 应为大小写疑似: %+v", d6)
+	}
+	if len(d6.SuspectMappings) == 1 && d6.SuspectMappings[0].RealValue != "alipay" {
+		t.Errorf("d6 疑似项应回指真实值 alipay: %+v", d6.SuspectMappings)
 	}
 }
 

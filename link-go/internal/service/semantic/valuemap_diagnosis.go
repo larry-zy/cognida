@@ -44,6 +44,15 @@ type DeadMapping struct {
 	PhysicalValue string `json:"physical_value"` // 映射到的物理值（真实数据中缺失）
 }
 
+// SuspectMapping 一条「大小写疑似」映射：物理值仅在忽略大小写时命中真实数据、精确比对不同。
+// 在默认 _ci collation 下运行时能匹配（良性），但在区分大小写的 collation（_bin/_cs）下
+// 会恒匹配 0 行——即潜在死映射。故单列为软告警，不计入硬死映射（避免 _ci 下误报）。
+type SuspectMapping struct {
+	Label         string `json:"label"`          // 业务标签
+	PhysicalValue string `json:"physical_value"` // ValueMap 里的物理值
+	RealValue     string `json:"real_value"`     // 真实数据中大小写不同的对应值
+}
+
 // DimensionValueMapDiagnosis 单个维度的值映射诊断结果。
 type DimensionValueMapDiagnosis struct {
 	DimensionID   string `json:"dimension_id"`
@@ -57,8 +66,9 @@ type DimensionValueMapDiagnosis struct {
 	Distinct    int64 `json:"distinct"`     // 真实基数（画像）
 	RowCount    int64 `json:"row_count"`    // 画像时表行数
 
-	DeadMappings []DeadMapping                `json:"dead_mappings,omitempty"`
-	CoverageGaps []dataprofile.ValueFrequency `json:"coverage_gaps,omitempty"`
+	DeadMappings    []DeadMapping                `json:"dead_mappings,omitempty"`
+	SuspectMappings []SuspectMapping             `json:"suspect_mappings,omitempty"`
+	CoverageGaps    []dataprofile.ValueFrequency `json:"coverage_gaps,omitempty"`
 }
 
 // ValueMapDiagnosisReport 一个语义模型全部维度的值映射诊断汇总。
@@ -137,9 +147,10 @@ func (s *Service) DiagnoseValueMaps(ctx context.Context, tenantID int64, modelID
 
 		diag.Distinct = colProf.Distinct
 		diag.RowCount = colProf.RowCount
-		dead, gaps, status := diagnoseValueMap(dim.ValueMap, colProf)
+		dead, suspects, gaps, status := diagnoseValueMap(dim.ValueMap, colProf)
 		diag.Status = status
 		diag.DeadMappings = dead
+		diag.SuspectMappings = suspects
 		diag.CoverageGaps = gaps
 
 		// 未配映射的维度：仅当其列确是已采集枚举（status==ok）且存在缺口时才入报告，
@@ -156,43 +167,56 @@ func (s *Service) DiagnoseValueMaps(ctx context.Context, tenantID int64, modelID
 // 否则返回相应非 ok 状态且不产出条目（避免因截断/空表误报）。
 //
 // 物理值归一化用 normPhys（仅 ToLower、不 Trim）以贴合运行时真实语义：指标引擎
-// mapDimensionValues 把物理值「原样」拼进 `col = 'phys'`，故 MySQL 比较口径才是准绳——
-// 默认 _ci collation 大小写不敏感（据此折叠大小写，避免把大小写差异误判为死映射），但
-// 前导/尾随空白在运行时是显著的（MySQL 的 `=` 从不左裁空白，NO PAD collation 连尾随空白
-// 也显著）。故此处保留空白敏感：带空白错漏的映射在运行时确实恒匹配 0 行，应如实报为死映射。
-// 局限：区分大小写的 collation（_bin/_cs）下纯大小写笔误会漏报——为守住「_ci 下零误报」而
-// 接受的取舍。
-func diagnoseValueMap(valueMap map[string]string, p *dataprofile.ColumnProfile) (dead []DeadMapping, gaps []dataprofile.ValueFrequency, status string) {
+// mapDimensionValues 把物理值「原样」拼进 `col = 'phys'`，故 MySQL 比较口径才是准绳。
+// 三档判定，同时守住「_ci 下零误报」与「_bin/_cs 下不漏报」：
+//   - 硬死映射（dead）：忽略大小写后仍无命中——任何 collation 下都恒匹配 0 行（含前导/尾随
+//     空白笔误，因 MySQL `=` 从不左裁、NO PAD collation 连尾随空白也显著）。
+//   - 大小写疑似（suspect）：忽略大小写命中、但精确比对不同——_ci 下良性，_bin/_cs 下为潜在
+//     死映射。软告警单列，不并入 dead，避免默认 _ci 部署下误报。
+//   - 覆盖缺口（gap）：真实值未被任何映射（忽略大小写）覆盖。
+func diagnoseValueMap(valueMap map[string]string, p *dataprofile.ColumnProfile) (dead []DeadMapping, suspects []SuspectMapping, gaps []dataprofile.ValueFrequency, status string) {
 	// 可靠性门槛：必须有行、有枚举分布，且分布已采全（Distinct 未超过已截取的条数）。
 	captured := len(p.TopValues) > 0 && int64(len(p.TopValues)) >= p.Distinct
 	if p.RowCount == 0 || p.Distinct == 0 || !captured {
-		return nil, nil, DiagStatusNotEnum
+		return nil, nil, nil, DiagStatusNotEnum
 	}
 
-	realSet := make(map[string]struct{}, len(p.TopValues))
+	// 归一化集合（大小写不敏感）+ 原值集合（精确）+ 归一→原值映射（供疑似项回指真实值）。
+	normRealSet := make(map[string]struct{}, len(p.TopValues))
+	rawRealSet := make(map[string]struct{}, len(p.TopValues))
+	normToRaw := make(map[string]string, len(p.TopValues))
 	for _, v := range p.TopValues {
-		realSet[normPhys(v.Value)] = struct{}{}
+		n := normPhys(v.Value)
+		normRealSet[n] = struct{}{}
+		rawRealSet[v.Value] = struct{}{}
+		if _, ok := normToRaw[n]; !ok {
+			normToRaw[n] = v.Value
+		}
 	}
 	mappedSet := make(map[string]struct{}, len(valueMap))
 	for _, phys := range valueMap {
 		mappedSet[normPhys(phys)] = struct{}{}
 	}
 
-	// 死映射：ValueMap 指向的物理值不在真实枚举集合里。map 迭代序不稳定，按标签排序保证
-	// 报告输出确定（供 HTTP/前端消费，避免无谓 diff 抖动）。
+	// 死映射 / 大小写疑似：map 迭代序不稳定，按标签排序保证报告输出确定（供前端消费，避免抖动）。
 	for label, phys := range valueMap {
-		if _, ok := realSet[normPhys(phys)]; !ok {
+		if _, ok := normRealSet[normPhys(phys)]; !ok {
 			dead = append(dead, DeadMapping{Label: label, PhysicalValue: phys})
+			continue
+		}
+		if _, ok := rawRealSet[phys]; !ok {
+			suspects = append(suspects, SuspectMapping{Label: label, PhysicalValue: phys, RealValue: normToRaw[normPhys(phys)]})
 		}
 	}
 	sort.Slice(dead, func(i, j int) bool { return dead[i].Label < dead[j].Label })
+	sort.Slice(suspects, func(i, j int) bool { return suspects[i].Label < suspects[j].Label })
 	// 覆盖缺口：真实枚举值未被任何 ValueMap 物理值覆盖（按频次降序，画像已排序）。
 	for _, v := range p.TopValues {
 		if _, ok := mappedSet[normPhys(v.Value)]; !ok {
 			gaps = append(gaps, v)
 		}
 	}
-	return dead, gaps, DiagStatusOK
+	return dead, suspects, gaps, DiagStatusOK
 }
 
 // pickColumnProfile 从「按数据源+表」检索到的画像里取指定列的画像，并返回该列命中的
