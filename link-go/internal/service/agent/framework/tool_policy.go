@@ -97,11 +97,37 @@ type ToolPolicy struct {
 	Skill   string   // 命中的 skill 名（留痕用；纯 scope 策略可为空）
 }
 
+// metaToolExemptions 导航/元工具：不受 skill allowlist / deny 约束，仅校验 scope。
+// 这些工具是 LLM 重新路由的唯一出口——skill_invoke 切换/收窄技能、delegate_* 委派、
+// skill_list/skill_match 发现技能。若被某个窄白名单一并拦掉，LLM 将被锁死在错误技能里
+// 无法自救（Bug A 的死锁面）。故永远豁免其 deny/白名单判定；它们均为 read 级，scope 正常放行。
+var metaToolExemptions = map[string]struct{}{
+	"skill_invoke":      {},
+	"skill_list":        {},
+	"skill_match":       {},
+	"delegate_to_agent": {},
+	"delegate_parallel": {},
+}
+
+// isMetaTool 判定是否为导航/元工具（豁免 allowlist/deny，仅受 scope 约束）。
+func isMetaTool(tool string) bool {
+	_, ok := metaToolExemptions[tool]
+	return ok
+}
+
 // Permits 判定工具是否通过硬拦截（deny/白名单/scope）；不放行时返回稳定的拒绝原因标识。
-// 判定顺序：deny 优先 → 白名单模式 → scope 校验，三者均为必要条件。
+// 判定顺序：元工具豁免 → deny 优先 → 白名单模式 → scope 校验。
 // 注意：Permits 只覆盖硬拦截二态，审批第三态由 Evaluate 在其之上叠加。
 func (p *ToolPolicy) Permits(tool string) (bool, string) {
 	if p == nil {
+		return true, ""
+	}
+	if isMetaTool(tool) {
+		// 元工具豁免 deny/白名单（保证任何窄技能白名单下都能重新路由，杜绝死锁），
+		// 但仍校验 scope——元工具均为 read 级，正常放行。
+		if scopeLevel(p.Scope) < scopeLevel(RequiredToolScope(tool)) {
+			return false, BlockReasonScopeDenied
+		}
 		return true, ""
 	}
 	for _, d := range p.Deny {
@@ -172,6 +198,30 @@ func WithToolPolicy(ctx context.Context, policy *ToolPolicy) context.Context {
 func ToolPolicyFromContext(ctx context.Context) *ToolPolicy {
 	policy, _ := ctx.Value(toolPolicyCtxKey{}).(*ToolPolicy)
 	return policy
+}
+
+// ActivateSkillPolicy 由 LLM 显式调用 skill_invoke 命中技能时激活其工具白名单/黑名单：
+// 就地改写 ctx 中已注入的 *ToolPolicy（指针语义，改动对后续 gateToolCall 可见）。
+//
+// 设计变更（修复 Bug A）：入口词法预匹配只定 scope、不再自动把某个弱相关技能的
+// allowed_tools 装成硬白名单（避免误挂无关技能把 get_schema/sql_execute/render_ui 锁死）。
+// 工具约束改为「显式激活」——只有当 LLM 主动 skill_invoke 聚焦某技能时才收窄工具面，
+// 且导航元工具（见 metaToolExemptions）永不被收窄，保证 LLM 随时可再次 skill_invoke 切换。
+//
+// 空 allow 不进入白名单模式（纯指导技能无工具约束，仅记录 Skill 名）。
+// ctx 未注入策略时为 no-op：工具只持有值 ctx、无法回注新 ctx，仅在已设门的 Agent 上生效。
+func ActivateSkillPolicy(ctx context.Context, skillName string, allow, deny []string) {
+	policy := ToolPolicyFromContext(ctx)
+	if policy == nil {
+		return
+	}
+	policy.Skill = skillName
+	if len(allow) > 0 {
+		policy.Allow = append([]string(nil), allow...)
+	}
+	if len(deny) > 0 {
+		policy.Deny = append([]string(nil), deny...)
+	}
 }
 
 // ========================================

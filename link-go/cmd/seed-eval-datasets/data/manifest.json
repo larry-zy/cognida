@@ -1,14 +1,5 @@
 [
   {
-    "dataset_id": "scenario_ecommerce_agent",
-    "name": "电商场景 Agent 测评集（自造）",
-    "description": "贴合 ecommerce_demo 的多轮工具调用样本，带 expected_tools + expected_steps，命中全量 Agent 指标。",
-    "evaluation_type": "agent",
-    "supports_trajectory": true,
-    "records_file": "scenario_ecommerce_agent.jsonl",
-    "count": 5
-  },
-  {
     "dataset_id": "scenario_kb_qa",
     "name": "知识库场景 QA 测评集（自造）",
     "description": "贴合本系统知识库的问答样本，映射 question/reference_answer，用于 QA/RAG 指标。",
@@ -43,5 +34,14 @@
     "supports_trajectory": false,
     "records_file": "hf_xlam_agent.jsonl",
     "count": 80
+  },
+  {
+    "dataset_id": "scenario_ecommerce_agent",
+    "name": "电商场景 Agent 测评集（DB 现算）",
+    "description": "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 对齐 data-agent 真实工具（sql_execute/get_schema/render_ui），命中全量 Agent 指标。",
+    "evaluation_type": "agent",
+    "supports_trajectory": true,
+    "records_file": "scenario_ecommerce_agent.jsonl",
+    "count": 17
   }
 ]

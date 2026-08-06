@@ -105,8 +105,11 @@ const visible = computed({
   set: (v: boolean) => emit('update:modelValue', v)
 })
 
-/** 任务级聚合指标条目（动态：per-QA 均值 ∪ 后端扁平聚合） */
-const aggregateEntries = computed(() => taskAggregateEntries(props.detail))
+/** 任务级聚合指标条目（动态：per-QA 均值 ∪ 后端扁平聚合）。
+ *  剔除 success_rate——本弹窗已有独立「成功率」卡片（对所有评测类型通用），避免重复展示。 */
+const aggregateEntries = computed(() =>
+  taskAggregateEntries(props.detail).filter((e) => e.key !== 'success_rate')
+)
 
 /** 任务成功率（百分比数值） */
 const successRate = computed(() => taskSuccessRate(props.detail))

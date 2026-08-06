@@ -55,9 +55,15 @@ func TemplateCompose(dm *DataModel, question string) *UISpec {
 
 	// 2. 图表：按数据形态择一渲染。
 	//    - correlation 分析 + 二维点集 → 散点图；
+	//    - Meta.chart_kind 显式指定 pie/funnel（opt-in）→ 饼图/漏斗图（复用 /series）；
 	//    - 分类标签（非数值/非日期、类目不多）→ 柱状图；
 	//    - 其余时序序列 → 折线图（含预测段）。
+	//
+	// chart_kind 是「opt-in」提示：AssembleDataModel 默认不写入该键，故默认路径的
+	// 图表选型（散点/柱/线）与既有输出逐字节一致；仅当上游显式设置 Meta.chart_kind
+	// 时才改走饼图/漏斗图分支——PieChart/Funnel 与 BarChart 一样复用 /series（labels+actual）。
 	analysisType, _ := dm.Meta["analysis_type"].(string)
+	chartKind, _ := dm.Meta["chart_kind"].(string)
 	switch {
 	case analysisType == "correlation" && dm.Scatter != nil:
 		add(Component{
@@ -69,6 +75,26 @@ func TemplateCompose(dm *DataModel, question string) *UISpec {
 			},
 		})
 		included = append(included, "相关性散点图")
+	case chartKind == "pie" && dm.Series != nil && len(dm.Series.Actual) >= 2:
+		add(Component{
+			ID:   "chart",
+			Type: CompPieChart,
+			Props: map[string]interface{}{
+				"title":  seriesTitle(dm.Series),
+				"series": binding("/series"),
+			},
+		})
+		included = append(included, "占比饼图")
+	case chartKind == "funnel" && dm.Series != nil && len(dm.Series.Actual) >= 2:
+		add(Component{
+			ID:   "chart",
+			Type: CompFunnel,
+			Props: map[string]interface{}{
+				"title":  seriesTitle(dm.Series),
+				"series": binding("/series"),
+			},
+		})
+		included = append(included, "转化漏斗图")
 	case dm.Series != nil && len(dm.Series.Actual) >= 2:
 		chartType := CompLineChart
 		chartLabel := "趋势折线图"

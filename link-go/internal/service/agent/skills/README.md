@@ -60,20 +60,20 @@ skills/
 ### 查找 Skill
 
 ```go
-skill, err := skills.FindSkill("code-review")
-content, err := skills.GetSkillContent("code-review")
+skill, err := skills.FindSkill("text2sql-adhoc")
+content, err := skills.GetSkillContent("text2sql-adhoc")
 ```
 
 ### 按分类查找
 
 ```go
-skills := skills.FindSkillsByCategory("development")
+skills := skills.FindSkillsByCategory("data")
 ```
 
 ### 搜索匹配
 
 ```go
-matches := skills.SearchAllSkills("代码审查")
+matches := skills.SearchAllSkills("数据分析")
 ```
 
 ### 构建 Skill

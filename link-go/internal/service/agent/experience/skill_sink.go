@@ -37,8 +37,11 @@ func (s *SkillSink) Write(ctx context.Context, exp *domain_experience.Experience
 		return "", nil // 不满足落盘条件：静默跳过
 	}
 
+	// 名称必须能通过注册器校验（IsValidSkillName），否则沉淀出的技能加载时会被拒。
+	// slugify 保留 [a-z0-9\p{Han}]，正常与校验集合一致；这里再兜一层，
+	// 万一标题折叠后为空或含非法字符，回退到稳定的 experience-<id>。
 	name := slugify(exp.Title)
-	if name == "" {
+	if name == "" || !skills.IsValidSkillName(name) {
 		name = fmt.Sprintf("experience-%d", exp.ID)
 	}
 

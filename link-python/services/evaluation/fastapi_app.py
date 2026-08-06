@@ -42,6 +42,8 @@ from services.evaluation.metrics import (
     compute_llm_judge_metrics,
     # Agent 指标
     compute_agent_metrics,
+    # SQL 指标
+    compute_sql_metrics,
     # RAG 指标
     compute_rag_metrics,
     compute_retrieval_metrics,
@@ -384,6 +386,11 @@ class ComputeItem(BaseModel):
     tools_used: List[str] = []           # 实际调用的工具名（按调用顺序）
     trajectory: List[str] = []           # 实际步骤序列
     total_steps: int = 0                 # 步骤总数
+    # Text2SQL 评测字段：金标准/生成 SQL 文本 + 双方只读执行结果集（Go 侧采集）
+    gold_sql: str = ""                   # 金标准 SQL（sql_exact_match/sql_component_match）
+    generated_sql: str = ""              # Agent 生成的 SQL
+    result_set: List[Any] = []           # 生成 SQL 的结果集（行数组，sql_execution_accuracy）
+    gold_result_set: List[Any] = []      # 金标准 SQL 的结果集（行数组）
 
 
 class ComputeMetricsRequest(BaseModel):
@@ -438,6 +445,8 @@ _RAG_GRADERS = {"faithfulness", "context_relevance", "noise_ratio"}
 # Agent 家族评分器：走 compute_agent_metrics 专属批量算子（未注册进通用 registry，
 # 由本端点按 references/outputs 组装后计算，避免落入 unsupported）
 _AGENT_GRADERS = {"answer_accuracy", "tool_selection", "tool_order", "trajectory_match", "step_efficiency"}
+# SQL 家族评分器：走 compute_sql_metrics 专属批量算子（结果集无序比对需跨字段协同）。
+_SQL_GRADERS = {"sql_exact_match", "sql_component_match", "sql_execution_accuracy"}
 # 每项固定字段 -> 动态 scores map 的键映射(用于把固定字段镜像进 scores)
 _FIXED_SCORE_KEYS = [
     "precision", "recall", "ndcg", "rr",
@@ -462,10 +471,13 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
         requested = list(dict.fromkeys(request.graders))  # 去重保序
         supported_names: set[str] = set()
         agent_requested: set[str] = set()
+        sql_requested: set[str] = set()
         unsupported: List[str] = []
         for name in requested:
             if name in _AGENT_GRADERS:
                 agent_requested.add(name)  # Agent 家族走专属 compute_agent_metrics 路径
+            elif name in _SQL_GRADERS:
+                sql_requested.add(name)  # SQL 家族走专属 compute_sql_metrics 路径
             elif registry.exists(name):
                 supported_names.add(name)
             else:
@@ -754,6 +766,40 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
             if isinstance(agent_result.get("step_efficiency"), dict):
                 se = agent_result["step_efficiency"]
                 aggregate["step_optimal_ratio"] = se.get("optimal_ratio", 0.0)
+
+        # —— SQL 家族专属路径：按 references/outputs 组装后命中 compute_sql_metrics ——
+        # references 取 gold_sql/gold_result_set，outputs 取 generated_sql/result_set；
+        # 结构指标比对 SQL 文本，执行准确率无序比对两个结果集。
+        if sql_requested and request.items:
+            references = [
+                {
+                    "gold_sql": item.gold_sql,
+                    "gold_result_set": item.gold_result_set,
+                }
+                for item in request.items
+            ]
+            outputs = [
+                {
+                    "generated_sql": item.generated_sql,
+                    "result_set": item.result_set,
+                }
+                for item in request.items
+            ]
+            sql_result = compute_sql_metrics(
+                references=references,
+                outputs=outputs,
+                metrics=sorted(sql_requested),
+                return_items=True,
+            )
+            # 逐条落库：_items[i] 即第 i 条样本的分值 map（键名与聚合一致），
+            # 无法评估的样本对应键缺席（如未执行则无 sql_execution_accuracy）。
+            for i, item_scores in enumerate(sql_result.get("_items", [])):
+                if i < len(items_result) and item_scores:
+                    items_result[i].scores.update(item_scores)
+            # 聚合平铺（compute_sql_metrics 聚合本身即 name->value 标量）
+            for key in ("sql_exact_match", "sql_component_match", "sql_execution_accuracy"):
+                if key in sql_result:
+                    aggregate[key] = sql_result[key]
 
         return ComputeMetricsResponse(
             items=items_result,

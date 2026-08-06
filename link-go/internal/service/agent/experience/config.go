@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"link/internal/service/agent/skills"
 )
 
 // ConfigFromEnv 从环境变量装配 Worker 配置（缺省回落 DefaultConfig）：
@@ -49,8 +51,14 @@ func timeEnv(key string, def time.Time) time.Time {
 	return def
 }
 
-// SkillDirFromEnv 解析 skill 落盘目录：优先 EXPERIENCE_SKILL_DIR，
-// 否则回落到 LINK_SKILL_DIRS 的第一个目录，再否则 "./skills"。
+// SkillDirFromEnv 解析 skill 落盘目录，与技能加载侧（skills.InitializeFromEnv）对齐：
+//   - 优先 EXPERIENCE_SKILL_DIR；
+//   - 否则 LINK_SKILL_DIRS 的第一个目录（与加载侧显式配置同源）；
+//   - 再否则复用加载侧的默认候选清单（skills.DefaultSkillDirs），取首个「已存在」目录。
+//
+// 关键：默认场景不再写死 "./skills"（从 link-go/ 启动会落到 link-go/skills，而加载侧默认
+// 扫的是 ../skills，两者错位导致蒸馏产物不被加载）。取首个已存在的候选，保证落盘目录必在
+// 加载扫描范围内；候选全不存在时回落首个候选（Write 时 MkdirAll 创建），与加载侧首选一致。
 func SkillDirFromEnv() string {
 	if v := strings.TrimSpace(os.Getenv("EXPERIENCE_SKILL_DIR")); v != "" {
 		return v
@@ -59,6 +67,15 @@ func SkillDirFromEnv() string {
 		if first := strings.TrimSpace(strings.Split(v, ",")[0]); first != "" {
 			return first
 		}
+	}
+	candidates := skills.DefaultSkillDirs()
+	for _, d := range candidates {
+		if info, err := os.Stat(d); err == nil && info.IsDir() {
+			return d // 首个已存在的候选目录：加载侧必然也会扫描它
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0] // 都不存在：回落首个候选，与加载侧首选保持一致
 	}
 	return "./skills"
 }

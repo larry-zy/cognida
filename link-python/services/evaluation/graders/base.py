@@ -56,6 +56,7 @@ class EvalType(str, Enum):
     LLM = "llm"       # 大模型/通用 QA 生成评测(含 qa 别名)
     RAG = "rag"       # 检索增强生成评测
     AGENT = "agent"   # 智能体评测
+    SQL = "sql"       # Text2SQL / SQL 生成评测（结构匹配 + 执行准确率）
 
 
 # `qa` 历史命名等价于 `llm`

@@ -13,6 +13,7 @@ export interface A2UIDataModel {
   table?: { columns: string[]; rows: Record<string, any>[] } | null
   metrics?: Record<string, any>
   series?: { name?: string; labels?: any[]; actual?: number[]; forecast?: number[] } | null
+  scatter?: { name?: string; xLabel?: string; yLabel?: string; x?: number[]; y?: number[] } | null
   meta?: Record<string, any>
 }
 

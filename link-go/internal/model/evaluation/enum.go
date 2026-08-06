@@ -17,6 +17,8 @@ const (
 	EvaluationTypeQA EvaluationType = "qa"
 	// EvaluationTypeLLM 大模型/通用 QA 生成评测
 	EvaluationTypeLLM EvaluationType = "llm"
+	// EvaluationTypeSQL Text2SQL / SQL 生成评测（静态结构指标 + 执行准确率）
+	EvaluationTypeSQL EvaluationType = "sql"
 )
 
 // String 返回字符串表示
@@ -27,7 +29,7 @@ func (t EvaluationType) String() string {
 // IsValid 检查评测类型是否有效
 func (t EvaluationType) IsValid() bool {
 	switch t {
-	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA, EvaluationTypeLLM:
+	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA, EvaluationTypeLLM, EvaluationTypeSQL:
 		return true
 	}
 	return false

@@ -58,6 +58,9 @@ type AgentChatResult struct {
 	TokensUsed int
 	// LLMCalls 本轮 LLM 调用次数（ReAct 迭代数，来自 Metadata["iterations"]），供 llm_calls 指标。
 	LLMCalls int
+	// GeneratedSQL Agent 本轮生成的 SQL（取最后一次 sql_execute 工具调用的语句），供 Text2SQL 评测。
+	// 非 SQL 场景为空，不影响既有指标。
+	GeneratedSQL string
 }
 
 // AgentInfo Agent 信息

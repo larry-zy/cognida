@@ -115,7 +115,25 @@ func (c *openaiClient) Generate(ctx context.Context, messages []*schema.Message,
 		// 保留 thinking 模式的 reasoning_content，供 Agent 在后续工具调用轮回传（DeepSeek V4 要求）。
 		ReasoningContent: choice.Message.ReasoningContent,
 		ToolCalls:        toolCalls,
+		// 回填本轮 token 用量：此前该字段从未被填充，导致 ReAct 循环里 usageTotalTokens(msg)
+		// 恒为 0，Agent 评测的 tokens_used 指标全部落 0。API 已返回 usage，此处透出。
+		ResponseMeta: newResponseMeta(openaiResp.Usage),
 	}, nil
+}
+
+// newResponseMeta 将 OpenAI 兼容响应的 usage 转成 eino schema.ResponseMeta。
+// usage 全 0（部分供应商省略）时返回 nil，避免伪造零用量掩盖"未上报"与"确为 0"的区别。
+func newResponseMeta(u openaiUsage) *schema.ResponseMeta {
+	if u.PromptTokens == 0 && u.CompletionTokens == 0 && u.TotalTokens == 0 {
+		return nil
+	}
+	return &schema.ResponseMeta{
+		Usage: &schema.TokenUsage{
+			PromptTokens:     u.PromptTokens,
+			CompletionTokens: u.CompletionTokens,
+			TotalTokens:      u.TotalTokens,
+		},
+	}
 }
 
 // Stream 流式生成
@@ -144,6 +162,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 
 		scanner := bufio.NewScanner(resp.Body)
 		hasSentData := false
+		var streamUsage *openaiUsage // 流末 usage chunk 携带的 token 用量（若服务端上报）
 		toolCallCount := 0
 		pendingToolCalls := make(map[int]*schema.ToolCall)
 		// 累积 thinking 模式的 reasoning_content 分片，附加到带 tool_calls 的 assistant 消息上，
@@ -190,12 +209,29 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 						Content: "",
 					}, nil)
 				}
+
+				// 追发一条仅携带 usage 的结尾消息，供 eino 拼接时并入 token 用量
+				// （ConcatMessages 会对各分片的 Usage 取最大值合并）。
+				if streamUsage != nil {
+					if rm := newResponseMeta(*streamUsage); rm != nil {
+						writer.Send(&schema.Message{
+							Role:         schema.Assistant,
+							Content:      "",
+							ResponseMeta: rm,
+						}, nil)
+					}
+				}
 				return
 			}
 
 			var chunk openaiStreamChunk
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				continue
+			}
+
+			// usage chunk 通常 choices 为空、单独在流末到达，需在 choices 分支外捕获。
+			if chunk.Usage != nil {
+				streamUsage = chunk.Usage
 			}
 
 			if len(chunk.Choices) > 0 {
@@ -334,6 +370,10 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 		Messages: oaiMessages,
 		Stream:   stream,
 	}
+	// 流式下显式请求用量上报，否则拿不到 token 统计（tokens_used 会落 0）。
+	if stream {
+		req.StreamOptions = &openaiStreamOptions{IncludeUsage: true}
+	}
 
 	// 添加工具定义（如果有）
 	if len(c.toolInfos) > 0 {
@@ -413,13 +453,20 @@ func (c *openaiClient) sendRequest(ctx context.Context, reqBody openaiRequest) (
 // ========================================
 
 type openaiRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openaiMessage `json:"messages"`
-	Temperature float64         `json:"temperature,omitempty"`
-	TopP        float64         `json:"top_p,omitempty"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Stream      bool            `json:"stream,omitempty"`
-	Tools       []openaiTool    `json:"tools,omitempty"`
+	Model         string               `json:"model"`
+	Messages      []openaiMessage      `json:"messages"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	TopP          float64              `json:"top_p,omitempty"`
+	MaxTokens     int                  `json:"max_tokens,omitempty"`
+	Stream        bool                 `json:"stream,omitempty"`
+	StreamOptions *openaiStreamOptions `json:"stream_options,omitempty"`
+	Tools         []openaiTool         `json:"tools,omitempty"`
+}
+
+// openaiStreamOptions 流式选项。include_usage=true 让服务端在流末追发一个仅含 usage 的 chunk，
+// 否则流式响应不含 token 用量（OpenAI 兼容接口的默认行为）。
+type openaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openaiMessage struct {
@@ -478,6 +525,8 @@ type openaiStreamChunk struct {
 	Created int64                `json:"created"`
 	Model   string               `json:"model"`
 	Choices []openaiStreamChoice `json:"choices"`
+	// Usage 仅在开启 stream_options.include_usage 时、由流末的独立 chunk 携带（choices 为空）。
+	Usage *openaiUsage `json:"usage,omitempty"`
 }
 
 type openaiStreamChoice struct {

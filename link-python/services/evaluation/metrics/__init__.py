@@ -52,6 +52,13 @@ from .rag import (
     context_relevance,
     noise_ratio,
 )
+from .sql import (
+    compute_sql_metrics,
+    sql_exact_match,
+    sql_component_match,
+    sql_execution_accuracy,
+    normalize_sql,
+)
 
 __all__ = [
     # Retrieval
@@ -92,4 +99,10 @@ __all__ = [
     "faithfulness",
     "context_relevance",
     "noise_ratio",
+    # SQL
+    "compute_sql_metrics",
+    "sql_exact_match",
+    "sql_component_match",
+    "sql_execution_accuracy",
+    "normalize_sql",
 ]

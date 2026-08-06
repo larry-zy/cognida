@@ -15,7 +15,7 @@ export interface GraderGroup {
   /** 分组标题 */
   title: string
   /** 仅在指定评测类型下展示（不填则始终展示） */
-  onlyType?: 'qa' | 'rag' | 'agent'
+  onlyType?: 'qa' | 'rag' | 'agent' | 'sql'
   options: GraderOption[]
 }
 
@@ -30,6 +30,8 @@ export const GRADER_GROUP_TITLES: Record<string, string> = {
   semantic: '语义质量',
   llm: 'AI 评分 (LLM-as-Judge)',
   rule: '规则匹配',
+  agent: 'Agent 轨迹与工具',
+  sql: 'SQL 生成质量',
   general: '通用指标'
 }
 
@@ -85,6 +87,15 @@ export const GRADER_GROUPS: GraderGroup[] = [
     ]
   },
   {
+    title: 'SQL 生成质量',
+    onlyType: 'sql',
+    options: [
+      { value: 'sql_exact_match', label: 'SQL 精确匹配' },
+      { value: 'sql_component_match', label: 'SQL 结构匹配（子句 F1）' },
+      { value: 'sql_execution_accuracy', label: 'SQL 执行准确率（结果集比对）' }
+    ]
+  },
+  {
     title: '语义质量',
     options: [
       { value: 'semantic_similarity', label: '语义相似度' },
@@ -99,6 +110,18 @@ export const GRADER_GROUPS: GraderGroup[] = [
   }
 ]
 
+/**
+ * Agent 运行时基础指标：由 Go 执行器在跑 Agent 时自动采集，
+ * 无需勾选、始终计算并在结果详情中展示。此列表仅用于在创建表单里向用户说明。
+ * 与 METRIC_DISPLAY 中的同名键保持一致（label 亦取自那里，避免漂移）。
+ */
+export const AGENT_RUNTIME_METRICS: Array<{ key: string; desc: string }> = [
+  { key: 'latency_ms', desc: '单轮对话墙钟耗时（毫秒）' },
+  { key: 'tokens_used', desc: '本轮消耗的总 Token 数' },
+  { key: 'llm_calls', desc: 'LLM 调用次数（ReAct 迭代数）' },
+  { key: 'success_rate', desc: '成功完成的问答占比' }
+]
+
 /** LLM 裁判评分维度（1-5 分） */
 export const LLM_JUDGE_DIMENSIONS: GraderOption[] = [
   { value: 'accuracy', label: '准确性' },
@@ -111,6 +134,7 @@ export const LLM_JUDGE_DIMENSIONS: GraderOption[] = [
 /** 评测类型下拉选项 */
 export const EVALUATION_TYPE_OPTIONS = [
   { value: 'agent', label: 'Agent 评测' },
+  { value: 'sql', label: 'Text2SQL / SQL 生成' },
   { value: 'qa', label: 'QA 评测' },
   { value: 'rag', label: 'RAG 评测' }
 ]
@@ -173,7 +197,25 @@ export const METRIC_DISPLAY: Record<string, { label: string; percent: boolean }>
   exact_match: { label: '精确匹配', percent: true },
   contains_match: { label: '包含匹配', percent: true },
   regex_match: { label: '正则匹配', percent: true },
-  numeric_match: { label: '数值匹配', percent: true }
+  numeric_match: { label: '数值匹配', percent: true },
+  // Agent 运行时基础指标（Go 执行器采集，非百分比：耗时/Token/次数为绝对值）
+  latency_ms: { label: '耗时(ms)', percent: false },
+  tokens_used: { label: 'Token 用量', percent: false },
+  llm_calls: { label: 'LLM 调用次数', percent: false },
+  success_rate: { label: '任务成功率', percent: true },
+  // Agent 轨迹/工具指标（Python compute_agent_metrics 聚合输出，均为 0~1）
+  answer_accuracy: { label: '答案准确性', percent: true },
+  tool_precision: { label: '工具精确率', percent: true },
+  tool_recall: { label: '工具召回率', percent: true },
+  tool_f1: { label: '工具 F1', percent: true },
+  tool_order: { label: '工具顺序', percent: true },
+  traj_exact_match: { label: '轨迹精确匹配', percent: true },
+  traj_similarity: { label: '轨迹相似度', percent: true },
+  step_optimal_ratio: { label: '步骤效率', percent: true },
+  // Text2SQL / SQL 生成指标（Python compute_sql_metrics 输出，均为 0~1）
+  sql_exact_match: { label: 'SQL 精确匹配', percent: true },
+  sql_component_match: { label: 'SQL 结构匹配', percent: true },
+  sql_execution_accuracy: { label: 'SQL 执行准确率', percent: true }
 }
 
 /** 兼容读取的固定指标列（旧契约，逐步由动态 scores 取代） */

@@ -8,26 +8,19 @@ func newCJKTestRegistry(t *testing.T) SkillRegistry {
 	reg := NewSkillRegistry()
 	seed := []*Skill{
 		{
-			Name:         "data-analysis",
-			Description:  "专注于数据查询和分析的技能，通过 SQL 查询获取和分析数据。",
-			WhenToUse:    "当任务需要查询数据库、分析数据、生成报表或执行数据统计时使用此技能。",
+			Name:         "text2sql-adhoc",
+			Description:  "即席取数技能，把一句话的具体数据问题翻译成 SQL 查询数据库并执行返回结果。",
+			WhenToUse:    "当用户要查询一个具体的数字、明细或清单（如上个月有多少订单、按金额分析客户），且不涉及治理指标口径、也不需要整合成报告时使用。",
 			Category:     "data",
-			Tags:         []string{"sql", "database", "analytics"},
+			Tags:         []string{"text2sql", "sql", "query"},
 			AllowedTools: []string{"sql_execute", "get_schema"},
 		},
 		{
-			Name:        "rag-search",
-			Description: "专注于知识库检索的技能，通过向量检索和混合检索获取相关知识。",
-			WhenToUse:   "当任务需要从知识库中检索相关信息、查找文档或获取上下文知识时使用此技能。",
+			Name:        "doc-qa",
+			Description: "文档问答技能，从知识库中语义检索相关文档片段并据此作答。",
+			WhenToUse:   "当用户的问题需要从知识库或文档中查找答案，依赖非结构化文本内容而非数据库取数时使用。",
 			Category:    "retrieval",
 			Tags:        []string{"rag", "retrieval"},
-		},
-		{
-			Name:        "code-review",
-			Description: "专注于代码审查和分析的技能，帮助发现代码问题、改进代码质量。",
-			WhenToUse:   "当任务涉及代码审查、代码质量分析、查找代码问题时使用此技能。",
-			Category:    "development",
-			Tags:        []string{"code-review", "quality"},
 		},
 	}
 	for _, s := range seed {
@@ -47,9 +40,8 @@ func TestMatchForTask_CJKQueryHits(t *testing.T) {
 		query string
 		want  string
 	}{
-		{"取数分析", "帮我查询数据库里上个月的订单并分析一下", "data-analysis"},
-		{"知识库检索", "从知识库里检索一下相关的文档知识", "rag-search"},
-		{"代码审查", "帮我做一次代码审查，看看有没有代码问题", "code-review"},
+		{"取数分析", "帮我查询数据库里上个月的订单并分析一下", "text2sql-adhoc"},
+		{"知识库检索", "从知识库里检索一下相关的文档知识", "doc-qa"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -94,5 +86,44 @@ func TestCJKBigrams(t *testing.T) {
 	}
 	if bs := cjkBigrams("hello world"); len(bs) != 0 {
 		t.Errorf("pure ascii should yield no bigrams, got %v", bs)
+	}
+}
+
+// 名称校验须接受中日韩等 Unicode 字母名——否则经验沉淀出的中文名技能注册即被拒。
+// 该用例与 experience.SkillSink 的 slugify（保留 \p{Han}）是配套契约。
+func TestIsValidSkillName_UnicodeLetters(t *testing.T) {
+	valid := []string{
+		"text2sql-adhoc",
+		"电商核心经营指标综合报告生成",
+		"统计用户总数",
+		"report_2026",
+		"data analysis",
+	}
+	for _, n := range valid {
+		if !IsValidSkillName(n) {
+			t.Errorf("IsValidSkillName(%q) = false, want true", n)
+		}
+	}
+	invalid := []string{
+		"",
+		"bad/name",
+		"has.dot",
+		"emoji😀name",
+		"slash\\name",
+	}
+	for _, n := range invalid {
+		if IsValidSkillName(n) {
+			t.Errorf("IsValidSkillName(%q) = true, want false", n)
+		}
+	}
+
+	// 契约验证：中文标题落盘后能真正注册进 registry（复现并锁死原缺陷）。
+	reg := NewSkillRegistry()
+	cjk := &Skill{Name: "电商核心经营指标综合报告生成", Description: "d", WhenToUse: "w", Category: "experience"}
+	if err := reg.Register(cjk); err != nil {
+		t.Fatalf("register CJK-named skill: %v", err)
+	}
+	if _, ok := reg.Get("电商核心经营指标综合报告生成"); !ok {
+		t.Error("CJK-named skill not retrievable after register")
 	}
 }

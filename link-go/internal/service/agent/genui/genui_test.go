@@ -441,6 +441,108 @@ func TestValidate_MetricCardValueMustBeScalar(t *testing.T) {
 	}
 }
 
+// 默认路径（无 chart_kind 提示）绝不产出饼图/漏斗图——保证既有模板输出零回归。
+func TestTemplateCompose_DefaultDoesNotEmitPieOrFunnel(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	spec := TemplateCompose(dm, "各地区营收对比")
+	if hasType(spec, CompPieChart) {
+		t.Error("默认路径不应产出 pie_chart（需 Meta.chart_kind 显式 opt-in）")
+	}
+	if hasType(spec, CompFunnel) {
+		t.Error("默认路径不应产出 funnel（需 Meta.chart_kind 显式 opt-in）")
+	}
+	// 默认仍走既有柱状图分支。
+	if !hasType(spec, CompBarChart) {
+		t.Error("默认分类数据仍应产出 BarChart")
+	}
+}
+
+// opt-in：Meta.chart_kind=="pie" 时以饼图替代默认柱/线，绑定 /series 且校验通过。
+func TestTemplateCompose_PieChartOptIn(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	dm.Meta["chart_kind"] = "pie"
+	spec := TemplateCompose(dm, "各地区营收占比")
+	if err := Validate(spec); err != nil {
+		t.Fatalf("pie opt-in spec failed validation: %v", err)
+	}
+	if !hasType(spec, CompPieChart) {
+		t.Error("chart_kind=pie 应产出 pie_chart")
+	}
+	if hasType(spec, CompBarChart) || hasType(spec, CompLineChart) {
+		t.Error("pie opt-in 应替代默认柱/线图")
+	}
+	// 饼图复用 /series 绑定（labels+actual）。
+	chart := findNode(spec, "chart")
+	if chart == nil {
+		t.Fatal("missing chart node")
+	}
+	if p, _ := bindingPath(chart.Props["series"]); p != "/series" {
+		t.Errorf("pie_chart series 应绑定 /series, got %q", p)
+	}
+}
+
+// opt-in：Meta.chart_kind=="funnel" 时以漏斗图替代默认柱/线，绑定 /series 且校验通过。
+func TestTemplateCompose_FunnelOptIn(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	dm.Meta["chart_kind"] = "funnel"
+	spec := TemplateCompose(dm, "转化漏斗")
+	if err := Validate(spec); err != nil {
+		t.Fatalf("funnel opt-in spec failed validation: %v", err)
+	}
+	if !hasType(spec, CompFunnel) {
+		t.Error("chart_kind=funnel 应产出 funnel")
+	}
+	if hasType(spec, CompBarChart) || hasType(spec, CompLineChart) {
+		t.Error("funnel opt-in 应替代默认柱/线图")
+	}
+}
+
+// 新组件通过 catalog 校验：Grid 容器（含子节点）、pie_chart/funnel 绑定 /series、date_picker 交互组件。
+func TestValidate_AcceptsNewComponents(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	spec := &UISpec{
+		DataModel: dm,
+		Components: []Component{
+			{ID: RootID, Type: CompGrid, Props: map[string]interface{}{"columns": 2}, Children: []string{"pie", "fun", "dp"}},
+			{ID: "pie", Type: CompPieChart, Props: map[string]interface{}{"title": "占比", "series": binding("/series")}},
+			{ID: "fun", Type: CompFunnel, Props: map[string]interface{}{"title": "漏斗", "series": binding("/series")}},
+			{ID: "dp", Type: CompDatePicker, Props: map[string]interface{}{"field": "下单日期", "action": "filter_date"}},
+		},
+	}
+	if err := Validate(spec); err != nil {
+		t.Errorf("新组件规格应通过校验: %v", err)
+	}
+}
+
+// Grid 子引用缺失应被拒绝（容器子节点走通用完整性校验）。
+func TestValidate_RejectsGridMissingChild(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	spec := &UISpec{
+		DataModel: dm,
+		Components: []Component{
+			{ID: RootID, Type: CompGrid, Children: []string{"ghost"}},
+		},
+	}
+	if err := Validate(spec); err == nil {
+		t.Error("Grid 引用不存在的子节点应被拒绝")
+	}
+}
+
+// pie_chart 绑定不可解析路径应被拒绝。
+func TestValidate_RejectsPieChartBadBinding(t *testing.T) {
+	dm := AssembleDataModel(sampleCategorical, "")
+	spec := &UISpec{
+		DataModel: dm,
+		Components: []Component{
+			{ID: RootID, Type: CompColumn, Children: []string{"pie"}},
+			{ID: "pie", Type: CompPieChart, Props: map[string]interface{}{"series": binding("/nope")}},
+		},
+	}
+	if err := Validate(spec); err == nil {
+		t.Error("pie_chart 绑定不可解析路径应被拒绝")
+	}
+}
+
 func hasType(spec *UISpec, typ string) bool {
 	for _, c := range spec.Components {
 		if c.Type == typ {

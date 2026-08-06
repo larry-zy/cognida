@@ -28,6 +28,7 @@
       :knowledge-bases="knowledgeBases"
       :chat-models="chatModels"
       :agents="agents"
+      :datasources="datasources"
       :creating="creating"
       @submit="handleCreate"
     />
@@ -64,6 +65,7 @@ const {
   knowledgeBases,
   chatModels,
   agents,
+  datasources,
   currentDetail,
   stats,
   loadAll,

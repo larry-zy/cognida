@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -304,23 +305,18 @@ func parseFrontmatter(content string) (frontmatter, body string, err error) {
 // 辅助函数
 // ========================================
 
-// IsValidSkillName 检查 Skill 名称是否有效
+// IsValidSkillName 检查 Skill 名称是否有效。
+// 允许：任意语言的字母（含中日韩等 Unicode 字母）、数字、下划线、连字符、空格。
+// 与经验落盘 slugify（保留 [a-z0-9\p{Han}]、其余折叠为连字符）保持一致——
+// slugify 产出的名称必落在此集合内，避免「沉淀出来却注册不进去」的自相矛盾。
 func IsValidSkillName(name string) bool {
 	if name == "" {
 		return false
 	}
-	// 名称可以包含字母、数字、下划线、连字符
 	for _, ch := range name {
-		if !isAlphaNumeric(ch) && ch != '_' && ch != '-' && ch != ' ' {
+		if !unicode.IsLetter(ch) && !unicode.IsDigit(ch) && ch != '_' && ch != '-' && ch != ' ' {
 			return false
 		}
 	}
 	return true
-}
-
-// isAlphaNumeric 检查字符是否为字母或数字
-func isAlphaNumeric(ch rune) bool {
-	return (ch >= 'a' && ch <= 'z') ||
-		(ch >= 'A' && ch <= 'Z') ||
-		(ch >= '0' && ch <= '9')
 }

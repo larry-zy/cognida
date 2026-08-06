@@ -19,12 +19,14 @@ const (
 	EvaluationTypeQA EvaluationType = "qa"
 	// EvaluationTypeLLM 大模型/通用 QA 生成评测
 	EvaluationTypeLLM EvaluationType = "llm"
+	// EvaluationTypeSQL Text2SQL / SQL 生成评测（静态结构指标 + 执行准确率）
+	EvaluationTypeSQL EvaluationType = "sql"
 )
 
 // IsValid 检查评测类型是否有效
 func (t EvaluationType) IsValid() bool {
 	switch t {
-	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA, EvaluationTypeLLM:
+	case EvaluationTypeAgent, EvaluationTypeRAG, EvaluationTypeQA, EvaluationTypeLLM, EvaluationTypeSQL:
 		return true
 	}
 	return false
@@ -74,6 +76,9 @@ type QAPair struct {
 	// Agent 评测期望标注（仅 Agent 类型使用，QA/RAG 留空）
 	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名（tool_selection/tool_order）
 	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列（trajectory_match/step_efficiency）
+
+	// SQL 评测金标准 SQL（仅 SQL 类型使用，为空回退 ReferenceAnswer）
+	GoldSQL string `json:"gold_sql,omitempty"`
 }
 
 // Dataset 数据集
@@ -133,6 +138,12 @@ type QAResult struct {
 
 	// RequestID 本条 QA 运行的子 request_id，供前端深链到 trace 瀑布图。
 	RequestID string `json:"request_id,omitempty"`
+
+	// SQL 评测运行时字段（仅 SQL 类型填充，透传给 Python 计算结构/执行准确率；瞬态，不落库）
+	GeneratedSQL  string          `json:"generated_sql,omitempty"`   // Agent 生成的 SQL
+	GoldSQL       string          `json:"gold_sql,omitempty"`        // 金标准 SQL
+	ResultSet     [][]interface{} `json:"result_set,omitempty"`      // 生成 SQL 只读执行结果集
+	GoldResultSet [][]interface{} `json:"gold_result_set,omitempty"` // 金标准 SQL 只读执行结果集
 
 	// 检索指标
 	Precision *float64 `json:"precision,omitempty"`
@@ -251,6 +262,12 @@ type ComputeItem struct {
 	ToolsUsed     []string `json:"tools_used,omitempty"`     // 实际调用的工具名（按调用顺序）
 	Trajectory    []string `json:"trajectory,omitempty"`     // 实际步骤序列
 	TotalSteps    int      `json:"total_steps,omitempty"`    // 步骤总数
+
+	// SQL 评测字段：结构指标用 gold_sql/generated_sql，执行准确率用双方结果集
+	GoldSQL       string          `json:"gold_sql,omitempty"`        // 金标准 SQL（sql_exact_match/sql_component_match）
+	GeneratedSQL  string          `json:"generated_sql,omitempty"`   // Agent 生成的 SQL
+	ResultSet     [][]interface{} `json:"result_set,omitempty"`      // 生成 SQL 结果集（sql_execution_accuracy）
+	GoldResultSet [][]interface{} `json:"gold_result_set,omitempty"` // 金标准 SQL 结果集
 }
 
 // ComputeMetricsResponse Python 指标计算响应

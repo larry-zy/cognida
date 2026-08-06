@@ -69,3 +69,6 @@ link-python/data/
 
 # compiled server binary (build artifact)
 /link-go/server
+
+# 本地一键启停脚本的 PID/日志
+dev-run/

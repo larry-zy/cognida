@@ -90,16 +90,27 @@ func InitializeFromEnv() error {
 		}
 	}
 	if len(dirs) == 0 {
-		dirs = []string{
-			filepath.Join(".", "skills"),
-			filepath.Join("..", "skills"),
-			filepath.Join("..", "..", "skills"),
-		}
+		dirs = DefaultSkillDirs()
 	}
 	if cwd, err := os.Getwd(); err == nil {
 		log.Printf("[Skill] Initializing from dirs %v (cwd=%s)", dirs, cwd)
 	}
 	return Initialize(dirs...)
+}
+
+// DefaultSkillDirs 返回未显式配置 LINK_SKILL_DIRS 时的候选技能目录（按优先级）。
+// 服务通常从 link-go/ 启动，而技能文件位于仓库根 skills/（即 ../skills），故列多级候选，
+// 修复「默认 ./skills 解析到 link-go/skills 而落空」的 CWD 陷阱。
+//
+// 这是候选目录的单一事实源：加载侧（InitializeFromEnv）扫描全部候选；写入侧
+// （经验蒸馏 SkillDirFromEnv）取其中首个已存在者，从而保证「写入目录」必落在
+// 「加载扫描范围」内——避免蒸馏出的 SKILL.md 因目录不一致而无法被加载复用。
+func DefaultSkillDirs() []string {
+	return []string{
+		filepath.Join(".", "skills"),
+		filepath.Join("..", "skills"),
+		filepath.Join("..", "..", "skills"),
+	}
 }
 
 // IsInitialized 检查是否已初始化

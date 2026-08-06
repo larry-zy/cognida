@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
+	infraagent "link/internal/service/agent/framework"
 	"link/internal/service/agent/skills"
 )
 
@@ -40,7 +41,7 @@ func (t *skillInvokeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"skill_name": {
 				Type:     schema.String,
-				Desc:     "（必需）要调用的 Skill 名称，如 code-review, rag-search, data-analysis",
+				Desc:     "（必需）要调用的 Skill 名称，如 text2sql-adhoc, doc-qa",
 				Required: true,
 			},
 			"task": {
@@ -84,8 +85,18 @@ func (t *skillInvokeTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 	// 注意：handler 执行仍在同一 ctx 下——其经 InlineDelegate/注册表工具所触发的调用照旧
 	// 过工具门与 scope 校验（skill-tool-policy 不被绕过）。
 	if skill.CanInvoke && skill.Handler != nil {
+		// 可执行 skill：handler 自管其内部工具编排（可能合法用到超出声明 allowed_tools 的工具），
+		// 故此路径不激活白名单，避免 handler 内部调用被自身声明的窄工具面误拦。
 		return t.runHandler(ctx, skill, arguments)
 	}
+
+	// 纯指导/文档 skill：LLM 将在本 skill 指导下继续用主循环工具完成任务 → 此刻显式激活其
+	// 工具白名单/黑名单，把 skill 的 allowed/disallowed_tools 从文档提示升级为执行前硬约束。
+	// 这是「显式激活」模型的挂载点：入口预匹配只定 scope（见 data_agent/tool_gate.go），
+	// 真正收窄工具面只发生在 LLM 主动 skill_invoke 时。导航元工具永远豁免（framework 侧），
+	// 保证 LLM 随时可再 skill_invoke 切换到别的 skill，不会被窄白名单锁死。
+	// 空 allowed_tools 不进入白名单模式（纯指导 skill 无工具约束）。
+	infraagent.ActivateSkillPolicy(ctx, skill.Name, skill.AllowedTools, skill.DisallowedTools)
 
 	// 格式化 Skill 内容
 	skillContext, err := t.integration.FormatForAgent(ctx, skill)

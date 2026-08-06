@@ -43,3 +43,6 @@ web/dist/
 
 # Empty/orphan files
 nul
+
+# 本地编译的一次性播种可执行文件（cmd/seed-ecommerce 的构建产物）
+/seed-ecommerce

@@ -22,6 +22,9 @@ package genui
 //	LineChart    → 折线图（props: title, series{path} → {labels, actual, forecast}）—— 时序趋势
 //	BarChart     → 柱状图（props: title, series{path} → {labels, actual}）—— 分类对比（复用序列）
 //	ScatterChart → 散点图（props: title, points{path} → {x, y, xLabel, yLabel}）—— 两数值列相关性
+//	PieChart     → 饼图（props: title, series{path} → {labels, actual}）—— 分类占比（复用序列）
+//	Funnel       → 漏斗图（props: title, series{path} → {labels, actual}）—— 有序阶段转化（复用序列）
+//	Grid         → 网格布局容器（props: columns，children）—— 响应式 N 列栅格
 //
 // 交互组件（回调驱动后续轮次，action 经 SSE 之外的 follow-up 通道回传）：
 //
@@ -30,6 +33,7 @@ package genui
 //	Form        → 参数表单（props: fields[{name,label,type,default}], submitAction{name}）
 //	Filter      → 过滤器（props: field, options|{path}, action{name}）
 //	Pagination  → 分页（props: page, pageSize, total|{path}, action{name}）
+//	DatePicker  → 日期选择器（props: field, action{name}, range）—— 选中日期/区间回抛动作
 const (
 	CompColumn     = "Column"
 	CompRow        = "Row"
@@ -40,6 +44,9 @@ const (
 	CompLineChart  = "LineChart"
 	CompBarChart   = "BarChart"
 	CompScatter    = "ScatterChart"
+	CompPieChart   = "pie_chart"
+	CompFunnel     = "funnel"
+	CompGrid       = "grid"
 
 	// 交互组件
 	CompButton     = "Button"
@@ -47,18 +54,19 @@ const (
 	CompForm       = "Form"
 	CompFilter     = "Filter"
 	CompPagination = "Pagination"
+	CompDatePicker = "date_picker"
 )
 
 // Catalog 是允许出现在规格中的组件类型全集。
 var Catalog = []string{
 	CompColumn, CompRow, CompText, CompMetricCard, CompCallout, CompTable,
-	CompLineChart, CompBarChart, CompScatter,
-	CompButton, CompConfirm, CompForm, CompFilter, CompPagination,
+	CompLineChart, CompBarChart, CompScatter, CompPieChart, CompFunnel, CompGrid,
+	CompButton, CompConfirm, CompForm, CompFilter, CompPagination, CompDatePicker,
 }
 
 // InteractiveCatalog 是交互组件子集（产生回调、驱动后续轮次的组件）。
 var InteractiveCatalog = []string{
-	CompButton, CompConfirm, CompForm, CompFilter, CompPagination,
+	CompButton, CompConfirm, CompForm, CompFilter, CompPagination, CompDatePicker,
 }
 
 // RootID 是组件邻接表的固定根节点 id。

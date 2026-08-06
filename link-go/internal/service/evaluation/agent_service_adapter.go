@@ -3,6 +3,7 @@ package evaluation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	agentframework "link/internal/service/agent/framework"
@@ -53,7 +54,37 @@ func (a *agentServiceAdapter) Chat(ctx context.Context, agentID, message string)
 		// 运行时基础指标：token 用量与 LLM 调用次数来自框架回填的 Response.Metadata
 		TokensUsed: metadataInt(resp.Metadata, "tokens_used"),
 		LLMCalls:   metadataInt(resp.Metadata, "iterations"),
+		// Text2SQL 评测：取最后一次 sql_execute 调用的 SQL 作为「被测生成 SQL」。
+		GeneratedSQL: extractGeneratedSQL(resp.ToolCalls),
 	}, nil
+}
+
+// extractGeneratedSQL 从工具调用序列中抽取被测 Agent 生成的 SQL。
+// 取最后一次 sql_execute 调用（一问可能多次试错，末次即最终答案所依据的查询）：
+// 优先入参 Input["sql"]；缺失时回退解析工具输出 JSON 的 executed_sql（含自动补的 LIMIT）。
+// 非 SQL 场景无 sql_execute 调用，返回空串。
+func extractGeneratedSQL(toolCalls []*agentframework.ToolCall) string {
+	for i := len(toolCalls) - 1; i >= 0; i-- {
+		tc := toolCalls[i]
+		if tc == nil || tc.Name != "sql_execute" {
+			continue
+		}
+		if tc.Input != nil {
+			if s, ok := tc.Input["sql"].(string); ok && s != "" {
+				return s
+			}
+		}
+		if tc.Output != "" {
+			var out struct {
+				ExecutedSQL string `json:"executed_sql"`
+			}
+			if err := json.Unmarshal([]byte(tc.Output), &out); err == nil && out.ExecutedSQL != "" {
+				return out.ExecutedSQL
+			}
+		}
+		return "" // 命中末次 sql_execute 但取不到 SQL，不再向前找（末次即准）
+	}
+	return ""
 }
 
 // metadataInt 从 Response.Metadata 安全读取整型指标（缺失或类型不符返回 0）。

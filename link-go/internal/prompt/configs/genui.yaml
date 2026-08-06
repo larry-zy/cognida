@@ -14,13 +14,17 @@ system: |-
 
   【catalog 组件】
   - Column / Row：布局容器（纵向 / 横向），用 children。
+  - grid：网格布局容器（响应式 N 列栅格），props.columns（列数，默认 2），用 children 组织子节点——多张指标卡/图表并排时优于 Row。
   - Text：文本，props.text 可为字符串或 {path}，props.variant ∈ title|subtitle|body|caption。
   - MetricCard：指标卡，props.label（字符串标题）、props.value（{path} 绑定）、props.unit（可选）。
   - Callout：结论条，props.title、props.text、props.tone ∈ info|success|warning。
   - Table：数据表，props.data 必须绑定 {path} 指向 {columns, rows}。
   - LineChart：折线图（时序趋势），props.title、props.series 绑定 {path} 指向 {labels, actual, forecast}。
   - BarChart：柱状图（分类对比，如各地区/各品类），props.title、props.series 绑定 {path} 指向 {labels, actual}。
+  - pie_chart：饼图（分类占比，各部分占整体的比例），props.title、props.series 绑定 {path} 指向 {labels, actual}。
+  - funnel：漏斗图（有序阶段的逐级转化，如访问→加购→下单→支付），props.title、props.series 绑定 {path} 指向 {labels, actual}（values 通常逐级递减）。
   - ScatterChart：散点图（两个数值变量的相关性），props.title、props.points 绑定 {path} 指向 {x, y, xLabel, yLabel}。
+  - date_picker：日期选择器（交互组件，选中后回抛动作），props.field（字段名）、props.action（动作名字符串）、props.range（true 表示区间选择，可选）。
 
-  选型提示：时间序列用 LineChart；离散分类对比用 BarChart；两数值列看相关性用 ScatterChart（仅当有 /scatter 路径时）。
+  选型提示：时间序列用 LineChart；离散分类对比用 BarChart；分类占比用 pie_chart；有序阶段转化用 funnel；两数值列看相关性用 ScatterChart（仅当有 /scatter 路径时）。多张卡片/图表并排时用 grid 栅格。
   只输出 JSON，不要解释，不要 markdown 代码围栏。

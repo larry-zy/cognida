@@ -55,7 +55,7 @@ func main() {
 	fmt.Println("=== 步骤 4: 便捷函数示例 ===")
 
 	// 查找 Skill
-	if skill, err := skills.FindSkill("code-review"); err == nil {
+	if skill, err := skills.FindSkill("text2sql-adhoc"); err == nil {
 		fmt.Printf("找到 Skill: %s\n", skill.Name)
 		fmt.Printf("描述: %s\n", skill.Description)
 		fmt.Printf("分类: %s\n", skill.Category)
@@ -63,8 +63,8 @@ func main() {
 	}
 
 	// 按分类查找
-	devSkills := skills.FindSkillsByCategory("development")
-	fmt.Printf("开发类 Skill: %d 个\n", len(devSkills))
+	dataSkills := skills.FindSkillsByCategory("data")
+	fmt.Printf("数据类 Skill: %d 个\n", len(dataSkills))
 
 	// 获取所有分类
 	categories := skills.GetCategories()
@@ -93,8 +93,8 @@ agent := framework.New(chatModel).
     Middleware(skillMiddleware).  // <-- 添加 Skill 中间件
     Build()
 
-// 当用户发送 "请帮我审查这段代码" 时
-// 中间件自动匹配并注入 code-review Skill`)
+// 当用户发送 "帮我查询上个月的订单并分析一下" 时
+// 中间件自动匹配并注入 text2sql-adhoc Skill`)
 
 	fmt.Println("\n=== 总结 ===")
 	fmt.Println("✅ Skill 工具自动注册 (skill_list, skill_invoke, skill_match)")

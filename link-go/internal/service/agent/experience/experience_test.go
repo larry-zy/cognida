@@ -2,6 +2,7 @@ package experience
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	domain_experience "link/internal/model/agent/experience"
 	domain_conversation "link/internal/model/conversation"
+	"link/internal/service/agent/skills"
 )
 
 // fakeLLM 返回预置回复，忽略入参。
@@ -156,6 +158,56 @@ func TestSkillSink_SkipsWhenNotWorthy(t *testing.T) {
 	if err != nil || name != "" {
 		t.Fatalf("expected skip, got name=%q err=%v", name, err)
 	}
+}
+
+// 自进化沉淀出的中文名技能，其 name 必须能通过注册器校验，否则加载即被拒。
+// 这是「沉淀 → 加载」闭环的契约测试，锁死中文名注册失败的回归。
+func TestSkillSink_ChineseTitleNameIsRegistrable(t *testing.T) {
+	root := t.TempDir()
+	sink := NewSkillSink(root)
+	exp := &domain_experience.Experience{
+		ID:                42,
+		SessionID:         "sess-cjk",
+		Title:             "电商核心经营指标综合报告生成",
+		Problem:           "用户需要一份电商核心经营指标的综合报告",
+		Tools:             []string{"data_analysis"},
+		SkillWorthy:       true,
+		SkillInstructions: "按 GMV/订单数/客单价聚合并整合报告",
+	}
+	name, err := sink.Write(context.Background(), exp)
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	if !skills.IsValidSkillName(name) {
+		t.Fatalf("generated name %q fails IsValidSkillName — 沉淀出的技能将无法注册", name)
+	}
+	// 真正回读并加载，确认落盘的 SKILL.md 能被注册器接收。
+	res, err := NewSkillManagerLoad(t, filepath.Join(root, name))
+	if err != nil {
+		t.Fatalf("load generated skill: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatalf("generated CJK-named skill %q was not registered on load", name)
+	}
+}
+
+// NewSkillManagerLoad 加载单个技能目录，返回成功注册的技能名列表（测试辅助）。
+func NewSkillManagerLoad(t *testing.T, skillDir string) ([]string, error) {
+	t.Helper()
+	m := skills.NewSkillManager()
+	// 传入父目录，LoadSkills 会扫描其下含 SKILL.md 的子目录。
+	res, err := m.LoadSkills(filepath.Dir(skillDir))
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Errors) > 0 {
+		return nil, fmt.Errorf("load errors: %v", res.Errors)
+	}
+	names := make([]string, 0, len(res.Skills))
+	for _, s := range res.Skills {
+		names = append(names, s.Name)
+	}
+	return names, nil
 }
 
 func TestGraphSink_NilRepoNoop(t *testing.T) {

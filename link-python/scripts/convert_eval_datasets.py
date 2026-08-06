@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -129,44 +131,378 @@ HF_DATASETS: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 # 自造场景集（离线恒可产出）
 # ---------------------------------------------------------------------------
-def _scenario_ecommerce_agent() -> dict[str, Any]:
-    """电商场景 Agent 集：贴合本仓 ecommerce_demo 数据源，带期望工具序列与步骤标注。"""
-    records = [
-        {
-            "question": "查一下订单 SO2024001 现在是什么状态？",
-            "reference_answer": "订单 SO2024001 当前状态为「已发货」，预计 3 日内送达。",
-            "expected_tools": ["query_order"],
-            "expected_steps": ["解析订单号 SO2024001", "调用 query_order 查询订单", "整理状态并回复"],
-        },
-        {
-            "question": "我想买 3 件商品 P1001，先看看还有没有货，有的话帮我下单。",
-            "reference_answer": "商品 P1001 库存充足，已为你创建包含 3 件的订单。",
-            "expected_tools": ["check_inventory", "create_order"],
-            "expected_steps": ["调用 check_inventory 核对 P1001 库存", "库存充足则调用 create_order 下单", "回复下单结果"],
-        },
-        {
-            "question": "帮我统计上个月销量最高的三个商品。",
-            "reference_answer": "上月销量前三为 P1001、P1005、P1003，销量分别为 320/280/210 件。",
-            "expected_tools": ["query_sales", "aggregate_topn"],
-            "expected_steps": ["调用 query_sales 拉取上月销售明细", "调用 aggregate_topn 取销量前三", "整理榜单回复"],
-        },
-        {
-            "question": "订单 SO2024007 想退货，帮我发起退款。",
-            "reference_answer": "已为订单 SO2024007 发起退款申请，款项将原路退回。",
-            "expected_tools": ["query_order", "create_refund"],
-            "expected_steps": ["调用 query_order 校验订单可退", "调用 create_refund 发起退款", "回复退款进度"],
-        },
-        {
-            "question": "客户 C2048 最近有哪些未支付的订单？",
-            "reference_answer": "客户 C2048 有 2 笔未支付订单：SO2024011、SO2024015。",
-            "expected_tools": ["query_customer_orders"],
-            "expected_steps": ["调用 query_customer_orders 按客户与支付状态过滤", "汇总未支付订单回复"],
-        },
+# ---------------------------------------------------------------------------
+# 电商 Agent 集：DB-backed（从真实 ecommerce_demo 现算 golden）
+# ---------------------------------------------------------------------------
+# 旧实现的问题：题面/期望工具/答案全是编造的（SO2024001、query_order/check_inventory…），
+# 既非真实数据也非 data-agent 真实工具名 → tool/answer 指标恒 0。改为构建期直接查
+# ecommerce_demo 现算 golden，并把 expected_tools 对齐 data-agent 真实工具（sql_execute /
+# get_schema / render_ui），使评测在「被测 Agent 也路由到同一数据源」后能拿到有效分数。
+#
+# 工具锚点取舍：无论走词法 NL2SQL（get_schema→sql_execute）还是语义层
+# （semantic_models→semantic_query→sql_execute），实际执行 SQL 的工具恒为 sql_execute，
+# 故数据类任务 expected_tools 只锚定 sql_execute（最小必需集，避免误伤 recall）；
+# 画图任务追加 render_ui，纯结构探查任务用 get_schema。
+
+_STATUS_ZH = {
+    "completed": "已完成",
+    "paid": "已支付",
+    "shipped": "已发货",
+    "cancelled": "已取消",
+    "refunded": "已退款",
+    "pending": "待处理",
+}
+
+
+class _EcommerceDBError(RuntimeError):
+    """ecommerce_demo 不可用（未启库/未灌数/凭据不符），电商集将被跳过。"""
+
+
+def _ecommerce_db_config() -> dict[str, str]:
+    """电商库连接参数：优先 ECOMMERCE_DB_*，回落到 DB_*，再回落到本地 dev 默认。"""
+    getenv = os.getenv
+    return {
+        "host": getenv("ECOMMERCE_DB_HOST") or getenv("DB_HOST") or "127.0.0.1",
+        "port": getenv("ECOMMERCE_DB_PORT") or getenv("DB_PORT") or "3306",
+        "user": getenv("ECOMMERCE_DB_USER") or getenv("DB_USER") or "root",
+        "password": getenv("ECOMMERCE_DB_PASSWORD") or getenv("DB_PASSWORD") or "1234",
+        "db": getenv("ECOMMERCE_DB_NAME") or "ecommerce_demo",
+    }
+
+
+def _mysql_rows(sql: str) -> list[list[str]]:
+    """用 mysql CLI 跑一条查询，返回去表头的行（每行按 \\t 切列）。失败抛 _EcommerceDBError。"""
+    cfg = _ecommerce_db_config()
+    cmd = [
+        "mysql", "-u" + cfg["user"], "-h" + cfg["host"], "-P" + str(cfg["port"]),
+        "-N", "-B", cfg["db"], "-e", sql,
     ]
+    env = dict(os.environ, MYSQL_PWD=cfg["password"])  # 用 MYSQL_PWD 避免密码进 argv
+    try:
+        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        raise _EcommerceDBError(f"mysql 调用失败：{exc}") from exc
+    if proc.returncode != 0:
+        raise _EcommerceDBError(f"查询失败(rc={proc.returncode})：{proc.stderr.strip()} | SQL: {sql}")
+    return [line.split("\t") for line in proc.stdout.splitlines() if line != ""]
+
+
+def _one(sql: str) -> list[str]:
+    """取首行（无结果视为数据异常，抛错让整集跳过而非产出空 golden）。"""
+    rows = _mysql_rows(sql)
+    if not rows:
+        raise _EcommerceDBError(f"查询无结果：{sql}")
+    return rows[0]
+
+
+def _money(s: str) -> str:
+    """金额千分位格式化（保留两位），非数字原样返回。"""
+    try:
+        return f"{float(s):,.2f}"
+    except (TypeError, ValueError):
+        return s
+
+
+def _int(s: str) -> str:
+    """整数千分位格式化，非数字原样返回。"""
+    try:
+        return f"{int(float(s)):,}"
+    except (TypeError, ValueError):
+        return s
+
+
+def _rec(question: str, answer: str, tools: list[str], steps: list[str], difficulty: str) -> dict[str, Any]:
+    return {
+        "question": question,
+        "reference_answer": answer,
+        "expected_tools": tools,
+        "expected_steps": steps,
+        "difficulty": difficulty,
+    }
+
+
+def _build_ecommerce_records() -> list[dict[str, Any]]:
+    """从 ecommerce_demo 现算，产出三档难度的 agent 任务（golden 随库重建自动更新）。"""
+    records: list[dict[str, Any]] = []
+
+    # ===== 易：单表查找 / 简单过滤（expected_tools=["sql_execute"]）=====
+    order_no, status, pay_amount, _cid = _one(
+        "SELECT order_no,status,pay_amount,customer_id FROM orders "
+        "WHERE status='completed' ORDER BY id LIMIT 1"
+    )
+    records.append(_rec(
+        f"订单 {order_no} 现在是什么状态？",
+        f"订单 {order_no} 当前状态为 {status}（{_STATUS_ZH.get(status, status)}），"
+        f"实付金额 {_money(pay_amount)} 元。",
+        ["sql_execute"],
+        [f"理解问题：查询订单 {order_no} 的状态",
+         "调用 sql_execute 在 orders 表按 order_no 过滤查询 status",
+         "整理查询结果并回复用户"],
+        "easy",
+    ))
+
+    p_name, p_brand, p_price, p_stock, p_status = _one(
+        "SELECT name,brand,price,stock,status FROM products ORDER BY id LIMIT 1"
+    )
+    records.append(_rec(
+        f"商品「{p_name}」（{p_brand}）现在的售价和库存分别是多少？",
+        f"商品「{p_name}」（{p_brand}）当前售价 {_money(p_price)} 元，库存 {_int(p_stock)} 件，"
+        f"状态 {p_status}。",
+        ["sql_execute"],
+        ["理解问题：查询该商品的售价与库存",
+         "调用 sql_execute 在 products 表按商品名过滤查询 price、stock",
+         "整理并回复商品价格与库存"],
+        "easy",
+    ))
+
+    c_id, c_name, c_city, c_cnt = _one(
+        "SELECT c.id,c.name,c.city,COUNT(o.id) FROM customers c "
+        "JOIN orders o ON o.customer_id=c.id GROUP BY c.id,c.name,c.city "
+        "ORDER BY c.id LIMIT 1"
+    )
+    records.append(_rec(
+        f"客户{c_name}（ID {c_id}，{c_city}）一共下过多少笔订单？",
+        f"客户{c_name}（ID {c_id}）累计下过 {_int(c_cnt)} 笔订单。",
+        ["sql_execute"],
+        ["理解问题：统计指定客户的订单数",
+         "调用 sql_execute 关联 orders 按 customer_id 计数",
+         "回复订单总数"],
+        "easy",
+    ))
+
+    total_orders = _one("SELECT COUNT(*) FROM orders")[0]
+    records.append(_rec(
+        "系统里目前一共有多少笔订单？",
+        f"目前系统内共有 {_int(total_orders)} 笔订单。",
+        ["sql_execute"],
+        ["理解问题：统计订单总量",
+         "调用 sql_execute 对 orders 表 COUNT(*)",
+         "回复订单总数"],
+        "easy",
+    ))
+
+    cancelled = _one("SELECT COUNT(*) FROM orders WHERE status='cancelled'")[0]
+    records.append(_rec(
+        "有多少笔订单处于已取消（cancelled）状态？",
+        f"共有 {_int(cancelled)} 笔订单处于已取消（cancelled）状态。",
+        ["sql_execute"],
+        ["理解问题：统计已取消订单数",
+         "调用 sql_execute 在 orders 表按 status='cancelled' 过滤计数",
+         "回复已取消订单数"],
+        "easy",
+    ))
+
+    rv_name, rv_n, rv_avg = _one(
+        "SELECT p.name,COUNT(r.id),ROUND(AVG(r.rating),2) FROM product_reviews r "
+        "JOIN products p ON p.id=r.product_id GROUP BY p.id,p.name "
+        "ORDER BY COUNT(r.id) DESC LIMIT 1"
+    )
+    records.append(_rec(
+        f"商品「{rv_name}」目前有多少条评价，平均评分是多少？",
+        f"商品「{rv_name}」共有 {_int(rv_n)} 条评价，平均评分 {rv_avg} 分（满分 5 分）。",
+        ["sql_execute"],
+        ["理解问题：查询该商品的评价数与平均评分",
+         "调用 sql_execute 关联 product_reviews 按 product_id 计数并 AVG(rating)",
+         "回复评价数与平均分"],
+        "easy",
+    ))
+
+    # ===== 中：聚合 / 分组 / 连接（expected_tools=["sql_execute"]）=====
+    gmv_cnt, gmv_sum = _one(
+        "SELECT COUNT(*),ROUND(SUM(pay_amount),2) FROM orders "
+        "WHERE status='completed' AND created_at>='2026-07-01' AND created_at<'2026-08-01'"
+    )
+    records.append(_rec(
+        "统计上个月（2026 年 7 月）已完成订单的总成交额（GMV）。",
+        f"2026 年 7 月已完成订单共 {_int(gmv_cnt)} 笔，总成交额（GMV）为 {_money(gmv_sum)} 元。",
+        ["sql_execute"],
+        ["理解问题：按月统计已完成订单 GMV",
+         "调用 sql_execute 在 orders 表按 status 与 created_at 月份过滤，SUM(pay_amount)",
+         "回复订单笔数与 GMV"],
+        "medium",
+    ))
+
+    top_rows = _mysql_rows(
+        "SELECT p.name,SUM(oi.quantity) q FROM order_items oi "
+        "JOIN orders o ON o.id=oi.order_id JOIN products p ON p.id=oi.product_id "
+        "WHERE o.status='completed' AND o.created_at>='2026-07-01' AND o.created_at<'2026-08-01' "
+        "GROUP BY p.id,p.name ORDER BY q DESC LIMIT 3"
+    )
+    top_txt = "；".join(f"{name}（{_int(q)} 件）" for name, q in top_rows)
+    records.append(_rec(
+        "上个月（2026 年 7 月）已完成订单里，销量最高的三个商品分别是哪些，各卖了多少件？",
+        f"2026 年 7 月销量前三的商品为：{top_txt}。",
+        ["sql_execute"],
+        ["理解问题：求上月销量 Top3 商品",
+         "调用 sql_execute 关联 order_items/orders/products 按商品聚合 SUM(quantity)，取前三",
+         "整理榜单回复"],
+        "medium",
+    ))
+
+    ret_rows = _mysql_rows(
+        "SELECT reason,COUNT(*) c FROM order_returns GROUP BY reason ORDER BY c DESC"
+    )
+    ret_txt = "；".join(f"{reason} {_int(c)} 单" for reason, c in ret_rows)
+    ret_top_reason, ret_top_c = ret_rows[0]
+    records.append(_rec(
+        "各退货原因的退货单数分别是多少？最常见的退货原因是什么？",
+        f"各退货原因分布为：{ret_txt}。其中最常见的是「{ret_top_reason}」，共 {_int(ret_top_c)} 单。",
+        ["sql_execute"],
+        ["理解问题：统计退货原因分布",
+         "调用 sql_execute 在 order_returns 表按 reason 分组计数并降序",
+         "回复分布与最常见原因"],
+        "medium",
+    ))
+
+    ch_rows = _mysql_rows(
+        "SELECT channel,ROUND(AVG(pay_amount),2) FROM orders WHERE status='completed' "
+        "GROUP BY channel ORDER BY 2 DESC"
+    )
+    ch_txt = "；".join(f"{ch} {_money(v)} 元" for ch, v in ch_rows)
+    records.append(_rec(
+        "各下单渠道（channel）的平均客单价分别是多少？",
+        f"已完成订单各渠道平均客单价：{ch_txt}。",
+        ["sql_execute"],
+        ["理解问题：按渠道求平均客单价",
+         "调用 sql_execute 在 orders 表按 channel 分组求 AVG(pay_amount)",
+         "回复各渠道客单价"],
+        "medium",
+    ))
+
+    city, city_c = _one(
+        "SELECT city,COUNT(*) FROM customers GROUP BY city ORDER BY COUNT(*) DESC LIMIT 1"
+    )
+    records.append(_rec(
+        "客户数量最多的城市是哪个，有多少名客户？",
+        f"客户数量最多的城市是{city}，共有 {_int(city_c)} 名客户。",
+        ["sql_execute"],
+        ["理解问题：求客户数最多的城市",
+         "调用 sql_execute 在 customers 表按 city 分组计数取 Top1",
+         "回复城市与客户数"],
+        "medium",
+    ))
+
+    cat_name, cat_c = _one(
+        "SELECT cat.name,COUNT(*) FROM products p JOIN categories cat ON cat.id=p.category_id "
+        "WHERE p.status='on_sale' GROUP BY cat.id,cat.name ORDER BY COUNT(*) DESC LIMIT 1"
+    )
+    records.append(_rec(
+        "哪个商品类目在售（on_sale）商品数量最多，有多少款？",
+        f"在售商品数量最多的类目是「{cat_name}」，共 {_int(cat_c)} 款在售商品。",
+        ["sql_execute"],
+        ["理解问题：求在售商品最多的类目",
+         "调用 sql_execute 关联 products/categories 按类目统计 on_sale 商品数取 Top1",
+         "回复类目与款数"],
+        "medium",
+    ))
+
+    # ===== 难：多步分析 / 趋势 / 可视化 / 结构探查 =====
+    mom_rows = _mysql_rows(
+        "SELECT DATE_FORMAT(created_at,'%Y-%m') m,ROUND(SUM(pay_amount),2) FROM orders "
+        "WHERE status='completed' AND created_at>='2026-06-01' AND created_at<'2026-08-01' "
+        "GROUP BY m ORDER BY m"
+    )
+    mom = {m: v for m, v in mom_rows}
+    jun, jul = float(mom["2026-06"]), float(mom["2026-07"])
+    delta = (jul - jun) / jun * 100 if jun else 0.0
+    records.append(_rec(
+        "对比 2026 年 6 月和 7 月已完成订单的 GMV，7 月环比 6 月变化了多少？",
+        f"2026 年 6 月已完成 GMV 为 {_money(mom['2026-06'])} 元，7 月为 {_money(mom['2026-07'])} 元，"
+        f"7 月环比{'下降' if delta < 0 else '上升'} {abs(delta):.1f}%。",
+        ["sql_execute", "data_analysis"],
+        ["理解问题：计算 GMV 环比变化",
+         "调用 sql_execute 按月汇总 6、7 月已完成 GMV",
+         "调用 data_analysis 计算环比变化率",
+         "回复两月 GMV 与环比结论"],
+        "hard",
+    ))
+
+    sla_rows = _mysql_rows(
+        "SELECT priority,ROUND(AVG(first_response_minutes),1) FROM support_tickets "
+        "GROUP BY priority ORDER BY 2"
+    )
+    sla_txt = "；".join(f"{p} {v} 分钟" for p, v in sla_rows)
+    sla_fastest = sla_rows[0][0]
+    records.append(_rec(
+        "按优先级统计客服工单的平均首次响应时长（分钟），并指出哪个优先级响应最快。",
+        f"各优先级平均首次响应时长：{sla_txt}。其中「{sla_fastest}」优先级响应最快。",
+        ["sql_execute"],
+        ["理解问题：按优先级求平均首次响应时长",
+         "调用 sql_execute 在 support_tickets 表按 priority 分组求 AVG(first_response_minutes)",
+         "回复各优先级时长并指出最快"],
+        "hard",
+    ))
+
+    rev_rows = _mysql_rows(
+        "SELECT cat.name,ROUND(SUM(oi.subtotal),2) rev FROM order_items oi "
+        "JOIN products p ON p.id=oi.product_id JOIN categories cat ON cat.id=p.category_id "
+        "JOIN orders o ON o.id=oi.order_id WHERE o.status='completed' "
+        "GROUP BY cat.id,cat.name ORDER BY rev DESC LIMIT 3"
+    )
+    rev_txt = "；".join(f"{name}（{_money(rev)} 元）" for name, rev in rev_rows)
+    records.append(_rec(
+        "按已完成订单的销售额统计，营收最高的三个商品类目是哪些？",
+        f"营收最高的三个类目为：{rev_txt}。",
+        ["sql_execute"],
+        ["理解问题：求营收 Top3 类目",
+         "调用 sql_execute 关联 order_items/products/categories 按类目 SUM(subtotal) 取前三",
+         "回复类目营收榜"],
+        "hard",
+    ))
+
+    chart_rows = _mysql_rows(
+        "SELECT DATE_FORMAT(created_at,'%Y-%m') m,COUNT(*) FROM orders "
+        "WHERE created_at>='2026-02-01' AND created_at<'2026-08-01' GROUP BY m ORDER BY m"
+    )
+    chart_txt = "，".join(f"{m}: {_int(c)}" for m, c in chart_rows)
+    records.append(_rec(
+        "把最近半年（2026-02 至 2026-07）每月的订单量用柱状图展示出来。",
+        f"最近半年各月订单量为：{chart_txt}。已按月生成柱状图。",
+        ["sql_execute", "render_ui"],
+        ["理解问题：需要每月订单量并可视化",
+         "调用 sql_execute 按月分组统计订单量",
+         "调用 render_ui 生成柱状图",
+         "回复图表与数据"],
+        "hard",
+    ))
+
+    order_tabs = _mysql_rows(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='ecommerce_demo' "
+        "AND table_name LIKE '%order%' ORDER BY table_name"
+    )
+    tab_list = "、".join(t[0] for t in order_tabs)
+    records.append(_rec(
+        "ecommerce_demo 数据库里都有哪些跟订单相关的表？它们大致存什么？",
+        f"订单相关的表主要有：{tab_list}。其中 orders 为订单主表（状态/金额/渠道），"
+        f"order_items 为订单明细行（商品与数量），order_returns 记录退货；"
+        f"此外 shipments 记录发货物流。",
+        ["get_schema"],
+        ["理解问题：了解订单相关的表结构",
+         "调用 get_schema 获取库表结构",
+         "筛选与订单相关的表并说明用途"],
+        "hard",
+    ))
+
+    return records
+
+
+def _scenario_ecommerce_agent() -> dict[str, Any] | None:
+    """电商场景 Agent 集：构建期直连 ecommerce_demo 现算 golden。
+
+    DB 不可用时返回 None（由 main 跳过并告警），不阻断其余数据集产出。
+    """
+    try:
+        records = _build_ecommerce_records()
+    except _EcommerceDBError as exc:
+        print(f"  [WARN] 跳过 scenario_ecommerce_agent（ecommerce_demo 不可用）：{exc}", file=sys.stderr)
+        return None
     return {
         "dataset_id": "scenario_ecommerce_agent",
-        "name": "电商场景 Agent 测评集（自造）",
-        "description": "贴合 ecommerce_demo 的多轮工具调用样本，带 expected_tools + expected_steps，命中全量 Agent 指标。",
+        "name": "电商场景 Agent 测评集（DB 现算）",
+        "description": (
+            "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 对齐 data-agent "
+            "真实工具（sql_execute/get_schema/render_ui），命中全量 Agent 指标。"
+        ),
         "evaluation_type": "agent",
         "supports_trajectory": True,
         "records": records,
@@ -288,6 +624,8 @@ def main() -> int:
     print("== 自造场景集 ==")
     for build in SCENARIO_BUILDERS:
         ds = build()
+        if ds is None:  # DB 不可用等原因跳过（builder 已告警）
+            continue
         if only and ds["dataset_id"] not in only:
             continue
         entry = _write_dataset(out_dir, ds)

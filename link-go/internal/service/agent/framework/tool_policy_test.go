@@ -120,6 +120,79 @@ func TestToolPolicy_NilPermitsAll(t *testing.T) {
 	}
 }
 
+// TestToolPolicy_MetaToolsExemptFromAllowlist 导航/元工具豁免 deny/白名单：即便处于极窄
+// 白名单（甚至显式 deny）模式，skill_invoke/skill_list/skill_match/delegate_* 仍放行，
+// 保证 LLM 随时可重新路由，杜绝窄白名单把自身锁死（Bug A 死锁面）。
+func TestToolPolicy_MetaToolsExemptFromAllowlist(t *testing.T) {
+	// 白名单只含 rag_query（模拟误聚焦 doc-qa），但导航元工具应豁免。
+	p := &ToolPolicy{Allow: []string{"rag_query"}, Deny: []string{"skill_invoke"}, Scope: ScopeRead}
+	for _, meta := range []string{"skill_invoke", "skill_list", "skill_match", "delegate_to_agent", "delegate_parallel"} {
+		if ok, reason := p.Permits(meta); !ok {
+			t.Errorf("元工具 %s 必须豁免 allowlist/deny, ok=%v reason=%s", meta, ok, reason)
+		}
+	}
+	// 非元工具仍受白名单约束：get_schema 不在 allow → 拦截。
+	if ok, reason := p.Permits("get_schema"); ok || reason != BlockReasonNotInAllowlist {
+		t.Errorf("非元工具仍应受白名单约束, ok=%v reason=%s", ok, reason)
+	}
+}
+
+// TestActivateSkillPolicy_MutatesCtxPolicy 显式 skill_invoke 激活白名单：就地改写 ctx 中
+// 已注入的 *ToolPolicy，改动对后续 Permits/gateToolCall 可见（指针语义）。
+func TestActivateSkillPolicy_MutatesCtxPolicy(t *testing.T) {
+	base := &ToolPolicy{Scope: ScopeWrite} // 入口 scope-only 策略
+	ctx := WithToolPolicy(context.Background(), base)
+
+	// 激活前 scope-only：render_ui / get_schema 都放行。
+	if ok, _ := base.Permits("render_ui"); !ok {
+		t.Fatal("激活前 scope-only 应放行 render_ui")
+	}
+
+	ActivateSkillPolicy(ctx, "text2sql-adhoc", []string{"get_schema", "sql_execute"}, []string{"sql_mutate"})
+
+	if base.Skill != "text2sql-adhoc" {
+		t.Errorf("应记录激活的 skill 名, got %q", base.Skill)
+	}
+	// 激活后进入白名单模式：allow 内放行、allow 外拦截、deny 命中拦截。
+	if ok, _ := base.Permits("get_schema"); !ok {
+		t.Error("激活后白名单内工具应放行")
+	}
+	if ok, reason := base.Permits("render_ui"); ok || reason != BlockReasonNotInAllowlist {
+		t.Errorf("激活后白名单外工具应拦截, ok=%v reason=%s", ok, reason)
+	}
+	if ok, reason := base.Permits("sql_mutate"); ok || reason != BlockReasonDisallowed {
+		t.Errorf("激活后 deny 工具应拦截, ok=%v reason=%s", ok, reason)
+	}
+	// 元工具在激活的窄白名单下仍豁免（可再切换 skill）。
+	if ok, _ := base.Permits("skill_invoke"); !ok {
+		t.Error("激活窄白名单后 skill_invoke 仍应豁免")
+	}
+}
+
+// TestActivateSkillPolicy_EmptyAllowNoWhitelist 纯指导 skill（无 allowed_tools）激活后
+// 不进入白名单模式：只记录 Skill 名，工具面不收窄。
+func TestActivateSkillPolicy_EmptyAllowNoWhitelist(t *testing.T) {
+	base := &ToolPolicy{Scope: ScopeWrite}
+	ctx := WithToolPolicy(context.Background(), base)
+
+	ActivateSkillPolicy(ctx, "writing-style", nil, nil)
+
+	if base.Skill != "writing-style" {
+		t.Errorf("应记录 skill 名, got %q", base.Skill)
+	}
+	if len(base.Allow) != 0 {
+		t.Errorf("空 allowed_tools 不应进入白名单模式: %v", base.Allow)
+	}
+	if ok, _ := base.Permits("render_ui"); !ok {
+		t.Error("纯指导 skill 激活后不应收窄工具面")
+	}
+}
+
+// TestActivateSkillPolicy_NoPolicyNoop ctx 未注入策略时为 no-op（不 panic）。
+func TestActivateSkillPolicy_NoPolicyNoop(t *testing.T) {
+	ActivateSkillPolicy(context.Background(), "x", []string{"a"}, nil) // 不应 panic
+}
+
 // TestToolPolicy_EvaluateThreeValued 三值门：deny/scope 优先于审批、未标记退化二态、
 // 标记写类返回 approval_required。
 func TestToolPolicy_EvaluateThreeValued(t *testing.T) {

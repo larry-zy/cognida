@@ -467,6 +467,12 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 			ToolsUsed:     result.ToolsUsed,
 			Trajectory:    result.Trajectory,
 			TotalSteps:    result.TotalSteps,
+			// Text2SQL 评测：金标准/生成 SQL 文本 + 双方结果集，供 Python 算结构与执行准确率
+			// （QA/RAG/Agent 为空，不影响既有指标）。
+			GoldSQL:       result.GoldSQL,
+			GeneratedSQL:  result.GeneratedSQL,
+			ResultSet:     result.ResultSet,
+			GoldResultSet: result.GoldResultSet,
 		}
 	}
 
@@ -488,6 +494,12 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 	// 用户若未在 config.graders 指定，仅有 rouge/bleu 会漏算轨迹类核心指标。
 	if config.Type == domeval.EvaluationTypeAgent {
 		graders = ensureAgentGraders(graders)
+	}
+
+	// SQL 类型：注入 SQL 家族评分器，命中 Python compute_sql_metrics 专属路径
+	// （sql_exact_match/sql_component_match/sql_execution_accuracy）。
+	if config.Type == domeval.EvaluationTypeSQL {
+		graders = ensureSQLGraders(graders)
 	}
 
 	// 构建 LLM Judge 配置
@@ -586,6 +598,29 @@ func ensureAgentGraders(graders []string) []string {
 		seen[g] = struct{}{}
 	}
 	for _, g := range agentGraders {
+		if _, ok := seen[g]; !ok {
+			graders = append(graders, g)
+			seen[g] = struct{}{}
+		}
+	}
+	return graders
+}
+
+// sqlGraders 与 Python fastapi_app._SQL_GRADERS 保持一致：命中其中任一名即触发
+// compute_sql_metrics 分流，产出 sql_exact_match/sql_component_match/sql_execution_accuracy。
+var sqlGraders = []string{
+	"sql_exact_match",
+	"sql_component_match",
+	"sql_execution_accuracy",
+}
+
+// ensureSQLGraders 幂等地把 SQL 家族评分器并入现有列表（保留用户在 config 中显式指定的其它评分器）。
+func ensureSQLGraders(graders []string) []string {
+	seen := make(map[string]struct{}, len(graders))
+	for _, g := range graders {
+		seen[g] = struct{}{}
+	}
+	for _, g := range sqlGraders {
 		if _, ok := seen[g]; !ok {
 			graders = append(graders, g)
 			seen[g] = struct{}{}
@@ -848,6 +883,7 @@ func convertQAPairsToDomain(pairs []*QAPair) []*domeval.QAPair {
 			Context:         p.Context,
 			ExpectedTools:   p.ExpectedTools,
 			ExpectedSteps:   p.ExpectedSteps,
+			GoldSQL:         p.GoldSQL,
 		}
 	}
 	return result
@@ -892,6 +928,10 @@ func convertQAResultsToApp(results []*domeval.QAResult) []*QAResult {
 			LLMReasoning:       r.LLMReasoning,
 			SemanticSimilarity: r.SemanticSimilarity,
 			Scores:             r.Scores,
+			GeneratedSQL:       r.GeneratedSQL,
+			GoldSQL:            r.GoldSQL,
+			ResultSet:          r.ResultSet,
+			GoldResultSet:      r.GoldResultSet,
 		}
 	}
 	return appResults

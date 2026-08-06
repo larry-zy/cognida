@@ -648,6 +648,8 @@ func ProvideEvaluationWorker(
 	resultRepo domain_evaluation.EvaluationResultRepository,
 	datasetLoader *app_evaluation.DatasetLoader,
 	evalConfig *config.EvaluationConfig,
+	db *gorm.DB,
+	datasourceProvider datasourcemodel.ConnectionProvider,
 ) *app_evaluation.EvaluationWorker {
 	// 注册评测执行器：QA（LLMChat）、RAG（检索+LLMChat）、Agent（注册中心适配器）。
 	// 三类共存，Worker 按任务 type 路由；qa/llm 别名由注册表内部归一。
@@ -667,6 +669,12 @@ func ProvideEvaluationWorker(
 	}
 	if err := registry.Register(evalexecutor.NewAgentExecutor(agentService, agentTimeout)); err != nil {
 		log.Printf("[Worker] 注册 Agent 执行器失败: %v", err)
+	}
+	// Text2SQL 执行器：复用 Agent 适配器生成 SQL，另注入只读 SQLRunner（业务库 + 外部数据源），
+	// 只读执行金标准/生成 SQL 供 Python 算执行准确率。与 Agent 共用单条超时。
+	sqlRunner := app_evaluation.NewSQLRunner(db, datasourceProvider)
+	if err := registry.Register(evalexecutor.NewText2SQLExecutor(agentService, sqlRunner, agentTimeout)); err != nil {
+		log.Printf("[Worker] 注册 Text2SQL 执行器失败: %v", err)
 	}
 
 	// Python 评测服务客户端 + Worker 配置（来自评测配置，带默认值兜底）

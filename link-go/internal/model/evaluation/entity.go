@@ -20,6 +20,10 @@ type QAPair struct {
 	// Agent 评测期望标注（仅 Agent 类型使用，QA/RAG 留空）
 	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名（tool_selection/tool_order）
 	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列（trajectory_match/step_efficiency）
+
+	// SQL 评测金标准 SQL（仅 SQL 类型使用）。为空时回退到 ReferenceAnswer——
+	// sql 数据集的金标准 SQL 直接存在 reference_answer 列，不新增数据集列。
+	GoldSQL string `json:"gold_sql,omitempty"`
 }
 
 // ========================================
@@ -55,6 +59,12 @@ type QAResult struct {
 	// Agent 评测期望标注（从 QAPair 透传，供 Worker 组装 references；QA/RAG 留空）
 	ExpectedTools []string `json:"expected_tools,omitempty"` // 期望调用的工具名
 	ExpectedSteps []string `json:"expected_steps,omitempty"` // 期望步骤序列
+
+	// SQL 评测运行时字段（仅 SQL 类型填充，透传给 Python 计算结构/执行准确率；均为瞬态，不落库）
+	GeneratedSQL  string          `json:"generated_sql,omitempty"`   // Agent 生成的 SQL（取最后一次 sql_execute 调用）
+	GoldSQL       string          `json:"gold_sql,omitempty"`        // 金标准 SQL（GoldSQL 或 ReferenceAnswer）
+	ResultSet     [][]interface{} `json:"result_set,omitempty"`      // 生成 SQL 只读执行的完整结果集（供执行准确率比对）
+	GoldResultSet [][]interface{} `json:"gold_result_set,omitempty"` // 金标准 SQL 只读执行的完整结果集
 
 	// 检索指标
 	Precision *float64 `json:"precision,omitempty"`

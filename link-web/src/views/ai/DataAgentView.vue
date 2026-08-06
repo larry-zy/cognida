@@ -441,7 +441,7 @@ const datasources = ref<Datasource[]>([])
 const selectedDatasourceId = ref<string>('')
 const dsSelectOpen = ref(false)
 const dsTriggerRef = ref<HTMLButtonElement | null>(null)
-const dsDropdownPos = ref({ top: '0px', left: '0px' })
+const dsDropdownPos = ref<Record<string, string>>({ top: '0px', left: '0px' })
 
 const datasourceOptions = computed(() => {
   const opts = [{ id: '', name: '当前库' }]
@@ -463,13 +463,26 @@ async function loadDatasources() {
   }
 }
 
+// 下拉面板尺寸常量（与 .ds-selector__dropdown 的 CSS 保持一致）
+const DS_DROPDOWN_MAX_H = 220
+const DS_DROPDOWN_MIN_W = 160
+const DS_DROPDOWN_GAP = 4
+
 function openDsDropdown() {
-  if (dsTriggerRef.value) {
+  // 仅在「打开」时计算定位；composer 常驻页面底部，向下弹会被视口裁切且 fixed 不触发滚动，
+  // 故下方空间不足且上方更宽时朝上弹，并按可用空间动态限高，保证选项始终可见可滚动。
+  if (!dsSelectOpen.value && dsTriggerRef.value) {
     const rect = dsTriggerRef.value.getBoundingClientRect()
-    dsDropdownPos.value = {
-      top: `${rect.bottom + 4}px`,
-      left: `${rect.left}px`
-    }
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+    const openUp = spaceBelow < DS_DROPDOWN_MAX_H + DS_DROPDOWN_GAP && spaceAbove > spaceBelow
+    const avail = (openUp ? spaceAbove : spaceBelow) - DS_DROPDOWN_GAP * 2
+    const maxHeight = `${Math.max(120, Math.min(DS_DROPDOWN_MAX_H, avail))}px`
+    // 水平方向夹取，避免贴右边缘时溢出视口
+    const left = `${Math.max(8, Math.min(rect.left, window.innerWidth - DS_DROPDOWN_MIN_W - 8))}px`
+    dsDropdownPos.value = openUp
+      ? { bottom: `${window.innerHeight - rect.top + DS_DROPDOWN_GAP}px`, left, maxHeight }
+      : { top: `${rect.bottom + DS_DROPDOWN_GAP}px`, left, maxHeight }
   }
   dsSelectOpen.value = !dsSelectOpen.value
 }

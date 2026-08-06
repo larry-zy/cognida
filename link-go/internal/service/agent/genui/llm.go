@@ -77,6 +77,7 @@ func buildUserPrompt(dm *DataModel, root interface{}, question string) string {
 	b.WriteString("\ncatalog: " + strings.Join(Catalog, ", ") + "\n")
 	b.WriteString("\n请输出 {\"components\": [...]}，务必包含 id=\"root\" 容器，Table 绑定 /table，")
 	b.WriteString("时序用 LineChart、分类对比用 BarChart（均绑定 /series），有 /scatter 时用 ScatterChart 看相关性，")
+	b.WriteString("分类占比用 pie_chart、有序阶段转化用 funnel（均绑定 /series），多卡片可用 grid 栅格布局，")
 	b.WriteString("关键指标用 MetricCard 绑定对应 /metrics/* 路径。")
 	b.WriteString("注意：MetricCard 的 value 只能绑定 /metrics/* 标量路径，切勿绑定 /table、/series 等容器路径")
 	b.WriteString("（否则卡片无值）；若上面没有任何 /metrics/* 路径，则不要使用 MetricCard。")

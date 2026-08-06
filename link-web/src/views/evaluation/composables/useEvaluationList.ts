@@ -9,6 +9,7 @@ import { evaluationApi } from '@/api/evaluation'
 import { knowledgeApi } from '@/api/knowledge'
 import { modelApi } from '@/api/model'
 import { listAgents, type AgentSummary } from '@/api/agent'
+import { datasourceApi, type Datasource } from '@/api/datasource'
 import { connectTaskProgress, type SSEConnection } from '@/utils/sse'
 import type {
   EvaluationTask,
@@ -21,10 +22,15 @@ export function useEvaluationList() {
   const loading = ref(false)
   const creating = ref(false)
   const evaluations = ref<EvaluationTask[]>([])
-  const datasets = ref<string[]>([])
+  // 保留 eval_type 以便创建对话框按评测类型过滤可选数据集，
+  // 避免给 agent 评测选到 llm/rag 数据集触发后端类型不匹配报错。
+  const datasets = ref<Array<{ id: string; eval_type: string }>>([])
   const knowledgeBases = ref<Array<Record<string, any>>>([])
   const chatModels = ref<Array<Record<string, any>>>([])
   const agents = ref<AgentSummary[]>([])
+  // 外部数据源列表：Agent 评测需将其透传给 runner，保证测评 agent 与
+  // DataAgentView 生产链路命中同一个库（datasource_id 路由一致）。
+  const datasources = ref<Datasource[]>([])
   const currentDetail = ref<EvaluationDetail | null>(null)
 
   const sseClient = ref<SSEConnection | null>(null)
@@ -59,7 +65,11 @@ export function useEvaluationList() {
     try {
       const res = await evaluationApi.listDatasets()
       if (res.data) {
-        datasets.value = (res.data as any).datasets?.map((d: any) => d.id) || []
+        datasets.value =
+          (res.data as any).datasets?.map((d: any) => ({
+            id: d.id,
+            eval_type: d.eval_type || ''
+          })) || []
       }
     } catch (error) {
       console.error('Failed to load datasets:', error)
@@ -100,12 +110,22 @@ export function useEvaluationList() {
     }
   }
 
+  async function loadDatasources() {
+    try {
+      const res = await datasourceApi.list({ page: 1, page_size: 200 })
+      datasources.value = res.data?.items ?? []
+    } catch (error) {
+      console.error('Failed to load datasources:', error)
+    }
+  }
+
   function loadAll() {
     loadEvaluations()
     loadDatasets()
     loadKnowledgeBases()
     loadModels()
     loadAgents()
+    loadDatasources()
   }
 
   // ---------- 创建 ----------
@@ -245,6 +265,7 @@ export function useEvaluationList() {
     knowledgeBases,
     chatModels,
     agents,
+    datasources,
     currentDetail,
     // computed
     stats,

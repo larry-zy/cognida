@@ -188,7 +188,9 @@ func (h *EvaluationHandler) ListTasks(c *gin.Context) {
 	}
 
 	OK(c, gin.H{
-		"items":       items,
+		// 键名为 tasks：与前端契约 DatasetListResponse.tasks 对齐
+		// （前端 useEvaluationList 读 res.data.tasks；曾用 items 导致列表恒空）。
+		"tasks":       items,
 		"total":       resultList.Total,
 		"page":        resultList.Page,
 		"page_size":   resultList.PageSize,
@@ -287,9 +289,11 @@ func (h *EvaluationHandler) StreamTask(c *gin.Context) {
 }
 
 // GetResults 获取评测结果
-// GET /api/v1/evaluation/tasks/:id/results
+// GET /api/v1/evaluation/results/:task_id
 func (h *EvaluationHandler) GetResults(c *gin.Context) {
-	taskID := c.Param("id")
+	// 路由参数名为 task_id（见 router setupEvaluationRoutes），
+	// 曾误读 c.Param("id") 恒为空 → 400，导致前端「查看」拉详情失败、弹窗打不开。
+	taskID := c.Param("task_id")
 	if taskID == "" {
 		BadRequest(c, "task id is required")
 		return

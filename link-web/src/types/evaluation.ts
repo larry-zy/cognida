@@ -172,7 +172,7 @@ export interface QAPair {
  */
 export interface CreateEvaluationRequest {
   dataset_id: string
-  type: 'rag' | 'qa' | 'agent'
+  type: 'rag' | 'qa' | 'agent' | 'sql'
   kb_id?: string
   agent_id?: string
   model_id?: string
@@ -201,7 +201,7 @@ export interface CreateDatasetRequest {
   dataset_id: string
   name: string
   description?: string
-  evaluation_type: 'rag' | 'qa' | 'agent'
+  evaluation_type: 'rag' | 'qa' | 'agent' | 'sql'
   qa_pairs?: QAPair[]
   // 兼容后端可能使用的字段名
   qapairs?: QAPair[]
@@ -257,8 +257,8 @@ export interface DatasetInfo {
   id: string
   name?: string
   description?: string
-  type: 'rag' | 'qa' | 'agent'
-  eval_type?: 'rag' | 'qa' | 'agent'  // 后端返回字段
+  type: 'rag' | 'qa' | 'agent' | 'sql'
+  eval_type?: 'rag' | 'qa' | 'agent' | 'sql'  // 后端返回字段
   dataset_type?: DatasetType  // 数据集存储类型
   version?: string
   domain?: string
