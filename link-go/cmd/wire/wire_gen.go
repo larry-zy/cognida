@@ -171,7 +171,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	dataSourceHandler := ProvideDataSourceHandler(datasourceService)
 	semanticRepository := ProvideSemanticRepository(db)
 	coverageReporter := ProvideSemanticCoverageReporter(db)
-	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter)
+	semanticProfileReader := ProvideSemanticProfileReader(db)
+	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter, semanticProfileReader)
 	semanticHandler := ProvideSemanticHandler(semanticService)
 	auditRepository := ProvideAuditRepository(db)
 	auditHandler := ProvideAuditHandler(auditRepository)
@@ -1024,9 +1025,14 @@ func ProvideSemanticCoverageReporter(db *gorm.DB) semantic.CoverageReporter {
 	return mysql.NewSemanticCoverageRepository(db)
 }
 
+// ProvideSemanticProfileReader 提供语义层值映射诊断所需的列画像读侧（复用列画像仓储）。
+func ProvideSemanticProfileReader(db *gorm.DB) semantic2.ProfileReader {
+	return mysql.NewColumnProfileRepository(db)
+}
+
 // ProvideSemanticModelService 提供语义模型建模应用服务（受治理查询的写入口）。
-func ProvideSemanticModelService(repo semantic.Repository, idGen id.IDGenerator, coverage semantic.CoverageReporter) *semantic2.Service {
-	return semantic2.NewService(repo, idGen, coverage)
+func ProvideSemanticModelService(repo semantic.Repository, idGen id.IDGenerator, coverage semantic.CoverageReporter, profiles semantic2.ProfileReader) *semantic2.Service {
+	return semantic2.NewService(repo, idGen, coverage, profiles)
 }
 
 // ProvideSemanticHandler 提供语义模型建模 HTTP 处理器。

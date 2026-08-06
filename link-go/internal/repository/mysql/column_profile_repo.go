@@ -64,3 +64,20 @@ func (r *columnProfileRepository) ListByTable(ctx context.Context, tenantID int6
 	}
 	return out, nil
 }
+
+// ListByDatasourceTable 跨 schema 读回某表全部列的画像（不约束 schema_name）。
+// 语义层只持有数据源 + 物理表名，用此对齐画像坐标；跨库同名表一并返回，交由调用方消歧。
+func (r *columnProfileRepository) ListByDatasourceTable(ctx context.Context, tenantID int64, datasourceID, table string) ([]*dataprofile.ColumnProfile, error) {
+	var models []*ColumnProfileModel
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND datasource_id = ? AND table_name = ?", tenantID, datasourceID, table).
+		Find(&models).Error
+	if err != nil {
+		return nil, fmt.Errorf("查询列画像失败: %w", err)
+	}
+	out := make([]*dataprofile.ColumnProfile, 0, len(models))
+	for _, m := range models {
+		out = append(out, m.ToDomain())
+	}
+	return out, nil
+}

@@ -210,6 +210,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		// 指标语义层建模（受治理查询进料线）+ 覆盖率埋点读侧
 		ProvideSemanticRepository,
 		ProvideSemanticCoverageReporter,
+		ProvideSemanticProfileReader,
 		ProvideSemanticModelService,
 		ProvideSemanticHandler,
 
@@ -1119,9 +1120,14 @@ func ProvideSemanticCoverageReporter(db *gorm.DB) semanticmodel.CoverageReporter
 	return mysql.NewSemanticCoverageRepository(db)
 }
 
+// ProvideSemanticProfileReader 提供语义层值映射诊断所需的列画像读侧（复用列画像仓储）。
+func ProvideSemanticProfileReader(db *gorm.DB) semanticsvc.ProfileReader {
+	return mysql.NewColumnProfileRepository(db)
+}
+
 // ProvideSemanticModelService 提供语义模型建模应用服务（受治理查询的写入口）。
-func ProvideSemanticModelService(repo semanticmodel.Repository, idGen infraid.IDGenerator, coverage semanticmodel.CoverageReporter) *semanticsvc.Service {
-	return semanticsvc.NewService(repo, idGen, coverage)
+func ProvideSemanticModelService(repo semanticmodel.Repository, idGen infraid.IDGenerator, coverage semanticmodel.CoverageReporter, profiles semanticsvc.ProfileReader) *semanticsvc.Service {
+	return semanticsvc.NewService(repo, idGen, coverage, profiles)
 }
 
 // ProvideSemanticHandler 提供语义模型建模 HTTP 处理器。

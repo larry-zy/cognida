@@ -58,4 +58,8 @@ type Store interface {
 	Upsert(ctx context.Context, profiles []*ColumnProfile) error
 	// ListByTable 读回某表全部列的画像（缺失返回空切片，非错误）。
 	ListByTable(ctx context.Context, tenantID int64, datasourceID, schema, table string) ([]*ColumnProfile, error)
+	// ListByDatasourceTable 跨 schema 读回某表全部列的画像：语义层只知「数据源 + 物理表名」、
+	// 不知具体库名（LogicalTable 无 schema 字段），用此按 (租户 + 数据源 + 表) 检索。跨库同名表
+	// 会一并返回，由调用方按 SchemaName 消歧（多义时可判定为不可靠）。缺失返回空切片，非错误。
+	ListByDatasourceTable(ctx context.Context, tenantID int64, datasourceID, table string) ([]*ColumnProfile, error)
 }

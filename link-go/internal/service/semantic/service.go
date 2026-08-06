@@ -36,15 +36,20 @@ type Service struct {
 	repo     model.Repository
 	idGen    IDGenerator
 	coverage model.CoverageReporter // 覆盖率读侧（可选，nil 时 Coverage 返回未启用）
+	profiles ProfileReader          // 列画像读侧（可选，nil 时 DiagnoseValueMaps 返回未启用）
 }
 
-// NewService 创建建模服务。coverage 覆盖率读侧端口可为 nil（覆盖埋点未启用时）。
-func NewService(repo model.Repository, idGen IDGenerator, coverage model.CoverageReporter) *Service {
-	return &Service{repo: repo, idGen: idGen, coverage: coverage}
+// NewService 创建建模服务。coverage 覆盖率读侧、profiles 列画像读侧端口均可为 nil
+// （对应埋点未启用 / 画像未接线时，相关只读诊断返回「未启用」而非报错）。
+func NewService(repo model.Repository, idGen IDGenerator, coverage model.CoverageReporter, profiles ProfileReader) *Service {
+	return &Service{repo: repo, idGen: idGen, coverage: coverage, profiles: profiles}
 }
 
 // ErrCoverageDisabled 覆盖埋点未启用（未注入 CoverageReporter）。
 var ErrCoverageDisabled = errors.New("semantic model: 覆盖埋点未启用")
+
+// ErrProfileDisabled 列画像未接线（未注入 ProfileReader），值映射诊断不可用。
+var ErrProfileDisabled = errors.New("semantic model: 列画像未接线")
 
 // Coverage 返回租户下各语义模型的治理命中率（covered/cache_hit/fallback 聚合）。
 func (s *Service) Coverage(ctx context.Context, tenantID int64) ([]model.CoverageModelStat, error) {

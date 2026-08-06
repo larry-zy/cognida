@@ -120,7 +120,7 @@ func validInput(name string) *SaveInput {
 }
 
 func newService(repo model.Repository, cov model.CoverageReporter) *Service {
-	return NewService(repo, &seqIDGen{}, cov)
+	return NewService(repo, &seqIDGen{}, cov, nil)
 }
 
 // --- Create ----------------------------------------------------------------

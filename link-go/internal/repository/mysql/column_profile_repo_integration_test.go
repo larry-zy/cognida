@@ -128,3 +128,61 @@ func TestColumnProfileRepoCoordinateIsolation(t *testing.T) {
 		t.Errorf("读回了错误坐标的画像: %+v", got[0])
 	}
 }
+
+// TestColumnProfileRepoListByDatasourceTable 验证跨 schema 的「按数据源+表」检索：
+// 语义层不知具体库名，故同一数据源下同名表的多库画像应一并返回；数据源隔离仍生效。
+func TestColumnProfileRepoListByDatasourceTable(t *testing.T) {
+	db := newIntegrationDB(t)
+	if err := db.AutoMigrate(&ColumnProfileModel{}); err != nil {
+		t.Fatalf("automigrate: %v", err)
+	}
+	repo := NewColumnProfileRepository(db)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	const tenant = int64(9902)
+	mk := func(ds, schema, col string) *dataprofile.ColumnProfile {
+		return &dataprofile.ColumnProfile{TenantID: tenant, DatasourceID: ds, SchemaName: schema,
+			TableName: "dst_orders", ColumnName: col, RowCount: 1, Distinct: 1, ProfiledAt: now}
+	}
+	db.Where("tenant_id = ? AND table_name = ?", tenant, "dst_orders").Delete(&ColumnProfileModel{})
+
+	// 当前业务库(ds="")下：db_a 有 status/amount 两列，db_b 也有同名表 status 一列（跨库）；
+	// 另有外部数据源 ds=ext 的同名表——应被数据源隔离排除。
+	seed := []*dataprofile.ColumnProfile{
+		mk("", "db_a", "status"), mk("", "db_a", "amount"),
+		mk("", "db_b", "status"),
+		mk("ext", "db_a", "status"),
+	}
+	if err := repo.Upsert(ctx, seed); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// 业务库(ds="")：跨 db_a/db_b 共 3 行；外部 ds=ext 的行不应混入。
+	got, err := repo.ListByDatasourceTable(ctx, tenant, "", "dst_orders")
+	if err != nil {
+		t.Fatalf("ListByDatasourceTable: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("业务库跨 schema 应返回 3 行，实得 %d", len(got))
+	}
+	schemas := map[string]struct{}{}
+	for _, p := range got {
+		schemas[p.SchemaName] = struct{}{}
+		if p.DatasourceID != "" {
+			t.Errorf("混入了外部数据源画像: %+v", p)
+		}
+	}
+	if _, ok := schemas["db_a"]; !ok {
+		t.Error("缺 db_a 的画像")
+	}
+	if _, ok := schemas["db_b"]; !ok {
+		t.Error("缺 db_b 的画像（跨 schema 未返回）")
+	}
+
+	// 外部数据源隔离：ds=ext 只应看到自己那 1 行。
+	gotExt, _ := repo.ListByDatasourceTable(ctx, tenant, "ext", "dst_orders")
+	if len(gotExt) != 1 || gotExt[0].SchemaName != "db_a" {
+		t.Errorf("外部数据源隔离失败: %+v", gotExt)
+	}
+}

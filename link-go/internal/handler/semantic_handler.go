@@ -116,6 +116,25 @@ func (h *SemanticHandler) Coverage(c *gin.Context) {
 	OK(c, gin.H{"items": stats, "total": len(stats), "enabled": true})
 }
 
+// DiagnoseValueMaps 画像↔ValueMap 一致性诊断：按维度检出死映射与覆盖缺口（只读）。
+// @Router /api/v1/semantic-models/:id/valuemap-diagnosis [get]
+func (h *SemanticHandler) DiagnoseValueMaps(c *gin.Context) {
+	report, err := h.service.DiagnoseValueMaps(c.Request.Context(), GetTenantID(c), c.Param("id"))
+	if err != nil {
+		if errors.Is(err, app_semantic.ErrProfileDisabled) {
+			OK(c, gin.H{"enabled": false, "dimensions": []any{}})
+			return
+		}
+		if errors.Is(err, domain_semantic.ErrModelNotFound) {
+			NotFound(c, "语义模型不存在")
+			return
+		}
+		InternalError(c, err.Error())
+		return
+	}
+	OK(c, gin.H{"enabled": true, "report": report})
+}
+
 // writeErr 统一错误映射：not found→404，校验/命名冲突→400，其余→500。
 func (h *SemanticHandler) writeErr(c *gin.Context, err error) {
 	switch {

@@ -510,6 +510,8 @@ func (r *Router) setupSemanticRoutes(api *gin.RouterGroup) {
 		sm.PUT("/:id", r.semanticHandler.Update)
 		sm.POST("/:id/publish", r.semanticHandler.Publish)
 		sm.POST("/:id/deprecate", r.semanticHandler.Deprecate)
+		// 画像↔ValueMap 一致性诊断（只读）：检出死映射/覆盖缺口。
+		sm.GET("/:id/valuemap-diagnosis", r.semanticHandler.DiagnoseValueMaps)
 	}
 	// 覆盖率埋点只读视图（独立路径，避免与 /semantic-models/:id 的静态/参数段冲突）。
 	api.GET("/semantic-coverage", r.semanticHandler.Coverage)

@@ -89,7 +89,7 @@ func setupSemanticRouter(t *testing.T, cov model.CoverageReporter) (*gin.Engine,
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	repo := newMemSemanticRepo()
-	svc := app_semantic.NewService(repo, &memIDGen{}, cov)
+	svc := app_semantic.NewService(repo, &memIDGen{}, cov, nil)
 	h := NewSemanticHandler(svc)
 
 	r := gin.New()
