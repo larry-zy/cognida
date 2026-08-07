@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,14 +13,18 @@ import (
 
 // fakeAgentService 以固定返回值实现 AgentService，供执行器指标采集测试。
 type fakeAgentService struct {
-	result *AgentChatResult
-	err    error
-	delay  time.Duration
+	result   *AgentChatResult
+	err      error
+	delay    time.Duration
+	panicMsg string // 非空时 Chat 触发 panic，供 B1 故障隔离测试
 }
 
 func (f *fakeAgentService) Chat(ctx context.Context, agentID, message string) (*AgentChatResult, error) {
 	if f.delay > 0 {
 		time.Sleep(f.delay)
+	}
+	if f.panicMsg != "" {
+		panic(f.panicMsg)
 	}
 	if f.err != nil {
 		return nil, f.err
@@ -98,6 +103,40 @@ func TestAgentExecutor_CapturesPerItemRequestID(t *testing.T) {
 	bare, _ := exec.Execute(context.Background(), config, []*QAPair{{Question: "Q"}})
 	if bare[0].RequestID != "" {
 		t.Errorf("裸 ctx request_id = %q, want empty", bare[0].RequestID)
+	}
+}
+
+// TestAgentExecutor_RecoversFromPanic 验证单条 QA 触发的 panic 被 safeChat 隔离：
+// 该条标记失败并继续下一条，不冒泡带崩整批（B1 故障隔离）。
+func TestAgentExecutor_RecoversFromPanic(t *testing.T) {
+	svc := &fakeAgentService{panicMsg: "kaboom"}
+	exec := NewAgentExecutor(svc, 5*time.Second)
+	config := &EvaluationTaskConfig{AgentID: "agent-1", Type: domeval.EvaluationTypeAgent}
+
+	var results []*QAResult
+	done := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = errors.New("panic escaped Execute")
+			}
+		}()
+		var e error
+		results, e = exec.Execute(context.Background(), config, []*QAPair{{Question: "Q1"}, {Question: "Q2"}})
+		return e
+	}()
+	if done != nil {
+		t.Fatalf("Execute 应吞掉单条 panic，实得: %v", done)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	for i, r := range results {
+		if r.Success {
+			t.Errorf("item%d 应因 panic 失败", i)
+		}
+		if !strings.Contains(r.Error, "panic") {
+			t.Errorf("item%d error=%q，应含 panic 信息", i, r.Error)
+		}
 	}
 }
 

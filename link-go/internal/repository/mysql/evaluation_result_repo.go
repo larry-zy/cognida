@@ -116,3 +116,25 @@ func (r *EvaluationResultRepository) DeleteByTaskID(ctx context.Context, taskID 
 	}
 	return nil
 }
+
+// ReplaceByTaskID 在单个事务内先按 taskID 删旧结果、再批量插入新结果，保证幂等替换的原子性：
+// 中途崩溃时事务回滚，不会出现「只删不插」导致整批结果行丢失。results 为空时仅删除旧行。
+func (r *EvaluationResultRepository) ReplaceByTaskID(ctx context.Context, taskID string, results []*evaluation.EvaluationResult) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("task_id = ?", taskID).Delete(&EvaluationResultModel{}).Error; err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			return nil
+		}
+		models := make([]*EvaluationResultModel, len(results))
+		for i, result := range results {
+			models[i] = FromDomainEvaluationResult(result)
+		}
+		return tx.CreateInBatches(models, 100).Error
+	})
+	if err != nil {
+		return fmt.Errorf("%w: %v", evaluation.ErrRepository, err)
+	}
+	return nil
+}

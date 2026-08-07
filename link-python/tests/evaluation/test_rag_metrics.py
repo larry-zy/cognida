@@ -13,6 +13,15 @@ from services.evaluation.metrics.rag import (
     context_relevance,
     noise_ratio,
 )
+from services.evaluation.metrics.retrieval import precision_at_k
+
+
+def test_precision_at_k_empty_retrieved_no_zero_division():
+    """空检索列表不应触发 ZeroDivisionError（C3）：min(k,0)=0，precision 记 0。"""
+    assert precision_at_k([], 5) == 0.0
+    assert precision_at_k([], 0) == 0.0
+    # 非空但 k 超出长度：分母取 len（原有语义不变）
+    assert precision_at_k([True, False], 5) == 0.5
 
 
 def _sample():

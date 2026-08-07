@@ -76,6 +76,10 @@ type EvaluationResultRepository interface {
 
 	// DeleteByTaskID 根据任务 ID 删除所有结果
 	DeleteByTaskID(ctx context.Context, taskID string) error
+
+	// ReplaceByTaskID 在单个事务内先按 taskID 删旧结果、再批量插入新结果，实现原子的幂等替换：
+	// 避免「先删后插」两条独立语句在中途崩溃时只删不插、丢失整批结果行。results 为空时仅删除。
+	ReplaceByTaskID(ctx context.Context, taskID string, results []*EvaluationResult) error
 }
 
 // ========================================

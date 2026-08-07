@@ -27,15 +27,6 @@
     "count": 80
   },
   {
-    "dataset_id": "hf_xlam_agent",
-    "name": "xLAM 工具调用基准（Agent）",
-    "description": "xLAM function-calling 公开镜像：query→expected_tools（有序），命中 tool_selection/tool_order；无步骤标注故 supports_trajectory=false。",
-    "evaluation_type": "agent",
-    "supports_trajectory": false,
-    "records_file": "hf_xlam_agent.jsonl",
-    "count": 80
-  },
-  {
     "dataset_id": "scenario_ecommerce_agent",
     "name": "电商场景 Agent 测评集（DB 现算）",
     "description": "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 锚定路径不变量 sql_execute（分析题追加 data_analysis、画图题追加 render_ui、纯结构探查用 get_schema），命中全量 Agent 指标。",

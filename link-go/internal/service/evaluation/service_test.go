@@ -94,6 +94,18 @@ func (m *mockTaskRepo) SoftDelete(ctx context.Context, id string) error {
 func (m *mockTaskRepo) List(ctx context.Context, filter *domeval.TaskFilter) ([]*domeval.EvaluationTask, int64, error) {
 	var result []*domeval.EvaluationTask
 	for _, task := range m.tasks {
+		// honor 下推的过滤条件（模拟 DB 层过滤），以便验证 status/type 过滤下推。
+		if filter != nil {
+			if filter.TenantID != nil && task.TenantID != *filter.TenantID {
+				continue
+			}
+			if filter.Status != nil && task.Status != *filter.Status {
+				continue
+			}
+			if filter.Type != nil && task.Type != *filter.Type {
+				continue
+			}
+		}
 		result = append(result, task)
 	}
 	return result, int64(len(result)), nil
@@ -178,6 +190,20 @@ func (m *mockResultRepo) DeleteByTaskID(ctx context.Context, taskID string) erro
 		return m.deleteErr
 	}
 	delete(m.results, taskID)
+	return nil
+}
+
+func (m *mockResultRepo) ReplaceByTaskID(ctx context.Context, taskID string, results []*domeval.EvaluationResult) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	if m.createErr != nil {
+		return m.createErr
+	}
+	delete(m.results, taskID)
+	for _, result := range results {
+		m.results[result.TaskID] = append(m.results[result.TaskID], result)
+	}
 	return nil
 }
 
@@ -397,7 +423,7 @@ func TestService_ListEvaluationResults(t *testing.T) {
 
 	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
-	result, err := service.ListEvaluationResults(context.Background(), 1, 1, 10)
+	result, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, "", "")
 	if err != nil {
 		t.Fatalf("ListEvaluationResults() error = %v", err)
 	}
@@ -413,6 +439,48 @@ func TestService_ListEvaluationResults(t *testing.T) {
 	}
 	if result.PageSize != 10 {
 		t.Errorf("PageSize = %v, want 10", result.PageSize)
+	}
+}
+
+// TestService_ListEvaluationResults_FilterPushdown 验证 status/type 过滤被下推到仓储层，
+// 由过滤后的结果集决定 Items 与真实 Total（不再是「先分页再内存过滤」）。
+func TestService_ListEvaluationResults_FilterPushdown(t *testing.T) {
+	taskRepo := newMockTaskRepo()
+	resultRepo := newMockResultRepo()
+	dsService := newMockDatasetLoader()
+	progressCache := evaluationcache.NewProgressCache(nil)
+
+	ragRunning := domeval.NewEvaluationTask("task-001", 1, 10, "ds-001", domeval.EvaluationTypeRAG, 10)
+	ragRunning.SetStatus(domeval.TaskStatusRunning)
+	agentCompleted := domeval.NewEvaluationTask("task-002", 1, 10, "ds-002", domeval.EvaluationTypeAgent, 5)
+	agentCompleted.SetStatus(domeval.TaskStatusCompleted)
+	ragCompleted := domeval.NewEvaluationTask("task-003", 1, 10, "ds-003", domeval.EvaluationTypeRAG, 8)
+	ragCompleted.SetStatus(domeval.TaskStatusCompleted)
+	taskRepo.tasks["task-001"] = ragRunning
+	taskRepo.tasks["task-002"] = agentCompleted
+	taskRepo.tasks["task-003"] = ragCompleted
+
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
+
+	// 仅按 status=completed 过滤 → 命中 task-002/task-003，Total=2
+	byStatus, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, "completed", "")
+	if err != nil {
+		t.Fatalf("ListEvaluationResults(status) error = %v", err)
+	}
+	if byStatus.Total != 2 || len(byStatus.Items) != 2 {
+		t.Errorf("status filter: Total=%d len=%d, want 2/2", byStatus.Total, len(byStatus.Items))
+	}
+
+	// status=completed + type=rag → 仅命中 task-003
+	byBoth, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, "completed", "rag")
+	if err != nil {
+		t.Fatalf("ListEvaluationResults(status+type) error = %v", err)
+	}
+	if byBoth.Total != 1 || len(byBoth.Items) != 1 {
+		t.Fatalf("status+type filter: Total=%d len=%d, want 1/1", byBoth.Total, len(byBoth.Items))
+	}
+	if byBoth.Items[0].TaskID != "task-003" {
+		t.Errorf("status+type filter: got %s, want task-003", byBoth.Items[0].TaskID)
 	}
 }
 

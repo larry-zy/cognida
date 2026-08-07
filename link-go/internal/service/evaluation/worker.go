@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +46,11 @@ type EvaluationWorker struct {
 	wg            sync.WaitGroup
 	running       bool
 	mu            sync.RWMutex
+
+	// baseCtx/cancel 给所有在途任务一个可取消的根 context：Stop() 调 cancel() 能中断
+	// 正在跑的被测 Agent（否则任务只能等自身超时或跑完，进程无法优雅停机）。
+	baseCtx context.Context
+	cancel  context.CancelFunc
 }
 
 // WorkerConfig Worker 配置
@@ -69,6 +75,7 @@ func NewWorker(
 	// Worker 不再直接依赖 infrastructure 实现。
 	_ = config
 
+	baseCtx, cancel := context.WithCancel(context.Background())
 	return &EvaluationWorker{
 		queue:         queue,
 		progressCache: progressCache,
@@ -78,6 +85,8 @@ func NewWorker(
 		taskRepo:      taskRepo,
 		resultRepo:    resultRepo,
 		stopCh:        make(chan struct{}),
+		baseCtx:       baseCtx,
+		cancel:        cancel,
 	}
 }
 
@@ -149,8 +158,15 @@ func (w *EvaluationWorker) recoverStuckTasks(ctx context.Context) {
 			if _, ok := queued[t.ID]; ok {
 				continue // 仍在队列里，会被正常消费
 			}
-			// running 说明上次执行到一半被中断，重置回 pending 以恢复状态语义。
+			// running 说明有进程认领了该任务（executeTask 开头置 running 并刷新 updated_at 当作轻量租约）。
+			// 租约判定：仅当租约陈旧（updated_at 早于 now-MaxTaskTimeout）才视为孤儿、重置回 pending 并
+			// 重新入队；否则认为仍有进程在执行，跳过——避免多进程/重叠恢复把在途任务重复入队、进而重复
+			// 执行、互删结果行。pending 任务无租约概念，照常入队。
 			if t.Status == domeval.TaskStatusRunning {
+				if time.Since(t.UpdatedAt) < MaxTaskTimeout {
+					log.Printf("[Worker][Recover] task %s still running (lease fresh, updated %s ago), skip", t.ID, time.Since(t.UpdatedAt).Round(time.Second))
+					continue
+				}
 				if err := w.taskRepo.UpdateStatus(ctx, t.ID, domeval.TaskStatusPending); err != nil {
 					log.Printf("[Worker][Recover] reset task %s to pending failed: %v", t.ID, err)
 				}
@@ -245,6 +261,15 @@ func (w *EvaluationWorker) workerLoop() {
 			defer func() {
 				w.queue.ReleaseSlot(context.Background())
 			}()
+			// B1: 兜底 recover。后台 goroutine 里的 panic（单条坏 QA、被测 Agent、指标计算等）
+			// 若不拦截会直接带崩整个进程、拖垮全部并发任务。此处捕获后打印堆栈并把任务标记 failed，
+			// 使故障隔离在单个任务内。recover 需注册在最内层（最后 defer），先于 ReleaseSlot/wg.Done 执行。
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Worker] task %s panicked: %v\n%s", taskID, r, debug.Stack())
+					w.handleTaskError(context.Background(), taskID, fmt.Errorf("task panicked: %v", r), 0)
+				}
+			}()
 
 			w.executeTask(taskID)
 		}(taskID)
@@ -274,8 +299,24 @@ func (w *EvaluationWorker) executeTask(taskID string) {
 	// 可按 rid 检索一整次评测。rid 内嵌 taskID 便于反查，尾缀 uuid 区分同一任务的多次重跑。
 	// 被测 Agent 此前跑在裸 context.Background() 上，无 rid，运行完全脱离追踪链路。
 	requestID := fmt.Sprintf("%s-%s", taskID, uuid.New().String()[:8])
-	ctx := agentctx.WithRequestID(context.Background(), requestID)
+
+	// B4: 任务根 ctx 从 baseCtx 派生并叠加 MaxTaskTimeout（真实 30min 上限），再叠加 request_id。
+	// 此前用裸 context.Background() → MaxTaskTimeout 零引用、Stop() 无法取消在途任务。
+	// baseCtx 为空（测试直接构造 worker 字面量）时回退 Background，保持向后兼容。
+	baseCtx := w.baseCtx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	runCtx, cancel := context.WithTimeout(baseCtx, MaxTaskTimeout)
+	defer cancel()
+	ctx := agentctx.WithRequestID(runCtx, requestID)
 	log.Printf("[Worker] task %s trace request_id=%s", taskID, requestID)
+
+	// B3: 置 running 并刷新 updated_at 当作轻量租约，供 recoverStuckTasks 区分「在途」与陈旧孤儿，
+	// 避免多进程/重叠恢复重复执行、互删结果行。失败仅记日志，不阻断执行（loadTask 会再校验存在性）。
+	if err := w.taskRepo.UpdateStatus(ctx, taskID, domeval.TaskStatusRunning); err != nil {
+		log.Printf("[Worker] task %s mark running failed: %v", taskID, err)
+	}
 
 	// 更新进度：开始加载
 	w.updateProgress(ctx, taskID, &domeval.Progress{
@@ -747,12 +788,12 @@ func (w *EvaluationWorker) fillMetrics(evalResult *EvaluationResult, resp *Compu
 // delete+insert 使 executeTask 里「打分前落原始产物」与「打分后落富结果」两次调用、
 // 以及任务重跑（恢复重入队/手动重跑）都不会重复插行——否则同一 task 的结果行会累积，
 // 前端逐条列表出现重复、成功/失败计数虚高。
+//
+// B2: 通过 ReplaceByTaskID 在单个事务内完成「先删后插」，保证原子性——此前 delete 与 insert
+// 是两条独立语句，中途崩溃（进程被杀/DB 连接断）会只删不插、丢失整批已算好的结果行。
 func (w *EvaluationWorker) persistResults(ctx context.Context, taskID string, qaResults []*QAResult) error {
-	if err := w.resultRepo.DeleteByTaskID(ctx, taskID); err != nil {
-		return fmt.Errorf("failed to clear old results: %w", err)
-	}
-	if err := w.resultRepo.CreateBatch(ctx, buildDomainResults(taskID, qaResults)); err != nil {
-		return fmt.Errorf("failed to save results: %w", err)
+	if err := w.resultRepo.ReplaceByTaskID(ctx, taskID, buildDomainResults(taskID, qaResults)); err != nil {
+		return fmt.Errorf("failed to replace results: %w", err)
 	}
 	return nil
 }
@@ -866,12 +907,20 @@ func buildTaskMetrics(r *EvaluationResult) *domeval.TaskMetrics {
 
 // handleTaskError 处理任务错误
 func (w *EvaluationWorker) handleTaskError(ctx context.Context, taskID string, err error, _ int) {
+	// 落库/写缓存必须跑在「不随调用方取消」的 ctx 上：任务超时或 Stop() 取消 baseCtx 后，
+	// 传入的 runCtx 已 Done，db.WithContext(ctx) 会在执行 UPDATE 前直接短路返回 context.Canceled，
+	// 导致失败状态永远写不进库、任务卡在 running，只能等下一轮 recoverStuckTasks 兜底
+	// （B4 引入 WithTimeout 后的回归）。WithoutCancel 保留 request_id 等值、剥离取消信号，
+	// 再叠加独立超时避免落库长挂。
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+
 	// 更新 Redis 进度缓存
-	w.progressCache.SetError(ctx, taskID, err.Error(), 0)
+	w.progressCache.SetError(persistCtx, taskID, err.Error(), 0)
 
 	// 更新数据库任务状态
-	_ = w.taskRepo.UpdateError(ctx, taskID, err.Error())
-	_ = w.taskRepo.UpdateStatus(ctx, taskID, domeval.TaskStatusFailed)
+	_ = w.taskRepo.UpdateError(persistCtx, taskID, err.Error())
+	_ = w.taskRepo.UpdateStatus(persistCtx, taskID, domeval.TaskStatusFailed)
 }
 
 // updateProgress 更新进度
@@ -889,6 +938,11 @@ func (w *EvaluationWorker) Stop() {
 	}
 
 	close(w.stopCh)
+	// B4: 取消 baseCtx，中断所有在途任务的被测 Agent 运行（否则只能等各自超时或跑完），
+	// 再等待所有 goroutine 退出，实现优雅停机。
+	if w.cancel != nil {
+		w.cancel()
+	}
 	w.wg.Wait()
 	w.running = false
 }

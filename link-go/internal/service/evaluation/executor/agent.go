@@ -4,11 +4,35 @@ package executor
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	agentctx "link/internal/model/agent"
 	domeval "link/internal/model/evaluation"
 )
+
+// safeChat 包一层 recover 调用被测 Agent：单条 QA 触发的 panic（被测 Agent 内部/工具/LLM 客户端）
+// 会被转成普通 error 返回，由调用方标记该条 Success=false 并继续下一条，避免 panic 冒泡带崩整批评测。
+func safeChat(ctx context.Context, svc AgentService, agentID, message string) (res *AgentChatResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+			err = fmt.Errorf("agent chat panicked: %v\n%s", r, debug.Stack())
+		}
+	}()
+	return svc.Chat(ctx, agentID, message)
+}
+
+// runSafely 执行 fn 并把其中的 panic 转成 error，供单条 QA 内的其它易崩操作（如只读 SQL 执行）
+// 做故障隔离，同样避免单条 panic 带崩整批。
+func runSafely(fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
+		}
+	}()
+	return fn()
+}
 
 // withItemRequestID 在任务级 rid 基础上派生「每条 QA」的子 rid（形如 <base>#<序号>），
 // 使单条 Agent 会话在 audit_logs/Loki 中既可独立检索、又通过前缀归属同一评测任务。
@@ -121,7 +145,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, task *EvaluationTaskConfig,
 			results[i].RequestID = rid
 		}
 		start := time.Now()
-		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		chatResult, err := safeChat(qaCtx, e.agentService, task.AgentID, qa.Question)
 		results[i].LatencyMs = time.Since(start).Milliseconds()
 		cancel()
 
@@ -184,7 +208,7 @@ func (e *AgentExecutor) ExecuteSequential(ctx context.Context, task *EvaluationT
 			result.RequestID = rid
 		}
 		start := time.Now()
-		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		chatResult, err := safeChat(qaCtx, e.agentService, task.AgentID, qa.Question)
 		result.LatencyMs = time.Since(start).Milliseconds()
 		cancel()
 

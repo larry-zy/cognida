@@ -210,8 +210,10 @@ type EvaluationResultDetail struct {
 	UpdatedAt    time.Time                   `json:"updated_at"`
 }
 
-// ListEvaluationResults 列出评测结果
-func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, page, pageSize int) (*EvaluationResultList, error) {
+// ListEvaluationResults 列出评测结果。
+// status/evalType 为可选过滤条件（空字符串表示不过滤），会下推到仓储层由
+// DB 统一过滤+分页+返回真实 Total，避免「先分页再内存过滤」导致的 Total 失真与跨页命中丢失。
+func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, page, pageSize int, status, evalType string) (*EvaluationResultList, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -226,6 +228,15 @@ func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, pag
 		TenantID: &tenantID,
 		Page:     page,
 		PageSize: pageSize,
+	}
+	// 状态/类型过滤下推到 DB（与旧内存过滤一致，按存储值精确匹配）。
+	if status != "" {
+		st := domeval.TaskStatus(status)
+		filter.Status = &st
+	}
+	if evalType != "" {
+		et := domeval.EvaluationType(evalType)
+		filter.Type = &et
 	}
 
 	tasks, total, err := s.taskRepo.List(ctx, filter)

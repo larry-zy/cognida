@@ -8,14 +8,23 @@
 
 设计取舍：
 - QA 集（cmrc2018 中文、squad 英文）只映射 question + reference_answer，命中生成/语义/裁判类指标。
-- Agent 基准（xlam-function-calling-60k）从 answers 抽 expected_tools（有序），命中 tool_selection/tool_order；
-  该集无「步骤自然语言标注」，故 expected_steps 留空、supports_trajectory=false，仅产工具类 + QA 指标并计数告警。
+- Agent 评测只用自造电商场景集 scenario_ecommerce_agent：其 expected_tools 锚定被测 DataAgent 的真实
+  工具（sql_execute/get_schema/render_ui/data_analysis）。外部 function-calling 基准（如 xLAM）的工具
+  宇宙与被测 DataAgent 完全不相交，用它做 agent 评测会让工具/轨迹指标恒趋 0，故不纳入 seed。
 - 网络不可用/HF 拉取失败时逐个跳过并告警，自造场景集（电商/知识库）始终可离线产出，保证 seed 可跑通。
+
+reseed 注意（金标准一致性）：
+- scenario_ecommerce_agent 的 golden 在本脚本生成期直连 ecommerce_demo 现算并写入 JSONL，随后被
+  go:embed 打进 seed 二进制。若 ecommerce_demo 被 `cmd/seed-ecommerce`（DROP+CREATE 随机重建），
+  冻结的 golden 会与新库失配。重建电商库后必须重跑：
+      .venv/bin/python scripts/convert_eval_datasets.py --only scenario_ecommerce_agent
+  重新生成 golden 再 `go run ./cmd/seed-eval-datasets` 灌库。seed 工具带 --strict 会对若干整库计数题
+  现场对拍，失配则非零退出，把「静默失配」变「显眼报错」。
 
 用法：
     .venv/bin/python scripts/convert_eval_datasets.py                 # 全量，默认限量导出
-    .venv/bin/python scripts/convert_eval_datasets.py --limit 80      # 覆盖每集上限
-    .venv/bin/python scripts/convert_eval_datasets.py --only ecommerce_agent,kb_qa   # 只产指定集
+    .venv/bin/python scripts/convert_eval_datasets.py --limit 200     # 覆盖每集上限
+    .venv/bin/python scripts/convert_eval_datasets.py --only scenario_ecommerce_agent,scenario_kb_qa
     .venv/bin/python scripts/convert_eval_datasets.py --out /path/to/dir
 """
 
@@ -43,8 +52,9 @@ DEFAULT_OUT = (
     / "data"
 )
 
-# 每集默认导出上限（限量，避免灌库过大）；task 要求 50–200 条区间
-DEFAULT_LIMIT = 120
+# 每集默认导出上限（限量，避免灌库过大）；task 要求 50–200 条区间。
+# 锁定为 80 与已提交产物（manifest 中 HF 集 count=80）一致，避免重跑漂移。
+DEFAULT_LIMIT = 80
 
 
 # ---------------------------------------------------------------------------
@@ -64,29 +74,10 @@ def _map_cmrc2018(row: dict[str, Any]) -> dict[str, Any] | None:
     return _map_squad(row)
 
 
-def _map_xlam(row: dict[str, Any]) -> dict[str, Any] | None:
-    """Salesforce/xlam-function-calling-60k：query + answers→expected_tools（有序）。
-
-    answers 为 JSON 字符串，形如 '[{"name": "get_weather", "arguments": {...}}, ...]'。
-    抽取 name 序列作为 expected_tools；reference_answer 落原始 answers 文本，供答案类指标兜底。
-    无工具标注的样本跳过（该集应恒有工具，防脏数据）。
-    """
-    query = (row.get("query") or "").strip()
-    raw_answers = row.get("answers")
-    if not query or not raw_answers:
-        return None
-    try:
-        calls = json.loads(raw_answers) if isinstance(raw_answers, str) else raw_answers
-    except (json.JSONDecodeError, TypeError):
-        return None
-    tools = [c.get("name", "") for c in calls if isinstance(c, dict) and c.get("name")]
-    if not tools:
-        return None
-    return {
-        "question": query,
-        "reference_answer": raw_answers if isinstance(raw_answers, str) else json.dumps(raw_answers, ensure_ascii=False),
-        "expected_tools": tools,
-    }
+# 注：外部 function-calling 基准（如 xLAM）曾在此映射 query→expected_tools，但其工具宇宙
+# （live_giveaways_by_type 等外部 API）与被测 DataAgent 的固定工具集（sql_execute/get_schema/
+# render_ui/data_analysis）完全不相交，用于 agent 评测会让工具/轨迹指标恒趋 0，已剔除。
+# Agent 评测统一走自造电商场景集 scenario_ecommerce_agent。
 
 
 # ---------------------------------------------------------------------------
@@ -111,18 +102,6 @@ HF_DATASETS: list[dict[str, Any]] = [
         "hf_path": "rajpurkar/squad",
         "split": "train",
         "mapper": _map_squad,
-        "supports_trajectory": False,
-    },
-    {
-        # Salesforce 官方集为 gated（需 HF_TOKEN），此处用 schema 完全一致的公开镜像
-        # （字段同为 query/answers/tools），保证离线 seed 可复现。
-        "dataset_id": "hf_xlam_agent",
-        "name": "xLAM 工具调用基准（Agent）",
-        "description": "xLAM function-calling 公开镜像：query→expected_tools（有序），命中 tool_selection/tool_order；无步骤标注故 supports_trajectory=false。",
-        "evaluation_type": "agent",
-        "hf_path": "NobodyExistsOnTheInternet/xlam-function-calling-60k",
-        "split": "train",
-        "mapper": _map_xlam,
         "supports_trajectory": False,
     },
 ]
@@ -612,7 +591,7 @@ def _write_dataset(out_dir: Path, ds: dict[str, Any]) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="评测数据集转换器（HF + 自造场景 → JSONL）")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="产物目录（默认 Go seed data 目录）")
-    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="每个 HF 集导出上限（默认 120）")
+    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="每个 HF 集导出上限（默认 80，与已提交产物一致）")
     parser.add_argument("--only", type=str, default="", help="逗号分隔的 dataset_id 白名单，缺省全量")
     args = parser.parse_args()
 

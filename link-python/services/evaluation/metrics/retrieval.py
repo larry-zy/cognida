@@ -17,8 +17,12 @@ def precision_at_k(retrieved: Sequence[bool], k: int) -> float:
     """
     if k == 0:
         return 0.0
+    # 空检索列表时 min(k, 0)=0 会触发 ZeroDivisionError（C3）：无召回视为 precision 0。
+    denom = min(k, len(retrieved))
+    if denom == 0:
+        return 0.0
     relevant_at_k = sum(1 for i, is_relevant in enumerate(retrieved[:k]) if is_relevant)
-    return relevant_at_k / min(k, len(retrieved))
+    return relevant_at_k / denom
 
 
 def recall_at_k(retrieved: Sequence[bool], total_relevant: int, k: int) -> float:

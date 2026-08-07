@@ -68,6 +68,45 @@ func TestText2SQLExecutor_CapturesSQLAndResultSets(t *testing.T) {
 	}
 }
 
+// panicSQLRunner 的 RunReadOnly 恒 panic，供 B1 SQL 执行故障隔离测试。
+type panicSQLRunner struct{}
+
+func (panicSQLRunner) RunReadOnly(ctx context.Context, sql string) (*SQLResultSet, error) {
+	panic("sql runner boom")
+}
+
+// TestText2SQLExecutor_RecoversFromRunnerPanic 验证只读 SQL 执行 panic 被 runSafely 隔离：
+// 结果集缺席但该条仍按「已产出 SQL」成功，且不冒泡带崩整批（B1 故障隔离）。
+func TestText2SQLExecutor_RecoversFromRunnerPanic(t *testing.T) {
+	svc := &fakeAgentService{result: &AgentChatResult{GeneratedSQL: "SELECT 1"}}
+	exec := NewText2SQLExecutor(svc, panicSQLRunner{}, 5*time.Second)
+	config := &EvaluationTaskConfig{AgentID: "text2sql", Type: domeval.EvaluationTypeSQL}
+	dataset := []*QAPair{{Question: "Q", ReferenceAnswer: "SELECT gold"}}
+
+	var results []*QAResult
+	escaped := func() (panicked bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		results, _ = exec.Execute(context.Background(), config, dataset)
+		return false
+	}()
+	if escaped {
+		t.Fatal("SQL 执行 panic 不应冒泡出 Execute")
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if !results[0].Success {
+		t.Fatalf("已产出 SQL 应判成功，实得 error=%q", results[0].Error)
+	}
+	if results[0].ResultSet != nil || results[0].GoldResultSet != nil {
+		t.Error("panic 路径不应写入结果集")
+	}
+}
+
 // TestText2SQLExecutor_PrefersGoldSQLField 验证 QAPair.GoldSQL 非空时优先于 ReferenceAnswer。
 func TestText2SQLExecutor_PrefersGoldSQLField(t *testing.T) {
 	svc := &fakeAgentService{result: &AgentChatResult{GeneratedSQL: "SELECT 1"}}

@@ -206,12 +206,15 @@ async def evaluate_llm(request: LLMEvaluateRequest) -> LLMEvaluateResponse:
                 request.outputs,
                 questions if len(questions) == len(request.outputs) else [None] * len(request.outputs),
             ):
-                score = compute_llm_judge_metrics(
-                    reference=ref,
-                    hypothesis=out,
-                    question=q or "",
-                    dimensions=dimensions,
-                )
+                try:
+                    score = compute_llm_judge_metrics(
+                        reference=ref,
+                        hypothesis=out,
+                        question=q or "",
+                        dimensions=dimensions,
+                    )
+                except Exception:
+                    continue  # 单条裁判失败不拖垮整批（与批量端点口径一致）
                 judge_scores["total_score"].append(score.get("total_score", 0))
                 for dim, dim_score in score.get("dimension_scores", {}).items():
                     if dim in judge_scores["dimension_scores"]:
@@ -267,12 +270,15 @@ async def evaluate_agent(request: AgentEvaluateRequest) -> AgentEvaluateResponse
                 outputs,
                 questions if len(questions) == len(outputs) else [None] * len(outputs),
             ):
-                score = compute_llm_judge_metrics(
-                    reference=ref.get("final_answer", ""),
-                    hypothesis=out.get("final_answer", ""),
-                    question=q or "",
-                    dimensions=dimensions,
-                )
+                try:
+                    score = compute_llm_judge_metrics(
+                        reference=ref.get("final_answer", ""),
+                        hypothesis=out.get("final_answer", ""),
+                        question=q or "",
+                        dimensions=dimensions,
+                    )
+                except Exception:
+                    continue  # 单条裁判失败不拖垮整批（与批量端点口径一致）
                 judge_scores["total_score"].append(score.get("total_score", 0))
                 for dim, dim_score in score.get("dimension_scores", {}).items():
                     if dim in judge_scores["dimension_scores"]:
@@ -337,12 +343,15 @@ async def evaluate_rag(request: RAGEvaluateRequest) -> RAGEvaluateResponse:
                 judge_scores["dimension_scores"][dim] = []
 
             for q, ref, out in zip(questions, references, outputs):
-                score = compute_llm_judge_metrics(
-                    reference=ref.get("answer", ""),
-                    hypothesis=out.get("answer", ""),
-                    question=q,
-                    dimensions=dimensions,
-                )
+                try:
+                    score = compute_llm_judge_metrics(
+                        reference=ref.get("answer", ""),
+                        hypothesis=out.get("answer", ""),
+                        question=q,
+                        dimensions=dimensions,
+                    )
+                except Exception:
+                    continue  # 单条裁判失败不拖垮整批（与批量端点口径一致）
                 judge_scores["total_score"].append(score.get("total_score", 0))
                 for dim, dim_score in score.get("dimension_scores", {}).items():
                     if dim in judge_scores["dimension_scores"]:
@@ -437,8 +446,10 @@ class ComputeMetricsResponse(BaseModel):
     unsupported: List[str] = []          # 请求了但注册表中无对应 grader 的指标名
 
 
-# 走专属批量计算的评分器名(其余已注册指标走通用 grader 执行路径)
-_GENERATION_GRADERS = {"rouge", "rouge_1", "rouge_2", "rouge_l", "bleu", "bleu_1", "bleu_4"}
+# 走专属批量计算的评分器名(其余已注册指标走通用 grader 执行路径)。
+# bleu_2 与 bleu_1/bleu_4 一样由 compute_generation_metrics 产出并镜像进 scores，
+# 需一并列入白名单，否则显式请求 bleu_2 会被误判为 unsupported（C3）。
+_GENERATION_GRADERS = {"rouge", "rouge_1", "rouge_2", "rouge_l", "bleu", "bleu_1", "bleu_2", "bleu_4"}
 _RETRIEVAL_GRADERS = {"precision", "recall", "ndcg", "mrr", "map"}
 _SEMANTIC_GRADERS = {"semantic", "semantic_similarity", "semantic_relevance"}
 _RAG_GRADERS = {"faithfulness", "context_relevance", "noise_ratio"}
@@ -642,7 +653,7 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                 aggregate["rouge_1"] = rouge_1_sum / count
                 aggregate["rouge_2"] = rouge_2_sum / count
                 aggregate["rouge_l"] = rouge_l_sum / count
-            if "bleu" in supported_names or supported_names & {"bleu_1", "bleu_4"}:
+            if "bleu" in supported_names or supported_names & {"bleu_1", "bleu_2", "bleu_4"}:
                 aggregate["bleu_1"] = bleu_1_sum / count
                 aggregate["bleu_2"] = bleu_2_sum / count
                 aggregate["bleu_4"] = bleu_4_sum / count

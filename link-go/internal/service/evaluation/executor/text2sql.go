@@ -72,7 +72,7 @@ func (e *Text2SQLExecutor) Execute(ctx context.Context, task *EvaluationTaskConf
 			results[i].RequestID = rid
 		}
 		start := time.Now()
-		chatResult, err := e.agentService.Chat(qaCtx, task.AgentID, qa.Question)
+		chatResult, err := safeChat(qaCtx, e.agentService, task.AgentID, qa.Question)
 		results[i].LatencyMs = time.Since(start).Milliseconds()
 
 		if err != nil {
@@ -88,14 +88,25 @@ func (e *Text2SQLExecutor) Execute(ctx context.Context, task *EvaluationTaskConf
 		}
 
 		// 只读执行金标准 + 生成 SQL，采集结果集供执行准确率比对（复用同一路由后的数据源）。
+		// 单条 SQL 执行用 runSafely 包 recover：panic 不阻断整批，仅让该条结果集缺席。
 		if e.sqlRunner != nil {
 			if results[i].GoldSQL != "" {
-				if rs, rerr := e.sqlRunner.RunReadOnly(qaCtx, results[i].GoldSQL); rerr == nil && rs != nil {
+				var rs *SQLResultSet
+				if rerr := runSafely(func() error {
+					r, e2 := e.sqlRunner.RunReadOnly(qaCtx, results[i].GoldSQL)
+					rs = r
+					return e2
+				}); rerr == nil && rs != nil {
 					results[i].GoldResultSet = rs.Rows
 				}
 			}
 			if results[i].GeneratedSQL != "" {
-				if rs, rerr := e.sqlRunner.RunReadOnly(qaCtx, results[i].GeneratedSQL); rerr == nil && rs != nil {
+				var rs *SQLResultSet
+				if rerr := runSafely(func() error {
+					r, e2 := e.sqlRunner.RunReadOnly(qaCtx, results[i].GeneratedSQL)
+					rs = r
+					return e2
+				}); rerr == nil && rs != nil {
 					results[i].ResultSet = rs.Rows
 				}
 			}

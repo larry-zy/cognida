@@ -10,7 +10,9 @@
 from fastapi.testclient import TestClient
 
 from services.evaluation.fastapi_app import app
+import services.evaluation.metrics.agent as agent_mod
 from services.evaluation.metrics.agent import (
+    _numeric_coverage,
     answer_accuracy,
     answer_accuracy_items,
     compute_agent_metrics,
@@ -71,6 +73,89 @@ def test_trajectory_match_aggregate_equals_mean_of_items():
     agg = trajectory_match(expected, actual)
     assert abs(agg["exact_match"] - 0.5) < 1e-9
     assert abs(agg["similarity"] - sum(x["similarity"] for x in items) / 2) < 1e-9
+
+
+# ============================================================
+# A5：中文数量单位（万/亿）纳入数值覆盖率
+# ============================================================
+
+def test_numeric_coverage_matches_chinese_units():
+    """「6万」应与参考「60,000」命中；「3亿」应与「300000000」命中（A5）。"""
+    assert _numeric_coverage("共 60,000 笔订单", "大约 6 万单") == 1.0
+    assert _numeric_coverage("销售额 3 亿元", "约 300000000 元") == 1.0
+    # 数字部分不因中文单位而被重复计入：1.2万=12000，唯一 token
+    assert _numeric_coverage("1.2 万", "12000") == 1.0
+    # 数值不符仍应漏配（守卫：单位换算不能把不同量级凑成命中）
+    assert _numeric_coverage("60,000 笔", "6 千笔") == 0.0
+
+
+# ============================================================
+# A3：数值覆盖率语义地板（sim 太低时数字命中不得抬分）
+# ============================================================
+
+def test_answer_accuracy_numeric_floor_gates_low_semantic(monkeypatch):
+    """语义严重跑偏（sim<地板）时，纵然数字全对也不得被 max(cov) 救成高分（A3）。"""
+    # 语义低于地板：答案跑偏
+    monkeypatch.setattr(agent_mod, "compute_semantic_metrics", lambda r, o: {"similarity": 0.1})
+    low = answer_accuracy_items(["订单总数 60000 笔"], ["今天天气不错 60000"])
+    assert low[0] == 0.0, "低语义下数字命中不应抬分"
+
+    # 语义过线：数字覆盖率允许抬分
+    monkeypatch.setattr(agent_mod, "compute_semantic_metrics", lambda r, o: {"similarity": 0.5})
+    high = answer_accuracy_items(["订单总数 60000 笔"], ["共有 60000 笔订单"])
+    assert high[0] == 1.0, "语义过线时数字全命中应抬到满分"
+
+
+# ============================================================
+# A2：轨迹匹配比对工具序列而非自然语言步骤
+# ============================================================
+
+def test_trajectory_match_compares_tool_sequences_not_nl_steps():
+    """expected_steps 为自然语言注释；轨迹匹配应看 tools_used 序列（A2）。"""
+    references = [
+        {"final_answer": "x", "tools_used": ["get_schema", "sql_execute"],
+         "expected_steps": ["理解问题", "调用 sql_execute 查询", "整理回复"]},
+    ]
+    # 工具序列完全一致 → exact_match=1.0，尽管 expected_steps 是异构的自然语言
+    same = compute_agent_metrics(
+        references,
+        [{"final_answer": "x", "tools_used": ["get_schema", "sql_execute"],
+          "trajectory": ["随便什么描述"], "total_steps": 2}],
+        metrics=["trajectory_match"],
+    )
+    assert same["trajectory_match"]["exact_match"] == 1.0
+
+    # 工具序列不同 → exact_match=0.0
+    diff = compute_agent_metrics(
+        references,
+        [{"final_answer": "x", "tools_used": ["render_ui"],
+          "trajectory": ["理解问题", "调用 sql_execute 查询", "整理回复"], "total_steps": 3}],
+        metrics=["trajectory_match"],
+    )
+    assert diff["trajectory_match"]["exact_match"] == 0.0
+
+
+# ============================================================
+# A4：无标注样本在 trajectory_match / step_efficiency 中不参与统计
+# ============================================================
+
+def test_trajectory_match_skips_unlabeled_samples():
+    """期望工具为空的样本返回 None、不进分母（A4）。"""
+    items = trajectory_match_items([["a", "b"], []], [["a", "b"], ["z"]])
+    assert items[0]["exact_match"] == 1.0
+    assert items[1] is None
+    agg = trajectory_match([["a", "b"], []], [["a", "b"], ["z"]])
+    assert agg["exact_match"] == 1.0  # 仅第一条参与
+
+
+def test_step_efficiency_skips_unlabeled_samples():
+    """optimal<=0（无 expected_steps）的样本返回 None、不进分母（A4，旧实现默认 1 虚构分）。"""
+    items = step_efficiency_items([3, 2], [0, 2])
+    assert items[0] is None
+    assert abs(items[1] - 1.0) < 1e-9
+    agg = step_efficiency([3, 2], [0, 2])
+    assert abs(agg["optimal_ratio"] - 1.0) < 1e-9  # 仅第二条参与
+    assert abs(agg["optimal_steps"] - 2.0) < 1e-9  # 仅统计有标注的最优步数
 
 
 def test_step_efficiency_symmetric_ratio_and_mean_of_items():

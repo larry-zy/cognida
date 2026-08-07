@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -163,34 +164,17 @@ func (h *EvaluationHandler) ListTasks(c *gin.Context) {
 	evalType := c.Query("type")
 	page, pageSize := GetPageParams(c)
 
-	// 调用服务
-	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantIDInt, page, pageSize)
+	// 调用服务：status/type 过滤下推到 DB 层，保证 Total 真实、跨页命中不丢失。
+	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantIDInt, page, pageSize, status, evalType)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	// 过滤结果（基于查询参数）
-	items := resultList.Items
-	if status != "" || evalType != "" {
-		filtered := make([]*evaluation.EvaluationTaskSummary, 0)
-		for _, item := range items {
-			if status != "" && string(item.Status) != status {
-				continue
-			}
-			if evalType != "" && string(item.Type) != evalType {
-				continue
-			}
-			filtered = append(filtered, item)
-		}
-		items = filtered
-		resultList.Total = int64(len(filtered))
-	}
-
 	OK(c, gin.H{
 		// 键名为 tasks：与前端契约 DatasetListResponse.tasks 对齐
 		// （前端 useEvaluationList 读 res.data.tasks；曾用 items 导致列表恒空）。
-		"tasks":       items,
+		"tasks":       resultList.Items,
 		"total":       resultList.Total,
 		"page":        resultList.Page,
 		"page_size":   resultList.PageSize,
@@ -259,9 +243,21 @@ func (h *EvaluationHandler) StreamTask(c *gin.Context) {
 				continue
 			}
 
-			// 序列化进度
-			data := fmt.Sprintf(`{"stage":"%s","current":%d,"total":%d,"message":"%s","percentage":%d}`,
-				progress.Stage, progress.Current, progress.Total, progress.Message, progress.Percentage)
+			// 序列化进度：用 json.Marshal 构造载荷，避免 Message（可能含引号/换行）
+			// 直接拼进 JSON 字符串产出非法 JSON 致前端 JSON.parse 失败。
+			payload, err := json.Marshal(map[string]interface{}{
+				"stage":      progress.Stage,
+				"current":    progress.Current,
+				"total":      progress.Total,
+				"message":    progress.Message,
+				"percentage": progress.Percentage,
+			})
+			if err != nil {
+				c.SSEvent("error", `{"message":"failed to encode progress"}`)
+				c.Writer.Flush()
+				return
+			}
+			data := string(payload)
 
 			// 去重：如果进度没变化，不发送
 			if data == lastProgress {
@@ -280,7 +276,12 @@ func (h *EvaluationHandler) StreamTask(c *gin.Context) {
 				return
 			}
 			if progress.Stage == domeval.StageFailed {
-				c.SSEvent("failed", fmt.Sprintf(`{"message":"%s"}`, progress.Error))
+				// Error 来自任意 Agent 错误串，可能含引号/换行；用 json.Marshal 转义。
+				failedPayload, err := json.Marshal(map[string]string{"message": progress.Error})
+				if err != nil {
+					failedPayload = []byte(`{"message":"evaluation failed"}`)
+				}
+				c.SSEvent("failed", string(failedPayload))
 				c.Writer.Flush()
 				return
 			}
@@ -345,32 +346,16 @@ func (h *EvaluationHandler) ListResults(c *gin.Context) {
 	status := c.Query("status")
 	evalType := c.Query("type")
 
-	// 调用服务
-	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantID.(int64), page, pageSize)
+	// 调用服务：status/type 过滤下推到 DB 层，保证 Total 真实、跨页命中不丢失。
+	// 注：评测「结果」列表按任务维度组织，与任务共享 status/type 过滤维度，故同样下推。
+	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantID.(int64), page, pageSize, status, evalType)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	// 过滤结果（基于查询参数）
-	items := resultList.Items
-	if status != "" || evalType != "" {
-		filtered := make([]*evaluation.EvaluationTaskSummary, 0)
-		for _, item := range items {
-			if status != "" && string(item.Status) != status {
-				continue
-			}
-			if evalType != "" && string(item.Type) != evalType {
-				continue
-			}
-			filtered = append(filtered, item)
-		}
-		items = filtered
-		resultList.Total = int64(len(filtered))
-	}
-
 	OK(c, gin.H{
-		"items":       items,
+		"items":       resultList.Items,
 		"total":       resultList.Total,
 		"page":        resultList.Page,
 		"page_size":   resultList.PageSize,

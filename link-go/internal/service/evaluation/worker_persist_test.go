@@ -52,6 +52,17 @@ func (f *fakeResultRepo) DeleteByTaskID(ctx context.Context, taskID string) erro
 	return nil
 }
 
+// ReplaceByTaskID 模拟事务内「先删后插」的幂等替换（与真实仓储语义一致）。
+func (f *fakeResultRepo) ReplaceByTaskID(ctx context.Context, taskID string, results []*domeval.EvaluationResult) error {
+	f.deletes++
+	delete(f.rows, taskID)
+	f.createCall++
+	for _, r := range results {
+		f.rows[r.TaskID] = append(f.rows[r.TaskID], r)
+	}
+	return nil
+}
+
 // TestPersistResults_IdempotentOnRerun 验证同一 taskID 多次 persistResults 不累积行：
 // 每次落库前先按 taskID 清旧，最终只剩最后一批。
 func TestPersistResults_IdempotentOnRerun(t *testing.T) {

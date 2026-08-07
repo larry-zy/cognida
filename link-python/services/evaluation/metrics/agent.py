@@ -26,6 +26,10 @@ def _graded_accuracy(sim: float) -> float:
 _ID_RE = re.compile(r"(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{2,}")
 # 纯数字（含千分位与小数）：1,234 / 384400 / 3.14 / 12.0。
 _NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+# 数字 + 中文数量单位（6万 / 1.2亿 / 3,000 万）：中文答案常用「万/亿」缩写，
+# 需归一化为绝对值再比对，否则「6万」与参考「60,000」会因写法不同而漏配（A5）。
+_CN_UNIT = {"万": 10_000, "亿": 100_000_000}
+_CN_NUM_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*([万亿])")
 
 
 def _normalize_number(raw: str) -> Optional[str]:
@@ -33,6 +37,17 @@ def _normalize_number(raw: str) -> Optional[str]:
     try:
         val = float(raw.replace(",", ""))
     except ValueError:
+        return None
+    if val.is_integer():
+        return str(int(val))
+    return repr(val)
+
+
+def _normalize_cn_number(digits: str, unit: str) -> Optional[str]:
+    """把「数字+万/亿」归一化为绝对值字符串（与 _normalize_number 同格式，便于集合求交）。"""
+    try:
+        val = float(digits.replace(",", "")) * _CN_UNIT[unit]
+    except (ValueError, KeyError):
         return None
     if val.is_integer():
         return str(int(val))
@@ -48,8 +63,19 @@ def _salient_tokens(text: str) -> set:
     """
     ids = {m.group(0).lower() for m in _ID_RE.finditer(text)}
     residual = _ID_RE.sub(" ", text)
+    # 先抽「数字+中文单位」(6万/1.2亿) 归一化为绝对值，并从残余里移除，
+    # 免得其数字部分又被 _NUM_RE 当作独立裸数字重复计入（6万 → 6 + 60000）。
+    cn_nums: set = set()
+
+    def _strip_cn(m: "re.Match") -> str:
+        n = _normalize_cn_number(m.group(1), m.group(2))
+        if n:
+            cn_nums.add(n)
+        return " "
+
+    residual = _CN_NUM_RE.sub(_strip_cn, residual)
     nums = {n for n in (_normalize_number(m.group(0)) for m in _NUM_RE.finditer(residual)) if n}
-    return ids | nums
+    return ids | cn_nums | nums
 
 
 def _numeric_coverage(reference: str, output: str) -> Optional[float]:
@@ -71,17 +97,23 @@ def answer_accuracy_items(
     表述稍有差异就被 _graded_accuracy 压到低分，冤枉了数值全对的回答。此处用关键事实
     token（金额/数量/单号/ID）的覆盖率给准确度兜底：final = max(分级语义, 数值覆盖)。
     参考答案里没有可比数值/ID 时（纯文字结论），退回纯语义分。
+
+    语义地板（A3）：数值覆盖率仅在语义已过「基本相关」线（sim ≥ _ACC_SIM_LOW）时才允许
+    抬分。否则一条语义严重跑偏的错答案，只要凑巧命中几个数字/ID 就会被 max(...) 救回高分——
+    数值命中只应奖励"答对且表述不同"，不该拯救"答错但撞上数字"。
     """
     if len(references) != len(outputs):
         raise ValueError("references 和 outputs 长度必须相同")
 
     items: List[float] = []
     for ref, out in zip(references, outputs):
-        graded = _graded_accuracy(
-            compute_semantic_metrics([ref], [out]).get("similarity", 0.0)
-        )
+        sim = compute_semantic_metrics([ref], [out]).get("similarity", 0.0)
+        graded = _graded_accuracy(sim)
         cov = _numeric_coverage(ref, out)
-        items.append(max(graded, cov) if cov is not None else graded)
+        if cov is not None and sim >= _ACC_SIM_LOW:
+            items.append(max(graded, cov))
+        else:
+            items.append(graded)
     return items
 
 
@@ -202,15 +234,6 @@ def tool_selection(
     }
 
 
-def _step_text(step: Any) -> str:
-    """从单个轨迹步骤提取可比文本，兼容字符串与 {content/name/tool} 字典。"""
-    if isinstance(step, str):
-        return step
-    if isinstance(step, dict):
-        return str(step.get("content") or step.get("name") or step.get("tool") or "")
-    return str(step or "")
-
-
 def _is_ordered_subsequence(expected: List[str], actual: List[str]) -> bool:
     """判断 expected 是否为 actual 的有序子序列（保持相对顺序，允许中间插入其他调用）。"""
     it = iter(actual)
@@ -263,19 +286,24 @@ def tool_order(
 def trajectory_match_items(
     expected_trajectories: List[List[str]],
     actual_trajectories: List[List[str]],
-) -> List[dict[str, float]]:
+) -> List[Optional[dict[str, float]]]:
     """逐样本的轨迹匹配 {exact_match, similarity}（供逐条落库）。
 
-    exact_match 为 1.0/0.0；两侧任一为空则 similarity=0（与聚合口径一致：空样本按 0 计入分母）。
+    exact_match 为 1.0/0.0。无期望轨迹标注（expected 为空）的样本返回 None，不参与统计——
+    与 tool_selection/tool_order 口径一致，避免空标注按 0 拉低均值（A4）。期望非空而实际为空
+    时按未命中计（exact=0、similarity=0）。
     """
     if len(expected_trajectories) != len(actual_trajectories):
         raise ValueError("expected_trajectories 和 actual_trajectories 长度必须相同")
 
-    out: List[dict[str, float]] = []
+    out: List[Optional[dict[str, float]]] = []
     for expected, actual in zip(expected_trajectories, actual_trajectories):
+        if not expected:
+            out.append(None)
+            continue
         exact = 1.0 if expected == actual else 0.0
         sim = 0.0
-        if expected and actual:
+        if actual:
             sim = compute_semantic_metrics(
                 [" ".join(expected)], [" ".join(actual)]
             ).get("similarity", 0.0)
@@ -299,11 +327,13 @@ def trajectory_match(
     if not expected_trajectories:
         return {"exact_match": 0.0, "similarity": 0.0}
 
-    items = trajectory_match_items(expected_trajectories, actual_trajectories)
-    n = len(items)
+    scored = [x for x in trajectory_match_items(expected_trajectories, actual_trajectories) if x is not None]
+    if not scored:
+        return {"exact_match": 0.0, "similarity": 0.0}
+    n = len(scored)
     return {
-        "exact_match": sum(x["exact_match"] for x in items) / n,
-        "similarity": sum(x["similarity"] for x in items) / n,
+        "exact_match": sum(x["exact_match"] for x in scored) / n,
+        "similarity": sum(x["similarity"] for x in scored) / n,
     }
 
 
@@ -317,11 +347,15 @@ def _step_ratio(actual: int, optimal: int) -> float:
 def step_efficiency_items(
     actual_steps: List[int],
     optimal_steps: List[int],
-) -> List[float]:
-    """逐样本步骤效率比（供逐条落库）。"""
+) -> List[Optional[float]]:
+    """逐样本步骤效率比（供逐条落库）。
+
+    无最优步数标注（optimal <= 0）的样本返回 None、不参与统计——避免用占位值把「无参考」
+    硬算成效率比而虚构分数（A4：旧实现对无 expected_steps 的样本默认 optimal=1）。
+    """
     if len(actual_steps) != len(optimal_steps):
         raise ValueError("actual_steps 和 optimal_steps 长度必须相同")
-    return [_step_ratio(a, o) for a, o in zip(actual_steps, optimal_steps)]
+    return [(_step_ratio(a, o) if o > 0 else None) for a, o in zip(actual_steps, optimal_steps)]
 
 
 def step_efficiency(
@@ -346,11 +380,14 @@ def step_efficiency(
     # optimal_ratio 取「逐样本比再平均」而非旧的「先平均步数再取比」（ratio-of-averages）：
     # 后者会让一条绕路样本被另一条步数偏少的样本抵消，掩盖个体绕路；且与逐条落库的
     # per-item 值不自洽（聚合 ≠ 逐条均值）。改后聚合恒等于 step_efficiency_items 的均值。
+    # 无最优步数标注的样本已被 step_efficiency_items 记 None，此处滤除、不参与统计（A4）。
     per = step_efficiency_items(actual_steps, optimal_steps)
+    scored = [x for x in per if x is not None]
+    scored_optimal = [o for o in optimal_steps if o > 0]
     return {
-        "optimal_ratio": sum(per) / len(per),
+        "optimal_ratio": sum(scored) / len(scored) if scored else 0.0,
         "avg_steps": sum(actual_steps) / len(actual_steps),
-        "optimal_steps": sum(optimal_steps) / len(optimal_steps),
+        "optimal_steps": sum(scored_optimal) / len(scored_optimal) if scored_optimal else 0.0,
     }
 
 
@@ -470,42 +507,46 @@ def compute_agent_metrics(
             if x is not None:
                 per_item[i]["tool_order"] = x
 
-    # 轨迹匹配
+    # 轨迹匹配：比对「期望工具调用序列 vs 实际工具调用序列」（A2）。
+    # 历史缺陷：曾用 expected_steps（自然语言描述步骤）对比 actual trajectory（工具名序列），
+    # 两者口径异构，exact_match 恒 0、similarity 长期偏低，冤枉了执行正确的 Agent。
+    # expected_steps 现退为人类可读注释、不再当打分目标；轨迹匹配改用归一化后的工具序列——
+    # 与 tool_order 同源，但看整段序列的精确匹配/相似度，而非仅有序子序列命中。
+    # 无期望工具标注的样本由 trajectory_match_items 记 None、不参与统计（A4）。
     if "trajectory_match" in metrics:
-        expected_steps = [r.get("expected_steps", []) for r in references]
-        # 从 trajectory 提取步骤描述。Go 端可能上报字符串序列（工具名）或
-        # 结构化 step 字典（含 content 字段），两种形态都要能取到文本。
-        actual_steps = [
-            [_step_text(step) for step in o.get("trajectory", [])]
-            for o in outputs
-        ]
-        tm_items = trajectory_match_items(expected_steps, actual_steps)
-        if tm_items:
+        expected_traj = [_normalize_tools(r.get("tools_used", [])) for r in references]
+        actual_traj = [_normalize_tools(o.get("tools_used", [])) for o in outputs]
+        tm_items = trajectory_match_items(expected_traj, actual_traj)
+        scored_tm = [x for x in tm_items if x is not None]
+        if scored_tm:
             result["trajectory_match"] = {
-                "exact_match": sum(x["exact_match"] for x in tm_items) / len(tm_items),
-                "similarity": sum(x["similarity"] for x in tm_items) / len(tm_items),
+                "exact_match": sum(x["exact_match"] for x in scored_tm) / len(scored_tm),
+                "similarity": sum(x["similarity"] for x in scored_tm) / len(scored_tm),
             }
         else:
             result["trajectory_match"] = {"exact_match": 0.0, "similarity": 0.0}
         for i, x in enumerate(tm_items):
-            per_item[i]["traj_exact_match"] = x["exact_match"]
-            per_item[i]["traj_similarity"] = x["similarity"]
+            if x is not None:
+                per_item[i]["traj_exact_match"] = x["exact_match"]
+                per_item[i]["traj_similarity"] = x["similarity"]
 
     # 步骤效率
     if "step_efficiency" in metrics:
         actual_cnt = [o.get("total_steps", len(o.get("trajectory", []))) for o in outputs]
-        optimal_cnt = [
-            len(r.get("expected_steps", [])) if r.get("expected_steps") else 1
-            for r in references
-        ]
+        # 最优步数取期望步骤标注数；无标注则记 0 → step_efficiency_items 跳过该样本（A4），
+        # 不再用占位 1 把「无参考」硬算成效率比而虚构分数。
+        optimal_cnt = [len(r.get("expected_steps", [])) for r in references]
         se_items = step_efficiency_items(actual_cnt, optimal_cnt)
+        scored_se = [x for x in se_items if x is not None]
+        scored_opt = [o for o in optimal_cnt if o > 0]
         result["step_efficiency"] = {
-            "optimal_ratio": sum(se_items) / len(se_items) if se_items else 0.0,
+            "optimal_ratio": sum(scored_se) / len(scored_se) if scored_se else 0.0,
             "avg_steps": sum(actual_cnt) / len(actual_cnt) if actual_cnt else 0.0,
-            "optimal_steps": sum(optimal_cnt) / len(optimal_cnt) if optimal_cnt else 0.0,
+            "optimal_steps": sum(scored_opt) / len(scored_opt) if scored_opt else 0.0,
         }
         for i, v in enumerate(se_items):
-            per_item[i]["step_optimal_ratio"] = v
+            if v is not None:
+                per_item[i]["step_optimal_ratio"] = v
 
     if return_items:
         result["_items"] = per_item
