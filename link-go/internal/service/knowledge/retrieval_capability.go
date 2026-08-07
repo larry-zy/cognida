@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"link/internal/model/rag"
 )
@@ -35,6 +36,10 @@ const (
 	// 无法直接套 SimilarityThreshold。改以「最高分的相对比例」为下限，丢弃 < floor×maxScore 的弱命中，
 	// 避免 hybrid 模式把一堆几乎不相关的片段当证据全量回灌。
 	capHybridRelFloor = 0.3
+	// capMaxConcurrentKB 逐库检索的并发上限。各库检索（含底层各自 embedding + 向量/BM25 查询）
+	// 彼此独立，串行会让总延迟 = Σ每库延迟；有界并发把它压到 ≈ max 单库延迟，且各库 embedding
+	// 并行摊薄。设上限而非全放开，避免库多时对下游 embedder/向量库瞬时打满连接。
+	capMaxConcurrentKB = 8
 )
 
 // GovernedQuery 是一次受治理检索的入参（范围已由调用方按租户边界确定）。
@@ -102,13 +107,33 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 		Alpha:               q.Alpha,
 	}
 
+	// 逐库检索有界并发扇出：各库彼此独立，串行会让总延迟 = Σ每库延迟。结果按 kbIDs 原序
+	// 收集到定长槽位，单库失败留 nil 不阻断整体；合并/去重仍在扇入后按原序串行执行，
+	// 与并发调度顺序无关，保持确定性。每库用 opts 的独立副本，杜绝底层若改写 opts 引发的数据竞争。
+	respSlots := make([]*rag.RetrieveResponse, len(kbIDs))
+	sem := make(chan struct{}, capMaxConcurrentKB)
+	var wg sync.WaitGroup
+	for i, kbID := range kbIDs {
+		wg.Add(1)
+		go func(i int, kbID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			optsCopy := *opts
+			resp, err := c.retrieveByMode(ctx, tenantStr, kbID, q.Query, q.Mode, &optsCopy)
+			if err == nil {
+				respSlots[i] = resp // 失败留 nil，单库失败不阻断整体
+			}
+		}(i, kbID)
+	}
+	wg.Wait()
+
 	// 跨库合并 + 去重：同一片段可能被多库/多模式重复命中，按 ChunkID（退回 Content）去重保留最高分。
 	var merged []*rag.Document
 	seen := make(map[string]int) // 去重键 -> merged 下标
-	for _, kbID := range kbIDs {
-		resp, err := c.retrieveByMode(ctx, tenantStr, kbID, q.Query, q.Mode, opts)
-		if err != nil || resp == nil {
-			continue // 单库失败不阻断整体
+	for _, resp := range respSlots {
+		if resp == nil {
+			continue
 		}
 		for _, d := range resp.Results {
 			if d == nil {

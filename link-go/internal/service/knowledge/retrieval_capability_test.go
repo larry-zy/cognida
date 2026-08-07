@@ -7,24 +7,32 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"link/internal/model/rag"
 )
 
 // capFakeRetriever 按检索模式返回预置文档，并记录最近一次收到的 opts。
-// 未预置的模式返回 nil（模拟单库无命中）。
+// 未预置的模式返回 nil（模拟单库无命中）。逐库检索现为并发扇出，故内部状态用 mu 保护，
+// 避免多库测试下 lastOpts/calls 被并发写触发 -race。
 type capFakeRetriever struct {
 	vector []*rag.Document
 	bm25   []*rag.Document
 	hybrid []*rag.Document
-	lastOpts *rag.RetrieveOptions
 	// perKB 若非空，则按 kbID 返回不同结果（用于多库合并/去重测试），优先于 hybrid。
 	perKB map[string][]*rag.Document
+
+	mu       sync.Mutex
+	lastOpts *rag.RetrieveOptions
+	calls    int // 累计被调用次数（= 实际扇出的库数）
 }
 
 func (r *capFakeRetriever) respond(docs []*rag.Document, opts *rag.RetrieveOptions) (*rag.RetrieveResponse, error) {
+	r.mu.Lock()
 	r.lastOpts = opts
+	r.calls++
+	r.mu.Unlock()
 	return &rag.RetrieveResponse{Results: docs}, nil
 }
 
@@ -166,6 +174,41 @@ func TestCapability_DedupByChunkIDKeepsHigher(t *testing.T) {
 	// 排序降序 → 第一片应是保留下来的高分版本（float32→float64 有精度差，比内容/ID 即可）。
 	if res.Chunks[0].ChunkID != "dup" || res.Chunks[0].Content != "高分版本" {
 		t.Fatalf("去重应保留高分版本, got %+v", res.Chunks[0])
+	}
+}
+
+// 多库并发扇出：库数超过并发上限时全部被检索，跨库合并结果确定（与调度顺序无关）。
+func TestCapability_ConcurrentMultiKBGather(t *testing.T) {
+	// 造 capMaxConcurrentKB+4 个库，每库一片、分数各异（降序可断言最终顺序确定）。
+	kbCount := capMaxConcurrentKB + 4
+	perKB := make(map[string][]*rag.Document, kbCount)
+	kbIDs := make([]string, 0, kbCount)
+	for i := 0; i < kbCount; i++ {
+		id := "kb" + string(rune('a'+i))
+		kbIDs = append(kbIDs, id)
+		// 分数随 i 递减但收在 [0.79,0.90] 紧带内（均 > 0.3×max，不触混合下限），
+		// 只考察扇出与确定性排序：kba 最高、kbb 次之……最终降序可预期。
+		perKB[id] = []*rag.Document{doc("chunk-"+id, id, 0.90-float32(i)*0.01)}
+	}
+	ret := &capFakeRetriever{perKB: perKB}
+	c := NewRetrievalCapability(ret, nil)
+
+	res, err := c.Retrieve(context.Background(), 1, kbIDs, capBaseQuery())
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if ret.calls != kbCount {
+		t.Fatalf("应对全部 %d 个库扇出检索, 实际调用 %d 次", kbCount, ret.calls)
+	}
+	if len(res.Chunks) != kbCount {
+		t.Fatalf("应汇集全部 %d 库各 1 片, got %d", kbCount, len(res.Chunks))
+	}
+	// 与调度顺序无关的确定性：按分数降序即 kba, kbb, kbc……
+	for i := 0; i < kbCount; i++ {
+		wantID := "chunk-kb" + string(rune('a'+i))
+		if res.Chunks[i].ChunkID != wantID {
+			t.Fatalf("第 %d 片应确定为 %q, got %q", i, wantID, res.Chunks[i].ChunkID)
+		}
 	}
 }
 
