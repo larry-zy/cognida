@@ -30,6 +30,7 @@ import (
 type KnowledgeBaseHandler struct {
 	knowledgeBaseService app_kb.KnowledgeBaseService
 	documentProcessor    app_kb.DocumentProcessorService
+	retrieval            *app_kb.RetrievalCapability
 	uploadConfig         *config.UploadConfig
 }
 
@@ -37,10 +38,12 @@ type KnowledgeBaseHandler struct {
 func NewKnowledgeBaseHandler(
 	knowledgeBaseService app_kb.KnowledgeBaseService,
 	documentProcessor app_kb.DocumentProcessorService,
+	retrieval *app_kb.RetrievalCapability,
 ) *KnowledgeBaseHandler {
 	return &KnowledgeBaseHandler{
 		knowledgeBaseService: knowledgeBaseService,
 		documentProcessor:    documentProcessor,
+		retrieval:            retrieval,
 		uploadConfig:         config.LoadUploadConfig(),
 	}
 }
@@ -890,6 +893,8 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 		Query            string   `json:"query" binding:"required"`
 		TopK             int      `json:"top_k"`
 		MinScore         float64  `json:"min_score"`
+		RetrievalMode    string   `json:"retrieval_mode"` // vector / bm25 / hybrid（缺省 hybrid）
+		EnableRerank     bool     `json:"enable_rerank"`  // 可插拔重排开关，默认关
 	}
 	if !BindJSON(c, &req) {
 		return
@@ -899,31 +904,44 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 	if req.TopK <= 0 {
 		req.TopK = 10
 	}
-	if req.MinScore <= 0 {
-		req.MinScore = 0.5
+
+	if h.retrieval == nil {
+		InternalError(c, "检索能力未接线")
+		return
 	}
 
-	chunks, err := h.knowledgeBaseService.Search(c.Request.Context(), req.KnowledgeBaseIDs, GetTenantID(c), req.Query, req.TopK, req.MinScore)
+	tenantID := GetTenantID(c)
+	// 租户边界强制：只保留归属本租户的知识库，越权/陌生 ID 被静默剔除，再交由统一检索能力。
+	kbIDs := h.knowledgeBaseService.FilterAccessibleKBIDs(c.Request.Context(), req.KnowledgeBaseIDs, tenantID)
+
+	result, err := h.retrieval.Retrieve(c.Request.Context(), tenantID, kbIDs, app_kb.GovernedQuery{
+		Query:        req.Query,
+		Mode:         req.RetrievalMode,
+		TopK:         req.TopK,
+		MinScore:     req.MinScore,
+		EnableRerank: req.EnableRerank,
+	})
 	if err != nil {
 		InternalError(c, err.Error())
 		return
 	}
 
-	// 转换为响应格式
-	items := make([]map[string]interface{}, len(chunks))
-	for i, chunk := range chunks {
+	// 转换为响应格式：分数/出处来自统一检索能力（替代旧裸子串匹配硬编码的固定分数 1.0 与空标题）。
+	items := make([]map[string]interface{}, len(result.Chunks))
+	for i, chunk := range result.Chunks {
 		items[i] = map[string]interface{}{
 			"knowledge_id":    chunk.KnowledgeID,
-			"knowledge_title": "", // 知识标题需要通过 knowledge_id 关联查询 knowledge 表
-			"chunk_id":        chunk.ID,
+			"knowledge_title": chunk.Source,
+			"chunk_id":        chunk.ChunkID,
 			"content":         chunk.Content,
-			"score":           1.0, // 简单匹配给固定分数
-			"highlight":       "",  // 高亮功能需要在检索结果中标记匹配的关键词位置
+			"score":           chunk.Score,
+			"highlight":       "", // 高亮功能需要在检索结果中标记匹配的关键词位置
 		}
 	}
 
 	OK(c, map[string]interface{}{
-		"total": int64(len(items)),
-		"items": items,
+		"total":      int64(len(items)),
+		"items":      items,
+		"has_answer": result.HasAnswer,
 	})
 }

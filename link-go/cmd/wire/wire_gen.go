@@ -107,7 +107,12 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	llmClient := ProvideLLMClient(chatConfig)
 	idGenerator := ProvideIDGenerator()
 	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, llmClient, idGenerator)
-	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService)
+	milvusRetriever := ProvideMilvusRetriever()
+	ragGraphRepository := ProvideRAGGraphRepository()
+	graphQueryRepository := ProvideGraphQueryRepository(db)
+	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, ragGraphRepository, graphQueryRepository)
+	retrievalCapability := ProvideRetrievalCapability(retriever)
+	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability)
 	sessionRepository := ProvideSessionRepository(db)
 	messageRepository := ProvideMessageRepository(db)
 	retrievalSettingRepository := ProvideRetrievalSettingRepository(db)
@@ -127,9 +132,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	configService := ProvideConfigService()
 	progressService := ProvideProgressService()
 	agentPersistenceService := ProvideAgentPersistenceService(sessionRepository, messageRepository)
-	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService)
+	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService, retrievalSettingRepository)
 	registryAgentHandler := ProvideRegistryAgentHandler(specRegistry)
-	graphQueryRepository := ProvideGraphQueryRepository(db)
 	llmChat := ProvideRAGLLMChat(llmClient)
 	graphService := ProvideGraphService(graphRepository, graphQueryRepository, llmChat)
 	graphHandler := ProvideGraphHandler(graphService)
@@ -145,9 +149,6 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	taskService := ProvideTaskService(taskRepository, taskQueue)
 	taskHandler := ProvideTaskHandler(taskService)
 	chatModel := ProvideChatModel(chatConfig)
-	milvusRetriever := ProvideMilvusRetriever()
-	ragGraphRepository := ProvideRAGGraphRepository()
-	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, ragGraphRepository, graphQueryRepository)
 	ragOptimizerHandler := ProvideRAGOptimizerHandler(chatModel, retriever)
 	guardrailHandler := ProvideGuardrailHandler(chatModel)
 	datasetRepository := ProvideDatasetRepository(db)
@@ -190,7 +191,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
 	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, datasourceService)
-	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, graphService, knowledgeBaseRepository, writer, datasourceService, agentHandler, embedder)
+	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, retrievalCapability, graphService, knowledgeBaseRepository, writer, datasourceService, agentHandler, embedder)
 	return app, nil
 }
 
@@ -715,8 +716,15 @@ func ProvideAuthHandler(accountService *account.AccountService) *handler.AuthHan
 func ProvideKnowledgeBaseHandler(
 	kbService knowledge2.KnowledgeBaseService,
 	documentProcessor knowledge2.DocumentProcessorService,
+	retrieval *knowledge2.RetrievalCapability,
 ) *handler.KnowledgeBaseHandler {
-	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor)
+	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval)
+}
+
+// ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
+// 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
+func ProvideRetrievalCapability(retriever rag.Retriever) *knowledge2.RetrievalCapability {
+	return knowledge2.NewRetrievalCapability(retriever, rag2.NewReranker())
 }
 
 func ProvideSessionHandler(
@@ -744,8 +752,9 @@ func ProvideAgentHandler(
 	configUC *agent2.ConfigService,
 	progressUC *agent2.ProgressService,
 	persistenceSvc *agent2.AgentPersistenceService,
+	retrievalSettingRepo knowledge.RetrievalSettingRepository,
 ) *handler.AgentHandler {
-	return handler.NewAgentHandler(executeUC, researchUC, configUC, progressUC, persistenceSvc)
+	return handler.NewAgentHandler(executeUC, researchUC, configUC, progressUC, persistenceSvc, retrievalSettingRepo)
 }
 
 func ProvideEvaluationHandler(
@@ -885,7 +894,7 @@ func ProvideRetriever(
 	graphQueryRepo knowledge.GraphQueryRepository,
 ) rag.Retriever {
 
-	return rag2.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, nil)
+	return rag2.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, nil, rag2.NewReranker())
 }
 
 func ProvideReranker() rag.Reranker {
@@ -1085,7 +1094,10 @@ type App struct {
 	EvaluationWorker *evaluation.EvaluationWorker
 	// 以下依赖暴露给组合根（main.go），用于把 Agent 工具（rag_query/graph_query/kb_list）
 	// 接线到真实检索/图谱/知识库服务，替代此前工具层的 mock/未接线状态。
-	Retriever               rag.Retriever
+	Retriever rag.Retriever
+	// RetrievalCapability 是知识检索的唯一能力封装（多库检索+去重+截断+出处+阈值+可插拔重排）。
+	// Agent 适配器（rag_query）与 REST /knowledge/search 共用同一封装，检索本体不再两路割裂。
+	RetrievalCapability     *knowledge2.RetrievalCapability
 	GraphService            *knowledge2.GraphService
 	KnowledgeBaseRepository knowledge.KnowledgeBaseRepository
 	// AuditWriter 暴露给组合根：优雅关闭时 flush 积压审计。
@@ -1109,6 +1121,7 @@ func ProvideApp(
 	evalConfig *config.EvaluationConfig,
 	evalWorker *evaluation.EvaluationWorker, retriever2 rag.Retriever,
 
+	retrievalCapability *knowledge2.RetrievalCapability,
 	graphService *knowledge2.GraphService,
 	kbRepo knowledge.KnowledgeBaseRepository,
 	auditWriter *audit.Writer,
@@ -1124,6 +1137,7 @@ func ProvideApp(
 		EvaluationConfig:        evalConfig,
 		EvaluationWorker:        evalWorker,
 		Retriever:               retriever2,
+		RetrievalCapability:     retrievalCapability,
 		GraphService:            graphService,
 		KnowledgeBaseRepository: kbRepo,
 		AuditWriter:             auditWriter,

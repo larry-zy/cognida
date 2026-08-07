@@ -85,8 +85,9 @@ type KnowledgeBaseService interface {
 	// DeleteChunk 删除分块（tenantID 强制归属校验）
 	DeleteChunk(ctx context.Context, kbID string, tenantID int64, chunkID string) error
 
-	// Search 搜索知识库（仅在属于 tenantID 的知识库内检索，越权 kbID 被静默剔除）
-	Search(ctx context.Context, kbIDs []string, tenantID int64, query string, topK int, minScore float64) ([]*domain_knowledge.Chunk, error)
+	// FilterAccessibleKBIDs 过滤出属于该租户的知识库 ID（越权/陌生 ID 被静默剔除）。
+	// 检索本体由 knowledge.RetrievalCapability 承担，本方法仅做归属边界收窄。
+	FilterAccessibleKBIDs(ctx context.Context, kbIDs []string, tenantID int64) []string
 
 	// ToResponse converts a domain entity to response DTO
 	ToResponse(entity *domain_knowledge.KnowledgeBase) *KnowledgeBaseResponse

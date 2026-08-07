@@ -9,13 +9,11 @@ package adapters
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
 	agentctx "link/internal/model/agent"
 	"link/internal/model/knowledge"
-	"link/internal/model/rag"
 	svcknowledge "link/internal/service/knowledge"
 	"link/internal/service/agent/tools"
 )
@@ -24,27 +22,27 @@ import (
 // RAG 检索适配器
 // ========================================
 
-// RAGRetrieverAdapter 将基础检索器 rag.Retriever 适配为 tools.RAGQueryService。
-// 检索范围来自 ctx AllowedKBIDs（用户选定），为空时回退为“全部已启用知识库”。
+// RAGRetrieverAdapter 将统一检索能力 knowledge.RetrievalCapability 适配为 tools.RAGQueryService。
+// 检索本体（多库检索 + 去重 + 截断 + 出处 + 阈值 + 可插拔重排）已收敛到 RetrievalCapability，
+// 本适配器只承担 Agent 专属职责：从 ctx 解析 KB 检索范围（含会话级参数治理下沉）后委派能力。
 type RAGRetrieverAdapter struct {
-	retriever rag.Retriever
-	kbRepo    knowledge.KnowledgeBaseRepository
+	capability *svcknowledge.RetrievalCapability
+	kbRepo     knowledge.KnowledgeBaseRepository
 }
 
 // NewRAGRetrieverAdapter 创建 RAG 检索适配器
-func NewRAGRetrieverAdapter(retriever rag.Retriever, kbRepo knowledge.KnowledgeBaseRepository) *RAGRetrieverAdapter {
-	return &RAGRetrieverAdapter{retriever: retriever, kbRepo: kbRepo}
+func NewRAGRetrieverAdapter(capability *svcknowledge.RetrievalCapability, kbRepo knowledge.KnowledgeBaseRepository) *RAGRetrieverAdapter {
+	return &RAGRetrieverAdapter{capability: capability, kbRepo: kbRepo}
 }
 
 // Query 实现 tools.RAGQueryService。ctxAny 由工具层透传，断言回 context.Context 读取 scope。
 func (a *RAGRetrieverAdapter) Query(ctxAny interface{}, req *tools.RAGQueryRequest) (*tools.RAGQueryResult, error) {
 	ctx := asContext(ctxAny)
-	if a.retriever == nil {
+	if a.capability == nil {
 		return nil, fmt.Errorf("检索器未接线")
 	}
 
 	tenantID := agentctx.MustGetTenantID(ctx)
-	tenantStr := strconv.FormatInt(tenantID, 10)
 
 	// 检索范围：用户选定的 KB 与租户内已启用 KB 求交（租户边界强制）；未选定则取全部已启用 KB。
 	kbIDs := resolveKBScope(ctx, a.kbRepo, tenantID)
@@ -57,56 +55,40 @@ func (a *RAGRetrieverAdapter) Query(ctxAny interface{}, req *tools.RAGQueryReque
 		}, nil
 	}
 
-	opts := &rag.RetrieveOptions{
-		TopK:                req.TopK,
-		SimilarityThreshold: req.MinScore,
-		RerankEnabled:       req.EnableRerank,
-		GraphEnabled:        agentctx.IsGraphEnabled(ctx),
-		RetrievalMode:       req.RetrievalMode,
+	q := svcknowledge.GovernedQuery{
+		Query:        req.Query,
+		Mode:         req.RetrievalMode,
+		TopK:         req.TopK,
+		MinScore:     req.MinScore,
+		EnableRerank: req.EnableRerank,
+	}
+	// 会话级检索参数治理下沉：用户在会话设置里持久化的 TopK/阈值/重排/Alpha 视为「治理项」，
+	// 覆盖 LLM 经工具参数给出的即兴取值——参数治理归会话，模式/查询意图仍归 LLM。
+	applyRetrievalOverrides(ctx, &q)
+
+	res, err := a.capability.Retrieve(ctx, tenantID, kbIDs, q)
+	if err != nil {
+		return nil, err
 	}
 
-	var all []tools.DocumentChunk
-	for _, kbID := range kbIDs {
-		resp, err := a.retrieveByMode(ctx, tenantStr, kbID, req.Query, req.RetrievalMode, opts)
-		if err != nil || resp == nil {
-			continue // 单个知识库失败不阻断整体检索
-		}
-		for _, d := range resp.Results {
-			all = append(all, tools.DocumentChunk{
-				Content:    d.Content,
-				Score:      float64(d.Score),
-				Source:     d.KnowledgeBaseID,
-				ChunkIndex: d.ChunkIndex,
-				Metadata:   d.Metadata,
-			})
-		}
-	}
-
-	// 跨知识库合并后按分数降序，取 TopK。
-	sort.Slice(all, func(i, j int) bool { return all[i].Score > all[j].Score })
-	if req.TopK > 0 && len(all) > req.TopK {
-		all = all[:req.TopK]
+	chunks := make([]tools.DocumentChunk, 0, len(res.Chunks))
+	for _, ch := range res.Chunks {
+		chunks = append(chunks, tools.DocumentChunk{
+			Content:    ch.Content,
+			Score:      ch.Score,
+			Source:     ch.Source,
+			ChunkIndex: ch.ChunkIndex,
+			Metadata:   ch.Metadata,
+		})
 	}
 
 	return &tools.RAGQueryResult{
 		Query:           req.Query,
-		Chunks:          all,
-		Count:           len(all),
+		Chunks:          chunks,
+		Count:           len(chunks),
 		KnowledgeBaseID: strings.Join(kbIDs, ","),
-		HasAnswer:       len(all) > 0,
+		HasAnswer:       res.HasAnswer,
 	}, nil
-}
-
-// retrieveByMode 按检索模式选择基础检索器方法。
-func (a *RAGRetrieverAdapter) retrieveByMode(ctx context.Context, tenantID, kbID, query, mode string, opts *rag.RetrieveOptions) (*rag.RetrieveResponse, error) {
-	switch mode {
-	case "vector":
-		return a.retriever.VectorRetrieve(ctx, tenantID, kbID, query, opts)
-	case "bm25":
-		return a.retriever.BM25Retrieve(ctx, tenantID, kbID, query, opts)
-	default:
-		return a.retriever.HybridRetrieve(ctx, tenantID, kbID, query, opts)
-	}
 }
 
 // ========================================
@@ -217,6 +199,28 @@ func asContext(ctxAny interface{}) context.Context {
 		return ctx
 	}
 	return context.Background()
+}
+
+// applyRetrievalOverrides 用会话级检索参数覆盖 GovernedQuery 中对应的治理字段（TopK/阈值/重排/Alpha）。
+// 治理项归会话：用户在会话设置里的持久化取值优先于 LLM 经工具参数给出的即兴值；
+// 会话未设置的字段（指针为 nil）保持工具参数不变，检索模式与查询意图仍归 LLM。
+func applyRetrievalOverrides(ctx context.Context, q *svcknowledge.GovernedQuery) {
+	p, ok := agentctx.GetRetrievalParams(ctx)
+	if !ok || p == nil {
+		return
+	}
+	if p.TopK != nil && *p.TopK > 0 {
+		q.TopK = *p.TopK
+	}
+	if p.MinScore != nil && *p.MinScore > 0 {
+		q.MinScore = *p.MinScore
+	}
+	if p.RerankEnabled != nil {
+		q.EnableRerank = *p.RerankEnabled
+	}
+	if p.Alpha != nil {
+		q.Alpha = *p.Alpha
+	}
 }
 
 // resolveKBScope 计算本次检索的知识库范围，按「知识库选择模式」分派，并始终强制租户边界。

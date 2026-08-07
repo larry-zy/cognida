@@ -167,15 +167,14 @@ func TestIDOR_ZeroTenant_Denied(t *testing.T) {
 	}
 }
 
-// TestIDOR_Search_SkipsUnauthorizedKB 搜索静默剔除越权 kbID，不报错也不返回他租户数据。
-func TestIDOR_Search_SkipsUnauthorizedKB(t *testing.T) {
+// TestIDOR_FilterAccessibleKBIDs_SkipsUnauthorizedKB 归属过滤静默剔除越权 kbID，不返回他租户库。
+// 检索本体已收敛到 RetrievalCapability，本方法只做租户边界收窄——越权 ID 应在交给检索前被剔除。
+func TestIDOR_FilterAccessibleKBIDs_SkipsUnauthorizedKB(t *testing.T) {
 	svc, _ := newIDORFixture()
 
-	chunks, err := svc.Search(context.Background(), []string{"kb-b"}, 1, "query", 5, 0)
-	if err != nil {
-		t.Fatalf("越权 kbID 应被静默剔除而非报错: %v", err)
-	}
-	if len(chunks) != 0 {
-		t.Errorf("越权搜索不应返回数据, got %d chunks", len(chunks))
+	// kb-b 属于租户 2；以租户 1 请求应被静默剔除。
+	kbIDs := svc.FilterAccessibleKBIDs(context.Background(), []string{"kb-b"}, 1)
+	if len(kbIDs) != 0 {
+		t.Errorf("越权 kbID 应被静默剔除, got %v", kbIDs)
 	}
 }

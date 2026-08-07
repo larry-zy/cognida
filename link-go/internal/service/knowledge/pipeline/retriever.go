@@ -45,6 +45,7 @@ func NewRetriever(
 	milvusRetriever MilvusRetriever,
 	neo4jRepo domainrag.GraphRepository,
 	graphQueryRepo domainrag.GraphQueryRepository,
+	reranker domainrag.Reranker,
 ) domainrag.Retriever {
 	return &RetrieverImpl{
 		kbSettingRepo:   kbSettingRepo,
@@ -53,6 +54,7 @@ func NewRetriever(
 		milvusRetriever: milvusRetriever,
 		neo4jRepo:       neo4jRepo,
 		graphQueryRepo:  graphQueryRepo,
+		reranker:        reranker,
 	}
 }
 

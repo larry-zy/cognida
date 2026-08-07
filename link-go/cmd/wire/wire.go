@@ -128,6 +128,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideMilvusRetriever,
 		ProvideRAGGraphRepository,
 		ProvideRetriever,
+		// 统一检索能力封装（Agent rag_query 与 REST /knowledge/search 共用）
+		ProvideRetrievalCapability,
 
 		// 服务
 		ProvideSessionService,
@@ -788,8 +790,15 @@ func ProvideAuthHandler(accountService *appAccount.AccountService) *handler.Auth
 func ProvideKnowledgeBaseHandler(
 	kbService app_kb.KnowledgeBaseService,
 	documentProcessor app_kb.DocumentProcessorService,
+	retrieval *app_kb.RetrievalCapability,
 ) *handler.KnowledgeBaseHandler {
-	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor)
+	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval)
+}
+
+// ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
+// 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
+func ProvideRetrievalCapability(retriever domain_rag.Retriever) *app_kb.RetrievalCapability {
+	return app_kb.NewRetrievalCapability(retriever, ragpipeline.NewReranker())
 }
 
 func ProvideSessionHandler(
@@ -817,8 +826,9 @@ func ProvideAgentHandler(
 	configUC *agentuc.ConfigService,
 	progressUC *agentuc.ProgressService,
 	persistenceSvc *agentuc.AgentPersistenceService,
+	retrievalSettingRepo domain_knowledge.RetrievalSettingRepository,
 ) *handler.AgentHandler {
-	return handler.NewAgentHandler(executeUC, researchUC, configUC, progressUC, persistenceSvc)
+	return handler.NewAgentHandler(executeUC, researchUC, configUC, progressUC, persistenceSvc, retrievalSettingRepo)
 }
 
 func ProvideEvaluationHandler(
@@ -968,7 +978,7 @@ func ProvideRetriever(
 ) domain_rag.Retriever {
 	// TODO: graph.GraphQueryRepository 和 rag.GraphQueryRepository 接口不兼容
 	// 暂时传入 nil，待接口统一后再启用
-	return ragpipeline.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, nil)
+	return ragpipeline.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, nil, ragpipeline.NewReranker())
 }
 
 func ProvideReranker() domain_rag.Reranker {
@@ -1189,7 +1199,10 @@ type App struct {
 	EvaluationWorker *app_evaluation.EvaluationWorker
 	// 以下依赖暴露给组合根（main.go），用于把 Agent 工具（rag_query/graph_query/kb_list）
 	// 接线到真实检索/图谱/知识库服务，替代此前工具层的 mock/未接线状态。
-	Retriever               domain_rag.Retriever
+	Retriever domain_rag.Retriever
+	// RetrievalCapability 是知识检索的唯一能力封装（多库检索+去重+截断+出处+阈值+可插拔重排）。
+	// Agent 适配器（rag_query）与 REST /knowledge/search 共用同一封装，检索本体不再两路割裂。
+	RetrievalCapability     *app_kb.RetrievalCapability
 	GraphService            *app_kb.GraphService
 	KnowledgeBaseRepository domain_knowledge.KnowledgeBaseRepository
 	// AuditWriter 暴露给组合根：优雅关闭时 flush 积压审计。
@@ -1213,6 +1226,7 @@ func ProvideApp(
 	evalConfig *config.EvaluationConfig,
 	evalWorker *app_evaluation.EvaluationWorker,
 	retriever domain_rag.Retriever,
+	retrievalCapability *app_kb.RetrievalCapability,
 	graphService *app_kb.GraphService,
 	kbRepo domain_knowledge.KnowledgeBaseRepository,
 	auditWriter *auditsvc.Writer,
@@ -1228,6 +1242,7 @@ func ProvideApp(
 		EvaluationConfig:        evalConfig,
 		EvaluationWorker:        evalWorker,
 		Retriever:               retriever,
+		RetrievalCapability:     retrievalCapability,
 		GraphService:            graphService,
 		KnowledgeBaseRepository: kbRepo,
 		AuditWriter:             auditWriter,

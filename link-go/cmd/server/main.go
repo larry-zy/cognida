@@ -307,11 +307,11 @@ func main() {
 			// 知识库检索/图谱工具：将已接线的领域服务经适配器注入工具层。
 			// 检索范围与图谱开关由会话 ctx 强制（用户在入口选定），工具/Agent 不再自行选库。
 			// 仅在服务就绪时赋值接口字段，避免 typed-nil 绕过工具内 nil 判断。
-			if app.Retriever != nil {
-				deps.RAGService = agentadapters.NewRAGRetrieverAdapter(app.Retriever, app.KnowledgeBaseRepository)
-				log.Println("✅ RAG 检索工具（rag_query）已接线真实检索器")
+			if app.RetrievalCapability != nil {
+				deps.RAGService = agentadapters.NewRAGRetrieverAdapter(app.RetrievalCapability, app.KnowledgeBaseRepository)
+				log.Println("✅ RAG 检索工具（rag_query）已接线统一检索能力（与 REST /knowledge/search 同源）")
 			} else {
-				log.Println("⚠️  检索器未就绪，rag_query 工具未接线")
+				log.Println("⚠️  检索能力未就绪，rag_query 工具未接线")
 			}
 			if app.GraphService != nil {
 				deps.GraphService = agentadapters.NewGraphSearchAdapter(app.GraphService, app.KnowledgeBaseRepository)

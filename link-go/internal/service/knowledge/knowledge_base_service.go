@@ -611,68 +611,23 @@ func (s *knowledgeBaseService) DeleteChunk(ctx context.Context, kbID string, ten
 // Search Operations
 // ========================================
 
-// Search 搜索知识库（仅在属于 tenantID 的知识库内检索，越权 kbID 被静默剔除）
-func (s *knowledgeBaseService) Search(
-	ctx context.Context,
-	kbIDs []string,
-	tenantID int64,
-	query string,
-	topK int,
-	minScore float64,
-) ([]*domain_knowledge.Chunk, error) {
-	// 获取启用的分块
-	var allChunks []*domain_knowledge.Chunk
+// FilterAccessibleKBIDs 过滤出属于该租户的知识库 ID（越权/陌生 ID 被静默剔除，保持入参顺序去重）。
+// 检索本体已收敛到 knowledge.RetrievalCapability（向量/BM25/混合 + 去重 + 阈值 + 可插拔重排），
+// 本方法只负责把「请求的知识库范围」压到「租户可访问范围」，供 REST 检索 handler 在调用能力前强制归属边界。
+func (s *knowledgeBaseService) FilterAccessibleKBIDs(ctx context.Context, kbIDs []string, tenantID int64) []string {
+	out := make([]string, 0, len(kbIDs))
+	seen := make(map[string]bool, len(kbIDs))
 	for _, kbID := range kbIDs {
-		// 归属校验：不属于当前租户的 kbID 直接跳过，不返回其内容
+		if seen[kbID] {
+			continue
+		}
 		if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
-			continue
+			continue // 不属于当前租户的 kbID 直接剔除，不返回其内容
 		}
-		chunks, _, err := s.chunkRepo.FindByKnowledgeBaseID(ctx, kbID, &domain_knowledge.ChunkListQuery{
-			KnowledgeBaseID: kbID,
-			IsEnabled:       boolPtr(true),
-			Page:            1,
-			PageSize:        topK * len(kbIDs), // 获取足够的结果用于过滤
-		})
-		if err != nil {
-			continue
-		}
-		allChunks = append(allChunks, chunks...)
+		seen[kbID] = true
+		out = append(out, kbID)
 	}
-
-	// 简单的文本匹配（后续可以集成向量检索）
-	var results []*domain_knowledge.Chunk
-	for _, chunk := range allChunks {
-		if containsIgnoreCase(chunk.Content, query) {
-			results = append(results, chunk)
-			if len(results) >= topK {
-				break
-			}
-		}
-	}
-
-	return results, nil
-}
-
-// boolPtr 返回 bool 指针的辅助函数
-func boolPtr(b bool) *bool {
-	return &b
-}
-
-// containsIgnoreCase 忽略大小写的字符串包含检查
-func containsIgnoreCase(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 &&
-			(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-				containsMiddle(s, substr))))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return out
 }
 
 // ========================================
