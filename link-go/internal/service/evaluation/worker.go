@@ -142,41 +142,53 @@ func (w *EvaluationWorker) recoverStuckTasks(ctx context.Context) {
 	var recovered int
 	for _, st := range []domeval.TaskStatus{domeval.TaskStatusPending, domeval.TaskStatusRunning} {
 		status := st
-		tasks, _, err := w.taskRepo.List(ctx, &domeval.TaskFilter{
-			Status:   &status,
-			Page:     1,
-			PageSize: 1000,
-		})
-		if err != nil {
-			log.Printf("[Worker][Recover] list %s tasks failed: %v", status, err)
-			continue
-		}
-		for _, t := range tasks {
-			if t == nil {
-				continue
+		// 分页扫描直至取尽：taskRepo.List 会把 PageSize 收敛到 100，单页取不完 >100 的孤儿会漏恢复
+		// （原写死 PageSize:1000 被静默截断到 100，第 101 个及以后的孤儿永远卡死）。逐页翻到累计
+		// 覆盖 total 或空页为止。
+		const recoverPageSize = 100
+		for page := 1; ; page++ {
+			tasks, total, err := w.taskRepo.List(ctx, &domeval.TaskFilter{
+				Status:   &status,
+				Page:     page,
+				PageSize: recoverPageSize,
+			})
+			if err != nil {
+				log.Printf("[Worker][Recover] list %s tasks (page %d) failed: %v", status, page, err)
+				break
 			}
-			if _, ok := queued[t.ID]; ok {
-				continue // 仍在队列里，会被正常消费
+			if len(tasks) == 0 {
+				break // 空页兜底，防止 total 与实际不一致时死循环
 			}
-			// running 说明有进程认领了该任务（executeTask 开头置 running 并刷新 updated_at 当作轻量租约）。
-			// 租约判定：仅当租约陈旧（updated_at 早于 now-MaxTaskTimeout）才视为孤儿、重置回 pending 并
-			// 重新入队；否则认为仍有进程在执行，跳过——避免多进程/重叠恢复把在途任务重复入队、进而重复
-			// 执行、互删结果行。pending 任务无租约概念，照常入队。
-			if t.Status == domeval.TaskStatusRunning {
-				if time.Since(t.UpdatedAt) < MaxTaskTimeout {
-					log.Printf("[Worker][Recover] task %s still running (lease fresh, updated %s ago), skip", t.ID, time.Since(t.UpdatedAt).Round(time.Second))
+			for _, t := range tasks {
+				if t == nil {
 					continue
 				}
-				if err := w.taskRepo.UpdateStatus(ctx, t.ID, domeval.TaskStatusPending); err != nil {
-					log.Printf("[Worker][Recover] reset task %s to pending failed: %v", t.ID, err)
+				if _, ok := queued[t.ID]; ok {
+					continue // 仍在队列里，会被正常消费
 				}
+				// running 说明有进程认领了该任务（executeTask 开头置 running 并刷新 updated_at 当作轻量租约）。
+				// 租约判定：仅当租约陈旧（updated_at 早于 now-MaxTaskTimeout）才视为孤儿、重置回 pending 并
+				// 重新入队；否则认为仍有进程在执行，跳过——避免多进程/重叠恢复把在途任务重复入队、进而重复
+				// 执行、互删结果行。pending 任务无租约概念，照常入队。
+				if t.Status == domeval.TaskStatusRunning {
+					if time.Since(t.UpdatedAt) < MaxTaskTimeout {
+						log.Printf("[Worker][Recover] task %s still running (lease fresh, updated %s ago), skip", t.ID, time.Since(t.UpdatedAt).Round(time.Second))
+						continue
+					}
+					if err := w.taskRepo.UpdateStatus(ctx, t.ID, domeval.TaskStatusPending); err != nil {
+						log.Printf("[Worker][Recover] reset task %s to pending failed: %v", t.ID, err)
+					}
+				}
+				if err := w.queue.Enqueue(ctx, t.ID); err != nil {
+					log.Printf("[Worker][Recover] re-enqueue task %s failed: %v", t.ID, err)
+					continue
+				}
+				recovered++
+				log.Printf("[Worker][Recover] re-enqueued stuck task %s (was %s)", t.ID, status)
 			}
-			if err := w.queue.Enqueue(ctx, t.ID); err != nil {
-				log.Printf("[Worker][Recover] re-enqueue task %s failed: %v", t.ID, err)
-				continue
+			if int64(page*recoverPageSize) >= total {
+				break // 已覆盖全部记录
 			}
-			recovered++
-			log.Printf("[Worker][Recover] re-enqueued stuck task %s (was %s)", t.ID, status)
 		}
 	}
 
@@ -591,19 +603,20 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 	// 填充指标
 	w.fillMetrics(evalResult, resp)
 
-	// Agent 类型：补充由 Go 执行器采集的运行时基础指标（耗时/Token/LLM 调用次数/成功率）。
+	// Agent / SQL 类型：补充由 Go 执行器采集的运行时基础指标（耗时/Token/LLM 调用次数/成功率）。
+	// 两者都经被测 Agent 产出（Text2SQLExecutor 同样 applyAgentChatResult 采集 token/调用数），
 	// 需在 fillMetrics 之后执行——后者会用 Python 结果整体替换逐条 Scores，此处再合并注入。
-	if config.Type == domeval.EvaluationTypeAgent {
-		augmentAgentRuntimeMetrics(evalResult)
+	if config.Type == domeval.EvaluationTypeAgent || config.Type == domeval.EvaluationTypeSQL {
+		augmentRuntimeMetrics(evalResult)
 	}
 
 	return evalResult, nil
 }
 
-// augmentAgentRuntimeMetrics 为 Agent 评测补充运行时基础指标：逐条把耗时/Token/LLM 调用次数
+// augmentRuntimeMetrics 为 Agent / SQL 评测补充运行时基础指标：逐条把耗时/Token/LLM 调用次数
 // 注入 QAResult.Scores，并在任务级 evalResult.Scores 汇总均值 + 成功率。
 // 这些指标由 Go 执行器直接采集（非 Python 计算），全部走既有 scores JSON 列持久化，无需迁移。
-func augmentAgentRuntimeMetrics(evalResult *EvaluationResult) {
+func augmentRuntimeMetrics(evalResult *EvaluationResult) {
 	if evalResult == nil || len(evalResult.QAResults) == 0 {
 		return
 	}
@@ -639,13 +652,17 @@ func augmentAgentRuntimeMetrics(evalResult *EvaluationResult) {
 	evalResult.Scores["success_rate"] = float64(successCnt) / float64(n)
 }
 
-// agentGraders 与 Python fastapi_app._AGENT_GRADERS 保持一致：命中其中任一名即触发
-// compute_agent_metrics 分流，产出 tool_selection/tool_order/trajectory/step_efficiency/answer_accuracy。
+// agentGraders 是 Agent 评测默认注入的家族评分器：命中其中任一名即触发 Python
+// compute_agent_metrics 分流，产出 answer_accuracy/tool_selection/tool_order/step_efficiency。
+//
+// 刻意不含 trajectory_match：其 exact_match 要求「实际步骤序列 == 期望序列」完全相等，而数据集的
+// expected_steps/expected_tools 是最小锚点集（convert_eval_datasets.py 只标必需工具），实际轨迹必然
+// 更长，exact_match 结构性恒为 0，会无差别拉低所有样本的轨迹分、误导判读。用户如确有完整期望轨迹
+// 标注，仍可在 config.graders 显式请求 trajectory_match（Python _AGENT_GRADERS 仍保留该算子）。
 var agentGraders = []string{
 	"answer_accuracy",
 	"tool_selection",
 	"tool_order",
-	"trajectory_match",
 	"step_efficiency",
 }
 

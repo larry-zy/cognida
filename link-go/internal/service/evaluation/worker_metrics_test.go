@@ -240,7 +240,7 @@ func TestAugmentAgentRuntimeMetrics(t *testing.T) {
 		},
 	}
 
-	augmentAgentRuntimeMetrics(evalResult)
+	augmentRuntimeMetrics(evalResult)
 
 	// 逐条注入
 	if got := evalResult.QAResults[0].Scores["latency_ms"]; got != 100 {
@@ -266,7 +266,7 @@ func TestAugmentAgentRuntimeMetrics(t *testing.T) {
 
 	// 空结果不应 panic 且不写入
 	empty := &EvaluationResult{}
-	augmentAgentRuntimeMetrics(empty)
+	augmentRuntimeMetrics(empty)
 	if empty.Scores != nil {
 		t.Errorf("空结果不应写入 Scores，got %v", empty.Scores)
 	}

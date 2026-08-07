@@ -115,4 +115,32 @@ func TestEnsureReadOnlyLimit(t *testing.T) {
 			t.Errorf("ensureReadOnlyLimit(%q) 误加 LIMIT: %q", s, got)
 		}
 	}
+
+	// —— #3 修复：LIMIT offset, count / LIMIT count OFFSET off 按 count 判定越界 ——
+	// 旧正则只取第一个数字，`LIMIT 5, 5000` 会把 offset=5 当 count 误判未越界，绕过上限。
+	limitCases := []struct {
+		name    string
+		in      string
+		max     int
+		want    string // 期望包含的 LIMIT 片段
+		notWant string // 不应残留的越界片段（可空）
+	}{
+		{"offset,count over", "SELECT a FROM t LIMIT 5, 5000", 1000, "LIMIT 5, 1000", "5000"},
+		{"offset,count within", "SELECT a FROM t LIMIT 5, 100", 1000, "LIMIT 5, 100", ""},
+		{"count OFFSET over", "SELECT a FROM t LIMIT 5000 OFFSET 10", 1000, "LIMIT 1000 OFFSET 10", "5000"},
+		{"count OFFSET within", "SELECT a FROM t LIMIT 100 OFFSET 10", 1000, "LIMIT 100 OFFSET 10", ""},
+		{"plain count over", "SELECT a FROM t LIMIT 99999", 1000, "LIMIT 1000", "99999"},
+		{"offset,count both huge", "SELECT a FROM t LIMIT 100, 99999", 1000, "LIMIT 100, 1000", "99999"},
+	}
+	for _, c := range limitCases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ensureReadOnlyLimit(c.in, c.max)
+			if !strings.Contains(got, c.want) {
+				t.Errorf("ensureReadOnlyLimit(%q,%d)=%q, 期望含 %q", c.in, c.max, got, c.want)
+			}
+			if c.notWant != "" && strings.Contains(got, c.notWant) {
+				t.Errorf("ensureReadOnlyLimit(%q,%d)=%q, 仍残留越界值 %q（上限被绕过）", c.in, c.max, got, c.notWant)
+			}
+		})
+	}
 }

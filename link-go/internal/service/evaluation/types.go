@@ -263,11 +263,14 @@ type ComputeItem struct {
 	Trajectory    []string `json:"trajectory,omitempty"`     // 实际步骤序列
 	TotalSteps    int      `json:"total_steps,omitempty"`    // 步骤总数
 
-	// SQL 评测字段：结构指标用 gold_sql/generated_sql，执行准确率用双方结果集
-	GoldSQL       string          `json:"gold_sql,omitempty"`        // 金标准 SQL（sql_exact_match/sql_component_match）
-	GeneratedSQL  string          `json:"generated_sql,omitempty"`   // Agent 生成的 SQL
-	ResultSet     [][]interface{} `json:"result_set,omitempty"`      // 生成 SQL 结果集（sql_execution_accuracy）
-	GoldResultSet [][]interface{} `json:"gold_result_set,omitempty"` // 金标准 SQL 结果集
+	// SQL 评测字段：结构指标用 gold_sql/generated_sql，执行准确率用双方结果集。
+	// 结果集字段刻意不加 omitempty：需向 Python 区分「未执行/执行失败」(nil → JSON null →
+	// sql_execution_accuracy 剔除出分母) 与「执行成功但零行」([] → JSON [] → 参与比对)。
+	// 若加 omitempty，非 nil 空切片也会被省略，未执行样本会被 Python 当成空==空误判为满分（#1）。
+	GoldSQL       string          `json:"gold_sql,omitempty"`      // 金标准 SQL（sql_exact_match/sql_component_match）
+	GeneratedSQL  string          `json:"generated_sql,omitempty"` // Agent 生成的 SQL
+	ResultSet     [][]interface{} `json:"result_set"`              // 生成 SQL 结果集（sql_execution_accuracy）；nil=未执行
+	GoldResultSet [][]interface{} `json:"gold_result_set"`         // 金标准 SQL 结果集；nil=未执行
 }
 
 // ComputeMetricsResponse Python 指标计算响应

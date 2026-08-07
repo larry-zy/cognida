@@ -225,28 +225,60 @@ func validateReadOnlySQL(sqlStr string) error {
 	return nil
 }
 
-var readOnlyLimitRe = regexp.MustCompile(`\bLIMIT\s+(\d+)`)
+// readOnlyLimitRe 匹配 MySQL 三种 LIMIT 写法，用捕获组区分「实际返回行数（count）」与 offset：
+//
+//	LIMIT count             -> g1=count
+//	LIMIT offset, count     -> g1=offset, g2=count
+//	LIMIT count OFFSET off  -> g1=count,  g3=off
+//
+// 只按 count（真正决定返回行数的那个数）判定是否越界，避免旧正则只取第一个数字：形如
+// `LIMIT 5, 5000` 会把 offset=5 当 count、误判未越界，让 5000 行的上限被绕过（#3）。
+var readOnlyLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)(?:\s*,\s*(\d+))?(?:\s+OFFSET\s+(\d+))?`)
 
 // limitableLeadingRe 判断语句是否为可安全追加 LIMIT 的行式查询（SELECT/WITH）。
 // SHOW/DESCRIBE/DESC/EXPLAIN 同为只读但语法上不接 LIMIT，追加会产出非法 SQL，故不补。
 var limitableLeadingRe = regexp.MustCompile(`(?i)^[(\s]*(SELECT|WITH)\b`)
 
-// ensureReadOnlyLimit 确保行式查询带 LIMIT，且不超过上限（超上限或解析失败一律压到 maxRows）。
+// ensureReadOnlyLimit 确保行式查询带 LIMIT，且返回行数不超过上限（超上限或解析失败一律压到 maxRows）。
 // 仅对 SELECT/WITH 生效：SHOW/DESCRIBE/EXPLAIN 不接 LIMIT，原样返回避免拼出非法语句。
+// 逐个 LIMIT 子句独立收敛（子查询里的 LIMIT 各自按自身 count 判定），保留 offset 语义。
 func ensureReadOnlyLimit(sqlStr string, maxRows int) string {
 	if !limitableLeadingRe.MatchString(sqlStr) {
 		return sqlStr
 	}
-	if !regexp.MustCompile(`\bLIMIT\s+\d+`).MatchString(sqlStr) {
+	if !readOnlyLimitRe.MatchString(sqlStr) {
 		sqlStr = strings.TrimRight(sqlStr, "; ")
 		return fmt.Sprintf("%s LIMIT %d", sqlStr, maxRows)
 	}
-	matches := readOnlyLimitRe.FindStringSubmatch(sqlStr)
-	if len(matches) > 1 {
-		limitVal, err := strconv.Atoi(matches[1])
-		if err != nil || limitVal > maxRows {
-			sqlStr = readOnlyLimitRe.ReplaceAllString(sqlStr, fmt.Sprintf("LIMIT %d", maxRows))
-		}
+	return readOnlyLimitRe.ReplaceAllStringFunc(sqlStr, func(clause string) string {
+		return clampLimitClause(clause, maxRows)
+	})
+}
+
+// clampLimitClause 把单个 LIMIT 子句的返回行数上限收敛到 maxRows，保留原有 offset。
+// count 未越界则原样返回（含 offset 部分不动）。
+func clampLimitClause(clause string, maxRows int) string {
+	m := readOnlyLimitRe.FindStringSubmatch(clause)
+	if m == nil {
+		return clause
 	}
-	return sqlStr
+	// 解析失败（如超大数溢出 int）一律视为越界，压到 maxRows。
+	over := func(s string) bool {
+		v, err := strconv.Atoi(s)
+		return err != nil || v > maxRows
+	}
+	if m[2] != "" { // LIMIT offset, count —— count 是第二个数
+		if over(m[2]) {
+			return fmt.Sprintf("LIMIT %s, %d", m[1], maxRows)
+		}
+		return clause
+	}
+	// LIMIT count [OFFSET off] —— count 是第一个数
+	if over(m[1]) {
+		if m[3] != "" {
+			return fmt.Sprintf("LIMIT %d OFFSET %s", maxRows, m[3])
+		}
+		return fmt.Sprintf("LIMIT %d", maxRows)
+	}
+	return clause
 }

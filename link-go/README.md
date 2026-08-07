@@ -278,7 +278,7 @@ EvaluationWorker ──► AgentExecutor.Execute（逐 QA、带超时）
         ▼  POST /api/v1/evaluation/compute-metrics（Python :18888）
   compute_agent_metrics（跨样本批量聚合）
         │
-        ▼  fillMetrics 写回 → augmentAgentRuntimeMetrics 合并运行时指标
+        ▼  fillMetrics 写回 → augmentRuntimeMetrics 合并运行时指标
 ```
 
 - **委托轨迹穿透**（`framework/collab_trajectory.go`）：多 Agent 协作时委托边界默认只回传子 Agent 的最终摘要（「上下文防火墙」），会掩盖子 Agent 真实工具调用与 token 消耗。`delegationTrace` 以 `ctx` 侧信道在顶层 `run` 处 `drain` 回注子 Agent 的 `ToolCalls`/tokens/iterations——**仅供评测与审计**，不改变 LLM 所见上下文；并发委托下线程安全。
@@ -317,7 +317,7 @@ EvaluationWorker ──► AgentExecutor.Execute（逐 QA、带超时）
 #### 近期优化要点
 
 - **Agent 评测闭环**：executor 采集完整工具调用轨迹而非仅最终答案；`AgentChatResult` 增加 `ToolsUsed` / `Trajectory` / `TotalSteps` / `TokensUsed` / `LLMCalls`，`latency_ms` 用挂钟测量、失败也记录。
-- **grader 自动注入**：类型为 `agent` 时 `ensureAgentGraders` 幂等补齐 agent grader 家族（对齐 Python `_AGENT_GRADERS`），避免用户只选了 rouge/bleu 就漏采轨迹指标；`augmentAgentRuntimeMetrics` 在 Python 填分后合并 Go 侧运行时指标。
+- **grader 自动注入**：类型为 `agent` 时 `ensureAgentGraders` 幂等补齐 agent grader 家族（answer_accuracy/tool_selection/tool_order/step_efficiency；`trajectory_match` 因期望轨迹为最小锚点集会结构性恒 0，改为需显式请求），避免用户只选了 rouge/bleu 就漏采轨迹指标；`augmentRuntimeMetrics`（agent 与 sql 类型均触发）在 Python 填分后合并 Go 侧运行时指标。
 - **grader 注册表为单一事实源**：`GET /api/v1/evaluation/graders?eval_type=` 驱动前端指标选择；`compute-metrics` 对未知 grader 返回显式 `unsupported[]` 而非静默忽略。
 - **检索 grader 修复**：`map` 原先误调未定义的 `ap_at_k` 导致 `NameError`，现改用 `map_at_k`；`tool_order`（有序子序列）从 `tool_selection`（集合成员）中拆出为独立指标；`step_efficiency`/`trajectory_match` 加固除零/空轨迹边界。
 

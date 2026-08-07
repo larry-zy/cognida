@@ -1,9 +1,7 @@
 """评测服务 FastAPI 接口。"""
 
-import asyncio
-import os
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
@@ -398,8 +396,11 @@ class ComputeItem(BaseModel):
     # Text2SQL 评测字段：金标准/生成 SQL 文本 + 双方只读执行结果集（Go 侧采集）
     gold_sql: str = ""                   # 金标准 SQL（sql_exact_match/sql_component_match）
     generated_sql: str = ""              # Agent 生成的 SQL
-    result_set: List[Any] = []           # 生成 SQL 的结果集（行数组，sql_execution_accuracy）
-    gold_result_set: List[Any] = []      # 金标准 SQL 的结果集（行数组）
+    # 结果集默认 None（而非 []）：区分「未执行/执行失败」(None → sql_execution_accuracy 剔除出
+    # 分母) 与「执行成功但零行」([] → 参与比对，空==空为合法正确答案)。默认 [] 会把未发送结果集的
+    # 未执行样本误判成空==空满分（#1）。Go 侧对应字段去掉 omitempty，nil→null→此处 None。
+    result_set: Optional[List[Any]] = None       # 生成 SQL 的结果集（行数组，sql_execution_accuracy）
+    gold_result_set: Optional[List[Any]] = None  # 金标准 SQL 的结果集（行数组）
 
 
 class ComputeMetricsRequest(BaseModel):
@@ -575,8 +576,10 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                     item_result.bleu_4 = gen["bleu_4"]
                     bleu_4_sum += gen["bleu_4"]
 
-            # 检索指标（需同时有相关文档标注与检索结果）
-            if retrieval_requested and item.relevant_pids and item.retrieved_pids:
+            # 检索指标（只要有相关文档标注即计入；检索结果为空是合法的零召回样本，
+            # 应记 recall=0 并计入分母，而非静默剔除——否则「什么都没检索到」的差样本反而
+            # 不拉低平均召回，虚高检索质量。空检索列表下 precision/recall/ndcg/mrr 均安全返回 0）。
+            if retrieval_requested and item.relevant_pids:
                 handled |= retrieval_requested
                 # 将 检索ID 序列按是否命中相关ID 转成布尔相关性列表
                 relevant_set = set(item.relevant_pids)

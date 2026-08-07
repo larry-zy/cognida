@@ -5,9 +5,9 @@
 // 与 worker_metrics_test.go 的 httptest 桩不同，本用例打真实运行中的 Python 评测
 // 服务（fastapi_app），完整跑通 Go 端 computeMetrics → 组装 ComputeItem →
 // ensureAgentGraders 注入 Agent 家族评分器 → HTTP → Python compute_agent_metrics
-// 聚合 → fillMetrics → augmentAgentRuntimeMetrics 全链路，验证前端目录里新登记的
-// 5 个 Agent 评测器（answer_accuracy/tool_selection/tool_order/trajectory_match/
-// step_efficiency）真正产出任务级聚合指标 + Go 采集的运行时基础指标。
+// 聚合 → fillMetrics → augmentRuntimeMetrics 全链路，验证前端目录里新登记的
+// Agent 评测器（默认注入 answer_accuracy/tool_selection/tool_order/step_efficiency；
+// trajectory_match 需显式请求）真正产出任务级聚合指标 + Go 采集的运行时基础指标。
 //
 // 运行：需先起 Python 评测服务，并通过环境变量指定端点（未设置则 Skip）：
 //
