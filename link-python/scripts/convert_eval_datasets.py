@@ -136,8 +136,8 @@ HF_DATASETS: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 # 旧实现的问题：题面/期望工具/答案全是编造的（SO2024001、query_order/check_inventory…），
 # 既非真实数据也非 data-agent 真实工具名 → tool/answer 指标恒 0。改为构建期直接查
-# ecommerce_demo 现算 golden，并把 expected_tools 对齐 data-agent 真实工具（sql_execute /
-# get_schema / render_ui），使评测在「被测 Agent 也路由到同一数据源」后能拿到有效分数。
+# ecommerce_demo 现算 golden，并把 expected_tools 锚定到 data-agent 的路径不变量工具，
+# 使评测在「被测 Agent 也路由到同一数据源」后能拿到有效分数。
 #
 # 工具锚点取舍：无论走词法 NL2SQL（get_schema→sql_execute）还是语义层
 # （semantic_models→semantic_query→sql_execute），实际执行 SQL 的工具恒为 sql_execute，
@@ -360,11 +360,11 @@ def _build_ecommerce_records() -> list[dict[str, Any]]:
     )
     ch_txt = "；".join(f"{ch} {_money(v)} 元" for ch, v in ch_rows)
     records.append(_rec(
-        "各下单渠道（channel）的平均客单价分别是多少？",
+        "各下单渠道（channel）已完成订单的平均客单价分别是多少？",
         f"已完成订单各渠道平均客单价：{ch_txt}。",
         ["sql_execute"],
-        ["理解问题：按渠道求平均客单价",
-         "调用 sql_execute 在 orders 表按 channel 分组求 AVG(pay_amount)",
+        ["理解问题：按渠道求已完成订单的平均客单价",
+         "调用 sql_execute 在 orders 表按 status='completed' 过滤后按 channel 分组求 AVG(pay_amount)",
          "回复各渠道客单价"],
         "medium",
     ))
@@ -500,8 +500,10 @@ def _scenario_ecommerce_agent() -> dict[str, Any] | None:
         "dataset_id": "scenario_ecommerce_agent",
         "name": "电商场景 Agent 测评集（DB 现算）",
         "description": (
-            "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 对齐 data-agent "
-            "真实工具（sql_execute/get_schema/render_ui），命中全量 Agent 指标。"
+            "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 锚定路径不变量 "
+            "sql_execute（数据类任务无论走词法 get_schema→sql_execute 还是语义 semantic_query→sql_execute "
+            "都恒调 sql_execute）；分析题追加 data_analysis、画图题追加 render_ui、纯结构探查用 get_schema，"
+            "命中全量 Agent 指标。"
         ),
         "evaluation_type": "agent",
         "supports_trajectory": True,

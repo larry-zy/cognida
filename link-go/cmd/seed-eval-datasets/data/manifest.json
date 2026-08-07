@@ -38,7 +38,7 @@
   {
     "dataset_id": "scenario_ecommerce_agent",
     "name": "电商场景 Agent 测评集（DB 现算）",
-    "description": "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 对齐 data-agent 真实工具（sql_execute/get_schema/render_ui），命中全量 Agent 指标。",
+    "description": "从 ecommerce_demo 现算 golden 的三档难度 agent 任务，expected_tools 锚定路径不变量 sql_execute（分析题追加 data_analysis、画图题追加 render_ui、纯结构探查用 get_schema），命中全量 Agent 指标。",
     "evaluation_type": "agent",
     "supports_trajectory": true,
     "records_file": "scenario_ecommerce_agent.jsonl",

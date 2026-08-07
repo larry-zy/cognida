@@ -354,6 +354,17 @@ func (w *EvaluationWorker) executeTask(taskID string) {
 	}
 	log.Printf("[Worker] Execution completed, got %d results", len(domainResults))
 
+	appResults := convertQAResultsToApp(domainResults)
+
+	// 5.1 打分前先落库原始运行产物（答案/轨迹/运行时指标）。
+	// 被测 Agent 的一次运行可能横跨十几条 QA、耗时数分钟，若把落库放在算指标之后，
+	// 一旦 Python(:18888) 计分不可用就会连同整轮昂贵的 Agent 执行一起丢弃、被迫全量重跑。
+	// 此处先做「幂等替换」持久化（delete+insert），既保住产物，又让后续重跑不会重复插行。
+	if err := w.persistResults(ctx, taskID, appResults); err != nil {
+		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to persist raw results: %w", err), 0)
+		return
+	}
+
 	// 更新进度：开始计算指标
 	w.updateProgress(ctx, taskID, &domeval.Progress{
 		Stage:      domeval.StageEvaluation,
@@ -363,16 +374,16 @@ func (w *EvaluationWorker) executeTask(taskID string) {
 		RetryCount: 0,
 	})
 
-	// 6. 计算指标（转换类型）
-	appResults := convertQAResultsToApp(domainResults)
+	// 6. 计算指标
 	evalResult, err := w.computeMetrics(ctx, config, appResults)
 	if err != nil {
+		// 原始产物已在 5.1 落库，不会丢；仅标记任务失败，重跑时幂等覆盖。
 		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to compute metrics: %w", err), 0)
 		return
 	}
 
 	// 7. 保存结果
-	if err := w.saveResults(ctx, taskID, config, evalResult); err != nil {
+	if err := w.saveResults(ctx, taskID, evalResult); err != nil {
 		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to save results: %w", err), 0)
 		return
 	}
@@ -396,11 +407,11 @@ func (w *EvaluationWorker) loadTask(ctx context.Context, taskID string) (*domeva
 func (w *EvaluationWorker) parseTaskConfig(task *domeval.EvaluationTask) (*domeval.EvaluationTaskConfig, error) {
 	// 从 domain 实体构建配置
 	config := &domeval.EvaluationTaskConfig{
-		DatasetID: task.DatasetID,
-		Type:      task.Type,
-		KnowledgeBaseID:      task.KnowledgeBaseID,
-		AgentID:   task.AgentID,
-		ModelID:   task.ModelID,
+		DatasetID:       task.DatasetID,
+		Type:            task.Type,
+		KnowledgeBaseID: task.KnowledgeBaseID,
+		AgentID:         task.AgentID,
+		ModelID:         task.ModelID,
 	}
 
 	// 解析 Config (json.RawMessage -> map[string]interface{})
@@ -522,12 +533,18 @@ func (w *EvaluationWorker) computeMetrics(ctx context.Context, config *DomainEva
 		return nil, err
 	}
 
+	// Python 会把「请求了但注册表无对应 grader」的指标名回报在 Unsupported 里而非静默丢弃；
+	// Go 侧此前只解析不消费 → 拼错/未注册的评分器名被无声吞掉，指标缺失却无人知。此处显式告警。
+	if len(resp.Unsupported) > 0 {
+		log.Printf("[Worker] unsupported graders ignored by python service: %v", resp.Unsupported)
+	}
+
 	// 合并结果
 	evalResult := &EvaluationResult{
-		DatasetID: config.DatasetID,
-	 KnowledgeBaseID:      config.KnowledgeBaseID,
-		ModelID:   config.ModelID,
-		QAResults: qaResults,
+		DatasetID:       config.DatasetID,
+		KnowledgeBaseID: config.KnowledgeBaseID,
+		ModelID:         config.ModelID,
+		QAResults:       qaResults,
 	}
 
 	// 填充指标
@@ -726,11 +743,25 @@ func (w *EvaluationWorker) fillMetrics(evalResult *EvaluationResult, resp *Compu
 	}
 }
 
-// saveResults 保存评测结果
-func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, config *domeval.EvaluationTaskConfig, appResult *EvaluationResult) error {
-	// 转换 application QAResult 到 domain EvaluationResult
-	domainResults := make([]*domeval.EvaluationResult, len(appResult.QAResults))
-	for i, qa := range appResult.QAResults {
+// persistResults 幂等地把逐条评测结果写库：先按 taskID 清除旧结果再批量插入。
+// delete+insert 使 executeTask 里「打分前落原始产物」与「打分后落富结果」两次调用、
+// 以及任务重跑（恢复重入队/手动重跑）都不会重复插行——否则同一 task 的结果行会累积，
+// 前端逐条列表出现重复、成功/失败计数虚高。
+func (w *EvaluationWorker) persistResults(ctx context.Context, taskID string, qaResults []*QAResult) error {
+	if err := w.resultRepo.DeleteByTaskID(ctx, taskID); err != nil {
+		return fmt.Errorf("failed to clear old results: %w", err)
+	}
+	if err := w.resultRepo.CreateBatch(ctx, buildDomainResults(taskID, qaResults)); err != nil {
+		return fmt.Errorf("failed to save results: %w", err)
+	}
+	return nil
+}
+
+// buildDomainResults 将应用层逐条 QAResult 转为领域层 EvaluationResult（含检索/生成/裁判/
+// 语义/动态 Scores 指标与子 request_id），供幂等落库使用。
+func buildDomainResults(taskID string, qaResults []*QAResult) []*domeval.EvaluationResult {
+	domainResults := make([]*domeval.EvaluationResult, len(qaResults))
+	for i, qa := range qaResults {
 		domainResults[i] = &domeval.EvaluationResult{
 			TaskID:          taskID,
 			Question:        qa.Question,
@@ -770,10 +801,14 @@ func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, confi
 			RequestID: qa.RequestID,
 		}
 	}
+	return domainResults
+}
 
-	// 批量保存结果
-	if err := w.resultRepo.CreateBatch(ctx, domainResults); err != nil {
-		return fmt.Errorf("failed to save results: %w", err)
+// saveResults 保存评测结果
+func (w *EvaluationWorker) saveResults(ctx context.Context, taskID string, appResult *EvaluationResult) error {
+	// 幂等落库富结果（覆盖 5.1 落的原始产物；重跑不重复插行）
+	if err := w.persistResults(ctx, taskID, appResult.QAResults); err != nil {
+		return err
 	}
 
 	// 统计成功/失败条数并持久化——否则任务级 success_count/failure_count 恒为 0，
