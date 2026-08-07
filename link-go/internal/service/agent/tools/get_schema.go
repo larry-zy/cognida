@@ -156,6 +156,8 @@ func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, 
 			if err != nil {
 				return nil, err
 			}
+			// 候选表同样惰性附上数据事实：Agent 常直接据此写 SQL，需真实枚举值/空值率而非猜值。
+			attachAndRefreshProfilesBatch(ctx, profileStore, businessDB, dsp, target, req.DatabaseID, tables)
 			return &GetSchemaResult{
 				Tables:   tables,
 				Database: target.dbName,

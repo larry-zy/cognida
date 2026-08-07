@@ -36,6 +36,11 @@ const (
 	topValuesLimit = 20
 	// maxEnumColumns 单表最多为多少个枚举候选列跑 GROUP BY，防宽表画像放大扫描。
 	maxEnumColumns = 16
+	// maxProfileRefreshPerCall 单次 get_schema（关键词选表）最多触发多少张表的后台画像。
+	// 候选表可达 maxRelevantTables 张；冷库首次选表若对每张都触发全表聚合+枚举扫描，会形成
+	// 扫描风暴。故缓存事实对全部候选表照挂（廉价），但后台刷新按此上限限流——未刷到的表
+	// 仍挂着旧/空快照，下次选表继续预热，跨调用逐步收敛。
+	maxProfileRefreshPerCall = 6
 )
 
 // nonEnumTypes 明确不作为枚举候选的物理类型（连续型/大文本/时间/二进制）：
@@ -71,6 +76,10 @@ type ColumnFacts struct {
 // 避免同表被并发探查时重复全表扫描。
 var profileInFlight sync.Map // key: coordinate string -> struct{}
 
+// triggerProfileRefresh 指向后台画像触发器；抽成变量以便单测观测触发次数
+// （验证批量选表的刷新限流）。生产恒为 triggerBackgroundProfile。
+var triggerProfileRefresh = triggerBackgroundProfile
+
 // effectiveDatasourceID 解析画像归属的数据源 ID：显式 database_id 优先，
 // 否则回落会话选定的数据源；仍为空表示当前业务库（以空串入库消歧）。
 func effectiveDatasourceID(ctx context.Context, databaseID string) string {
@@ -80,12 +89,12 @@ func effectiveDatasourceID(ctx context.Context, databaseID string) string {
 	return agentctx.MustGetDatasourceID(ctx)
 }
 
-// attachAndRefreshProfiles 为精确返回的单表附上缓存中的数据事实，并在缺失/过期时
-// 触发后台刷新。store 为 nil（未接线）或非单表时静默跳过——零回归。
-// businessDB/dsp 供后台画像重新路由目标库（而非捕获请求期 target.db，见 resolveProfileDB）。
-func attachAndRefreshProfiles(ctx context.Context, store dataprofile.Store, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, target *queryTarget, databaseID string, table *TableSchema) {
+// attachCachedFacts 读缓存画像并按列名挂到表结构上（不触发后台刷新），返回该表画像是否过期
+// （需刷新）以及本次是否适用（store 未接线/空表返回 ok=false）。是「挂缓存」与「决定是否刷新」
+// 的共享底座，供单表精确路径与多候选表批量路径复用。
+func attachCachedFacts(ctx context.Context, store dataprofile.Store, target *queryTarget, databaseID string, table *TableSchema) (stale, ok bool) {
 	if store == nil || table == nil || len(table.Columns) == 0 {
-		return
+		return false, false
 	}
 	tenantID := agentctx.MustGetTenantID(ctx)
 	dsID := effectiveDatasourceID(ctx, databaseID)
@@ -98,11 +107,41 @@ func attachAndRefreshProfiles(ctx context.Context, store dataprofile.Store, busi
 		cached = nil
 	}
 
-	stale := profilesStale(cached)
+	stale = profilesStale(cached)
 	attachColumnFacts(table, cached, stale)
+	return stale, true
+}
 
-	if stale {
-		triggerBackgroundProfile(store, businessDB, dsp, tenantID, dsID, schema, *table)
+// attachAndRefreshProfiles 为精确返回的单表附上缓存中的数据事实，并在缺失/过期时
+// 触发后台刷新。store 为 nil（未接线）或非单表时静默跳过——零回归。
+// businessDB/dsp 供后台画像重新路由目标库（而非捕获请求期 target.db，见 resolveProfileDB）。
+func attachAndRefreshProfiles(ctx context.Context, store dataprofile.Store, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, target *queryTarget, databaseID string, table *TableSchema) {
+	stale, ok := attachCachedFacts(ctx, store, target, databaseID, table)
+	if !ok || !stale {
+		return
+	}
+	triggerProfileRefresh(store, businessDB, dsp, agentctx.MustGetTenantID(ctx), effectiveDatasourceID(ctx, databaseID), target.dbName, *table)
+}
+
+// attachAndRefreshProfilesBatch 为关键词选出的候选表批量附上缓存数据事实。缓存命中即挂
+// （廉价，只读缓存无扫描），让 Agent 写 SQL 前就能看到真实枚举值/空值率、不再猜值；过期表按
+// maxProfileRefreshPerCall 上限触发后台刷新，避免冷库首次选表对十余张表同时全表扫描（扫描风暴）。
+// 超限未刷新的表仍挂着旧/空快照，下次选表继续预热。
+func attachAndRefreshProfilesBatch(ctx context.Context, store dataprofile.Store, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, target *queryTarget, databaseID string, tables []TableSchema) {
+	if store == nil {
+		return
+	}
+	refreshed := 0
+	for i := range tables {
+		stale, ok := attachCachedFacts(ctx, store, target, databaseID, &tables[i])
+		if !ok || !stale {
+			continue
+		}
+		if refreshed >= maxProfileRefreshPerCall {
+			continue // 已挂旧/空快照，仅限流后台刷新
+		}
+		triggerProfileRefresh(store, businessDB, dsp, agentctx.MustGetTenantID(ctx), effectiveDatasourceID(ctx, databaseID), target.dbName, tables[i])
+		refreshed++
 	}
 }
 

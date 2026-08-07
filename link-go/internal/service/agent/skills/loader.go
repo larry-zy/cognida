@@ -5,15 +5,42 @@ package skills
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
+
+const (
+	// distilledSkillAuthor 标记「会话经验自动沉淀」的技能作者（见 experience.SkillSink）。
+	distilledSkillAuthor = "experience-distill"
+	// distilledSkillTTL 自动沉淀技能的存活期。SkillSink 只增不减地把会话经验落成技能，
+	// 无 TTL 会让目录/注册表随时间无界膨胀且塞满陈旧经验。超过此期限的沉淀技能加载时
+	// 静默跳过（文件保留在盘上、可人工复核或复活），仅不进目录、不可 invoke——非破坏式回收。
+	distilledSkillTTL = 30 * 24 * time.Hour
+)
+
+// ErrSkillExpired 表示该 SKILL.md 是超过 TTL 的自动沉淀技能，加载侧应静默跳过（不计入错误）。
+var ErrSkillExpired = errors.New("skill expired: auto-distilled past TTL")
+
+// nowFunc 抽出当前时间以便单测注入（验证 TTL 过期判定），生产恒为 time.Now。
+var nowFunc = time.Now
+
+// isExpiredDistilledSkill 判断是否为超过 TTL 的自动沉淀技能。仅约束 experience-distill，
+// 策展技能与手工技能永不因时间过期。modTime 取自 SKILL.md 文件——SkillSink 幂等落盘
+// （已存在即跳过），故 mtime 稳定反映沉淀时刻，不会被重复命中刷新。
+func isExpiredDistilledSkill(skill *Skill, modTime time.Time) bool {
+	if skill == nil || skill.Author != distilledSkillAuthor {
+		return false
+	}
+	return nowFunc().Sub(modTime) > distilledSkillTTL
+}
 
 // ========================================
 // SkillLoader Skill 加载器
@@ -73,6 +100,12 @@ func (l *skillLoader) LoadFile(path string) (*Skill, error) {
 	// 检查是否已废弃
 	if skill.Deprecated && !l.allowDeprecated {
 		return nil, fmt.Errorf("skill %s is deprecated", skill.Name)
+	}
+
+	// TTL：自动沉淀技能超过存活期即不再加载（文件保留，仅不进目录/不可 invoke）。
+	// 以文件 mtime 为沉淀时刻的稳定信号；stat 失败时不因此拦截加载（宁可多留不误杀）。
+	if info, statErr := os.Stat(path); statErr == nil && isExpiredDistilledSkill(skill, info.ModTime()) {
+		return nil, ErrSkillExpired
 	}
 
 	return skill, nil
@@ -161,9 +194,12 @@ func (l *skillLoader) LoadDir(dir string) ([]*Skill, []error) {
 	if hasDirectSkill {
 		path := filepath.Join(dir, "SKILL.md")
 		skill, err := l.LoadFile(path)
-		if err != nil {
+		switch {
+		case err == ErrSkillExpired:
+			// 过期沉淀技能：静默跳过，不计入加载错误。
+		case err != nil:
 			errors = append(errors, fmt.Errorf("failed to load %s: %w", path, err))
-		} else {
+		default:
 			l.scanSupportingFiles(dir, skill)
 			skills = append(skills, skill)
 		}
@@ -181,7 +217,11 @@ func (l *skillLoader) LoadDir(dir string) ([]*Skill, []error) {
 		// 检查子目录中是否有 SKILL.md
 		if _, err := os.Stat(skillFile); err == nil {
 			skill, err := l.LoadFile(skillFile)
-			if err != nil {
+			switch {
+			case err == ErrSkillExpired:
+				// 过期沉淀技能：静默跳过，不计入加载错误。
+				continue
+			case err != nil:
 				errors = append(errors, fmt.Errorf("failed to load %s: %w", skillFile, err))
 				continue
 			}
