@@ -56,6 +56,34 @@ func TestWindower_SummarizesOlderPreservingResultID(t *testing.T) {
 	}
 }
 
+func TestKeepRecentByTokens(t *testing.T) {
+	c := ApproxTokenCounter{}
+	// 每条 "你好世界啊" ≈ 3 token。
+	turns := []Turn{
+		{Content: "你好世界啊"}, // ~3
+		{Content: "你好世界啊"}, // ~3
+		{Content: "你好世界啊"}, // ~3
+		{Content: "你好世界啊"}, // ~3
+	}
+	if got := KeepRecentByTokens(nil, 100, c); got != 0 {
+		t.Errorf("empty turns should keep 0, got %d", got)
+	}
+	if got := KeepRecentByTokens(turns, 0, c); got != 1 {
+		t.Errorf("budget<=0 should keep 1 (连贯性), got %d", got)
+	}
+	if got := KeepRecentByTokens(turns, 1000, c); got != 4 {
+		t.Errorf("budget 充足应保留全部 4, got %d", got)
+	}
+	// 预算约 7 → 最新两条(~6)进、第三条(~9>7)出。
+	if got := KeepRecentByTokens(turns, 7, c); got != 2 {
+		t.Errorf("budget=7 应保留 2, got %d", got)
+	}
+	// 预算极小但非零：至少保留最近 1 条。
+	if got := KeepRecentByTokens(turns, 1, c); got != 1 {
+		t.Errorf("budget=1 应至少保留 1, got %d", got)
+	}
+}
+
 func TestCollectResultIDs_DedupAndInline(t *testing.T) {
 	turns := []Turn{
 		{Content: "见 rs_x 和 rs_x", ResultIDs: []string{"rs_y"}},
@@ -72,16 +100,16 @@ func TestCollectResultIDs_DedupAndInline(t *testing.T) {
 }
 
 func TestEnsureResultIDsPresent_AppendsMissing(t *testing.T) {
-	out := ensureResultIDsPresent("摘要含 rs_a", []string{"rs_a", "rs_b"})
+	out := EnsureResultIDsPresent("摘要含 rs_a", []string{"rs_a", "rs_b"})
 	if !strings.Contains(out, "rs_a") || !strings.Contains(out, "rs_b") {
 		t.Errorf("missing id not appended: %s", out)
 	}
 	// 已全含时不改动。
-	if got := ensureResultIDsPresent("有 rs_a rs_b", []string{"rs_a", "rs_b"}); got != "有 rs_a rs_b" {
+	if got := EnsureResultIDsPresent("有 rs_a rs_b", []string{"rs_a", "rs_b"}); got != "有 rs_a rs_b" {
 		t.Errorf("should be unchanged, got %s", got)
 	}
 	// 空摘要时用尾巴替代。
-	if got := ensureResultIDsPresent("", []string{"rs_a"}); !strings.Contains(got, "rs_a") {
+	if got := EnsureResultIDsPresent("", []string{"rs_a"}); !strings.Contains(got, "rs_a") {
 		t.Errorf("empty summary should still carry id, got %s", got)
 	}
 }

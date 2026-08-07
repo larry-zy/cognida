@@ -9,6 +9,7 @@ import (
 
 	domainagent "link/internal/model/agent"
 	"link/internal/model/conversation"
+	"link/internal/service/agent/context/llmsummary"
 	"link/internal/service/agent/convcontext"
 	infraagent "link/internal/service/agent/framework"
 	"link/internal/service/agent/skills"
@@ -19,10 +20,24 @@ import (
 const DataAgentID = "agent-data-agent"
 
 const (
-	// defaultMaxIter 单一 ReAct 循环默认最大步数。
-	defaultMaxIter = 12
-	// defaultTokenBudget 默认 token 预算（与 maxIter 共同约束循环；模型未回传 usage 时自动退化为仅 maxIter 约束）。
-	defaultTokenBudget = 120000
+	// defaultMaxIter 单一 ReAct 循环默认最大步数。长对话/深下钻放宽到 24 步：
+	// 上下文规模不再由「达标即终止」的 token 预算约束，改由运行时就地折叠（不停机）治理。
+	defaultMaxIter = 24
+	// defaultTokenBudget 默认 token 预算。设为 0（不限）：react 循环不再因累计计费 token 达标而被动终止，
+	// 上下文规模改由三级压缩（就地折叠，见下）治理，避免长对话被过早掐断。
+	defaultTokenBudget = 0
+
+	// —— 三级上下文压缩阈值（业务策略层设定，能力层只提供机制）——
+	// ① 单条消息：单条 token 超过该值 → 先压该条（保 result_id）。
+	maxMessageTokens = 32000
+	// ③ 整段对话：运行累计上下文 token ≥ 该值 → 就地折叠（不停机）。
+	compactTriggerTokens = 128000
+	// ③ 折叠目标水位：折叠后压回该 token 附近；也用作开场装配预算。
+	compactTargetTokens = 64000
+	// ③.5 陈旧思考剥离：DeepSeek thinking 默认开，中间每步的 reasoning 被契约强制回传后续所有轮，
+	// 会在单次 ReAct 运行内堆积。「最近一轮之前」累计 reasoning ≥ 该值时把旧轮整轮折走（思考随之离场），
+	// 只让最近一轮带 thinking——远早于 128k 触发线，避免陈旧思考在上下文里长期占位。
+	reasoningEvictTokens = 16000
 )
 
 // capabilityGroups 是四类能力对应的工具分组（present-if-registered）：
@@ -125,10 +140,18 @@ func buildDataAgent(
 		Before(skills.InjectFromContextHook()). // 末位：把入口暂存的命中 skill 指导自动注入（自动注入）
 		WithMaxIterations(defaultMaxIter).
 		WithTokenBudget(defaultTokenBudget).
+		WithContextCompaction(compactTriggerTokens, compactTargetTokens). // ③整段对话：累计≥128k就地折叠回~64k
+		WithMaxMessageTokens(maxMessageTokens).                           // ①单条消息：>32k先压该条（保 result_id）
+		WithReasoningEviction(reasoningEvictTokens).                      // ③.5陈旧思考：旧轮reasoning累计≥16k整轮折走，只留本轮thinking
 		WithCollaboration(collabRegistry, infraagent.EnableDelegate())
 	if msgRepo != nil {
-		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支
-		builder = builder.WithContextBuilder(convcontext.NewConversationContextBuilder(msgRepo))
+		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支。
+		// 开场装配的超窗早期轮摘要注入 LLM 语义摘要器（llmsummary，自带抽取式降级），与运行时 ③
+		// 折叠共用同一套语义压缩口径；toolModel 不可用时 llmsummary 内部退化为确定性抽取式。
+		builder = builder.WithContextBuilder(
+			convcontext.NewConversationContextBuilder(msgRepo).
+				WithSummarizer(llmsummary.New(toolModel)),
+		)
 	}
 	// 组合根护栏装配（默认关闭 → 恒等，零回归）：输入把关 + 逐工具/最终输出脱敏，
 	// 与硬工具门/写审批叠加，构成 Data Agent 的多层安全缝。

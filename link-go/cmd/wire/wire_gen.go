@@ -1108,8 +1108,8 @@ type App struct {
 	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
 	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
 	AgentHandler *handler.AgentHandler
-	// Embedder 暴露给组合根：供 Agent 反思记忆（MilvusReflectionMemory）向量化任务/教训，
-	// 接线自我进化闭环（初始化器下发给 data_agent 预设）。
+	// Embedder 暴露给组合根：供 Agent 自我进化向量化任务/教训（experience 后台 worker 沉淀），
+	// 由初始化器下发给 data_agent 预设。（内联反思记忆路径已下线，改由 experience worker 承担。）
 	Embedder embedding.Embedder
 }
 

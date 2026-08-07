@@ -12,6 +12,8 @@ import (
 	"link/internal/model/agent"
 	agentreflection "link/internal/model/agent/reflection"
 	domainguardrail "link/internal/model/guardrail"
+	ctxeng "link/internal/service/agent/context"
+	"link/internal/service/agent/context/llmsummary"
 	"link/internal/service/agent/framework/hooks"
 	reflecthooks "link/internal/service/agent/framework/reflection"
 )
@@ -35,6 +37,16 @@ type Builder struct {
 	autoSelect     bool
 	maxIter        int // 最大迭代次数
 	tokenBudget    int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
+
+	// 运行时上下文压缩（三级压缩之②③）。都为 0 时不启用，逐字节零回归。
+	compactTrigger   int // ③整段对话：运行累计上下文 token ≥ 该值 → 就地折叠（不停机）
+	compactTarget    int // ③折叠目标水位：折叠后压回该 token 附近
+	maxMessageTokens int // ①单条消息：单条 token 超过该值 → 先压该条（保 result_id）
+
+	reasoningEvictTokens int // ③.5 陈旧思考剥离：最近一轮之前累计 reasoning token ≥ 该值 → 旧轮整轮折走
+
+	summarizer ctxeng.Summarizer // ③ 折叠兜底摘要器；nil 且启用压缩时自动用 LLM 语义摘要（llmsummary），否则抽取式
+
 	collabRegistry *CollaborationRegistry
 	collabConfig   *CollaborationConfig
 
@@ -202,6 +214,41 @@ func (b *Builder) WithMaxIterations(maxIter int) *Builder {
 // 传入 <=0 表示不限预算，仅受 maxIter 约束。
 func (b *Builder) WithTokenBudget(tokenBudget int) *Builder {
 	b.tokenBudget = tokenBudget
+	return b
+}
+
+// WithContextCompaction 配置「整段对话」的运行时压缩（三级压缩之③）：
+// ReAct 循环内累计上下文 token ≥ trigger 时就地折叠（不停机），把最早的整轮对话
+// 抽取式摘要折进一条系统消息，逐字保留最近若干整轮，压回 target 附近。
+// 按「整轮」折叠以保住 assistant.tool_calls ↔ tool 消息的 1:1 配对不变量。
+// trigger<=0 或 target<=0 时不启用（零回归）。
+func (b *Builder) WithContextCompaction(trigger, target int) *Builder {
+	b.compactTrigger = trigger
+	b.compactTarget = target
+	return b
+}
+
+// WithContextSummarizer 注入 ③ 折叠兜底（Level B）用的历史摘要器（能力层 ctxeng.Summarizer）。
+// 不注入时：启用上下文压缩且存在生成模型 → Build 自动装配 LLM 语义摘要器（llmsummary，自带抽取式降级）；
+// 否则用确定性抽取式摘要。显式注入优先于自动装配（主要供测试或自定义摘要策略）。
+func (b *Builder) WithContextSummarizer(s ctxeng.Summarizer) *Builder {
+	b.summarizer = s
+	return b
+}
+
+// WithReasoningEviction 配置「陈旧思考剥离」（三级压缩之③.5）：DeepSeek V4 契约要求带 tool_calls 的
+// assistant 轮把 reasoning_content 原样回传后续所有轮（否则 400），思考会在单次 ReAct 运行内堆积。
+// 当「最近一轮之前」累计的 reasoning token ≥ n 时，把这些旧轮整轮折走（思考随整轮离场），只让最近一轮
+// 带 thinking。不能单删旧轮的 reasoning 字段（会破坏契约 → 400），故靠整轮折叠实现。n<=0 时不启用。
+func (b *Builder) WithReasoningEviction(n int) *Builder {
+	b.reasoningEvictTokens = n
+	return b
+}
+
+// WithMaxMessageTokens 配置「单条消息」上限（三级压缩之①）：任一条消息 token 超过 n
+// 时先就地压缩该条（复用 ctxeng.CapContentByTokens，保住其中的 result_id）。n<=0 时不启用。
+func (b *Builder) WithMaxMessageTokens(n int) *Builder {
+	b.maxMessageTokens = n
 	return b
 }
 
@@ -491,6 +538,15 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 		}
 	}
 
+	// ③ 折叠兜底摘要器自动装配：未显式注入且启用了上下文压缩时，用生成模型（优先 model，回退 toolModel）
+	// 装配 LLM 语义摘要器；无模型可用则留 nil（summarizeOlder 回退确定性抽取式摘要）。llmsummary 自带
+	// 抽取式降级，故任何 LLM 慢/失败都不破坏折叠与主循环。
+	if b.summarizer == nil && b.compactTrigger > 0 {
+		if gen := firstGenModel(b.model, b.toolModel); gen != nil {
+			b.summarizer = llmsummary.New(gen)
+		}
+	}
+
 	// 护栏 Hook 排序：输入护栏最先把关（before 链最前），输出护栏最后把关（after 链最后）。
 	// 未装配护栏时两条链保持原样，行为逐字节不变（零回归）。
 	beforeHooks := b.beforeHooks
@@ -515,6 +571,11 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 		middleware:            b.middleware,
 		maxIter:               b.maxIter,
 		tokenBudget:           b.tokenBudget,
+		compactTrigger:        b.compactTrigger,
+		compactTarget:         b.compactTarget,
+		maxMessageTokens:      b.maxMessageTokens,
+		reasoningEvictTokens:  b.reasoningEvictTokens,
+		summarizer:            b.summarizer,
 		memoryService:         b.memoryService,
 		contextBuilder:        b.contextBuilder,
 		enableMemory:          b.enableMemory,
@@ -524,6 +585,19 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 	}
 
 	return a, nil
+}
+
+// firstGenModel 返回首个非 nil 生成模型作为 llmsummary.LLM（BaseChatModel/ToolCallingChatModel
+// 均实现 Generate，天然满足 LLM 接口）。优先 model、回退 toolModel；都为 nil 时返回 nil。
+// 逐一判空后再返回，避免把「持有 nil 具体值的非 nil 接口」误当可用模型（typed-nil 陷阱）。
+func firstGenModel(m model.BaseChatModel, tm model.ToolCallingChatModel) llmsummary.LLM {
+	if m != nil {
+		return m
+	}
+	if tm != nil {
+		return tm
+	}
+	return nil
 }
 
 // ========================================

@@ -76,13 +76,40 @@ func (w *Windower) Apply(ctx context.Context, turns []Turn) (*WindowResult, erro
 	}
 	// 兜底不变量：无论摘要器如何实现，仍被引用的 result_id 必须出现在摘要文本里，
 	// 否则后续轮次无法按引用取回完整结果集。
-	summary = ensureResultIDsPresent(summary, preserved)
+	summary = EnsureResultIDsPresent(summary, preserved)
 
 	return &WindowResult{
 		Summary:            summary,
 		Recent:             recent,
 		PreservedResultIDs: preserved,
 	}, nil
+}
+
+// KeepRecentByTokens 返回从最新一轮往回、累计内容 token 不超过 budget 的最大轮数，
+// 用作 Windower.KeepRecentTurns。把「按 token 预算而非按条数定窗口」的策略下沉到能力层，
+// 业务层只需提供预算与计数器。
+//
+// 不变量：turns 非空时至少返回 1——即便最近一轮已超预算也保留它，维持对话即时连贯性
+// （历史属可裁剪的记忆层，但最近一轮是理解当前问题的最小上下文）。budget<=0 同样返回 1。
+func KeepRecentByTokens(turns []Turn, budget int, counter TokenCounter) int {
+	if len(turns) == 0 {
+		return 0
+	}
+	if budget <= 0 || counter == nil {
+		return 1
+	}
+	used, keep := 0, 0
+	for i := len(turns) - 1; i >= 0; i-- {
+		used += counter.Count(turns[i].Content)
+		if used > budget && keep >= 1 {
+			break
+		}
+		keep++
+	}
+	if keep < 1 {
+		keep = 1
+	}
+	return keep
 }
 
 // resultIDPattern 匹配 result_id（rs_ 前缀 + uuid/别名）。
@@ -112,8 +139,10 @@ func collectResultIDs(turns []Turn) []string {
 	return ids
 }
 
-// ensureResultIDsPresent 确保摘要文本包含所有 preserved result_id，缺失的补挂到末尾。
-func ensureResultIDsPresent(summary string, ids []string) string {
+// EnsureResultIDsPresent 确保文本包含所有 preserved result_id，缺失的补挂到末尾。
+// 导出以便业务层在「预算截断摘要之后」重新兜底——data-by-reference 的引用是硬不变量，
+// 其优先级高于软性的记忆层 token 预算，不能因摘要被预算截断/丢弃而丢失。
+func EnsureResultIDsPresent(summary string, ids []string) string {
 	if len(ids) == 0 {
 		return summary
 	}
