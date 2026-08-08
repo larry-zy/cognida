@@ -3,7 +3,6 @@
 import re
 from typing import Any, List, Optional
 
-from .generation import compute_generation_metrics
 from .semantic import compute_semantic_metrics
 
 # 答案准确性校准区间：语义相似度低于 LOW 记 0 分，高于 HIGH 记满分，
@@ -176,6 +175,13 @@ def _normalize_tools(names: List[str]) -> List[str]:
     return [n for n in (_normalize_tool(x) for x in (names or [])) if n]
 
 
+# 展示/呈现类辅助工具：几乎每道题都会调用（把结果渲染成图表/卡片），并非「解题」工具。
+# 计算工具选择精确率时，若这类工具不在期望集内，则从分母中剔除——否则「答对且顺带渲染图表」
+# 的 Agent 会被结构性扣精确率（render_ui 撑大 used 集合，match 却不含它 → precision 被永久压低）。
+# 若数据集把它标进期望集（确需渲染），则照常计入，不豁免。
+_AUXILIARY_TOOLS = {"render_ui"}
+
+
 def tool_selection_items(
     expected_tools: List[List[str]],
     used_tools: List[List[str]],
@@ -197,7 +203,9 @@ def tool_selection_items(
         used_set = set(_normalize_tools(used))
         match = expected_set & used_set
 
-        p = len(match) / len(used_set) if used_set else 0.0
+        # 精确率分母剔除「期望之外的展示类辅助工具」（如 render_ui），避免呈现工具惩罚解题正确的 Agent。
+        penalized_used = used_set - (_AUXILIARY_TOOLS - expected_set)
+        p = len(match) / len(penalized_used) if penalized_used else 0.0
         r = len(match) / len(expected_set)
         f = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
         out.append({"precision": p, "recall": r, "f1": f})
@@ -391,52 +399,6 @@ def step_efficiency(
     }
 
 
-# Agent 评测聚合结果
-class AgentMetrics:
-    """Agent 评测指标结果。"""
-
-    def __init__(
-        self,
-        answer_accuracy: float = 0.0,
-        tool_precision: float = 0.0,
-        tool_recall: float = 0.0,
-        tool_f1: float = 0.0,
-        traj_exact_match: float = 0.0,
-        traj_similarity: float = 0.0,
-        step_optimal_ratio: float = 0.0,
-        step_avg: float = 0.0,
-        step_optimal: float = 0.0,
-    ) -> None:
-        self.answer_accuracy = answer_accuracy
-        self.tool_precision = tool_precision
-        self.tool_recall = tool_recall
-        self.tool_f1 = tool_f1
-        self.traj_exact_match = traj_exact_match
-        self.traj_similarity = traj_similarity
-        self.step_optimal_ratio = step_optimal_ratio
-        self.step_avg = step_avg
-        self.step_optimal = step_optimal
-
-    def to_dict(self) -> dict:
-        return {
-            "answer_accuracy": self.answer_accuracy,
-            "tool_selection": {
-                "precision": self.tool_precision,
-                "recall": self.tool_recall,
-                "f1": self.tool_f1,
-            },
-            "trajectory_match": {
-                "exact_match": self.traj_exact_match,
-                "similarity": self.traj_similarity,
-            },
-            "step_efficiency": {
-                "optimal_ratio": self.step_optimal_ratio,
-                "avg_steps": self.step_avg,
-                "optimal_steps": self.step_optimal,
-            },
-        }
-
-
 def compute_agent_metrics(
     references: List[dict[str, Any]],
     outputs: List[dict[str, Any]],
@@ -533,9 +495,11 @@ def compute_agent_metrics(
     # 步骤效率
     if "step_efficiency" in metrics:
         actual_cnt = [o.get("total_steps", len(o.get("trajectory", []))) for o in outputs]
-        # 最优步数取期望步骤标注数；无标注则记 0 → step_efficiency_items 跳过该样本（A4），
-        # 不再用占位 1 把「无参考」硬算成效率比而虚构分数。
-        optimal_cnt = [len(r.get("expected_steps", [])) for r in references]
+        # 最优步数取「期望工具调用数」，与 actual（total_steps=工具调用次数）同口径。
+        # 旧实现用 expected_steps（自然语言步骤描述，恒 ~3 条）当最优值，与工具调用次数口径异构：
+        # 高效 Agent（1 次工具调用）反被算成 0.33、低效 Agent（3 次调用）却得 1.0，信号与实际负相关。
+        # 无期望工具标注则记 0 → step_efficiency_items 跳过该样本（A4），不虚构分数。
+        optimal_cnt = [len(_normalize_tools(r.get("tools_used", []))) for r in references]
         se_items = step_efficiency_items(actual_cnt, optimal_cnt)
         scored_se = [x for x in se_items if x is not None]
         scored_opt = [o for o in optimal_cnt if o > 0]

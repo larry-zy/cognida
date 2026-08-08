@@ -19,8 +19,11 @@ except ImportError:
 
 # 中文正则：匹配中文字符
 CHINESE_PATTERN = re.compile(r'[一-鿿]+')
-# 英文正则：匹配英文单词（包含缩写和连字符）
-ENGLISH_PATTERN = re.compile(r'\b[a-zA-Z]+(?:[-\'][a-zA-Z]+)*\b')
+# 英文/数值 token 正则：英文单词（含缩写与连字符）或数值（整数/小数/千分位/百分号）。
+# 单独匹配英文单词会丢弃全部数字——ROUGE/BLEU 对「2024 万元」与「9999 万元」将得满分（数值盲）。
+# 数值分支保留数字，让含金额/占比/年份的答案在生成类指标里可区分。数值与单词按出现顺序返回，
+# 保持 n-gram 相对次序不乱。
+ENGLISH_PATTERN = re.compile(r"[a-zA-Z]+(?:[-'][a-zA-Z]+)*|\d+(?:[.,]\d+)*%?")
 
 
 def tokenize_chinese(text: str, cut_all: bool = False) -> List[str]:
