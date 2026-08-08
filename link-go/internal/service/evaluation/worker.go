@@ -689,19 +689,37 @@ var sqlGraders = []string{
 	"sql_execution_accuracy",
 }
 
-// ensureSQLGraders 幂等地把 SQL 家族评分器并入现有列表（保留用户在 config 中显式指定的其它评分器）。
+// sqlDroppedGraders 是 SQL 评测中应剔除的生成类评分器：SQL 数据集把金标准 SQL 存在
+// reference_answer，被测 Agent 产出的是散文答案，rouge/bleu 会拿「金标准 SQL 文本」比「散文回答」
+// ——口径完全错位、纯噪声，还会污染 SQL 任务详情页。SQL 结构/执行正确性由 sql_* 家族负责。
+var sqlDroppedGraders = map[string]struct{}{
+	"rouge": {}, "bleu": {},
+	"rouge_1": {}, "rouge_2": {}, "rouge_l": {},
+	"bleu_1": {}, "bleu_2": {}, "bleu_4": {},
+}
+
+// ensureSQLGraders 幂等地把 SQL 家族评分器并入现有列表，并剔除对 SQL 无意义的生成类评分器
+// （rouge/bleu）。保留用户显式指定的其它非生成评分器。
 func ensureSQLGraders(graders []string) []string {
 	seen := make(map[string]struct{}, len(graders))
+	filtered := graders[:0:0] // 新底层数组，避免原地改写破坏调用方切片
 	for _, g := range graders {
+		if _, drop := sqlDroppedGraders[g]; drop {
+			continue // 剔除生成类评分器
+		}
+		if _, ok := seen[g]; ok {
+			continue
+		}
 		seen[g] = struct{}{}
+		filtered = append(filtered, g)
 	}
 	for _, g := range sqlGraders {
 		if _, ok := seen[g]; !ok {
-			graders = append(graders, g)
+			filtered = append(filtered, g)
 			seen[g] = struct{}{}
 		}
 	}
-	return graders
+	return filtered
 }
 
 // fillMetrics 填充指标

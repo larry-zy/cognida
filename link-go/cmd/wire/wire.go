@@ -21,10 +21,10 @@ import (
 	domain_audit "link/internal/model/audit"
 	domaintrace "link/internal/model/trace"
 	appAccount "link/internal/service/account"
-	auditsvc "link/internal/service/audit"
 	agentuc "link/internal/service/agent"
 	agentframework "link/internal/service/agent/framework"
 	agenttools "link/internal/service/agent/tools"
+	auditsvc "link/internal/service/audit"
 	app_chat "link/internal/service/chat"
 	app_evaluation "link/internal/service/evaluation"
 	evalexecutor "link/internal/service/evaluation/executor"
@@ -53,18 +53,18 @@ import (
 	domain_evaluation "link/internal/model/evaluation"
 	domain_knowledge "link/internal/model/knowledge"
 	domain_llm "link/internal/model/llm"
+	qualitymodel "link/internal/model/quality"
 	domain_rag "link/internal/model/rag"
 	semanticmodel "link/internal/model/semantic"
-	qualitymodel "link/internal/model/quality"
 	domain_task "link/internal/model/task"
 	domain_tenant "link/internal/model/tenant"
 	domain_user "link/internal/model/user"
-	qualitysvc "link/internal/service/quality"
-	datasourcesvc "link/internal/service/datasource"
-	semanticsvc "link/internal/service/semantic"
 	"link/internal/repository/milvus/retriever"
 	"link/internal/repository/mysql"
 	neo4jimpl "link/internal/repository/neo4j"
+	datasourcesvc "link/internal/service/datasource"
+	qualitysvc "link/internal/service/quality"
+	semanticsvc "link/internal/service/semantic"
 )
 
 // ========================================
@@ -520,7 +520,7 @@ func ProvideEvaluationService(
 	evalConfig *config.EvaluationConfig,
 ) *app_evaluation.Service {
 	// 可用指标目录代理到 Python 注册表（唯一事实来源），端点来自评测配置带默认兜底
-	pythonEndpoint := "http://localhost:8000"
+	pythonEndpoint := "http://localhost:18888"
 	if evalConfig != nil && evalConfig.PythonEndpoint != "" {
 		pythonEndpoint = evalConfig.PythonEndpoint
 	}
@@ -680,7 +680,7 @@ func ProvideEvaluationWorker(
 	}
 
 	// Python 评测服务客户端 + Worker 配置（来自评测配置，带默认值兜底）
-	pythonEndpoint := "http://localhost:8000"
+	pythonEndpoint := "http://localhost:18888"
 	maxConcurrent := 3
 	maxRetries := 3
 	if evalConfig != nil {

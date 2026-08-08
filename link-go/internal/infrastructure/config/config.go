@@ -85,11 +85,11 @@ type MilvusConfig struct {
 
 // Neo4jConfig Neo4j图数据库配置
 type Neo4jConfig struct {
-	URI         string // Neo4j连接URI，如: bolt://localhost:7687
-	Username    string // 用户名，默认: neo4j
-	Password    string // 密码
+	URI          string // Neo4j连接URI，如: bolt://localhost:7687
+	Username     string // 用户名，默认: neo4j
+	Password     string // 密码
 	DatabaseName string // 数据库名称，默认: neo4j
-	MaxPoolSize int    // 连接池最大连接数
+	MaxPoolSize  int    // 连接池最大连接数
 }
 
 // JWTConfig JWT配置
@@ -127,10 +127,10 @@ func (c *JWTConfig) Validate() error {
 // ChatConfig 聊天配置
 type ChatConfig struct {
 	Source    common.ModelSource // 模型源: local/remote
-	BaseURL   string            // API Base URL
-	ModelName string            // 模型名称
-	APIKey    string            // API密钥
-	Provider  string            // Provider: openai, aliwen, deepseek等
+	BaseURL   string             // API Base URL
+	ModelName string             // 模型名称
+	APIKey    string             // API密钥
+	Provider  string             // Provider: openai, aliwen, deepseek等
 }
 
 // SearchConfig 搜索配置
@@ -187,7 +187,7 @@ type TaskQueueConfig struct {
 type EvaluationConfig struct {
 	MaxConcurrent       int    // 最大并发任务数，默认 3
 	WorkerEnabled       bool   // 是否启用 Worker，默认 true
-	PythonEndpoint      string // Python 评测服务地址，如: http://localhost:8000
+	PythonEndpoint      string // Python 评测服务地址，独立评测 FastAPI（:18888），非基础服务 :8000
 	DefaultTimeout      int    // 默认单 QA 超时时间（秒），默认 30
 	AgentTimeout        int    // Agent 单条评测超时时间（秒），默认 180——Agent 一问含多轮工具调用（get_schema→sql_execute→data_analysis→render_ui），60s 会误杀对比/图表等复杂题
 	MaxRetries          int    // 最大重试次数，默认 3
@@ -196,11 +196,11 @@ type EvaluationConfig struct {
 
 // SkillConfig Skill 系统配置
 type SkillConfig struct {
-	Enabled     bool   // 是否启用 Skill 系统
-	Endpoint    string // MCP Server 端点，如: http://localhost:8080/mcp
-	Timeout     int    // 默认超时时间（秒），默认 30
-	CacheTTL    int    // Skill 列表缓存有效期（秒），默认 60
-	MaxRetries  int    // 最大重试次数，默认 3
+	Enabled    bool   // 是否启用 Skill 系统
+	Endpoint   string // MCP Server 端点，如: http://localhost:8080/mcp
+	Timeout    int    // 默认超时时间（秒），默认 30
+	CacheTTL   int    // Skill 列表缓存有效期（秒），默认 60
+	MaxRetries int    // 最大重试次数，默认 3
 }
 
 // UploadConfig 文件上传配置
@@ -210,9 +210,9 @@ type UploadConfig struct {
 
 // WorkerConfig 任务处理器配置
 type WorkerConfig struct {
-	Concurrency    int  // 并发处理任务数，默认 4
-	ShutdownTimeout int // 优雅关闭超时时间（秒），默认 30
-	Enabled        bool // 是否启用 Worker，默认 false
+	Concurrency     int  // 并发处理任务数，默认 4
+	ShutdownTimeout int  // 优雅关闭超时时间（秒），默认 30
+	Enabled         bool // 是否启用 Worker，默认 false
 }
 
 // CollaborationConfig Agent 协作配置
@@ -250,10 +250,10 @@ type SemanticCacheConfig struct {
 
 // AgentCacheConfigOverride Agent 缓存配置覆盖
 type AgentCacheConfigOverride struct {
-	Enabled  bool    `yaml:"enabled"`
+	Enabled   bool    `yaml:"enabled"`
 	Threshold float32 `yaml:"threshold"`
-	TTL      string  `yaml:"ttl"`
-	TopK     int     `yaml:"top_k"`
+	TTL       string  `yaml:"ttl"`
+	TopK      int     `yaml:"top_k"`
 }
 
 // ScenarioConfig 场景配置
@@ -281,8 +281,8 @@ type ContextModeRecallStrategy struct {
 	// Summary 摘要模式
 	Summary struct {
 		Enabled        bool `yaml:"enabled"`
-		SummaryTokens  int  `yaml:"summary_tokens"`   // 摘要最大 token 数
-		RecentMessages int  `yaml:"recent_messages"`  // 附加的最近消息数
+		SummaryTokens  int  `yaml:"summary_tokens"`  // 摘要最大 token 数
+		RecentMessages int  `yaml:"recent_messages"` // 附加的最近消息数
 	} `yaml:"summary"`
 
 	// Recent 最近消息模式
@@ -305,24 +305,24 @@ type ContextModeRecallStrategy struct {
 
 // Config 总配置
 type Config struct {
-	Database       *DatabaseConfig
-	Milvus         *MilvusConfig
-	Neo4j          *Neo4jConfig
-	JWT            *JWTConfig
-	Tenant         *TenantConfig
-	Chat           *ChatConfig
-	Search         *SearchConfig
-	Embedding      *EmbeddingConfig
-	Server         *ServerConfig
-	PythonGrpc     *PythonGrpcConfig
-	Redis          *RedisConfig
-	TaskQueue      *TaskQueueConfig
-	Worker         *WorkerConfig
-	Collaboration  *CollaborationConfig // Agent 协作配置
-	SemanticCache  *SemanticCacheConfig // 语义缓存配置
-	Evaluation     *EvaluationConfig    // 评测系统配置
-	Skill          *SkillConfig         // Skill 系统配置
-	Upload         *UploadConfig        // 文件上传配置
+	Database      *DatabaseConfig
+	Milvus        *MilvusConfig
+	Neo4j         *Neo4jConfig
+	JWT           *JWTConfig
+	Tenant        *TenantConfig
+	Chat          *ChatConfig
+	Search        *SearchConfig
+	Embedding     *EmbeddingConfig
+	Server        *ServerConfig
+	PythonGrpc    *PythonGrpcConfig
+	Redis         *RedisConfig
+	TaskQueue     *TaskQueueConfig
+	Worker        *WorkerConfig
+	Collaboration *CollaborationConfig // Agent 协作配置
+	SemanticCache *SemanticCacheConfig // 语义缓存配置
+	Evaluation    *EvaluationConfig    // 评测系统配置
+	Skill         *SkillConfig         // Skill 系统配置
+	Upload        *UploadConfig        // 文件上传配置
 }
 
 // LoadDatabaseConfig 从环境变量加载数据库配置
@@ -507,9 +507,9 @@ func LoadWorkerConfig() *WorkerConfig {
 	_ = godotenv.Load(envPath)
 
 	return &WorkerConfig{
-		Concurrency:    getEnvAsInt("WORKER_CONCURRENCY", 4),
+		Concurrency:     getEnvAsInt("WORKER_CONCURRENCY", 4),
 		ShutdownTimeout: getEnvAsInt("WORKER_SHUTDOWN_TIMEOUT", 30),
-		Enabled:        getEnvAsBool("WORKER_ENABLED", false),
+		Enabled:         getEnvAsBool("WORKER_ENABLED", false),
 	}
 }
 
@@ -534,11 +534,11 @@ func LoadSemanticCacheConfig() *SemanticCacheConfig {
 // defaultSemanticCacheConfig 返回默认的语义缓存配置
 func defaultSemanticCacheConfig() *SemanticCacheConfig {
 	cfg := &SemanticCacheConfig{
-		Enabled:  false, // 默认关闭
+		Enabled:   false, // 默认关闭
 		Threshold: 0.85,
-		TTL:      "24h",
-		TopK:     5,
-		Agents:   make(map[string]AgentCacheConfigOverride),
+		TTL:       "24h",
+		TopK:      5,
+		Agents:    make(map[string]AgentCacheConfigOverride),
 	}
 
 	// 从环境变量覆盖
@@ -624,14 +624,14 @@ func defaultCollaborationConfig() *CollaborationConfig {
 				ContextLimit: 10,
 			},
 			"research": {
-				Description:  "研究分析场景",
-				AgentTypes:   []string{"researcher", "writer"},
-				ContextMode:  "full",
+				Description: "研究分析场景",
+				AgentTypes:  []string{"researcher", "writer"},
+				ContextMode: "full",
 			},
 			"simple_task": {
-				Description:  "简单任务场景",
-				AgentTypes:   []string{"executor"},
-				ContextMode:  "none",
+				Description: "简单任务场景",
+				AgentTypes:  []string{"executor"},
+				ContextMode: "none",
 			},
 		}
 	}
@@ -657,7 +657,7 @@ func LoadEvaluationConfig() *EvaluationConfig {
 	return &EvaluationConfig{
 		MaxConcurrent:       getEnvAsInt("EVALUATION_MAX_CONCURRENT", 3),
 		WorkerEnabled:       getEnvAsBool("EVALUATION_WORKER_ENABLED", true),
-		PythonEndpoint:      getEnv("PYTHON_EVALUATION_ENDPOINT", "http://localhost:8000"),
+		PythonEndpoint:      getEnv("PYTHON_EVALUATION_ENDPOINT", "http://localhost:18888"),
 		DefaultTimeout:      getEnvAsInt("EVALUATION_DEFAULT_TIMEOUT", 30),
 		AgentTimeout:        getEnvAsInt("EVALUATION_AGENT_TIMEOUT", 180),
 		MaxRetries:          getEnvAsInt("EVALUATION_MAX_RETRIES", 3),
@@ -672,10 +672,10 @@ func LoadSkillConfig() *SkillConfig {
 	_ = godotenv.Load(envPath)
 
 	return &SkillConfig{
-		Enabled:  getEnvAsBool("SKILL_ENABLED", false),
-		Endpoint: getEnv("SKILL_ENDPOINT", "http://localhost:8080/mcp"),
-		Timeout:  getEnvAsInt("SKILL_TIMEOUT", 30),
-		CacheTTL: getEnvAsInt("SKILL_CACHE_TTL", 60),
+		Enabled:    getEnvAsBool("SKILL_ENABLED", false),
+		Endpoint:   getEnv("SKILL_ENDPOINT", "http://localhost:8080/mcp"),
+		Timeout:    getEnvAsInt("SKILL_TIMEOUT", 30),
+		CacheTTL:   getEnvAsInt("SKILL_CACHE_TTL", 60),
 		MaxRetries: getEnvAsInt("SKILL_MAX_RETRIES", 3),
 	}
 }

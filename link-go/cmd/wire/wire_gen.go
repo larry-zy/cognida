@@ -31,7 +31,6 @@ import (
 	"link/internal/infrastructure/queue"
 	"link/internal/model/agent"
 	audit2 "link/internal/model/audit"
-	domaintrace "link/internal/model/trace"
 	"link/internal/model/common"
 	"link/internal/model/conversation"
 	"link/internal/model/datasource"
@@ -43,6 +42,7 @@ import (
 	"link/internal/model/semantic"
 	"link/internal/model/task"
 	"link/internal/model/tenant"
+	domaintrace "link/internal/model/trace"
 	"link/internal/model/user"
 	"link/internal/repository/milvus/retriever"
 	"link/internal/repository/mysql"
@@ -472,7 +472,7 @@ func ProvideEvaluationService(
 	evalConfig *config.EvaluationConfig,
 ) *evaluation.Service {
 
-	pythonEndpoint := "http://localhost:8000"
+	pythonEndpoint := "http://localhost:18888"
 	if evalConfig != nil && evalConfig.PythonEndpoint != "" {
 		pythonEndpoint = evalConfig.PythonEndpoint
 	}
@@ -618,7 +618,7 @@ func ProvideEvaluationWorker(
 		log.Printf("[Worker] 注册 Text2SQL 执行器失败: %v", err)
 	}
 
-	pythonEndpoint := "http://localhost:8000"
+	pythonEndpoint := "http://localhost:18888"
 	maxConcurrent := 3
 	maxRetries := 3
 	if evalConfig != nil {

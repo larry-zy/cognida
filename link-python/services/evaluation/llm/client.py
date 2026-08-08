@@ -29,7 +29,6 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate
 
 
 def _direct_httpx_clients(timeout: float = 60.0) -> tuple[httpx.Client, httpx.AsyncClient]:
@@ -94,12 +93,17 @@ class LLMClient:
 
         if self.provider == "openai":
             sync_client, async_client = _direct_httpx_clients()
+            # 透传 base_url：provider=openai 走自建网关/兼容端点时，LLM_BASE_URL 必须生效，
+            # 否则被静默丢弃、强制打到 api.openai.com，裁判评分恒 None（与 deepseek 分支口径对齐）。
+            openai_kwargs = dict(common_kwargs)
+            if self.base_url:
+                openai_kwargs["base_url"] = self.base_url
             return ChatOpenAI(
                 model=self.model or "gpt-4",
                 api_key=self.api_key,
                 http_client=sync_client,
                 http_async_client=async_client,
-                **common_kwargs,
+                **openai_kwargs,
             )
         elif self.provider == "anthropic":
             # ChatAnthropic 不接受 http_client 参数，无法用同款方式注入直连客户端；

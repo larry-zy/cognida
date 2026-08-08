@@ -41,3 +41,15 @@ def test_llmclient_construct_survives_socks_proxy_env():
             base_url="https://api.deepseek.com",
         )
         assert client._llm is not None
+
+
+def test_openai_provider_honors_custom_base_url():
+    """provider=openai 时必须透传 base_url，否则第三方 OpenAI 兼容网关请求会打到官方
+    api.openai.com、401/连不通导致裁判恒 null（Rank 9）。"""
+    client = LLMClient(
+        provider="openai",
+        model="gpt-4",
+        api_key="sk-test",
+        base_url="https://gw.example.com/v1",
+    )
+    assert client._llm.openai_api_base == "https://gw.example.com/v1"
