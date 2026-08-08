@@ -38,6 +38,7 @@ from services.evaluation.metrics import (
     compute_semantic_metrics,
     compute_semantic_similarities,
     compute_llm_judge_metrics,
+    compute_llm_judge_metrics_async,
     # Agent 指标
     compute_agent_metrics,
     # SQL 指标
@@ -613,7 +614,8 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
             if llm_judge_requested and request.llm_judge:
                 handled.add("llm_judge")
                 try:
-                    score = compute_llm_judge_metrics(
+                    # 用异步变体：裁判调用是网络 I/O，同步调用会独占事件循环、串行阻塞 :18888。
+                    score = await compute_llm_judge_metrics_async(
                         reference=item.reference_answer,
                         hypothesis=item.generated_answer,
                         question=item.question,

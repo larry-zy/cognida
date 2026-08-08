@@ -1,10 +1,32 @@
 """语义相似度评测指标。"""
 
 import asyncio
-from typing import Any, List, Sequence
+import logging
+from typing import Any, List
 
 import numpy as np
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
+
+def _tfidf_vectorizer() -> Any:
+    """构造带中文分词的 TF-IDF 向量化器（SentenceTransformer 不可用时的降级路径专用）。
+
+    默认 TfidfVectorizer 用 `\\b\\w\\w+\\b` 词模式，整段无空格中文会被当成 1 个 token——
+    降级后中文「语义」相似度实际塌成整句词面重合（answer_accuracy 恒 0）。改用 jieba 混合
+    分词切词，让降级也能反映中文词级重合。jieba 不可用时回退到默认词模式（英文仍可用）。
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
+    try:
+        from .tokenizer import JIEBA_AVAILABLE, tokenize_mixed
+
+        if JIEBA_AVAILABLE:
+            return TfidfVectorizer(tokenizer=tokenize_mixed, token_pattern=None)
+    except ImportError:
+        pass
+    return TfidfVectorizer()
 
 
 class SemanticMetrics(BaseModel):
@@ -61,14 +83,15 @@ class SemanticMetrics(BaseModel):
                 max_similarity=float(np.max(similarities)),
             )
 
-        except Exception:
+        except Exception as e:
             # 降级到简单的 TF-IDF 余弦相似度。注意：宿主机 SOCKS 代理 + 缺 socksio 会
             # 让 SentenceTransformer 加载抛 ImportError（旧实现只 catch ImportError 也会命中），
             # 静默降级导致语义分塌到词面重合（answer_accuracy 恒 0）。已装 socksio 且模型入缓存修复。
-            from sklearn.feature_extraction.text import TfidfVectorizer
+            # 关键：降级必须留痕（此前裸 except 无日志，一旦触发无从察觉），且用 jieba 分词避免中文塌缩。
+            logger.warning("SentenceTransformer 语义相似度不可用，降级到 TF-IDF（可能失真）：%s", e)
             from sklearn.metrics.pairwise import cosine_similarity
 
-            vectorizer = TfidfVectorizer()
+            vectorizer = _tfidf_vectorizer()
             all_texts = references + hypotheses
             tfidf_matrix = vectorizer.fit_transform(all_texts)
 
@@ -186,12 +209,13 @@ def compute_semantic_similarities(
             float(np.dot(ref, hyp) / (np.linalg.norm(ref) * np.linalg.norm(hyp) + 1e-9))
             for ref, hyp in zip(ref_embeddings, hyp_embeddings)
         ]
-    except ImportError:
-        # 降级到 TF-IDF 余弦相似度
-        from sklearn.feature_extraction.text import TfidfVectorizer
+    except Exception as e:
+        # 降级到 TF-IDF 余弦相似度（用 jieba 分词避免中文塌缩，并留痕以便察觉降级）。
+        # 广义 catch：SOCKS 代理等环境问题让 ST 加载抛的未必是 ImportError，只 catch ImportError 会漏。
+        logger.warning("逐对语义相似度降级到 TF-IDF（可能失真）：%s", e)
         from sklearn.metrics.pairwise import cosine_similarity
 
-        vectorizer = TfidfVectorizer()
+        vectorizer = _tfidf_vectorizer()
         tfidf_matrix = vectorizer.fit_transform(references + hypotheses)
         ref_tfidf = tfidf_matrix[:len(references)]
         hyp_tfidf = tfidf_matrix[len(references):]

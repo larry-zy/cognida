@@ -59,10 +59,13 @@ def test_execution_accuracy_order_insensitive_and_numeric_normalized():
     assert sql_execution_accuracy([], []) == 1.0
 
 
-def test_execution_accuracy_none_when_result_set_missing():
-    # 缺任一结果集（未执行/执行失败）→ None，表示无法评估
+def test_execution_accuracy_asymmetric_on_missing_result_set():
+    # 金标准结果集缺失（未执行/执行失败 → 无正确性基准）→ None，剔除出分母
     assert sql_execution_accuracy(None, [[1]]) is None
-    assert sql_execution_accuracy([[1]], None) is None
+    # 金标准执行成功、但生成结果集缺失（生成 SQL 为空/执行失败）→ 0.0，答案错误，计入分母
+    assert sql_execution_accuracy([[1]], None) == 0.0
+    # 两侧都缺失 → 仍按金标准缺失剔除
+    assert sql_execution_accuracy(None, None) is None
 
 
 def test_compute_sql_metrics_aggregate_equals_mean_and_skips_unevaluable():

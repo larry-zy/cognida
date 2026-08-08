@@ -200,6 +200,71 @@ def test_sql_execution_accuracy_empty_result_sets_are_equal():
     )
 
 
+def test_sql_execution_accuracy_failed_generation_scores_zero():
+    """#B 回归：金标准执行成功、但生成 SQL 执行失败（result_set 缺省 → None）应记 0 并计入分母，
+    不能被剔除让失败样本逃逸、虚高执行准确率。
+
+    构造：一条成功且相等(1.0) + 一条金标准有结果集但生成结果集缺省（执行失败 → 0.0）。
+    正确聚合 = (1.0 + 0.0) / 2 = 0.5；若失败样本被误剔除则虚高为 1.0。
+    """
+    payload = {
+        "items": [
+            {  # 执行成功且相等 → 1.0
+                "question": "q1",
+                "reference_answer": "",
+                "generated_answer": "",
+                "gold_sql": "SELECT 1",
+                "generated_sql": "SELECT 1",
+                "gold_result_set": [[1]],
+                "result_set": [[1]],
+            },
+            {  # 金标准执行成功，生成 SQL 执行失败（不带 result_set → None）→ 记 0，计入分母
+                "question": "q2",
+                "reference_answer": "",
+                "generated_answer": "",
+                "gold_sql": "SELECT 2",
+                "generated_sql": "SELECT bad syntax",
+                "gold_result_set": [[2]],
+                # 故意不带 result_set → None（模拟生成 SQL 执行失败）
+            },
+        ],
+        "graders": ["sql_execution_accuracy"],
+    }
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    agg = body["aggregate"]
+    assert "sql_execution_accuracy" in agg
+    assert abs(agg["sql_execution_accuracy"] - 0.5) < 1e-6, (
+        f"生成执行失败样本疑似被剔除，agg={agg['sql_execution_accuracy']}（应为 0.5，失败记 0 并计入）"
+    )
+    # 失败样本逐条应带 0.0（而非缺席）
+    assert body["items"][1]["scores"].get("sql_execution_accuracy") == 0.0
+
+
+def test_sql_metrics_absent_when_no_gold_sql():
+    """#C 回归：请求了 SQL 家族指标但无任何金标准 SQL/结果集时，聚合应缺席这些键（而非记 0.0），
+    避免把「无评估样本」误报成「全错 0 分」拉低整体。
+    """
+    payload = {
+        "items": [
+            {
+                "question": "q1",
+                "reference_answer": "",
+                "generated_answer": "",
+                "generated_sql": "SELECT 1",  # 无 gold_sql / gold_result_set
+            }
+        ],
+        "graders": ["sql_exact_match", "sql_component_match", "sql_execution_accuracy"],
+    }
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 200, resp.text
+    agg = resp.json()["aggregate"]
+    assert "sql_exact_match" not in agg, f"无金标准 SQL 时 sql_exact_match 不应记 0.0：{agg}"
+    assert "sql_component_match" not in agg
+    assert "sql_execution_accuracy" not in agg
+
+
 def test_rouge_aggregate_kept_when_score_is_zero():
     """回归：ROUGE 全为 0 时，聚合仍应保留字段（此前 sum>0 会误删）。"""
     payload = {

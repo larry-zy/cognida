@@ -67,7 +67,7 @@ func TestValidateReadOnlySQL(t *testing.T) {
 	}
 }
 
-// TestStripSQLStringLiterals 验证字面量剥离：引号内内容整体丢弃，含 '' / "" 与反斜杠转义。
+// TestStripSQLStringLiterals 验证字面量剥离：引号内内容整体丢弃，含 ” / "" 与反斜杠转义。
 func TestStripSQLStringLiterals(t *testing.T) {
 	cases := []struct {
 		in       string
@@ -131,6 +131,17 @@ func TestEnsureReadOnlyLimit(t *testing.T) {
 		{"count OFFSET within", "SELECT a FROM t LIMIT 100 OFFSET 10", 1000, "LIMIT 100 OFFSET 10", ""},
 		{"plain count over", "SELECT a FROM t LIMIT 99999", 1000, "LIMIT 1000", "99999"},
 		{"offset,count both huge", "SELECT a FROM t LIMIT 100, 99999", 1000, "LIMIT 100, 1000", "99999"},
+
+		// —— 高危修复：字面量里的 LIMIT 不应被收敛破坏，也不应被误当成「已带 LIMIT」而漏补上限 ——
+		// 字面量内含 `LIMIT 5000` 但无真实 LIMIT 子句 → 字面量原样保留，且句尾补上真实 LIMIT。
+		{"literal limit no real limit", "SELECT id FROM logs WHERE msg='rate LIMIT 5000 exceeded'", 1000,
+			"'rate LIMIT 5000 exceeded' LIMIT 1000", ""},
+		// 字面量内含 `LIMIT 5` 但无真实 LIMIT → 不能被误认为已带 LIMIT，仍需补上限。
+		{"literal small limit still appended", "SELECT id FROM t WHERE remark='see LIMIT 5 doc'", 1000,
+			"'see LIMIT 5 doc' LIMIT 1000", ""},
+		// 字面量里的越界 LIMIT + 真实越界 LIMIT 并存：只收敛真实的那个，字面量原样保留。
+		{"literal limit plus real over", "SELECT id FROM t WHERE msg='LIMIT 9999 hit' LIMIT 8888", 1000,
+			"'LIMIT 9999 hit' LIMIT 1000", "8888"},
 	}
 	for _, c := range limitCases {
 		t.Run(c.name, func(t *testing.T) {

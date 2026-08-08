@@ -17,8 +17,12 @@ import (
 // QAPair.GoldSQL（为空回退 ReferenceAnswer——sql 数据集把金标准 SQL 存在 reference_answer 列）。
 // 随后用 SQLRunner 只读执行「金标准 + 生成」两条 SQL，把双方结果集与 SQL 文本透传给
 // Python：结构指标（sql_exact_match/sql_component_match）比对 SQL 文本，执行准确率
-// （sql_execution_accuracy）无序比对两个结果集。生成 SQL 为空或执行失败不阻断整批——
-// 该条对应指标缺席（而非记 0），与既有执行器「失败即 Success=false」语义一致。
+// （sql_execution_accuracy）无序比对两个结果集。执行失败不阻断整批，但语义有别：
+//   - 金标准执行失败/未执行（GoldResultSet 为 nil）→ 无正确性基准，该样本剔除出执行准确率分母；
+//   - 金标准执行成功、但生成 SQL 为空或执行失败（ResultSet 为 nil）→ Python 记 0（答案错误），
+//     计入分母，避免失败样本逃出分母虚高准确率。
+//
+// nil 与空结果集经 JSON 透传时区分：nil→null（剔除/记 0 判定），[]→[]（合法零行，视为相等）。
 type Text2SQLExecutor struct {
 	agentService AgentService
 	sqlRunner    SQLRunner

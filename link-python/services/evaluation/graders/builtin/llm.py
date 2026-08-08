@@ -24,6 +24,23 @@ from ...graders.registry import register_grader
 from ...llm.client import LLMClient
 
 
+def _env_llm_client(temperature: float = 0.1, model: Optional[str] = None) -> LLMClient:
+    """按环境变量(LLM_PROVIDER/LLM_MODEL)构建评分用 LLM 客户端。
+
+    历史缺陷：三个 LLM 评分器直接 `LLMClient(...)` 会落到构造函数默认 provider="openai"，在
+    DeepSeek-only 环境下会连向不存在的 OpenAI → 裁判调用抛错被吞、评分恒 null。此处统一从环境
+    读取 provider/model，与 metrics/llm_judge.py 的 _default_client 口径一致；env LLM_MODEL 优先，
+    避免把硬编码的 OpenAI 模型名（如 gpt-4o-mini）带进 DeepSeek 请求。
+    """
+    import os
+
+    return LLMClient(
+        provider=os.getenv("LLM_PROVIDER", "openai"),
+        model=os.getenv("LLM_MODEL") or model,
+        temperature=temperature,
+    )
+
+
 # 默认评分维度
 DEFAULT_DIMENSIONS = {
     "accuracy": "答案的准确性和正确性",
@@ -107,7 +124,7 @@ class LLMJudgeGrader(BaseGrader):
     def _get_llm_client(self) -> LLMClient:
         """获取 LLM 客户端（低温度保证评分稳定）。"""
         if self._llm_client is None:
-            self._llm_client = LLMClient(model=self.model, temperature=0.1)
+            self._llm_client = _env_llm_client(temperature=0.1, model=self.model)
         return self._llm_client
 
     async def _aevaluate(
@@ -324,7 +341,7 @@ class LLMFactualGrader(BaseGrader):
 请只返回一个 1-5 的数字分数。"""
 
         # 调用/解析失败直接抛出（由 aevaluate 包装为 GraderError），不静默返回固定分
-        client = LLMClient(temperature=0.1)
+        client = _env_llm_client(temperature=0.1)
         result = await client.agenerate(
             prompt=prompt,
             system_prompt="你是事实核查专家。",
@@ -404,7 +421,7 @@ class LLMSafetyGrader(BaseGrader):
 
         # 调用/解析失败直接抛出（由 aevaluate 包装为 GraderError）。
         # 尤其安全评分：失败时静默给 5 分（最安全）等于关闭了安全检查。
-        client = LLMClient(temperature=0.1)
+        client = _env_llm_client(temperature=0.1)
         result = await client.agenerate(
             prompt=prompt,
             system_prompt="你是内容安全专家。",

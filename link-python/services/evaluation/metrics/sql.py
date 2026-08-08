@@ -5,10 +5,12 @@
 - sql_component_match：Spider 风格结构 F1——按子句关键词（SELECT/FROM/WHERE/
   GROUP BY/HAVING/ORDER BY/LIMIT/JOIN）拆分为组件集合，取集合 F1，容忍等价改写。
 - sql_execution_accuracy：Go 侧只读执行「金标准 + 生成」两条 SQL，本函数无序比对
-  两个结果集是否等价（0/1）。缺任一结果集（未执行/执行失败）该样本不计入分母。
+  两个结果集是否等价（0/1）。金标准结果集缺失（未执行/执行失败 → 无正确性基准）该样本
+  剔除出分母；金标准执行成功但生成 SQL 为空/执行失败（生成结果集缺失）则记 0（答案错误，
+  不剔除，避免失败样本逃出分母虚高执行准确率）。
 
 均为「逐样本算一次、聚合即其均值」；开启 return_items 时附带逐样本分值供逐条落库。
-无法评估（缺金标准/缺结果集）的样本在该指标缺席（而非记 0，避免误导）。
+无参与样本的指标在聚合中缺席（而非记 0.0，避免把「无评估样本」误报成「全错」）。
 """
 
 import re
@@ -133,12 +135,16 @@ def sql_execution_accuracy(
 ) -> Optional[float]:
     """无序比对两个结果集是否等价（作为多重集合，忽略行顺序）。
 
-    返回 1.0/0.0；任一结果集为 None（未执行/执行失败）返回 None，表示该样本
-    无法评估执行准确率，由上层剔除出分母。空结果集之间视为相等（1.0）——
-    金标准与生成都返回空是常见的「无满足条件行」正确答案。
+    - 金标准结果集为 None（未执行/执行失败 → 无正确性基准）：返回 None，由上层剔除出分母。
+    - 金标准已执行成功、但生成结果集为 None（生成 SQL 为空/执行失败）：返回 0.0——生成答案
+      无法复现金标准行即为错误，必须计入分母，不能剔除让失败样本虚高准确率。
+    - 两侧都执行成功：无序比对，相等 1.0 否则 0.0；都为空（[] == []）是合法的「无满足条件行」
+      正确答案，记 1.0。
     """
-    if ref_result_set is None or gen_result_set is None:
+    if ref_result_set is None:
         return None
+    if gen_result_set is None:
+        return 0.0
     from collections import Counter
 
     ref_bag = Counter(_canonicalize_row(r) for r in ref_result_set)
@@ -183,7 +189,8 @@ def compute_sql_metrics(
             v = sql_exact_match(gold_sqls[i], gen_sqls[i])
             per_item[i]["sql_exact_match"] = v
             vals.append(v)
-        result["sql_exact_match"] = sum(vals) / len(vals) if vals else 0.0
+        if vals:  # 无金标准 SQL 时该指标无参与样本 → 聚合缺席（不记 0.0）
+            result["sql_exact_match"] = sum(vals) / len(vals)
 
     # 结构组件 F1（仅在金标准 SQL 非空时计入）
     if "sql_component_match" in metrics:
@@ -194,9 +201,10 @@ def compute_sql_metrics(
             v = sql_component_match(gold_sqls[i], gen_sqls[i])
             per_item[i]["sql_component_match"] = v
             vals.append(v)
-        result["sql_component_match"] = sum(vals) / len(vals) if vals else 0.0
+        if vals:  # 无金标准 SQL 时该指标无参与样本 → 聚合缺席（不记 0.0）
+            result["sql_component_match"] = sum(vals) / len(vals)
 
-    # 执行准确率（仅在金标准 + 生成结果集都取到时计入）
+    # 执行准确率（金标准结果集在即计入：生成结果集缺→记 0；金标准缺→剔除）
     if "sql_execution_accuracy" in metrics:
         vals = []
         for i in range(n):
@@ -207,7 +215,8 @@ def compute_sql_metrics(
                 continue
             per_item[i]["sql_execution_accuracy"] = v
             vals.append(v)
-        result["sql_execution_accuracy"] = sum(vals) / len(vals) if vals else 0.0
+        if vals:  # 无可评估样本（金标准结果集全缺）→ 聚合缺席（不记 0.0）
+            result["sql_execution_accuracy"] = sum(vals) / len(vals)
 
     if return_items:
         result["_items"] = per_item

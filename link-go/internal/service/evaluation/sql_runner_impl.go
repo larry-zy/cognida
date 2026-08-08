@@ -135,7 +135,7 @@ var readOnlyBlacklist = []string{
 // 相比纯黑名单，白名单能拦住黑名单未穷举的写法，同时放行合法的 SHOW/DESC/EXPLAIN。
 var readOnlyLeadingKeywords = []string{"SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN"}
 
-// stripSQLStringLiterals 剥离 SQL 中的字符串字面量（'...' 与 "..." 内容，含 '' / "" 与反斜杠转义），
+// stripSQLStringLiterals 剥离 SQL 中的字符串字面量（'...' 与 "..." 内容，含 ” / "" 与反斜杠转义），
 // 只保留字面量外的结构。避免把字面量里的关键字/分号/注释（如 WHERE status='delete'、
 // remark='a;b'、note='x--y'）误判为写操作/多语句/注释注入而误杀合法金标准 SQL。
 func stripSQLStringLiterals(sqlStr string) string {
@@ -169,6 +169,51 @@ func stripSQLStringLiterals(sqlStr string) string {
 		i++
 	}
 	return b.String()
+}
+
+// maskStringLiterals 返回与入参「字节长度完全一致」的副本，把字符串字面量（'...' / "..."，含
+// ” / "" 与反斜杠转义）内的每个字节替换为空格，字面量外原样保留。字节对齐使得在掩码串上用正则
+// 定位到的子句下标可直接映射回原串切片——从而只对「真实 LIMIT 子句」补全/收敛，不误伤字面量里的
+// LIMIT（如 WHERE msg='rate LIMIT 5000 exceeded'）。ASCII 的引号/反斜杠不会作为 UTF-8 续字节
+// 出现，故逐字节扫描对多字节内容安全。
+func maskStringLiterals(sqlStr string) string {
+	b := []byte(sqlStr)
+	out := make([]byte, len(b))
+	copy(out, b)
+	n := len(b)
+	for i := 0; i < n; {
+		c := b[i]
+		if c == '\'' || c == '"' {
+			quote := c
+			out[i] = ' ' // 掩掉起始引号
+			i++
+			for i < n {
+				ch := b[i]
+				if ch == '\\' && i+1 < n {
+					out[i] = ' '
+					out[i+1] = ' '
+					i += 2 // 反斜杠转义字符
+					continue
+				}
+				if ch == quote {
+					if i+1 < n && b[i+1] == quote {
+						out[i] = ' '
+						out[i+1] = ' '
+						i += 2 // 重复引号转义（'' / ""）
+						continue
+					}
+					out[i] = ' ' // 结束引号
+					i++
+					break
+				}
+				out[i] = ' '
+				i++
+			}
+			continue
+		}
+		i++
+	}
+	return string(out)
 }
 
 // validateReadOnlySQL 只读安全校验：先剥离字符串字面量，再做「白名单首关键字 + 写/DDL 黑名单 +
@@ -242,17 +287,29 @@ var limitableLeadingRe = regexp.MustCompile(`(?i)^[(\s]*(SELECT|WITH)\b`)
 // ensureReadOnlyLimit 确保行式查询带 LIMIT，且返回行数不超过上限（超上限或解析失败一律压到 maxRows）。
 // 仅对 SELECT/WITH 生效：SHOW/DESCRIBE/EXPLAIN 不接 LIMIT，原样返回避免拼出非法语句。
 // 逐个 LIMIT 子句独立收敛（子查询里的 LIMIT 各自按自身 count 判定），保留 offset 语义。
+// LIMIT 的探测与收敛都在「掩码串」（字面量抹平、字节对齐原串）上定位，只处理真实 LIMIT 子句——
+// 字面量里的 LIMIT（如 WHERE msg='rate LIMIT 5000 exceeded'）既不被收敛破坏，也不被误当成已带
+// LIMIT 而漏补上限。
 func ensureReadOnlyLimit(sqlStr string, maxRows int) string {
 	if !limitableLeadingRe.MatchString(sqlStr) {
 		return sqlStr
 	}
-	if !readOnlyLimitRe.MatchString(sqlStr) {
+	masked := maskStringLiterals(sqlStr)
+	spans := readOnlyLimitRe.FindAllStringIndex(masked, -1)
+	if len(spans) == 0 { // 无真实 LIMIT 子句（字面量里的 LIMIT 不算）→ 追加上限
 		sqlStr = strings.TrimRight(sqlStr, "; ")
 		return fmt.Sprintf("%s LIMIT %d", sqlStr, maxRows)
 	}
-	return readOnlyLimitRe.ReplaceAllStringFunc(sqlStr, func(clause string) string {
-		return clampLimitClause(clause, maxRows)
-	})
+	// 掩码串与原串字节对齐，故 span 下标可直接切原串：逐个真实 LIMIT 子句收敛后拼回。
+	var b strings.Builder
+	prev := 0
+	for _, sp := range spans {
+		b.WriteString(sqlStr[prev:sp[0]])
+		b.WriteString(clampLimitClause(sqlStr[sp[0]:sp[1]], maxRows))
+		prev = sp[1]
+	}
+	b.WriteString(sqlStr[prev:])
+	return b.String()
 }
 
 // clampLimitClause 把单个 LIMIT 子句的返回行数上限收敛到 maxRows，保留原有 offset。
