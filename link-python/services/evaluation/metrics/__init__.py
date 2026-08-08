@@ -38,7 +38,6 @@ from .llm_judge import (
     compute_llm_judge_metrics_async,
 )
 from .agent import (
-    AgentMetrics,
     compute_agent_metrics,
     answer_accuracy,
     tool_selection,
@@ -87,7 +86,6 @@ __all__ = [
     "compute_llm_judge_metrics",
     "compute_llm_judge_metrics_async",
     # Agent
-    "AgentMetrics",
     "compute_agent_metrics",
     "answer_accuracy",
     "tool_selection",

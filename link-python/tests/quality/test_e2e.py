@@ -1,17 +1,14 @@
 """端到端集成测试。"""
 
-import io
 import tempfile
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from services.quality.evaluator import DataQualityEvaluator
 from services.quality.models import QualityReport
 from services.quality.pipeline.executor import QualityPipeline
 from services.quality.drift_detector import DriftDetector
-from services.quality.rules import RuleEngine
 
 
 class TestEndToEndStructuredData:

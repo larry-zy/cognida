@@ -74,7 +74,7 @@ func TestGetDatabaseSchemaIntegration(t *testing.T) {
 	//    经 SetToolGateway 注入工具网关，替代包级默认槽位。
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAgentHandler(nil, nil, nil, nil, nil)
+	h := NewAgentHandler(nil, nil, nil, nil, nil, nil)
 	h.SetToolGateway(reg)
 	router.GET("/api/v1/agent/text2sql/schema", h.GetDatabaseSchema)
 

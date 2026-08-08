@@ -7,19 +7,12 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import grpc
-import numpy as np
 import pandas as pd
 
 from core import get_logger
 from services.analytics import (
-    DescriptiveStats,
-    DistributionAnalysis,
-    CorrelationAnalysis,
-    HypothesisTest,
     LinearTrendAnalyzer,
-    MovingAverageAnalyzer,
     SeasonalityAnalyzer,
-    GrowthRateAnalyzer,
     InsightGenerator,
 )
 
@@ -27,7 +20,7 @@ from proto import analytics_pb2
 from proto import analytics_pb2_grpc
 
 if TYPE_CHECKING:
-    from grpc import ServicerContext
+    pass
 
 
 class AnalyticsServicer(analytics_pb2_grpc.AnalyticsServiceServicer):

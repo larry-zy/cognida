@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
@@ -354,7 +355,7 @@ type ToolCache struct {
 type CacheEntry struct {
 	Value      string
 	ExpireAt   time.Time
-	HitCount   int
+	HitCount   int64 // 命中计数：Get 在 RLock 下自增，故用 atomic 避免数据竞争
 	CreateTime time.Time
 }
 
@@ -381,7 +382,8 @@ func (c *ToolCache) Get(key string) (string, bool) {
 		return "", false
 	}
 
-	entry.HitCount++
+	// Get 只持 RLock（允许多读并发），命中计数用原子自增避免写-写竞争。
+	atomic.AddInt64(&entry.HitCount, 1)
 	return entry.Value, true
 }
 
@@ -413,7 +415,7 @@ func (c *ToolCache) Stats() CacheStats {
 	totalHits := 0
 	for _, entry := range c.store {
 		if !time.Now().After(entry.ExpireAt) {
-			totalHits += entry.HitCount
+			totalHits += int(atomic.LoadInt64(&entry.HitCount))
 		}
 	}
 

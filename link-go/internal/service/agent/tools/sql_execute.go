@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	agentctx "link/internal/model/agent"
+	"link/internal/model/dataprofile"
 	model_datasource "link/internal/model/datasource"
 	"link/internal/service/agent/resultstore"
 )
@@ -91,10 +92,11 @@ type SQLExecuteResult struct {
 }
 
 // NewSQLExecuteTool 创建 SQL 执行工具。
-// 依赖经参数注入：db 业务库、dsp 外部数据源提供者（可为 nil）、rs 结果存储（可为 nil）。
-func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store) *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
+// 依赖经参数注入：db 业务库、dsp 外部数据源提供者（可为 nil）、rs 结果存储（可为 nil）、
+// profileStore 列画像存储（可为 nil）——失败自修复时据其把枚举列真实取值附回观察。
+func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store) *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
 	handler := func(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult, error) {
-		return sqlExecute(ctx, req, db, dsp, rs)
+		return sqlExecute(ctx, req, db, dsp, rs, profileStore)
 	}
 	return NewTypedBaseTool("sql_execute",
 		`执行只读 SQL 查询。
@@ -114,7 +116,7 @@ func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs 
 }
 
 // sqlExecute 执行 SQL 查询
-func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store) (*SQLExecuteResult, error) {
+func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store) (*SQLExecuteResult, error) {
 	startTime := time.Now()
 
 	// 参数验证
@@ -152,7 +154,7 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 	// 执行查询（瞬时故障 in-tool 有界重试；失败则产出分级「可修复观察」引导定向修正）。
 	rows, err := queryWithTransientRetry(queryCtx, target, execSQL)
 	if err != nil {
-		return nil, newRepairableSQLError(ctx, target, req.SQL, err)
+		return nil, newRepairableSQLError(ctx, target, req.SQL, err, profileStore, req.DatabaseID)
 	}
 	defer rows.Close()
 
@@ -188,7 +190,7 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 	}
 	// 迭代中途出错（网络/游标）不得静默返回部分结果——同样产出可修复观察。
 	if err := rows.Err(); err != nil {
-		return nil, newRepairableSQLError(ctx, target, req.SQL, err)
+		return nil, newRepairableSQLError(ctx, target, req.SQL, err, profileStore, req.DatabaseID)
 	}
 
 	// 检查结果数量
@@ -277,24 +279,32 @@ func validateSQL(sqlStr string) error {
 	return nil
 }
 
-// ensureLimit 确保 SQL 有 LIMIT 子句
+// ensureLimit 确保 SQL 有作用于整条语句的 LIMIT 子句。
+//
+// 只识别「尾部 LIMIT」（可选 offset、可选结尾分号），不把子查询里的 LIMIT 误当作外层已限行。
+// 原实现用 \bLIMIT\s+\d+ 全局匹配：像 SELECT * FROM (SELECT ... LIMIT 5) t 这种外层无
+// LIMIT 的语句会被判成「已有 LIMIT」而放行，导致外层结果集不设上限；且 ReplaceAll 还会
+// 连子查询的 LIMIT 一起改写，破坏子查询语义。
+var tailLimitRe = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)(?:\s*,\s*(\d+))?\s*$`)
+
 func ensureLimit(sqlStr string, maxRows int) string {
-	hasLimit := regexp.MustCompile(`\bLIMIT\s+\d+`).MatchString(sqlStr)
+	trimmed := strings.TrimRight(sqlStr, "; \t\n")
 
-	if !hasLimit {
-		sqlStr = strings.TrimRight(sqlStr, "; ")
-		return fmt.Sprintf("%s LIMIT %d", sqlStr, maxRows)
+	m := tailLimitRe.FindStringSubmatch(trimmed)
+	if m == nil {
+		// 无尾部 LIMIT：追加一个整体上限
+		return fmt.Sprintf("%s LIMIT %d", trimmed, maxRows)
 	}
 
-	// 检查 LIMIT 是否超过最大值：解析失败或超上限一律压到 maxRows
-	re := regexp.MustCompile(`\bLIMIT\s+(\d+)`)
-	matches := re.FindStringSubmatch(sqlStr)
-	if len(matches) > 1 {
-		limitVal, err := strconv.Atoi(matches[1])
-		if err != nil || limitVal > maxRows {
-			sqlStr = re.ReplaceAllString(sqlStr, fmt.Sprintf("LIMIT %d", maxRows))
-		}
+	// 有尾部 LIMIT：行数取 `LIMIT offset, count` 的 count，或 `LIMIT n` 的 n；
+	// 解析失败或超上限一律压到 maxRows（仅改写这一处尾部 LIMIT）。
+	rowStr := m[1]
+	if m[2] != "" {
+		rowStr = m[2]
 	}
-
-	return sqlStr
+	limitVal, err := strconv.Atoi(rowStr)
+	if err != nil || limitVal > maxRows {
+		return tailLimitRe.ReplaceAllString(trimmed, fmt.Sprintf("LIMIT %d", maxRows))
+	}
+	return trimmed
 }

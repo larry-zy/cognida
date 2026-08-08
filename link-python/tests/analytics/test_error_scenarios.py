@@ -9,7 +9,6 @@ import numpy as np
 
 from services.analytics import (
     DescriptiveStats,
-    DistributionAnalysis,
     CorrelationAnalysis,
     LinearTrendAnalyzer,
     MovingAverageAnalyzer,
@@ -21,9 +20,8 @@ from services.analytics.validation import (
     DataValidator,
     DataChecker,
     DEFAULT_MAX_ROWS,
-    DEFAULT_MIN_ROWS,
 )
-from core.exceptions import DataValidationError, InsufficientDataError, AnalyticsError
+from core.exceptions import DataValidationError, InsufficientDataError
 
 
 class TestEmptyData:

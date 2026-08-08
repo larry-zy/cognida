@@ -33,7 +33,7 @@ from proto import docreader_pb2
 from proto import docreader_pb2_grpc
 
 if TYPE_CHECKING:
-    from grpc import ServicerContext
+    pass
 
 
 class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
@@ -358,7 +358,6 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
     Returns:
         gRPC 服务器实例
     """
-    from concurrent import futures
 
     from core import RequestIDServerInterceptor
 

@@ -15,6 +15,7 @@ import (
 
 	agentctx "link/internal/model/agent"
 	"link/internal/model/agent/operations"
+	knowledgemodel "link/internal/model/knowledge"
 	agentuc "link/internal/service/agent"
 	"link/internal/service/agent/agentstate"
 	"link/internal/service/agent/genui"
@@ -78,6 +79,10 @@ type AgentHandler struct {
 	configUseCase         *agentuc.ConfigService
 	progressUseCase       *agentuc.ProgressService
 	persistenceService   *agentuc.AgentPersistenceService
+	// retrievalRepo 会话级检索参数仓储：KnowledgeStream 据 session_id 加载用户持久化的
+	// TopK/阈值/重排/Alpha，注入 ctx 供检索适配器覆盖 LLM 即兴取值（会话级参数治理下沉）。
+	// 可为 nil（未接线时跳过覆盖，回退工具参数/系统默认）。
+	retrievalRepo knowledgemodel.RetrievalSettingRepository
 	// toolGateway 由组合根注入（SetToolGateway）：confirm-resume / UI 取数 / schema 查询
 	// 经它访问工具注册表能力。未注入时相关端点返回未初始化错误（nil-guard）。
 	toolGateway agentToolGateway
@@ -90,6 +95,7 @@ func NewAgentHandler(
 	configUseCase *agentuc.ConfigService,
 	progressUseCase *agentuc.ProgressService,
 	persistenceService *agentuc.AgentPersistenceService,
+	retrievalRepo knowledgemodel.RetrievalSettingRepository,
 ) *AgentHandler {
 	return &AgentHandler{
 		executeUseCase:     executeUseCase,
@@ -97,6 +103,7 @@ func NewAgentHandler(
 		configUseCase:      configUseCase,
 		progressUseCase:    progressUseCase,
 		persistenceService: persistenceService,
+		retrievalRepo:      retrievalRepo,
 	}
 }
 
@@ -877,6 +884,44 @@ func (h *AgentHandler) GetDatabaseSchema(c *gin.Context) {
 // Knowledge Chat 接口
 // ========================================
 
+// loadRetrievalParams 据 session_id 从 RetrievalSetting 加载会话级检索治理参数并映射为
+// agentctx.RetrievalParams（仅透传字段映射清晰的 TopK/阈值/重排/Alpha；模式仍归 LLM/工具）。
+// 仓储未接线 / 无会话设置 / 加载失败一律返回 nil（回退工具参数与系统默认），不阻断对话。
+func (h *AgentHandler) loadRetrievalParams(ctx context.Context, sessionID string) *agentctx.RetrievalParams {
+	if h.retrievalRepo == nil || sessionID == "" {
+		return nil
+	}
+	s, err := h.retrievalRepo.FindBySessionID(ctx, sessionID)
+	if err != nil || s == nil {
+		return nil
+	}
+	p := &agentctx.RetrievalParams{}
+	set := false
+	if s.VectorTopK != nil {
+		p.TopK = s.VectorTopK
+		set = true
+	}
+	if s.VectorThreshold != nil {
+		p.MinScore = s.VectorThreshold
+		set = true
+	}
+	// 重排：向量与混合任一开启即视为会话级开启（两者语义都指“检索后重排”）。
+	if s.RerankEnabled != nil || s.HybridRerankEnabled != nil {
+		enabled := (s.RerankEnabled != nil && *s.RerankEnabled) || (s.HybridRerankEnabled != nil && *s.HybridRerankEnabled)
+		p.RerankEnabled = &enabled
+		set = true
+	}
+	if s.HybridAlpha != nil {
+		alpha := float64(*s.HybridAlpha)
+		p.Alpha = &alpha
+		set = true
+	}
+	if !set {
+		return nil
+	}
+	return p
+}
+
 // KnowledgeStream 知识库对话（带持久化）
 func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	log.Printf("[KnowledgeStream] Received stream request")
@@ -938,6 +983,11 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	// 供其后的 rag_query/graph_query 读取（跨工具调用共享同一指针）。
 	ctx = agentctx.WithKBScopeMode(ctx, req.KBScopeMode)
 	ctx = agentctx.WithRouteSelection(ctx, agentctx.NewRouteSelection())
+	// 会话级检索参数治理下沉：据规范化后的 session_id 加载用户持久化的 TopK/阈值/重排/Alpha，
+	// 注入 ctx 供检索适配器覆盖 LLM 经工具参数给出的即兴取值。加载失败/未设置不阻断对话。
+	if rp := h.loadRetrievalParams(ctx, req.SessionID); rp != nil {
+		ctx = agentctx.WithRetrievalParams(ctx, rp)
+	}
 
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)

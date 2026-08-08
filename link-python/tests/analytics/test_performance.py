@@ -7,7 +7,6 @@ import time
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from services.analytics import (
     DescriptiveStats,

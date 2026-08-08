@@ -133,7 +133,7 @@ func TestWriteQueryTarget_NilDBDegrades(t *testing.T) {
 	}
 	re := newRepairableSQLError(context.Background(), o.writeQueryTarget(),
 		"UPDATE agent_etl_x SET a = 1",
-		&mysql.MySQLError{Number: 1064, Message: "syntax error"})
+		&mysql.MySQLError{Number: 1064, Message: "syntax error"}, nil, "")
 	if re.ErrorKind != string(sqlErrSyntax) {
 		t.Fatalf("应仍能分级 error_kind, got %q", re.ErrorKind)
 	}

@@ -34,7 +34,6 @@ class TextParser(BaseParser):
             解析结果
         """
         try:
-            from io import BytesIO
 
             encoding = kwargs.get("encoding", "utf-8")
 

@@ -40,6 +40,7 @@ type Experience struct {
 	Solution          string   `json:"solution"`           // 采用的解法/关键步骤
 	Tools             []string `json:"tools"`              // 过程中用到的工具名
 	Tags              []string `json:"tags"`               // 主题标签（用于图谱关联与检索）
+	Confidence        int      `json:"confidence"`         // 蒸馏置信度 0~100：经验作为未来参考的可靠度，低于阈值不落库、召回时降权
 	SkillWorthy       bool     `json:"skill_worthy"`       // 是否值得蒸馏为可复用 skill
 	SkillInstructions string   `json:"skill_instructions"` // skill_worthy 时：可复用的操作指引正文
 

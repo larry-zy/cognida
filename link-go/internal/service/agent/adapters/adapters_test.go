@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	agentctx "link/internal/model/agent"
@@ -32,12 +33,15 @@ func newTestAdapter(ret rag.Retriever, repo knowledge.KnowledgeBaseRepository) *
 
 // recordingRetriever 记录每次检索命中的 kbID，并对每个 kb 返回一条固定分数的文档。
 type recordingRetriever struct {
+	mu        sync.Mutex // 保护 calledKBs：逐库检索并发扇出会从多 goroutine 并发调用 respond
 	calledKBs []string
 	scores    map[string]float32 // kbID -> score
 }
 
 func (r *recordingRetriever) respond(_ context.Context, kbID string) (*rag.RetrieveResponse, error) {
+	r.mu.Lock()
 	r.calledKBs = append(r.calledKBs, kbID)
+	r.mu.Unlock()
 	score := r.scores[kbID]
 	return &rag.RetrieveResponse{
 		Results: []*rag.Document{

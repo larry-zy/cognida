@@ -61,7 +61,9 @@ func NewModelFactoryWithObservability(opts ...Option) domainllm.ModelFactory {
 
 // registerDefaultProviders 注册默认提供商
 func (f *modelFactory) registerDefaultProviders() {
-	// OpenAI 兼容的提供商
+	// OpenAI 兼容的提供商：统一走基于 eino 的 DSML 归一化客户端（NewEinoLLMClient），
+	// 取代已弃用的 openaiChatRepo。绑定工具时可透明归一化 DeepSeek 原生 tool_calls，
+	// 且共享 chat 包 openaiClient 的采样参数 apply / usage 上报 / reasoning 回传规则。
 	for _, provider := range []domainllm.Provider{
 		domainllm.ProviderOpenAI,
 		domainllm.ProviderAliyun,
@@ -71,7 +73,7 @@ func (f *modelFactory) registerDefaultProviders() {
 		domainllm.ProviderGeneric,
 	} {
 		f.RegisterProvider(provider, func(config *domainllm.ModelConfig) (interface{}, error) {
-			return NewOpenAIChatRepo(config)
+			return NewEinoLLMClient(config)
 		})
 	}
 

@@ -56,6 +56,16 @@ func (b *ConversationContextBuilder) WithSummarizer(s ctxeng.Summarizer) *Conver
 	return b
 }
 
+// WithCounter 注入 token 计数器（能力层 ctxeng.TokenCounter），用于开场装配的窗口化与预算治理。
+// 不注入时保持默认的字符启发式 ApproxTokenCounter；注入真实 BPE 分词器（bpecount）可与运行时
+// ③ 折叠共用同一计数口径，避免开场与运行时对同段历史的 token 估算不一致。传 nil 忽略。
+func (b *ConversationContextBuilder) WithCounter(c ctxeng.TokenCounter) *ConversationContextBuilder {
+	if c != nil {
+		b.counter = c
+	}
+	return b
+}
+
 // Build 按会话装配 LLM 消息列表：系统提示 + 历史对话 + 当前问题。
 //
 // 上下文工程（能力层驱动）：

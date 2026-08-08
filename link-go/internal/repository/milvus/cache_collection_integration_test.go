@@ -74,8 +74,8 @@ func TestCacheVectorRepositoryIntegration(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 创建仓储
-	repo, err := NewCacheVectorRepository()
+	// 创建仓储（探测维度传 0 → 回退 SemanticCacheVectorDim）
+	repo, err := NewCacheVectorRepository(0)
 	require.NoError(t, err)
 	require.NotNil(t, repo)
 

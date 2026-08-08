@@ -5,7 +5,6 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -336,7 +335,7 @@ class HypothesisTest:
         """
         try:
             chi2, p_value, dof, _ = stats.chi2_contingency(observed)
-        except Exception as e:
+        except Exception:
             return ChiSquareResult(
                 chi2=0.0,
                 p_value=1.0,

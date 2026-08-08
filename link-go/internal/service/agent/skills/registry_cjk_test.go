@@ -90,7 +90,7 @@ func TestCJKBigrams(t *testing.T) {
 }
 
 // 名称校验须接受中日韩等 Unicode 字母名——否则经验沉淀出的中文名技能注册即被拒。
-// 该用例与 experience.SkillSink 的 slugify（保留 \p{Han}）是配套契约。
+// 该用例与 experience 经验沉淀的 slugify（保留 \p{Han}）是配套契约。
 func TestIsValidSkillName_UnicodeLetters(t *testing.T) {
 	valid := []string{
 		"text2sql-adhoc",

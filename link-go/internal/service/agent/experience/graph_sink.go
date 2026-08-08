@@ -46,6 +46,7 @@ func (g *GraphSink) Write(ctx context.Context, exp *domain_experience.Experience
 			"problem":    truncate(exp.Problem, 500),
 			"solution":   truncate(exp.Solution, 500),
 			"agent_type": exp.AgentType,
+			"confidence": strconv.Itoa(exp.Confidence), // 供召回侧按质量降权
 		},
 	})
 

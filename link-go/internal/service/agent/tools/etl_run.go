@@ -160,7 +160,7 @@ func (o *opTools) etlFromSQL(execCtx context.Context, target, sourceSQL string) 
 	if err := o.cfg.DB.WithContext(execCtx).Exec(ddl).Error; err != nil {
 		// 派生失败源自 Agent 自撰的 SELECT（列/表/语法/超时）：产出结构化可修复观察，
 		// 用源 SELECT 检索定向列/表线索，引导子代理定向改写而非盲目重试。
-		return 0, newRepairableSQLError(execCtx, o.writeQueryTarget(), sourceSQL, err)
+		return 0, newRepairableSQLError(execCtx, o.writeQueryTarget(), sourceSQL, err, nil, "")
 	}
 	return o.countTableRows(execCtx, target)
 }

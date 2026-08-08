@@ -18,7 +18,6 @@ from ...metrics.retrieval import (
     map_at_k,
     mrr,
     precision_at_k,
-    recall_at_k,
 )
 
 

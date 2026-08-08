@@ -3,8 +3,6 @@
 需要 gRPC 服务器运行。使用 pytest -m grpc 运行这些测试。
 """
 
-import asyncio
-from concurrent import futures
 
 import grpc
 import pandas as pd

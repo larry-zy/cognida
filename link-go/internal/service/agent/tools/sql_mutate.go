@@ -151,7 +151,7 @@ func (o *opTools) sqlMutate(ctx context.Context, req *SQLMutateRequest) (*SQLMut
 		// 写库恒为内部业务库（外部源已在入口拒绝），detail 经脱敏截断透传；错误细节留在
 		// 本工具调用者上下文——经委派边界时 executeDelegation 只回传紧凑 handle/结论，不回灌指挥官。
 		// 每次失败尝试（含修复重试）都已先落 agent_operation_audit（上一行）。
-		return nil, newRepairableSQLError(ctx, o.writeQueryTarget(), req.SQL, res.Error)
+		return nil, newRepairableSQLError(ctx, o.writeQueryTarget(), req.SQL, res.Error, nil, "")
 	}
 	affected := res.RowsAffected
 

@@ -15,6 +15,7 @@ import (
 	"link/internal/model/agent"
 	"link/internal/model/conversation"
 	"link/internal/service/agent/convcontext"
+	experiencesvc "link/internal/service/agent/experience"
 	infraagent "link/internal/service/agent/framework"
 	dataagent "link/internal/service/agent/presets/data_agent"
 	"link/internal/service/agent/skills"
@@ -36,7 +37,23 @@ type Initializer struct {
 	// embedder 是组合根下发的向量化组件：供 Data Agent 反思记忆（自我进化）向量化任务/教训。
 	// 默认 nil → data_agent 反思退化为「仅评估不沉淀」，不影响主流程（零回归）。
 	embedder embedding.Embedder
+	// experienceRecall 是组合根下发的历史经验召回器（自进化读侧）：供 Data Agent 首答注入过往会话沉淀。
+	// 默认 nil → data_agent 不召回历史经验（仅沉淀不回灌），不影响主流程（零回归）。
+	experienceRecall *experiencesvc.GraphRecaller
+	// semanticFewShot 是组合根下发的软语义缓存召回器：供 Data Agent 首答注入相似历史问答（few-shot）。
+	// 默认 nil → data_agent 不注入 few-shot 示例，不影响主流程（零回归）。
+	semanticFewShot dataagent.SemanticRecaller
+	// ragHardCache 是组合根下发的硬语义缓存：供 RAG 知识库助手命中高相似历史问答时短路返回。
+	// 默认 nil / 未启用 → RAG 助手不套缓存装饰器（恒等透传），不影响主流程（零回归）。
+	ragHardCache infraagent.ResponseCache
+	// dataSoftCache 是组合根下发的软语义缓存：供 Data Agent 软写穿装饰器每次应答回写（写侧），
+	// 与 semanticFewShot（读侧）配对。默认 nil / 未启用 → data_agent 不回写（恒等透传），零回归。
+	dataSoftCache infraagent.ResponseCache
 }
+
+// ragCacheKey 是 RAG 知识库助手在硬语义缓存策略中的逻辑键（隔离命名空间与开关）。
+// 与 data agent（DataAgentCacheKey）区分：二者领域 AgentType 同为 agentic_rag。
+const ragCacheKey = "rag_assistant"
 
 // NewInitializer 创建初始化器。
 // tools 为注入的工具注册表（组合根构造后传入），各 Agent 构建时经它解析工具。
@@ -66,6 +83,42 @@ func (init *Initializer) WithGuardrail(decorator infraagent.GuardrailDecorator) 
 // 返回自身以支持链式调用。
 func (init *Initializer) WithEmbedder(embedder embedding.Embedder) *Initializer {
 	init.embedder = embedder
+	return init
+}
+
+// WithExperienceRecall 挂接组合根下发的历史经验召回器，闭合「蒸馏→图谱→召回→首答注入」自进化回路。
+// 传入 nil 或未调用 → data_agent 不召回历史经验（沉淀仍照常，只是不回灌），零回归。
+// 返回自身以支持链式调用。
+func (init *Initializer) WithExperienceRecall(recaller *experiencesvc.GraphRecaller) *Initializer {
+	init.experienceRecall = recaller
+	return init
+}
+
+// WithSemanticFewShot 挂接组合根下发的软语义缓存召回器，供 Data Agent 首答注入相似历史问答。
+// 传入 nil 或未调用 → data_agent 不注入 few-shot 示例，零回归。
+// 注意：调用方须传入真正的 nil 接口（而非 typed-nil 具体指针），否则 hook 内 nil 判定失效。
+// 返回自身以支持链式调用。
+func (init *Initializer) WithSemanticFewShot(recaller dataagent.SemanticRecaller) *Initializer {
+	init.semanticFewShot = recaller
+	return init
+}
+
+// WithRAGHardCache 挂接组合根下发的硬语义缓存，供 RAG 知识库助手命中高相似历史问答时短路返回。
+// 传入 nil 或该逻辑键未启用 → RAG 助手不套缓存装饰器（恒等透传），零回归。
+// 注意：调用方须传入真正的 nil 接口（而非 typed-nil 具体指针）。
+// 返回自身以支持链式调用。
+func (init *Initializer) WithRAGHardCache(cache infraagent.ResponseCache) *Initializer {
+	init.ragHardCache = cache
+	return init
+}
+
+// WithDataSoftCache 挂接组合根下发的软语义缓存，供 Data Agent 软写穿装饰器每次应答回写（写侧）。
+// 与 WithSemanticFewShot（读侧）配对：写侧沉淀历史问答，读侧 few-shot 召回。
+// 传入 nil 或该逻辑键未启用 → data_agent 不套写穿装饰器（恒等透传），零回归。
+// 注意：调用方须传入真正的 nil 接口（而非 typed-nil 具体指针）。
+// 返回自身以支持链式调用。
+func (init *Initializer) WithDataSoftCache(cache infraagent.ResponseCache) *Initializer {
+	init.dataSoftCache = cache
 	return init
 }
 
@@ -293,7 +346,9 @@ func (init *Initializer) buildRAGAgent(ctx context.Context, toolModel model.Tool
 	if err != nil {
 		return nil, fmt.Errorf("构建 RAG Agent 失败: %w", err)
 	}
-	return ragAgent, nil
+	// 硬语义缓存装饰（默认 nil/未启用 → 返回 ragAgent 本身，恒等透传，零回归）：
+	// 命中高相似历史问答即短路返回旧答案、跳过 LLM。知识相对稳定，硬缓存安全。
+	return infraagent.NewCachingAgent(ragAgent, init.ragHardCache, ragCacheKey), nil
 }
 
 // registerDataAgent 注册 Data Agent（单一 ReAct 内核，查/析/渲/操四类能力）
@@ -307,7 +362,7 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 
 	// 声明式注册：预设 Build 工厂内部装配子代理协作注册表 + ReAct 内核 + 委派能力，
 	// msgRepo 非 nil 时启用跨轮对话记忆。
-	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools, init.guardrail)); err != nil {
+	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools, init.experienceRecall, init.semanticFewShot, init.dataSoftCache, init.guardrail)); err != nil {
 		return err
 	}
 

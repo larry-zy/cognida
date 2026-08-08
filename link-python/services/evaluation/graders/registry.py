@@ -8,11 +8,11 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from core import get_logger
 
-from .base import BaseGrader, EvalType, GraderMode, MetricType, normalize_eval_type
+from .base import BaseGrader, EvalType, GraderMode, normalize_eval_type
 
 
 # ============================================================

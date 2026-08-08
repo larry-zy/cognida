@@ -1,8 +1,7 @@
 """基于规则的评分器。"""
 
 import re
-import math
-from typing import Any, List, Union
+from typing import List
 
 from ..base import BaseGrader, EvalType, GraderMode, GraderScore, MetricType
 from ..registry import register_grader

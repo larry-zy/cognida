@@ -17,11 +17,10 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone, timedelta
-from typing import Any
 
 import pandas as pd
 
-from ..models import FieldRule, FieldType, SeverityLevel
+from ..models import FieldType, SeverityLevel
 from .engine import Rule, RuleResult, register_rule
 
 

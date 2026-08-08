@@ -4,13 +4,10 @@
 """
 
 import asyncio
-from pathlib import Path
 
 from services.document import (
     parse_document,
-    ocr_image,
     chunk_text,
-    fetch_url,
     ChunkStrategy,
 )
 

@@ -19,6 +19,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
+	agentctx "link/internal/model/agent"
+	"link/internal/model/dataprofile"
 	"link/internal/service/agent/framework"
 )
 
@@ -38,9 +40,11 @@ const (
 
 // 线索规模上限：只在失败路径检索，仍需截断防止把全库结构灌回 LLM。
 const (
-	maxHintColumns = 40 // 每表回传的列名上限
-	maxHintTables  = 20 // unknown_table 回传的候选表名上限
-	hintQueryTTL   = 5 * time.Second
+	maxHintColumns     = 40 // 每表回传的列名上限
+	maxHintTables      = 20 // unknown_table 回传的候选表名上限
+	maxHintFactColumns = 16 // column_facts 每表回传的枚举列上限（与画像采集端 maxEnumColumns 对齐）
+	maxHintEnumValues  = 20 // column_facts 每列回传的枚举取值上限
+	hintQueryTTL       = 5 * time.Second
 )
 
 // retriable 表示「定向改写后重试有望成功」——供 LLM 判断是否值得再试。
@@ -133,12 +137,12 @@ type repairObservation struct {
 // newRepairableSQLError 是 SQL 工具失败路径的统一入口：分级 → 取线索 → 组装可修复观察 →
 // 包成 framework.RepairableToolError（其 Error() 即观察 JSON，由框架原样回灌）。
 // target 为 nil 时降级为通用提示（不检索 schema）。
-func newRepairableSQLError(ctx context.Context, target *queryTarget, sql string, err error) *framework.RepairableToolError {
+func newRepairableSQLError(ctx context.Context, target *queryTarget, sql string, err error, store dataprofile.Store, databaseID string) *framework.RepairableToolError {
 	kind, identifier := classifySQLError(err)
 
 	var hint interface{}
 	if target != nil {
-		hint = buildSchemaHint(ctx, target, kind, identifier, sql)
+		hint = buildSchemaHint(ctx, target, kind, identifier, sql, store, databaseID)
 	} else {
 		hint = genericTip(kind)
 	}
@@ -160,7 +164,7 @@ func newRepairableSQLError(ctx context.Context, target *queryTarget, sql string,
 
 // buildSchemaHint 在失败路径检索定向线索：列不存在→列清单、表不存在→候选表名，其余→通用提示。
 // 全程 recover 兜底——线索检索失败绝不 panic、绝不阻断修复观察产出（降级为无 hint 或通用提示）。
-func buildSchemaHint(ctx context.Context, target *queryTarget, kind sqlErrorKind, identifier, sql string) (hint interface{}) {
+func buildSchemaHint(ctx context.Context, target *queryTarget, kind sqlErrorKind, identifier, sql string, store dataprofile.Store, databaseID string) (hint interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			hint = genericTip(kind)
@@ -188,19 +192,22 @@ func buildSchemaHint(ctx context.Context, target *queryTarget, kind sqlErrorKind
 
 	switch kind {
 	case sqlErrUnknownColumn:
-		return columnHint(hctx, target, identifier, sql)
+		return columnHint(hctx, target, identifier, sql, store, databaseID)
 	default: // sqlErrUnknownTable
 		return tableHint(hctx, target, identifier)
 	}
 }
 
-// columnHint 取 SQL 引用表的可用列清单，引导 LLM 只用真实列名改写。
-func columnHint(ctx context.Context, target *queryTarget, unknownColumn, sql string) interface{} {
+// columnHint 取 SQL 引用表的可用列清单，引导 LLM 只用真实列名改写；并附上已画像枚举列的
+// 真实取值分布（column_facts），使自修复观察与 get_schema 观察携带同源列事实——让 LLM 既
+// 纠正错列名、又能据真实取值（如 completed 而非「已完成」）拼对过滤条件。
+func columnHint(ctx context.Context, target *queryTarget, unknownColumn, sql string, store dataprofile.Store, databaseID string) interface{} {
 	h := map[string]interface{}{
 		"unknown_column": unknownColumn,
-		"tip":            "列名不存在，请仅使用 available_columns 中列出的真实列名重写查询",
+		"tip":            "列名不存在，请仅使用 available_columns 中列出的真实列名重写查询；若需按取值过滤，参考 column_facts 中的真实枚举取值",
 	}
 	available := map[string][]string{}
+	facts := map[string]interface{}{}
 	for _, tbl := range referencedTables(sql) {
 		cols, err := queryTableColumns(ctx, target, tbl)
 		if err != nil || len(cols) == 0 {
@@ -214,11 +221,63 @@ func columnHint(ctx context.Context, target *queryTarget, unknownColumn, sql str
 			names = names[:maxHintColumns]
 		}
 		available[tbl] = names
+		if tf := columnFactsHint(ctx, store, target, databaseID, tbl); len(tf) > 0 {
+			facts[tbl] = tf
+		}
 	}
 	if len(available) > 0 {
 		h["available_columns"] = available
 	}
+	if len(facts) > 0 {
+		h["column_facts"] = facts
+	}
 	return h
+}
+
+// columnFactsHint 从画像存储取该表「枚举列」的真实取值分布（只挑有 TopValues 的低基数列——
+// 修复错列/错值最需要的线索），压平为紧凑 map 控制回灌体积。坐标解析复用 get_schema 同源逻辑：
+// 租户取自 ctx、数据源 ID 显式 database_id 优先否则回落会话选定、schema 取 target.dbName。
+// store 缺失、坐标不全或无画像时返回 nil——不阻断 available_columns 线索，零回归。
+func columnFactsHint(ctx context.Context, store dataprofile.Store, target *queryTarget, databaseID, table string) map[string]interface{} {
+	if store == nil {
+		return nil
+	}
+	tenantID, ok := agentctx.GetTenantID(ctx)
+	if !ok {
+		return nil
+	}
+	dsID := databaseID
+	if dsID == "" {
+		dsID, _ = agentctx.GetDatasourceID(ctx)
+	}
+	profiles, err := store.ListByTable(ctx, tenantID, dsID, target.dbName, table)
+	if err != nil || len(profiles) == 0 {
+		return nil
+	}
+	out := map[string]interface{}{}
+	for _, p := range profiles {
+		if len(p.TopValues) == 0 {
+			continue // 只回枚举列：连续/高基数列的分布对改写无益且占体积
+		}
+		if len(out) >= maxHintFactColumns {
+			break // 防历史宽表存量画像把过多枚举列灌回观察
+		}
+		vals := make([]string, 0, len(p.TopValues))
+		for _, tv := range p.TopValues {
+			if len(vals) >= maxHintEnumValues {
+				break
+			}
+			vals = append(vals, tv.Value)
+		}
+		out[p.ColumnName] = map[string]interface{}{
+			"distinct":   p.Distinct,
+			"top_values": vals,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // tableHint 取库内候选表名（按与肇事表名的近似度排序），引导 LLM 选对表。

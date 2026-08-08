@@ -1,7 +1,5 @@
 """质量服务 gRPC 实现。"""
 
-import time
-from typing import Any
 
 import pandas as pd
 from grpc import ServicerContext

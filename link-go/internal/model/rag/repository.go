@@ -264,9 +264,6 @@ type VectorRepository interface {
 	// CreateCollection 创建集合
 	CreateCollection(ctx context.Context, kbID int64, dimension int, opts *CollectionOptions) error
 
-	// DropCollection 删除集合
-	DropCollection(ctx context.Context, kbID int64) error
-
 	// HasCollection 检查集合是否存在
 	HasCollection(ctx context.Context, kbID int64) (bool, error)
 

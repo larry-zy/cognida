@@ -487,6 +487,11 @@ func searchMulti(ctx context.Context, req *SearchMultiRequest, client *MetasoCli
 				Limit: req.Limit,
 			}
 			result, err := webSearch(ctx, req, client)
+			if err != nil || result == nil {
+				// 出错时 result 为 nil，解引用 result.Items 会 panic 并击穿整个进程。
+				resultChan <- resultPair{query: q, err: err}
+				return
+			}
 			resultChan <- resultPair{
 				query: q,
 				items: result.Items,

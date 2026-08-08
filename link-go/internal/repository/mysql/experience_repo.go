@@ -31,8 +31,9 @@ type AgentExperienceModel struct {
 	Title             string `gorm:"type:varchar(512)"`
 	Problem           string `gorm:"type:text"`
 	Solution          string `gorm:"type:text"`
-	Tools             string `gorm:"type:json"` // JSON 数组：用到的工具名
-	Tags              string `gorm:"type:json"` // JSON 数组：主题标签
+	Tools             string `gorm:"type:json"`                                   // JSON 数组：用到的工具名
+	Tags              string `gorm:"type:json"`                                   // JSON 数组：主题标签
+	Confidence        int    `gorm:"type:int;default:0;index:idx_exp_confidence"` // 蒸馏置信度 0~100
 	SkillWorthy       bool   `gorm:"type:tinyint(1);default:0"`
 	SkillInstructions string `gorm:"type:text"`
 
@@ -124,6 +125,7 @@ func (r *experienceRepository) Save(ctx context.Context, exp *domain_experience.
 		Solution:          exp.Solution,
 		Tools:             marshalJSONArray(exp.Tools),
 		Tags:              marshalJSONArray(exp.Tags),
+		Confidence:        exp.Confidence,
 		SkillWorthy:       exp.SkillWorthy,
 		SkillInstructions: exp.SkillInstructions,
 		Status:            exp.Status,
@@ -135,7 +137,7 @@ func (r *experienceRepository) Save(ctx context.Context, exp *domain_experience.
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "session_id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"title", "problem", "solution", "tools", "tags",
+				"title", "problem", "solution", "tools", "tags", "confidence",
 				"skill_worthy", "skill_instructions", "status", "skill_name", "error", "updated_at",
 			}),
 		}).
@@ -206,6 +208,7 @@ func (m *AgentExperienceModel) toDomain() *domain_experience.Experience {
 		Solution:          m.Solution,
 		Tools:             unmarshalJSONArray(m.Tools),
 		Tags:              unmarshalJSONArray(m.Tags),
+		Confidence:        m.Confidence,
 		SkillWorthy:       m.SkillWorthy,
 		SkillInstructions: m.SkillInstructions,
 		Status:            m.Status,

@@ -81,6 +81,16 @@ func InitializeDefault() error {
 //
 // 仅加载「存在且含 SKILL.md」的目录；缺失目录由 SkillManager.LoadSkills 静默跳过。
 func InitializeFromEnv() error {
+	dirs := resolveSkillDirs()
+	if cwd, err := os.Getwd(); err == nil {
+		log.Printf("[Skill] Initializing from dirs %v (cwd=%s)", dirs, cwd)
+	}
+	return Initialize(dirs...)
+}
+
+// resolveSkillDirs 解析技能目录候选（LINK_SKILL_DIRS 优先，否则 DefaultSkillDirs）。
+// 加载侧（InitializeFromEnv）扫全部候选，写入侧（SkillDirFromEnv）取首个已存在者，二者共用此源。
+func resolveSkillDirs() []string {
 	var dirs []string
 	if env := strings.TrimSpace(os.Getenv("LINK_SKILL_DIRS")); env != "" {
 		for _, d := range strings.Split(env, ",") {
@@ -92,10 +102,23 @@ func InitializeFromEnv() error {
 	if len(dirs) == 0 {
 		dirs = DefaultSkillDirs()
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		log.Printf("[Skill] Initializing from dirs %v (cwd=%s)", dirs, cwd)
+	return dirs
+}
+
+// SkillDirFromEnv 返回经验蒸馏落盘 SKILL.md 的目标目录：取候选中「首个已存在的目录」，
+// 从而保证写入目录必落在加载扫描范围内（写 ⊆ 读），避免沉淀出的技能因目录不一致无法被复用。
+// 候选全不存在时回退首个候选（由调用方负责 MkdirAll）。
+func SkillDirFromEnv() string {
+	dirs := resolveSkillDirs()
+	for _, d := range dirs {
+		if info, err := os.Stat(d); err == nil && info.IsDir() {
+			return d
+		}
 	}
-	return Initialize(dirs...)
+	if len(dirs) > 0 {
+		return dirs[0]
+	}
+	return filepath.Join(".", "skills")
 }
 
 // DefaultSkillDirs 返回未显式配置 LINK_SKILL_DIRS 时的候选技能目录（按优先级）。

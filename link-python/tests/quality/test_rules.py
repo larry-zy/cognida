@@ -1,6 +1,5 @@
 """规则引擎测试。"""
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -8,7 +7,7 @@ import pytest
 import yaml
 
 from services.quality.rules import RuleEngine
-from services.quality.models import FieldRule, DimensionRule, FieldType, QualityRules
+from services.quality.models import FieldType, QualityRules
 
 
 @pytest.fixture

@@ -179,6 +179,11 @@ type agentImpl struct {
 	// 注入 LLM 语义摘要器（llmsummary）可显著提升折叠保真度，且其自带抽取式降级，绝不破坏主循环。
 	summarizer ctxeng.Summarizer
 
+	// counter 三级压缩（①逐条 / ③折叠触发线 / ③.5 剥离判定）统一使用的 token 计数器。
+	// nil 时默认字符启发式 ApproxTokenCounter；业务侧可经 WithTokenCounter 注入真实 BPE 分词器
+	// （bpecount），消除对「中文夹数字/百分号」分析型文本 ~30% 的低估、让折叠触发线不再偏晚。
+	counter ctxeng.TokenCounter
+
 	// Memory 和 Context Builder 支持
 	memoryService  MemoryService  // 记忆服务接口
 	contextBuilder ContextBuilder // 上下文构建器接口
@@ -963,6 +968,13 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		}
 		res.tokensUsed += usageTotalTokens(msg)
 
+		// sink 未返回消息也未报错/中止：视作自然结束，避免下面解引用 msg 崩溃。
+		if msg == nil {
+			res.iterations = i + 1
+			naturalFinish = true
+			break
+		}
+
 		// 检查是否有工具调用
 		if len(msg.ToolCalls) == 0 {
 			// 没有工具调用，模型主动收尾（Content 可能为空，但仍属自然结束，不应误判为达上限）
@@ -1033,6 +1045,15 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	return res, nil
 }
 
+// tokenCounter 返回本 agent 三级压缩统一使用的 token 计数器。未注入时降级为字符启发式
+// ApproxTokenCounter，保证零配置也能工作（能力自足、不反向依赖基础设施层）。
+func (a *agentImpl) tokenCounter() ctxeng.TokenCounter {
+	if a.counter != nil {
+		return a.counter
+	}
+	return ctxeng.ApproxTokenCounter{}
+}
+
 // normalizeContext 施加三级压缩之 ①单条消息 与 ③整段对话，就地治理运行时上下文。
 // 每次 ReAct 生成前调用；返回治理后的消息切片（可能是新切片）。三个阈值都未配置时原样返回。
 //
@@ -1045,7 +1066,7 @@ func (a *agentImpl) normalizeContext(ctx context.Context, messages []*schema.Mes
 	if len(messages) == 0 {
 		return messages
 	}
-	counter := ctxeng.ApproxTokenCounter{}
+	counter := a.tokenCounter()
 
 	// ① 单条消息超限 → 就地压缩（保 result_id）。跳过 messages[0]（Pinned 系统提示）。
 	if a.maxMessageTokens > 0 {
@@ -1110,7 +1131,11 @@ func totalMessageTokens(messages []*schema.Message, counter ctxeng.TokenCounter)
 	return t
 }
 
-// msgTokens 单条消息的上行 token = Content + ReasoningContent（thinking 链，见 totalMessageTokens 说明）。
+// msgTokens 单条消息的上行 token = Content + ReasoningContent（thinking 链，见 totalMessageTokens 说明）
+// + ToolCalls（工具调用意图）。tool_calls 的 Function.Name/Arguments 在 data agent 里常是整段 SQL 或
+// 大 JSON，且与 reasoning 同受回传契约约束——带工具调用的 assistant 轮在整个 ReAct 运行内会被逐轮上传。
+// 若只数 Content/ReasoningContent、漏掉 ToolCalls，就与漏 reasoning 属同一类系统性低估：上行体积被算小，
+// 128k 折叠 / reasoning 剥离触发线偏晚。故一并计入其 Name + Arguments 的 token。
 func msgTokens(m *schema.Message, counter ctxeng.TokenCounter) int {
 	if m == nil {
 		return 0
@@ -1118,6 +1143,9 @@ func msgTokens(m *schema.Message, counter ctxeng.TokenCounter) int {
 	t := counter.Count(m.Content)
 	if m.ReasoningContent != "" {
 		t += counter.Count(m.ReasoningContent)
+	}
+	for _, tc := range m.ToolCalls {
+		t += counter.Count(tc.Function.Name) + counter.Count(tc.Function.Arguments)
 	}
 	return t
 }
@@ -1421,11 +1449,16 @@ const maxObservationChars = 8000
 
 // compactObservation 压缩工具观察：超过上限则截断并标注，避免原始大结果逐字灌入上下文。
 // data-by-reference 的正道是工具回传 result_id 信封；本函数只兜底非信封化的超长输出。
+//
+// 硬不变量：盲切 runes[:上限] 可能把正文尾部的 result_id 一起切掉，而下游「按引用取回完整结果集」
+// 依赖它——故先从完整输出收集 result_id，截断后再经 EnsureResultIDsPresent 兜回缺失的引用，
+// 与 ① 路径 CapContentByTokens、③ 折叠 MaskObservation 的保真口径保持一致。
 func compactObservation(output string) string {
 	runes := []rune(output)
 	if len(runes) <= maxObservationChars {
 		return output
 	}
-	return string(runes[:maxObservationChars]) +
+	truncated := string(runes[:maxObservationChars]) +
 		fmt.Sprintf("\n...[观察已截断，省略 %d 字符；如需完整数据请按 result_id 取用]", len(runes)-maxObservationChars)
+	return ctxeng.EnsureResultIDsPresent(truncated, ctxeng.CollectResultIDs([]ctxeng.Turn{{Content: output}}))
 }

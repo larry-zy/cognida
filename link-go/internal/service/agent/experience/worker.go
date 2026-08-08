@@ -2,6 +2,7 @@ package experience
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -24,24 +25,33 @@ type Config struct {
 	BatchSize int
 	// MaxConcurrent 并发蒸馏上限（每次沉淀是一次独立 LLM 调用，需限流；默认 2）。
 	MaxConcurrent int
-	// DedupThreshold tools+tags 的 Jaccard 相似度阈值：达到则复用既有 skill、不再新建
-	//（避免同类套路反复生成 SKILL.md）。默认 0.8；<=0 关闭去重。
-	DedupThreshold float64
 	// StartFrom 起始时间下限（EXPERIENCE_START_FROM，默认零值=不限）：
 	// 只沉淀该时刻之后新建（created_at）的会话，历史存量不回溯分析。
 	StartFrom time.Time
+	// MinConfidence 质量门（EXPERIENCE_MIN_CONFIDENCE，默认 60）：蒸馏置信度低于此值的
+	// 经验记 skipped、不落图谱，避免低质经验污染未来召回。取值 0 等于关闭该门。
+	MinConfidence int
+	// PreGateEnabled 客观失败前置门（EXPERIENCE_PREGATE_ENABLED，默认开）：送蒸馏前用
+	// 廉价信号（回答未收尾/末轮工具全失败/用户末轮负反馈）筛掉明显失败会话，省一次 LLM 调用。
+	PreGateEnabled bool
+	// SkillMinConfidence 技能沉淀置信门（EXPERIENCE_SKILL_MIN_CONFIDENCE，默认 80）：
+	// 仅当经验被标记 skill_worthy 且置信度 ≥ 此值时才落成 SKILL.md。技能只增不减地进目录，
+	// 门槛高于图谱沉淀（MinConfidence），宁缺毋滥。0=不额外设限（仍受 skill_worthy 约束）。
+	SkillMinConfidence int
 }
 
 // DefaultConfig 返回带默认值的配置。
 func DefaultConfig() Config {
 	return Config{
-		Enabled:        false,
-		IdleTimeout:    15 * time.Minute,
-		ScanInterval:   1 * time.Minute,
-		MinMessages:    2,
-		BatchSize:      20,
-		MaxConcurrent:  2,
-		DedupThreshold: 0.8,
+		Enabled:            false,
+		IdleTimeout:        15 * time.Minute,
+		ScanInterval:       1 * time.Minute,
+		MinMessages:        2,
+		BatchSize:          20,
+		MaxConcurrent:      2,
+		MinConfidence:      60,
+		PreGateEnabled:     true,
+		SkillMinConfidence: 80,
 	}
 }
 
@@ -53,7 +63,6 @@ type Worker struct {
 	summarizer *Summarizer
 	graphSink  *GraphSink
 	skillSink  *SkillSink
-	dedup      *Deduplicator
 
 	sem      chan struct{}       // 并发限流信号量
 	inFlight map[string]struct{} // 处理中的会话（防同一会话被多轮扫描重复入队）
@@ -67,7 +76,8 @@ type Worker struct {
 	runMu   sync.Mutex
 }
 
-// NewWorker 组装经验沉淀 Worker。graphSink/skillSink 允许为 nil（对应能力未接线时静默跳过）。
+// NewWorker 组装经验沉淀 Worker。graphSink/skillSink 均允许为 nil
+// （对应图谱/技能沉淀能力未接线或未开启时静默跳过）。
 func NewWorker(
 	cfg Config,
 	expRepo domain_experience.ExperienceRepository,
@@ -92,7 +102,6 @@ func NewWorker(
 		summarizer: summarizer,
 		graphSink:  graphSink,
 		skillSink:  skillSink,
-		dedup:      NewDeduplicator(cfg.DedupThreshold),
 		sem:        make(chan struct{}, cfg.MaxConcurrent),
 		inFlight:   make(map[string]struct{}),
 		stopCh:     make(chan struct{}),
@@ -178,7 +187,7 @@ func (w *Worker) scanOnce() {
 	}
 }
 
-// process 蒸馏单个会话：拉消息 → LLM 蒸馏 → 落库 → 写图谱 → 写 skill。
+// process 蒸馏单个会话：拉消息 → LLM 蒸馏 → 落库 → 写图谱。
 func (w *Worker) process(sess *domain_experience.IdleSession) {
 	base := w.ctx
 	if base == nil {
@@ -201,6 +210,16 @@ func (w *Worker) process(sess *domain_experience.IdleSession) {
 		return
 	}
 
+	// 方案 B —— 客观失败前置门：送蒸馏前用廉价信号筛掉明显失败会话，省一次 LLM 调用。
+	// 记 skipped 占位（幂等），避免下轮反复重扫同一失败会话。
+	if w.cfg.PreGateEnabled {
+		if skip, reason := objectiveFailureGate(messages); skip {
+			log.Printf("[ExperienceWorker] 会话 %s 前置门跳过：%s", sess.SessionID, reason)
+			w.saveStatus(ctx, sess, domain_experience.StatusSkipped, "前置门："+reason)
+			return
+		}
+	}
+
 	exp, err := w.summarizer.Summarize(ctx, messages)
 	if err != nil {
 		log.Printf("[ExperienceWorker] 会话 %s 蒸馏失败: %v", sess.SessionID, err)
@@ -215,11 +234,24 @@ func (w *Worker) process(sess *domain_experience.IdleSession) {
 	exp.UserID = sess.UserID
 	exp.AgentType = sess.AgentType
 
-	// LLM 判定无可复用经验：记 skipped，仍写入以占位（幂等）。
+	// LLM 判定无可复用经验（含 success=false 折叠）：记 skipped，仍写入以占位（幂等）。
 	if exp.Title == "" && exp.Problem == "" && exp.Solution == "" {
 		exp.Status = domain_experience.StatusSkipped
 		if err := w.expRepo.Save(ctx, exp); err != nil {
 			log.Printf("[ExperienceWorker] 会话 %s 保存 skipped 失败: %v", sess.SessionID, err)
+		}
+		return
+	}
+
+	// 方案 A —— 质量门：置信度低于阈值的经验记 skipped、不落图谱，避免低质经验污染未来召回。
+	// MinConfidence=0 时关闭该门（放行全部非空经验）。
+	if w.cfg.MinConfidence > 0 && exp.Confidence < w.cfg.MinConfidence {
+		log.Printf("[ExperienceWorker] 会话 %s 质量门跳过：置信度 %d < %d",
+			sess.SessionID, exp.Confidence, w.cfg.MinConfidence)
+		exp.Status = domain_experience.StatusSkipped
+		exp.Error = fmt.Sprintf("质量门：置信度 %d < %d", exp.Confidence, w.cfg.MinConfidence)
+		if err := w.expRepo.Save(ctx, exp); err != nil {
+			log.Printf("[ExperienceWorker] 会话 %s 保存低置信 skipped 失败: %v", sess.SessionID, err)
 		}
 		return
 	}
@@ -238,44 +270,22 @@ func (w *Worker) process(sess *domain_experience.IdleSession) {
 		}
 	}
 
-	// 写 skill（仅 skill_worthy；失败不致命）。
-	// 近重复命中时复用既有 skill，避免同类套路反复生成一堆内容雷同的 SKILL.md。
-	if w.skillSink != nil && exp.SkillWorthy {
-		if dup := w.maybeDuplicate(ctx, exp); dup != nil {
-			exp.SkillName = dup.SkillName
-			log.Printf("[ExperienceWorker] 会话 %s 近重复命中，复用 skill=%q（源=%s）",
-				sess.SessionID, dup.SkillName, dup.SessionID)
+	// 沉淀可复用技能（SKILL.md）：与图谱同属本次蒸馏 pass 的下游产物。
+	// 仅当经验被标记 skill_worthy 且置信度达技能阈值时触发；成功则回填 SkillName 再存一次。
+	if w.skillSink != nil && exp.SkillWorthy && exp.Confidence >= w.cfg.SkillMinConfidence {
+		if name, err := w.skillSink.Write(ctx, exp); err != nil {
+			log.Printf("[ExperienceWorker] 会话 %s 沉淀技能失败: %v", sess.SessionID, err)
+		} else if name != "" && name != exp.SkillName {
+			exp.SkillName = name
 			if err := w.expRepo.Save(ctx, exp); err != nil {
-				log.Printf("[ExperienceWorker] 会话 %s 回写复用 skill_name 失败: %v", sess.SessionID, err)
-			}
-		} else {
-			name, err := w.skillSink.Write(ctx, exp)
-			if err != nil {
-				log.Printf("[ExperienceWorker] 会话 %s 写 skill 失败: %v", sess.SessionID, err)
-			} else if name != "" {
-				exp.SkillName = name
-				if err := w.expRepo.Save(ctx, exp); err != nil {
-					log.Printf("[ExperienceWorker] 会话 %s 回写 skill_name 失败: %v", sess.SessionID, err)
-				}
+				log.Printf("[ExperienceWorker] 会话 %s 回填技能名失败: %v", sess.SessionID, err)
+			} else {
+				log.Printf("[ExperienceWorker] 会话 %s 沉淀技能 %q", sess.SessionID, name)
 			}
 		}
 	}
 
-	log.Printf("[ExperienceWorker] 会话 %s 沉淀完成 title=%q skill=%q", sess.SessionID, exp.Title, exp.SkillName)
-}
-
-// maybeDuplicate 在同租户已生成 skill 的经验中找与 exp 近重复者（tools+tags 高度重合）。
-// 去重关闭或查询失败时返回 nil（降级为正常新建 skill，不阻断主流程）。
-func (w *Worker) maybeDuplicate(ctx context.Context, exp *domain_experience.Experience) *domain_experience.Experience {
-	if !w.dedup.Enabled() {
-		return nil
-	}
-	candidates, err := w.expRepo.FindSkillWorthyByTenant(ctx, exp.TenantID, 200)
-	if err != nil {
-		log.Printf("[ExperienceWorker] 会话 %s 查询近重复候选失败: %v", exp.SessionID, err)
-		return nil
-	}
-	return w.dedup.FindDuplicate(exp, candidates)
+	log.Printf("[ExperienceWorker] 会话 %s 沉淀完成 title=%q", sess.SessionID, exp.Title)
 }
 
 // saveStatus 落一条仅含状态/错误的占位记录（用于 failed/skipped，避免反复重试）。

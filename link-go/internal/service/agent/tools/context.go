@@ -16,6 +16,13 @@ type RAGQueryService interface {
 	Query(ctx interface{}, req *RAGQueryRequest) (*RAGQueryResult, error)
 }
 
+// ChunkFetcher 知识块精确拉取服务接口。
+// 与 RAGQueryService 的语义检索不同，这里按标量字段（kb/chunk/knowledge 等）精确过滤直取原文，
+// 不做向量相似度计算；租户与 KB 范围由适配器从 ctx 强制（与 rag_query 同治理）。
+type ChunkFetcher interface {
+	FetchChunks(ctx interface{}, req *FetchChunksRequest) (*FetchChunksResult, error)
+}
+
 // GraphQueryService 图谱查询服务接口
 type GraphQueryService interface {
 	GraphQuery(ctx interface{}, req *GraphQueryRequest) (*GraphQueryResult, error)

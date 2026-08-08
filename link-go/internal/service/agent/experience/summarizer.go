@@ -1,5 +1,5 @@
 // Package experience 实现会话经验自动沉淀：把一段已结束会话蒸馏为结构化经验，
-// 再分别写入知识图谱与（可选）SKILL.md。本文件是「蒸馏」环节：单次独立 LLM 调用。
+// 写入知识图谱。本文件是「蒸馏」环节：单次独立 LLM 调用。
 package experience
 
 import (
@@ -40,7 +40,7 @@ func NewSummarizer(llm LLM) *Summarizer {
 }
 
 // Summarize 把会话消息蒸馏为一条经验的 LLM 产出字段（不含落库元数据）。
-// 返回的 Experience 只填充 Title/Problem/Solution/Tools/Tags/SkillWorthy/SkillInstructions。
+// 返回的 Experience 只填充 Title/Problem/Solution/Tools/Tags。
 func (s *Summarizer) Summarize(ctx context.Context, messages []*domain_conversation.Message) (*domain_experience.Experience, error) {
 	if s.llm == nil {
 		return nil, fmt.Errorf("summarizer: llm 未注入")
@@ -64,22 +64,48 @@ func (s *Summarizer) Summarize(ctx context.Context, messages []*domain_conversat
 		Solution          string   `json:"solution"`
 		Tools             []string `json:"tools"`
 		Tags              []string `json:"tags"`
-		SkillWorthy       bool     `json:"skill_worthy"`
-		SkillInstructions string   `json:"skill_instructions"`
+		Success           *bool    `json:"success"`            // 指针：区分「模型未给」与「显式 false」
+		Confidence        int      `json:"confidence"`         // 0~100
+		SkillWorthy       bool     `json:"skill_worthy"`       // 是否值得抽象为可复用技能
+		SkillInstructions string   `json:"skill_instructions"` // skill_worthy 时的操作指引正文
 	}
 	if err := json.Unmarshal([]byte(extractJSON(resp.Content)), &parsed); err != nil {
 		return nil, fmt.Errorf("summarizer: llm 输出非合法 JSON: %w", err)
 	}
 
-	return &domain_experience.Experience{
+	exp := &domain_experience.Experience{
 		Title:             strings.TrimSpace(parsed.Title),
 		Problem:           strings.TrimSpace(parsed.Problem),
 		Solution:          strings.TrimSpace(parsed.Solution),
 		Tools:             dedupNonEmpty(parsed.Tools),
 		Tags:              dedupNonEmpty(parsed.Tags),
+		Confidence:        clampConfidence(parsed.Confidence),
 		SkillWorthy:       parsed.SkillWorthy,
 		SkillInstructions: strings.TrimSpace(parsed.SkillInstructions),
-	}, nil
+	}
+	// skill_worthy 但没给出指引正文 → 无正文不成技能，降级为普通经验，避免落出空壳 SKILL.md。
+	if exp.SkillWorthy && exp.SkillInstructions == "" {
+		exp.SkillWorthy = false
+	}
+	// success 显式为 false（会话未真正解决）→ 视为无可沉淀经验：折叠为空、置信 0、撤销技能沉淀，
+	// 交由 worker 的空值 skipped 路径统一处理，避免失败经验带着高分蒙混过关。
+	if parsed.Success != nil && !*parsed.Success {
+		exp.Title, exp.Problem, exp.Solution = "", "", ""
+		exp.Confidence = 0
+		exp.SkillWorthy, exp.SkillInstructions = false, ""
+	}
+	return exp, nil
+}
+
+// clampConfidence 把置信度夹到 [0,100]，容忍模型给出的越界值。
+func clampConfidence(c int) int {
+	if c < 0 {
+		return 0
+	}
+	if c > 100 {
+		return 100
+	}
+	return c
 }
 
 // buildTranscript 把消息拼装为「角色：正文」的可读对话文本，超长时保留最近若干条。

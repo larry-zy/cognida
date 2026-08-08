@@ -14,7 +14,7 @@ import (
 // Shared Mock Dependencies
 // ========================================
 // 注意：mockSessionRepository 与 mockMessageRepository 同时被
-// session_persistence_test.go 使用，请勿删除。
+// session_authz_test.go 使用，请勿删除。
 
 // mockLLMClient 模拟 llm.LLMClient
 type mockLLMClient struct {

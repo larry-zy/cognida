@@ -17,6 +17,7 @@ type CacheRequest struct {
 	TenantID       int64             // 租户 ID
 	AgentType      string            // Agent 类型
 	Model          string            // 模型名称
+	KBScope        []string          // 命中/写入所归属的知识库 id（供按库失效硬缓存；data agent 可留空）
 	Metadata       map[string]string // 附加元数据
 }
 
@@ -39,12 +40,21 @@ type CacheEntry struct {
 	AgentType     string            // Agent 类型
 	TenantID      int64             // 租户 ID
 	PromptHash    string            // Prompt 模板 hash
+	KBScope       []string          // 归属知识库 id 集合（供按库失效；持久化为哨兵逗号包裹字符串）
 	Vector        []float32         // 查询向量
 	CreatedAt     int64             // 创建时间（Unix 时间戳）
 	UpdatedAt     int64             // 更新时间
 	HitCount      int64             // 命中计数
 	TTL           time.Duration     // 过期时间
 	Metadata      map[string]string // 元数据
+}
+
+// RecalledExample 软语义缓存（few-shot）召回的一条历史问答。
+// 与硬缓存不同：不短路返回，仅作为参考示例注入上下文，由 LLM 结合实时数据重生成。
+type RecalledExample struct {
+	Query      string  // 历史用户查询
+	Response   string  // 历史回答
+	Similarity float32 // 与当前查询的相似度
 }
 
 // CacheStats 缓存统计
@@ -123,6 +133,9 @@ type CacheVectorRepository interface {
 
 	// DeleteByAgent 删除指定 Agent 类型的所有向量
 	DeleteByAgent(ctx context.Context, tenantID int64, agentType string) error
+
+	// DeleteByKB 删除某租户下归属指定知识库的所有向量（按库失效硬缓存）
+	DeleteByKB(ctx context.Context, tenantID int64, kbID string) error
 }
 
 // VectorSearchResult 向量搜索结果

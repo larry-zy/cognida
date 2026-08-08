@@ -32,16 +32,25 @@ func IsValidationError(err error) bool {
 // Knowledge Base Use Case Implementation
 // ========================================
 
+// KBCacheInvalidator 是 RAG 硬语义缓存对知识库服务暴露的窄失效接口
+// （由 infrastructure/cache.SemanticCacheService 实现）。知识库内容一旦变更（删库/删知识/删分块），
+// 该库沉淀的硬缓存答案即失效，须按 kbID 精确清除，避免旧知识以缓存形式续命。
+// 可选依赖：未接线（nil）时所有失效点恒等跳过，零回归。
+type KBCacheInvalidator interface {
+	InvalidateByKB(ctx context.Context, tenantID int64, kbID string) error
+}
+
 // knowledgeBaseService implements KnowledgeBaseService
 type knowledgeBaseService struct {
-	kbRepo        domain_knowledge.KnowledgeBaseRepository
-	kbSettingRepo domain_knowledge.KnowledgeBaseSettingRepository
-	knowledgeRepo domain_knowledge.KnowledgeRepository
-	chunkRepo     domain_knowledge.ChunkRepository
-	statsQuerier  domain_knowledge.KnowledgeStatsQuerier
-	vectorRepo    domain_knowledge.VectorRepository
-	graphRepo     domain_knowledge.GraphRepository
-	idGenerator   id.IDGenerator
+	kbRepo           domain_knowledge.KnowledgeBaseRepository
+	kbSettingRepo    domain_knowledge.KnowledgeBaseSettingRepository
+	knowledgeRepo    domain_knowledge.KnowledgeRepository
+	chunkRepo        domain_knowledge.ChunkRepository
+	statsQuerier     domain_knowledge.KnowledgeStatsQuerier
+	vectorRepo       domain_knowledge.VectorRepository
+	graphRepo        domain_knowledge.GraphRepository
+	idGenerator      id.IDGenerator
+	cacheInvalidator KBCacheInvalidator // 可选：RAG 硬缓存按库失效；nil 时跳过
 }
 
 // NewKnowledgeBaseService creates a new knowledge base service
@@ -69,6 +78,23 @@ func NewKnowledgeBaseService(
 // SetIDGenerator 设置 ID 生成器（主要用于测试）
 func (s *knowledgeBaseService) SetIDGenerator(generator id.IDGenerator) {
 	s.idGenerator = generator
+}
+
+// SetCacheInvalidator 注入 RAG 硬缓存按库失效器（组合根接线，可选）。
+// 传 nil 或不调用时，内容变更后不做缓存失效——零回归。
+func (s *knowledgeBaseService) SetCacheInvalidator(inv KBCacheInvalidator) {
+	s.cacheInvalidator = inv
+}
+
+// invalidateKBCache 在知识库内容变更后清除该库的 RAG 硬缓存（尽力而为，失败仅告警不阻断主流程）。
+// 未注入失效器（nil）时恒等跳过。
+func (s *knowledgeBaseService) invalidateKBCache(ctx context.Context, tenantID int64, kbID string) {
+	if s.cacheInvalidator == nil || kbID == "" {
+		return
+	}
+	if err := s.cacheInvalidator.InvalidateByKB(ctx, tenantID, kbID); err != nil {
+		log.Printf("[KnowledgeBaseService] Warning: failed to invalidate RAG cache for kb %s: %v", kbID, err)
+	}
 }
 
 // Create creates a new knowledge base
@@ -290,7 +316,11 @@ func (s *knowledgeBaseService) Delete(ctx context.Context, id string, tenantID i
 	if _, err := s.requireKB(ctx, id, tenantID); err != nil {
 		return err
 	}
-	return s.kbRepo.Delete(ctx, id)
+	if err := s.kbRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.invalidateKBCache(ctx, tenantID, id) // 库删除 → 清该库硬缓存
+	return nil
 }
 
 // Exists checks if a knowledge base exists
@@ -391,13 +421,18 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 	if s.statsQuerier == nil {
 		// Fallback: simple delete through knowledge repository
 		// Note: This won't delete chunks, so statsQuerier should be provided
-		return s.knowledgeRepo.Delete(ctx, knowledgeID)
+		if err := s.knowledgeRepo.Delete(ctx, knowledgeID); err != nil {
+			return err
+		}
+		s.invalidateKBCache(ctx, tenantID, kbID) // 知识删除 → 清该库硬缓存
+		return nil
 	}
 
 	// Delete from MySQL (knowledge and chunks)
 	if err := s.statsQuerier.DeleteKnowledgeWithChunks(ctx, kbID, knowledgeID); err != nil {
 		return err
 	}
+	s.invalidateKBCache(ctx, tenantID, kbID) // 知识删除 → 清该库硬缓存
 
 	// Delete from Milvus (vectors) —— 尽力而为，MySQL 已删除，向量删除失败不回滚。
 	// 注意：collection 名由 kbID 的前导数字派生（与写入侧 fmt.Sscanf 一致），
@@ -604,7 +639,11 @@ func (s *knowledgeBaseService) DeleteChunk(ctx context.Context, kbID string, ten
 		return err
 	}
 
-	return s.chunkRepo.Delete(ctx, chunkID)
+	if err := s.chunkRepo.Delete(ctx, chunkID); err != nil {
+		return err
+	}
+	s.invalidateKBCache(ctx, tenantID, kbID) // 分块删除 → 清该库硬缓存
+	return nil
 }
 
 // ========================================

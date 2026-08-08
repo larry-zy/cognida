@@ -36,7 +36,7 @@ class CSVParser(BaseParser):
         """
         try:
             import csv
-            from io import BytesIO, StringIO
+            from io import StringIO
 
             encoding = kwargs.get("encoding", "utf-8")
             delimiter = kwargs.get("delimiter", ",")

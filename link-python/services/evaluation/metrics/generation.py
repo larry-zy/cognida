@@ -2,7 +2,7 @@
 
 import math
 from collections import Counter
-from typing import List, Sequence
+from typing import List
 
 from pydantic import BaseModel
 

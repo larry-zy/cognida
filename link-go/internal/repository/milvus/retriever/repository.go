@@ -200,21 +200,6 @@ func (r *VectorRetriever) buildSchema(kbID int64, opts *CreateKnowledgeBaseOptio
 	return schema
 }
 
-// DeleteKnowledgeBase 删除知识库 (Collection)
-func (r *VectorRetriever) DeleteKnowledgeBase(ctx context.Context, kbID int64) error {
-	collectionName := r.getCollectionName(kbID)
-
-	// 使用新 SDK Option API
-	dropOpt := milvusclient.NewDropCollectionOption(collectionName)
-	err := r.client.DropCollection(ctx, dropOpt)
-	if err != nil {
-		return fmt.Errorf("drop collection failed: %w", err)
-	}
-
-	log.Printf("[Milvus] Data dropped from unified 'link' collection for kb_id: %d", kbID)
-	return nil
-}
-
 // HasKnowledgeBase 检查知识库是否存在
 func (r *VectorRetriever) HasKnowledgeBase(ctx context.Context, kbID int64) (bool, error) {
 	collectionName := r.getCollectionName(kbID)
@@ -1159,21 +1144,6 @@ func (r *VectorRetriever) DeleteByKnowledgeID(ctx context.Context, kbID int64, k
 	return nil
 }
 
-// DeleteByKnowledgeBaseID 按 kb_id 删除所有向量数据（删除整个知识库时使用）
-func (r *VectorRetriever) DeleteByKnowledgeBaseID(ctx context.Context, kbID int64) error {
-	collectionName := r.getCollectionName(kbID)
-
-	// 使用新 SDK Option API 删除整个 collection
-	dropOpt := milvusclient.NewDropCollectionOption(collectionName)
-	err := r.client.DropCollection(ctx, dropOpt)
-	if err != nil {
-		return fmt.Errorf("drop collection failed: %w", err)
-	}
-
-	log.Printf("[Milvus] Dropped collection %s", collectionName)
-	return nil
-}
-
 // DeleteByTenantID 按租户ID删除所有向量数据（用于租户删除场景）
 func (r *VectorRetriever) DeleteByTenantID(ctx context.Context, tenantID int64) error {
 	if tenantID <= 0 {
@@ -1308,8 +1278,8 @@ func (r *VectorRetriever) GetDeleteStats(ctx context.Context, kbID int64) (map[s
 
 // QueryOptions 查询选项
 type QueryOptions struct {
-	Expr         []string // 输出字段
-	OutputFields []string // 过滤表达式
+	Expr         []string // 过滤表达式（取 Expr[0] 作为 filter）
+	OutputFields []string // 输出字段
 	Limit        int64    // 限制数量
 	Offset       int64    // 偏移量
 }
@@ -1326,22 +1296,92 @@ func (r *VectorRetriever) Query(ctx context.Context, kbID int64, opts *QueryOpti
 		opts.Expr = []string{"id >= 0"} // 匹配所有
 	}
 	if len(opts.OutputFields) == 0 {
-		opts.OutputFields = []string{"id", "document_id", "chunk_index", "content", "metadata"}
+		// 与写入 schema 保持一致的真实字段（原默认含 document_id/metadata 两个本集合并不存在的字段，查询必空）。
+		opts.OutputFields = []string{
+			"id", "chunk_id", "knowledge_id", "kb_id", "tenant_id",
+			"chunk_index", "content", "is_enabled", "start_at", "end_at", "token_count",
+		}
 	}
 
 	// 使用新 SDK Option API 执行查询
 	queryOpt := milvusclient.NewQueryOption(collectionName)
 	queryOpt.WithFilter(opts.Expr[0])
 	queryOpt.WithOutputFields(opts.OutputFields...)
+	if opts.Limit > 0 {
+		queryOpt.WithLimit(int(opts.Limit))
+	}
+	if opts.Offset > 0 {
+		queryOpt.WithOffset(int(opts.Offset))
+	}
 	queryResult, err := r.client.Query(ctx, queryOpt)
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
 
-	// 解析结果
-	docs := make([]*DocumentData, 0)
-	// 这里简化处理，实际需要根据字段类型解析
-	_ = queryResult
+	// 解析结果 - 新 SDK 返回单个 ResultSet，按列(GetColumn)+行下标(Value)取值，
+	// 字段类型映射与 Search 解析保持一致，避免出错时返回空 docs 造成静默失效。
+	rowCount := queryResult.Len()
+	docs := make([]*DocumentData, 0, rowCount)
+	for i := 0; i < rowCount; i++ {
+		doc := &DocumentData{}
+		for _, fieldName := range opts.OutputFields {
+			col := queryResult.GetColumn(fieldName)
+			if col == nil {
+				continue
+			}
+			switch fieldName {
+			case "id":
+				if intCol, ok := col.(*column.ColumnInt64); ok {
+					val, _ := intCol.Value(i)
+					doc.ID = val
+				}
+			case "chunk_id", "knowledge_id", "kb_id":
+				if varcharCol, ok := col.(*column.ColumnVarChar); ok {
+					val, _ := varcharCol.Value(i)
+					switch fieldName {
+					case "chunk_id":
+						doc.ChunkID = val
+					case "knowledge_id":
+						doc.KnowledgeID = val
+					case "kb_id":
+						doc.KnowledgeBaseID = val
+					}
+				}
+			case "tenant_id", "chunk_index", "start_at", "end_at", "token_count":
+				if intCol, ok := col.(*column.ColumnInt64); ok {
+					val, _ := intCol.Value(i)
+					switch fieldName {
+					case "tenant_id":
+						doc.TenantID = val
+					case "chunk_index":
+						doc.ChunkIndex = int(val)
+					case "start_at":
+						doc.StartAt = val
+					case "end_at":
+						doc.EndAt = val
+					case "token_count":
+						doc.TokenCount = val
+					}
+				}
+			case "text":
+				if varcharCol, ok := col.(*column.ColumnVarChar); ok {
+					val, _ := varcharCol.Value(i)
+					doc.Text = val
+				}
+			case "content":
+				if varcharCol, ok := col.(*column.ColumnVarChar); ok {
+					val, _ := varcharCol.Value(i)
+					doc.Content = val
+				}
+			case "is_enabled":
+				if boolCol, ok := col.(*column.ColumnBool); ok {
+					val, _ := boolCol.Value(i)
+					doc.IsEnabled = val
+				}
+			}
+		}
+		docs = append(docs, doc)
+	}
 
 	return docs, nil
 }
@@ -1624,11 +1664,6 @@ func (a *VectorRepositoryAdapter) CreateCollection(ctx context.Context, kbID int
 		EnableDynamic: enableDynamic,
 	}
 	return a.retriever.CreateKnowledgeBase(ctx, kbID, createOpts)
-}
-
-// DropCollection implements VectorRepository.DropCollection
-func (a *VectorRepositoryAdapter) DropCollection(ctx context.Context, kbID int64) error {
-	return a.retriever.DeleteKnowledgeBase(ctx, kbID)
 }
 
 // HasCollection implements VectorRepository.HasCollection

@@ -2,9 +2,6 @@ package experience
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,7 +10,6 @@ import (
 
 	domain_experience "link/internal/model/agent/experience"
 	domain_conversation "link/internal/model/conversation"
-	"link/internal/service/agent/skills"
 )
 
 // fakeLLM 返回预置回复，忽略入参。
@@ -44,9 +40,7 @@ func TestSummarize_ParsesJSONWithFence(t *testing.T) {
       "problem":"用户想看上月各城市营收",
       "solution":"用 sql_execute 聚合 city 维度并出图",
       "tools":["sql_execute","render_ui","sql_execute"],
-      "tags":["电商分析","SQL"],
-      "skill_worthy":true,
-      "skill_instructions":"1. 明确时间范围\n2. 按 city 分组 SUM(revenue)\n3. render_ui 出柱状图"
+      "tags":["电商分析","SQL"]
     }` + "\n```"
 
 	s := NewSummarizer(&fakeLLM{reply: reply})
@@ -57,15 +51,91 @@ func TestSummarize_ParsesJSONWithFence(t *testing.T) {
 	if exp.Title != "按城市统计月度营收" {
 		t.Errorf("title = %q", exp.Title)
 	}
-	if !exp.SkillWorthy {
-		t.Error("expected skill_worthy=true")
-	}
 	// tools 去重：两个 sql_execute 应折叠为一个。
 	if len(exp.Tools) != 2 {
 		t.Errorf("tools dedup failed: %v", exp.Tools)
 	}
 	if len(exp.Tags) != 2 {
 		t.Errorf("tags = %v", exp.Tags)
+	}
+}
+
+func TestSummarize_ParsesConfidenceAndClamps(t *testing.T) {
+	reply := `{"title":"t","problem":"p","solution":"s","tools":["sql_execute"],"tags":["SQL"],"success":true,"confidence":150}`
+	exp, err := NewSummarizer(&fakeLLM{reply: reply}).Summarize(context.Background(), sampleMessages())
+	if err != nil {
+		t.Fatalf("summarize failed: %v", err)
+	}
+	if exp.Confidence != 100 {
+		t.Errorf("越界置信度应夹到 100, got %d", exp.Confidence)
+	}
+}
+
+func TestSummarize_SuccessFalseCollapsesToEmpty(t *testing.T) {
+	// success=false（会话未真正解决）→ 折叠为空 + 置信 0，交由 worker 空值 skipped 路径处理。
+	reply := `{"title":"看着像成功","problem":"p","solution":"s","tools":[],"tags":[],"success":false,"confidence":88}`
+	exp, err := NewSummarizer(&fakeLLM{reply: reply}).Summarize(context.Background(), sampleMessages())
+	if err != nil {
+		t.Fatalf("summarize failed: %v", err)
+	}
+	if exp.Title != "" || exp.Problem != "" || exp.Solution != "" {
+		t.Errorf("success=false 应折叠为空, got title=%q problem=%q solution=%q", exp.Title, exp.Problem, exp.Solution)
+	}
+	if exp.Confidence != 0 {
+		t.Errorf("success=false 置信度应归零, got %d", exp.Confidence)
+	}
+}
+
+func TestSummarize_MissingSuccessKeepsExperience(t *testing.T) {
+	// 模型未给 success 字段（指针为 nil）→ 不折叠，正常保留经验与置信度。
+	reply := `{"title":"t","problem":"p","solution":"s","tools":[],"tags":[],"confidence":75}`
+	exp, err := NewSummarizer(&fakeLLM{reply: reply}).Summarize(context.Background(), sampleMessages())
+	if err != nil {
+		t.Fatalf("summarize failed: %v", err)
+	}
+	if exp.Title != "t" || exp.Confidence != 75 {
+		t.Errorf("缺 success 字段应保留经验, got title=%q conf=%d", exp.Title, exp.Confidence)
+	}
+}
+
+func TestSummarize_ParsesSkillFields(t *testing.T) {
+	reply := `{"title":"t","problem":"p","solution":"s","tools":["sql_execute"],"tags":["SQL"],"success":true,"confidence":90,"skill_worthy":true,"skill_instructions":"1. 先取 schema\n2. 聚合"}`
+	exp, err := NewSummarizer(&fakeLLM{reply: reply}).Summarize(context.Background(), sampleMessages())
+	if err != nil {
+		t.Fatalf("summarize failed: %v", err)
+	}
+	if !exp.SkillWorthy {
+		t.Error("skill_worthy 应解析为 true")
+	}
+	if !strings.Contains(exp.SkillInstructions, "聚合") {
+		t.Errorf("skill_instructions 未解析: %q", exp.SkillInstructions)
+	}
+}
+
+func TestSummarize_SkillWorthyWithoutInstructionsDowngrades(t *testing.T) {
+	// skill_worthy=true 但没给指引正文 → 无正文不成技能，降级为普通经验。
+	reply := `{"title":"t","problem":"p","solution":"s","tools":[],"tags":[],"success":true,"confidence":90,"skill_worthy":true,"skill_instructions":"   "}`
+	exp, err := NewSummarizer(&fakeLLM{reply: reply}).Summarize(context.Background(), sampleMessages())
+	if err != nil {
+		t.Fatalf("summarize failed: %v", err)
+	}
+	if exp.SkillWorthy {
+		t.Error("空指引应把 skill_worthy 降级为 false")
+	}
+	if exp.Title != "t" {
+		t.Errorf("普通经验应保留, got title=%q", exp.Title)
+	}
+}
+
+func TestSummarize_SuccessFalseClearsSkill(t *testing.T) {
+	// success=false → 连同技能字段一并撤销。
+	reply := `{"title":"t","problem":"p","solution":"s","tools":[],"tags":[],"success":false,"confidence":90,"skill_worthy":true,"skill_instructions":"steps"}`
+	exp, err := NewSummarizer(&fakeLLM{reply: reply}).Summarize(context.Background(), sampleMessages())
+	if err != nil {
+		t.Fatalf("summarize failed: %v", err)
+	}
+	if exp.SkillWorthy || exp.SkillInstructions != "" {
+		t.Errorf("success=false 应撤销技能, got worthy=%v instr=%q", exp.SkillWorthy, exp.SkillInstructions)
 	}
 }
 
@@ -93,121 +163,6 @@ func TestBuildTranscript_TruncatesLongContent(t *testing.T) {
 	if !strings.Contains(tr, "截断") {
 		t.Error("expected truncation marker")
 	}
-}
-
-func TestSlugify(t *testing.T) {
-	cases := map[string]string{
-		"Hello World!!!":  "hello-world",
-		"  多个   空格 test ": "多个-空格-test",
-		"---":             "",
-	}
-	for in, want := range cases {
-		if got := slugify(in); got != want {
-			t.Errorf("slugify(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestSkillSink_WritesAndIsIdempotent(t *testing.T) {
-	root := t.TempDir()
-	sink := NewSkillSink(root)
-	exp := &domain_experience.Experience{
-		ID:                7,
-		SessionID:         "sess-1",
-		Title:             "按城市统计营收",
-		Problem:           "用户想看各城市营收",
-		Solution:          "sql 聚合",
-		Tools:             []string{"sql_execute"},
-		Tags:              []string{"SQL"},
-		SkillWorthy:       true,
-		SkillInstructions: "按 city 分组 SUM(revenue)",
-	}
-
-	name, err := sink.Write(context.Background(), exp)
-	if err != nil {
-		t.Fatalf("write failed: %v", err)
-	}
-	if name == "" {
-		t.Fatal("expected non-empty skill name")
-	}
-
-	path := filepath.Join(root, name, "SKILL.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("SKILL.md not written: %v", err)
-	}
-	body := string(data)
-	if !strings.Contains(body, "name: ") || !strings.Contains(body, "按 city 分组") {
-		t.Errorf("SKILL.md missing expected content:\n%s", body)
-	}
-	if !strings.Contains(body, "disable_model_invocation: true") {
-		t.Error("expected disable_model_invocation frontmatter")
-	}
-
-	// 幂等：再次写入不报错、不覆盖，返回同名。
-	name2, err := sink.Write(context.Background(), exp)
-	if err != nil || name2 != name {
-		t.Fatalf("idempotent write failed: name2=%q err=%v", name2, err)
-	}
-}
-
-func TestSkillSink_SkipsWhenNotWorthy(t *testing.T) {
-	sink := NewSkillSink(t.TempDir())
-	exp := &domain_experience.Experience{ID: 1, SkillWorthy: false, SkillInstructions: "x"}
-	name, err := sink.Write(context.Background(), exp)
-	if err != nil || name != "" {
-		t.Fatalf("expected skip, got name=%q err=%v", name, err)
-	}
-}
-
-// 自进化沉淀出的中文名技能，其 name 必须能通过注册器校验，否则加载即被拒。
-// 这是「沉淀 → 加载」闭环的契约测试，锁死中文名注册失败的回归。
-func TestSkillSink_ChineseTitleNameIsRegistrable(t *testing.T) {
-	root := t.TempDir()
-	sink := NewSkillSink(root)
-	exp := &domain_experience.Experience{
-		ID:                42,
-		SessionID:         "sess-cjk",
-		Title:             "电商核心经营指标综合报告生成",
-		Problem:           "用户需要一份电商核心经营指标的综合报告",
-		Tools:             []string{"data_analysis"},
-		SkillWorthy:       true,
-		SkillInstructions: "按 GMV/订单数/客单价聚合并整合报告",
-	}
-	name, err := sink.Write(context.Background(), exp)
-	if err != nil {
-		t.Fatalf("write failed: %v", err)
-	}
-	if !skills.IsValidSkillName(name) {
-		t.Fatalf("generated name %q fails IsValidSkillName — 沉淀出的技能将无法注册", name)
-	}
-	// 真正回读并加载，确认落盘的 SKILL.md 能被注册器接收。
-	res, err := NewSkillManagerLoad(t, filepath.Join(root, name))
-	if err != nil {
-		t.Fatalf("load generated skill: %v", err)
-	}
-	if len(res) == 0 {
-		t.Fatalf("generated CJK-named skill %q was not registered on load", name)
-	}
-}
-
-// NewSkillManagerLoad 加载单个技能目录，返回成功注册的技能名列表（测试辅助）。
-func NewSkillManagerLoad(t *testing.T, skillDir string) ([]string, error) {
-	t.Helper()
-	m := skills.NewSkillManager()
-	// 传入父目录，LoadSkills 会扫描其下含 SKILL.md 的子目录。
-	res, err := m.LoadSkills(filepath.Dir(skillDir))
-	if err != nil {
-		return nil, err
-	}
-	if len(res.Errors) > 0 {
-		return nil, fmt.Errorf("load errors: %v", res.Errors)
-	}
-	names := make([]string, 0, len(res.Skills))
-	for _, s := range res.Skills {
-		names = append(names, s.Name)
-	}
-	return names, nil
 }
 
 func TestGraphSink_NilRepoNoop(t *testing.T) {

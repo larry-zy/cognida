@@ -136,7 +136,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -167,7 +167,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -183,7 +183,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -214,7 +214,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -230,7 +230,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -246,7 +246,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		_, err := sqlExecute(ctx, req, db, nil, nil)
+		_, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error for DELETE SQL, got nil")
 		}
@@ -377,7 +377,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, queryReq, db, nil, nil)
+		result, err := sqlExecute(ctx, queryReq, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -405,7 +405,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}

@@ -3,14 +3,17 @@ package dataagent
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 
 	domainagent "link/internal/model/agent"
 	"link/internal/model/conversation"
+	"link/internal/service/agent/context/bpecount"
 	"link/internal/service/agent/context/llmsummary"
 	"link/internal/service/agent/convcontext"
+	experiencesvc "link/internal/service/agent/experience"
 	infraagent "link/internal/service/agent/framework"
 	"link/internal/service/agent/skills"
 	toolregistry "link/internal/service/agent/tools"
@@ -18,6 +21,11 @@ import (
 
 // DataAgentID 是 Data Agent 预设的注册 ID。
 const DataAgentID = "agent-data-agent"
+
+// DataAgentCacheKey 是 data agent 在语义缓存策略中的逻辑键。
+// 注意：data agent 与 RAG 助手的领域 AgentType 同为 agentic_rag，故用此逻辑键
+// （而非 AgentType）隔离命名空间与开关，避免二者软/硬缓存互相串味。
+const DataAgentCacheKey = "data_agent"
 
 const (
 	// defaultMaxIter 单一 ReAct 循环默认最大步数。长对话/深下钻放宽到 24 步：
@@ -71,10 +79,16 @@ func collectCapabilityTools(ctx context.Context, registry *toolregistry.ToolRegi
 // 四类能力的 ReAct 循环 Agent（入口意图路由 BeforeHook，maxIter + token 预算约束，
 // 委派能力，可选跨轮对话记忆）。
 // msgRepo 非 nil 时启用跨轮对话记忆：从 messages 表回放会话历史，装配多轮上下文。
+// recaller 非 nil 时启用「历史经验召回」首答注入（自进化读侧）；nil 时恒等透传。
+// softCache 非 nil 且启用时，data agent 应答经软写穿装饰器回写语义缓存，供后续会话 few-shot 召回
+//（写侧；读侧由 fewShot 的 Before hook 承担）。nil 时恒等透传，零回归。
 func Spec(
 	toolModel model.ToolCallingChatModel,
 	msgRepo conversation.MessageRepository,
 	registry *toolregistry.ToolRegistry,
+	recaller *experiencesvc.GraphRecaller,
+	fewShot SemanticRecaller,
+	softCache infraagent.ResponseCache,
 	guardrail ...infraagent.GuardrailDecorator,
 ) infraagent.AgentSpec {
 	// 组合根护栏装配器（可选变参，避免破坏既有 Spec 调用）；未传 → nil 恒等（零回归）。
@@ -94,7 +108,7 @@ func Spec(
 			"kernel":  "reason-act-observe",
 		},
 		Build: func(ctx context.Context) (infraagent.Agent, error) {
-			return buildDataAgent(ctx, toolModel, msgRepo, registry, gd)
+			return buildDataAgent(ctx, toolModel, msgRepo, registry, recaller, fewShot, softCache, gd)
 		},
 	}
 }
@@ -106,6 +120,9 @@ func buildDataAgent(
 	toolModel model.ToolCallingChatModel,
 	msgRepo conversation.MessageRepository,
 	registry *toolregistry.ToolRegistry,
+	recaller *experiencesvc.GraphRecaller,
+	fewShot SemanticRecaller,
+	softCache infraagent.ResponseCache,
 	guardrail infraagent.GuardrailDecorator,
 ) (infraagent.Agent, error) {
 	if toolModel == nil {
@@ -130,6 +147,14 @@ func buildDataAgent(
 		return nil, fmt.Errorf("data agent 预设未收集到任何能力工具（分组均未注册）")
 	}
 
+	// 真实 BPE token 计数器（内嵌 DeepSeek 词表）：三级压缩的触发线（①逐条 / ③折叠 / ③.5 剥离）
+	// 与开场装配的预算治理统一用它。字符启发式会对「中文夹数字/百分号」的分析型回答（Data Agent 主流量）
+	// 低估约 30% → 折叠触发偏晚；真实分词消除该偏差。加载失败时自动降级为启发式，绝不阻断 Agent 启动。
+	tokenCounter, exact := bpecount.NewOrApprox()
+	if !exact {
+		log.Printf("[Agent] DataAgent：内嵌 BPE 分词器加载失败，token 计数降级为字符启发式（折叠触发线可能偏晚）")
+	}
+
 	builder := infraagent.New(nil).
 		Name("DataAgent").
 		Prompt(skills.AugmentPromptWithCatalog(systemPrompt)). // 追加技能目录（Level 1 渐进式披露）
@@ -137,12 +162,15 @@ func buildDataAgent(
 		Tools(tools...).
 		Before(toolPolicyHook()).               // 硬工具门：以原始消息匹配 skill，须先于 playbook 注入
 		Before(intentRoutingHook(toolModel)).   // LLM 意图分类（词法兜底），注入对应 playbook
-		Before(skills.InjectFromContextHook()). // 末位：把入口暂存的命中 skill 指导自动注入（自动注入）
+		Before(skills.InjectFromContextHook()). // 把入口暂存的命中 skill 指导自动注入（自动注入）
+		Before(experienceRecallHook(recaller)).                 // 图谱经验召回（结构化问题→解法）
+		Before(semanticFewShotHook(fewShot, DataAgentCacheKey)). // 末位：软语义缓存 few-shot（相似历史问答向量近邻，与图谱召回互补）
 		WithMaxIterations(defaultMaxIter).
 		WithTokenBudget(defaultTokenBudget).
 		WithContextCompaction(compactTriggerTokens, compactTargetTokens). // ③整段对话：累计≥128k就地折叠回~64k
 		WithMaxMessageTokens(maxMessageTokens).                           // ①单条消息：>32k先压该条（保 result_id）
 		WithReasoningEviction(reasoningEvictTokens).                      // ③.5陈旧思考：旧轮reasoning累计≥16k整轮折走，只留本轮thinking
+		WithTokenCounter(tokenCounter).                                   // 三级压缩统一用真实 BPE 计数（消除对分析型文本的低估）
 		WithCollaboration(collabRegistry, infraagent.EnableDelegate())
 	if msgRepo != nil {
 		// 跨轮对话记忆：读 messages 表回放历史（与 UI 同源，只读不写），启用 framework 记忆分支。
@@ -150,7 +178,8 @@ func buildDataAgent(
 		// 折叠共用同一套语义压缩口径；toolModel 不可用时 llmsummary 内部退化为确定性抽取式。
 		builder = builder.WithContextBuilder(
 			convcontext.NewConversationContextBuilder(msgRepo).
-				WithSummarizer(llmsummary.New(toolModel)),
+				WithSummarizer(llmsummary.New(toolModel)).
+				WithCounter(tokenCounter), // 与运行时 ③ 折叠共用同一 BPE 计数口径，开场/运行时估算一致
 		)
 	}
 	// 组合根护栏装配（默认关闭 → 恒等，零回归）：输入把关 + 逐工具/最终输出脱敏，
@@ -161,5 +190,8 @@ func buildDataAgent(
 	if err != nil {
 		return nil, fmt.Errorf("构建 Data Agent 失败: %w", err)
 	}
-	return reactAgent, nil
+	// 软写穿装饰（写侧）：softCache 非 nil 且启用时，每次应答回写语义缓存供后续 few-shot 召回；
+	// 从不短路（数据会变，读侧由 semanticFewShotHook 注入参考、LLM 结合实时数据重算）。
+	// nil 或未启用时 NewWriteThroughAgent 恒等透传，零回归。
+	return infraagent.NewWriteThroughAgent(reactAgent, softCache, DataAgentCacheKey), nil
 }

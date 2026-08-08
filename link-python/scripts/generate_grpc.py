@@ -4,7 +4,6 @@
     python scripts/generate_grpc.py
 """
 
-import os
 import subprocess
 from pathlib import Path
 

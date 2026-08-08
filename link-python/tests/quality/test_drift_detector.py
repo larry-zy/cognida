@@ -2,9 +2,8 @@
 
 import pandas as pd
 import pytest
-from datetime import datetime
 
-from services.quality.drift_detector import DriftDetector, DriftResult, DriftMetric
+from services.quality.drift_detector import DriftDetector, DriftResult
 
 
 @pytest.fixture

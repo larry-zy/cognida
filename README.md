@@ -6,8 +6,8 @@
 
 一个受治理、可评测、可安全执行的数据智能体，覆盖数据与知识的全生命周期
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![Python Version](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python)](https://www.python.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![Python Version](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 </div>
@@ -55,11 +55,11 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 
 | 生命周期 → | ①收集/接入 | ②清洗/达标 | ③沉淀/资产化 | ④分析/决策 | ⑤评测/进化 |
 |-----------|-----------|-----------|-------------|-----------|-----------|
-| **结构化数据** | 多数据源接入 ✅<br>数仓接入分析 🚧<br>Agent 自动收集 🚧 | 数据质量中心 ✅<br>数据清洗 ✅<br>数据达标(自动+人工) 🚧 | 指标语义层(治理口径) ✅<br>Result Store ✅<br>数据特征化(自动) 🚧<br>特征存储 🚧 | Data Agent(DaDa) ✅<br>Text2SQL ✅<br>自我修复(错误分级/schema 引导/失败护栏/重规划) ✅<br>数仓分析 🚧<br>A2UI 生成式 UI ✅ | 轨迹级 Agent 评测 ✅<br>数据漂移检测 ✅<br>Agent 自进化/经验沉淀(默认关) ✅<br>进化回路(评测反哺) 🚧 |
-| **非结构化知识** | 知识库上传(多格式/OCR) ✅<br>Agent 自动收集 🚧 | 非结构化质量评估 ✅<br>上传去重 ✅<br>数据标注/达标 🚧 | 知识库/智能分块/向量化 ✅<br>知识图谱抽取 ✅<br>Memory 长期记忆 ✅ | 知识库助手(Agentic RAG) ✅<br>图谱检索/多跳 ✅<br>DeepResearch ✅ | RAG 评测(faithfulness 等) ✅<br>检索/生成指标 ✅ |
+| **结构化数据** | 多数据源接入 ✅<br>数仓接入分析 🚧<br>Agent 自动收集 🚧 | 数据质量中心 ✅<br>数据清洗 ✅<br>数据达标(自动+人工) 🚧 | 指标语义层(治理口径) ✅<br>Result Store ✅<br>数据特征化(自动) 🚧<br>特征存储 🚧 | Data Agent(DaDa) ✅<br>Text2SQL(内核内) ✅<br>自我修复(错误分级/schema 引导/列值回注/失败护栏/重规划) ✅<br>数仓分析 🚧<br>A2UI 生成式 UI ✅ | 轨迹级 Agent 评测 ✅<br>Text2SQL/SQL 评测 ✅<br>Agent 自进化/经验沉淀(默认关) ✅<br>数据漂移检测 🚧<br>进化回路(评测反哺) 🚧 |
+| **非结构化知识** | 知识库上传(多格式/委派 OCR) ✅<br>Agent 自动收集 🚧 | 非结构化质量评估 ✅<br>上传去重 ✅<br>数据标注/达标 🚧 | 知识库/智能分块/向量化 ✅<br>知识图谱抽取 ✅<br>跨轮对话记忆 ✅<br>长期记忆(接口预留) 🚧 | 知识库助手(Agentic RAG) ✅<br>图谱检索/多跳 ✅<br>DeepResearch(简化版) ✅ | RAG 评测(faithfulness 等) ✅<br>检索/生成指标 ✅ |
 | **贯穿层（两者共用）** | \ | Agent 内核(ReAct / DeepResearch / 多 Agent 协作 / 编排 / 反思 / Hooks)、安全与治理(scope 门控/写确认/只读加固)、LLM 统一弹性、多租户 RBAC、审计 + request_id + Loki 可观测、Skill/MCP 扩展 | | | / |
 
-> **诚实标注**：结构化侧的「①自动收集」「③特征化」是当前主要的"洞"。⑤的**经验沉淀链路已接线但默认关**（反思 + 会话蒸馏两套并存，见下），真正缺的是「**评测结论自动反哺收集/沉淀策略**」这段回路——把已有工位之间的传送带接上、并默认打开，这个环才算真正**自己转起来**。
+> **诚实标注**：结构化侧的「①自动收集」「③特征化」是当前主要的"洞"。⑤的**经验沉淀链路已接线但默认关**（会话蒸馏为唯一进化通道，写侧/读侧/SKILL 落地各自独立门控），真正缺的是「**评测结论自动反哺收集/沉淀策略**」这段回路——把已有工位之间的传送带接上、并默认打开，这个环才算真正**自己转起来**。
 
 ---
 
@@ -68,49 +68,53 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 ### Agent 内核
 
 - **ReAct 编排**：推理-行动循环，统一 Eino Tool 框架
-- **DeepResearch**：深度研究模式，多步推理与验证，生成结构化报告
+- **上下文工程**：三级压缩（① 单条 >32k 就地压缩 · ② 全对话累计 ≥128k 折叠回 ~64k，按整轮折叠保 tool 配对，A 级观测遮蔽 + B 级摘要 · ③ 陈旧推理驱逐 16k），配套 `bpecount` 真实 BPE 计数（内嵌 DeepSeek-V3 tokenizer，`//go:embed`）而非字符估算
+- **DeepResearch**：深度研究模式，多步推理生成结构化报告（**简化版**，多源引用/验证规划中）
 - **Multi-Agent 协作**：任务分解、智能分发、结果聚合；委托含「上下文防火墙」+ 委托轨迹穿透（供评测/审计）
 - **编排原语**：Sequential / Parallel / Loop / Conditional / Supervisor
-- **反思 / 评审（critic）**：可插拔 LLM / 规则评审子系统，答前自检
-- **Agent Hooks**：数据结论生成、意图澄清、反思与自我修正
+- **反思 / 评审（critic）**：可插拔 LLM / 规则评审子系统（Actor-Critic-Memory），按 Agent 配置启用
+- **Agent Hooks**：数据结论生成、意图澄清、反思、自我修正护栏、guardrail、工具策略（按预设装配）
 - **流式响应**：SSE 实时输出，结论/图表边推理边下发
-- **Agent 自进化（经验沉淀，默认关）**：后台异步、不阻塞对话——**会话经验蒸馏**：空闲会话经 LLM 蒸馏为 SKILL.md + 知识图谱 + 经验库，SKILL.md 经渐进式披露注入后续回答（`EXPERIENCE_DISTILL_ENABLED`）
+- **Agent 自进化（经验沉淀，默认关）**：后台异步、不阻塞对话——**会话经验蒸馏**：空闲会话经 LLM 蒸馏为 SKILL.md + 知识图谱 + 经验库，图谱召回在首答注入历史经验；写侧 `EXPERIENCE_DISTILL_ENABLED`、读侧 `EXPERIENCE_RECALL_ENABLED`、SKILL 落地 `EXPERIENCE_SKILL_SINK_ENABLED` 各自独立（均默认关），非 LLM 客观失败门 `EXPERIENCE_PREGATE_ENABLED` 默认开
 
 ### 结构化数据：查询 · 分析 · 安全操作
 
-- **Data Agent（DaDa）**：单一 ReAct 内核驱动的 取数 → 分析 → 渲染 → 操作 闭环，子代理委派
-- **Text2SQL**：Plan-Execute-Reflect（顺序编排 + 重试），Schema 感知、多轮对话、结果解释
+- **Data Agent（DaDa）**：单一 ReAct 内核驱动的 取数 → 分析 → 渲染 → 操作 闭环，意图路由 → playbook，分层子代理委派（SchemaExplorer / SQLAuthor / Analysis / Operation / Viz 叶子 + Insight / Report 编排器）
+- **Text2SQL**：**运行在 Data Agent ReAct 内核内**（`get_schema` + `sql_execute` + `semantic_query` 工具循环 + 下述自我修复），而非独立的 Plan-Execute-Reflect 智能体；Schema 感知、多轮对话、结果解释
 - **指标语义层（NL2Semantics）**：在 LLM 与数仓之间引入受治理的指标语义层，把「裸写 SQL」升级为「按中心化口径生成 SQL」，附覆盖率统计（covered / cache_hit / fallback）
 - **多数据源接入**：MySQL / PostgreSQL，凭据 AES-256-GCM 加密、连接池、健康检查、`information_schema` 内省，外部源视为**只读外部资源**
 - **A2UI 生成式 UI**：`render_ui` 随流下发 UISpec，图表/表格/结论实时绘制到结果画布；Result Store 中间结果落库、会话重开恢复画布
 - **安全执行**：会话按 `read / write / etl` 分级，写操作走危险操作确认卡（二次确认 + 令牌时效）；查询默认只读、自动 LIMIT、关键字黑名单、超时保护
-- **自我修复（业务层闭环）**：SQL/取数报错时不止于重试——① **结构化错误分级**（`syntax / unknown_column / unknown_table / permission / timeout / transient`，按 MySQL 错误码，`sql_error.go` `classifySQLError`）；② **schema 线索回注**（列不存在回传该表可用列、表不存在回传近似候选表，经 `information_schema` 现取，`buildSchemaHint`）；③ **重复失败护栏**（按 `tool:error_kind` 计数，触顶提前收尾并转部分结论，`self_repair_guard.go`，防无限失败循环）；④ **动态重规划**（同一失败签名达阈值注入再规划提示，引导换路径而非原样重试）
+- **自我修复（业务层闭环）**：SQL/取数报错时不止于重试——① **结构化错误分级**（`syntax / unknown_column / unknown_table / permission / timeout / transient`，按 MySQL 错误码，`sql_error.go` `classifySQLError`）；② **schema 线索回注**（列不存在回传该表可用列、表不存在回传近似候选表，经 `information_schema` 现取，`buildSchemaHint`；并对枚举/取值列回注真实取值 `columnFactsHint`）；③ **重复失败护栏**（按 `tool:error_kind` 计数，触顶提前收尾并转部分结论，`self_repair_guard.go`，防无限失败循环）；④ **动态重规划**（同一失败签名达阈值注入再规划提示，引导换路径而非原样重试）
 
 ### 非结构化知识：检索 · 图谱 · 记忆
 
-- **Agentic RAG**：Milvus 语义向量 + BM25 全文双路召回，重排序精排；HyDE / 查询重写 / 多跳检索可组合开启
+- **统一检索能力（`RetrievalCapability`）**：Agent 工具与 REST 接口同源——Milvus 语义向量 + BM25 全文双路召回，RRF 融合、可插拔重排精排、按知识库有界并发扇出（上限 8）；`kb_fetch_chunks` 支持定位原文片段。HyDE / 查询重写 / 多跳仅作为**独立 REST 优化器端点**提供，尚未做成 Agent 内可组合工具
 - **知识库范围强制**：范围经会话入口选定并由 ctx 强制透传，工具层求交拒绝越权
 - **知识图谱**：文档入库时 LLM 并发抽取实体关系三元组，Neo4j 存储；图谱检索支撑关系/关联/溯源类问答；图谱提取=库级开关、检索=提问级开关；一键补建、图谱管理与可视化
-- **知识库管理**：PDF / Word / Excel / Markdown / TXT，智能分块、向量化、OCR、按 file hash 去重预检
-- **Memory 系统**：长期记忆、用户偏好、跨轮对话记忆，基于 Milvus 的语义检索
+- **知识库管理**：PDF / Word / Excel / Markdown / TXT，智能分块、向量化、OCR（委派 Python 文档服务，默认 `ExtractImages:false`）、按 file hash 去重预检
+- **跨轮对话记忆**：会话内多轮消息回放注入（`model/memory` 仅定义长期记忆/偏好接口，暂无落地实现）
 
 ### 质量 · 评测（可信与度量）
 
-- **数据质量中心**：完整性 / 一致性 / 准确性 / 有效性 / 唯一性打分；非结构化质量（可读性/信息密度/语言质量）；数据清洗（去噪/去重/格式转换）；质量流水线；数据漂移检测
-- **评测子系统**：QA / RAG / Agent 三类评测，**Go 编排/执行/存储，Python 计算打分**，grader 注册表为单一事实源
+- **数据质量中心**：完整性 / 一致性 / 准确性 / 有效性 / 唯一性 / 时效性打分（维度由 Python 动态返回）；非结构化质量（可读性/信息密度/语言质量 + PII 检测）；数据清洗（去噪/去重/格式转换）。Go 端为薄代理，实际计算委派 Python gRPC（数据漂移检测规划中）
+- **评测子系统**：QA / RAG / Agent / **Text2SQL(SQL)** 四类评测，**Go 编排/执行/存储，Python 计算打分**，grader 注册表为单一事实源
   - 检索指标：Recall@K、Precision@K、MRR、NDCG、MAP
   - 生成指标：BLEU、ROUGE、语义相似度
   - RAG 专项：faithfulness、context_relevance、noise_ratio
   - **Agent 轨迹级**：答案准确性、工具选择、工具顺序、轨迹匹配、步骤效率
+  - **Text2SQL/SQL**：`sql_exact_match`、`sql_component_match`、`sql_execution_accuracy`（Go 只读执行金标准 + 生成两条 SQL，Python 无序比对结果集；SQL 评测自动剔除 ROUGE/BLEU 生成类评分器）
+  - 规则类：exact / contains / regex / numeric
   - LLM-as-a-Judge：多维裁判（事实正确性、内容安全性等）
   - 独立 FastAPI 评测服务（默认 :18888），前端指标可视化配置与结果明细一体化
 
 ### 平台底座
 
-- **多租户**：数据与权限隔离、RBAC、用户管理
+- **多租户**：数据与权限隔离、RBAC（`model/user/rbac`）、用户管理
 - **可观测性**：request_id 全链路透传、结构化审计（audit_logs）、Loki 日志采集，同 rid 关联
-- **LLM 统一弹性**：跨目标有序降级链 + 同目标指数退避重试 + per-target 三态熔断，透明装饰、成功路径零改动
-- **Python Skill 集成（MCP）**：Agent 调用 Python 动态能力，`skill_invoke` / `skill_list`，缓存 + 指数退避重连 + 健康检查
+- **LLM 统一弹性**：跨目标有序降级链 + 同目标指数退避重试（全抖动）+ per-target 三态熔断，透明装饰、成功路径零改动；eino 化 `LLMClient`（`eino_client.go`）承接 OpenAI 兼容 Provider，DeepSeek 原生 `<｜｜DSML｜｜tool_calls>` 由 `chat/dsml.go` 解析回结构化工具调用
+- **Skill 系统**：Agent 本地精选 skill/playbook 注册表，`skill_invoke` / `skill_list` + SKILL.md 目录（渐进式披露）
+- **Python 数据分析工具（MCP）**：经 MCP 通道调用 Python `analytics`（趋势/归因/相关/异常等），缓存 + 指数退避重连 + 健康检查
 
 ---
 
@@ -155,13 +159,13 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 │  Data Agent (DaDa)                  │        │   └─ 数据收集 / 达标 (TODO)         │
 │   ├─ 语义选表 / 指标语义层           │        │                                    │
 │   └─ A2UI / Result Store            │        │  MCP Server                        │
-│                                    │        │   ├─ Skill Manager                 │
-│  知识库助手 (Agentic RAG)            │        │   ├─ Data Analysis 工具            │
-│   ├─ 混合检索 / HyDE / 多跳          │        │   └─ Custom Skills                 │
+│                                    │        │   ├─ Analytics 工具(趋势/归因)     │
+│  知识库助手 (Agentic RAG)            │        │   │   (相关/异常/统计)             │
+│   ├─ 混合检索 / RRF / 重排          │        │   └─ (Skill 系统在 Go 端)          │
 │   └─ 图谱增强 / 跨轮记忆             │        │                                    │
 │                                    │        │  Document Service                  │
 │  评测编排 · 质量 · 语义建模          │        │   └─ PDF/Word/OCR/分块/URL          │
-│  Memory · Chat/Session · LLM 弹性   │        │                                    │
+│  统一检索 · Chat/Session · LLM 弹性 │        │                                    │
 │  User/Tenant · 审计 · 可观测         │        │  Evaluation / Quality / Analytics  │
 └───────────────────────────────────┘        └───────────────────────────────────┘
         │                                                          │
@@ -179,10 +183,10 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 
 | 存储 | 用途 |
 |------|------|
-| MySQL | 元数据、配置、任务状态、语义模型、评测结果、特征宽表 |
-| Milvus | 向量、语义记忆、特征向量 |
-| Neo4j | 知识图谱、实体关系、血缘 |
-| Redis | 缓存、任务队列、进度 |
+| MySQL | 元数据、配置、任务状态、语义模型、评测结果、审计日志 |
+| Milvus | 知识库向量、检索特征 |
+| Neo4j | 知识图谱、实体关系、经验图谱、血缘 |
+| Redis | 缓存、任务队列、进度、Result Store、分布式锁 |
 
 ---
 
@@ -193,15 +197,16 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 | 方式 | 端口 | Python 服务 | 状态 | 用途 |
 |------|------|------------|------|------|
 | gRPC | 50051 | Document Service | ✅ | 文档解析、OCR、分块、URL 抓取 |
-| gRPC | 50051 | Quality Service | ✅ | 质量检查、数据清洗、漂移检测 |
+| gRPC | 50051 | Quality Service | ✅ | 质量检查、数据清洗 |
 | gRPC | 50053 | Analytics Service | ✅ | 趋势、洞察、统计、归因 |
 | HTTP | 18888 | Evaluation Service | ✅ | 评测计算（compute-metrics，无状态） |
-| MCP  | 3000 / 8080 | Skill / Data Analysis | ✅ | Agent 调用 Python 动态能力 |
+| HTTP | 8000 | 基础 HTTP 服务 | ✅ | Python `main.py` 基础接口 |
+| MCP  | 3000（本地 3100） | Analytics 工具通道 | ✅ | Agent 经 MCP 调用 Python 数据分析能力 |
 | gRPC | 50054 | ML / 特征化 Service | 🚧 | 特征抽取、模型推理 |
 | gRPC | 50055 | 数据收集 / 达标 Service | 🚧 | 自动收集、标注达标 |
 
-- **Proto 单一数据源**：`link-go/api/proto/*.proto`，Python 经 `python scripts/generate_grpc.py` 生成
-- **MCP**：JSON-RPC 2.0 over HTTP/stdio；Go 端 `internal/infrastructure/skill`，Python 端 `link-python/mcp_service`
+- **Proto 单一数据源**：仓库根 `proto/*.proto`（buf 管理，`buf.yaml` / `buf.gen.yaml` 在根目录），Go / Python 各自生成绑定
+- **MCP**：JSON-RPC 2.0 over HTTP/stdio；Go 端 `internal/infrastructure/mcp`（客户端），Python 端 `link-python/mcp_service`（服务端，默认端口 3000，本地占用改用 3100）
 
 ---
 
@@ -210,7 +215,7 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 | 场景 | 说明 | Link 能力 |
 |------|------|----------|
 | **可信智能分析** | 自然语言查数，口径受治理、结果可审计、直接出图 | Data Agent · 语义层 · A2UI ✅ |
-| **深度研究分析** | 复杂问题多步推理，多源整合生成结构化报告 | DeepResearch · Memory ✅ |
+| **深度研究分析** | 复杂问题多步推理，生成结构化报告 | DeepResearch（简化版） ✅ |
 | **知识问答与溯源** | 企业知识沉淀、检索、关系溯源 | Agentic RAG · 知识图谱 ✅ |
 | **数据驱动决策** | 基于分析输出可落地行动建议 | Agent 决策 · 结论生成 ✅ |
 | **自动数据沉淀** | Agent 自动收集、达标、沉淀为知识与数据集 | 收集 Agent · 达标 · 特征化 🚧 |
@@ -245,7 +250,7 @@ link/
 ├── link-python/    # Python 计算服务（文档解析 / 评测 / 质量 / analytics，gRPC + MCP + HTTP）
 ├── link-web/       # Vue 3 前端（Vite）
 ├── proto/          # gRPC 契约（buf 管理，单一数据源）
-├── deploy/         # 部署与依赖编排（docker-compose、Loki 等）
+├── deploy/         # 部署与日志采集（Loki 等）
 ├── config/         # 配置
 ├── datasets/       # 演示 / 评测数据集
 ├── skills/         # Agent Skill 定义
@@ -259,33 +264,38 @@ link/
 
 ### 环境要求
 
-- **Go** 1.21+ · **Python** 3.10+ · **MySQL** 8.0+ · **Milvus** 2.6+ · **Neo4j** 5.0+ · **Redis** 7.0+
+- **Go** 1.25+ · **Python** 3.11+（uv）· **Node** 18+ · **MySQL** 8.0+ · **Milvus** 2.6+ · **Neo4j** 5.0+ · **Redis** 7.0+
+- 中间件（MySQL / Redis / Neo4j / Milvus）需**预先常驻**：本机以 Homebrew services 管理 MySQL/Redis/Neo4j，Milvus 跑在 docker 容器。仓库**未提供**整套 docker-compose 编排。
 
-### 使用 Docker Compose（推荐）
+### 一键启动（推荐）
+
+`dev.sh` 是真实的一键启动脚本，负责启停 Go 后端 + 4 个 Python 服务 + 前端，并对中间件做连通性预检。
 
 ```bash
 git clone https://github.com/your-org/link.git
 cd link
-docker-compose up -d
-# API: http://localhost:8080 · Milvus: :19530 · Neo4j: :7474
+
+# 先确保中间件在跑（示例：Homebrew + docker）
+brew services start mysql@8.0 redis neo4j && docker start milvus-standalone
+
+./dev.sh start      # 启动全部服务
+./dev.sh status     # 查看状态
+./dev.sh logs go    # 跟踪某个服务日志
+./dev.sh stop       # 停止全部服务
 ```
 
-### 本地开发
-
-启动顺序：**依赖服务 → Go 后端 → Python 服务 → 前端**。
+### 手动分服务启动
 
 ```bash
-# 依赖服务（MySQL / Milvus / Neo4j / Redis）
-docker-compose -f docker/docker-deps.yml up -d
-
 # 1. Go 后端（:8080）
-cd link-go && make deps && make run
+cd link-go && go run ./cmd/server
 
-# 2. Python 服务（gRPC :50051 / Analytics :50053 / 评测 HTTP :18888 / MCP :3000）
-cd link-python && pip install -e ".[all]"
-python -m grpc_service.server          # gRPC 主服务
-uv run uvicorn services.evaluation.fastapi_app:app --port 18888   # 评测
-python -m mcp_service.server           # MCP（可选）
+# 2. Python 服务（uv）
+cd link-python
+uv run python -m grpc_service.server                                   # gRPC 50051(+Analytics 50053)
+uv run python main.py                                                  # 基础 HTTP :8000
+uv run uvicorn services.evaluation.fastapi_app:app --port 18888        # 评测 :18888
+MCP_MODE=http uv run python -m mcp_service.server                      # MCP :3000（本机 MCP_PORT=3100）
 
 # 3. 前端（:5173）
 cd link-web && npm install && npm run dev
@@ -295,9 +305,12 @@ cd link-web && npm install && npm run dev
 |------|------|------|
 | link-go（后端） | 8080 | REST / gRPC / SSE 网关 |
 | link-python gRPC | 50051 / 50053 | Document+Quality / Analytics |
+| link-python 基础 HTTP | 8000 | `main.py` 基础接口 |
 | link-python 评测 | 18888 | FastAPI 评测计算 |
-| link-python MCP | 3000 | HTTP 模式 MCP（默认 stdio） |
-| link-web（前端） | 5173 | Vite 开发服务器 |
+| link-python MCP | 3000（本机 3100） | HTTP 模式 MCP |
+| link-web（前端） | 5173 | Vite 开发服务器（strictPort，代理 /api→:8080） |
+
+> **数据库表结构**：给 GORM model 加字段/建表后，用 `cd link-go && set -a && source .env && set +a && go run ./cmd/migrate-db` 幂等同步业务表，替代手动 `ALTER TABLE`。
 
 **调用链路**：浏览器(:5173) → Go 后端(:8080) → gRPC/HTTP/MCP → Python 服务
 

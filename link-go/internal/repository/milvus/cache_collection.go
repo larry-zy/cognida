@@ -5,6 +5,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/milvus-io/milvus/client/v2/column"
 	"github.com/milvus-io/milvus/client/v2/entity"
@@ -18,8 +21,13 @@ const (
 	// SemanticCacheCollectionName 语义缓存 Collection 名称
 	SemanticCacheCollectionName = "semantic_cache_vectors"
 
-	// SemanticCacheVectorDim 向量维度（text-embedding-3-small）
+	// SemanticCacheVectorDim 向量维度默认值（探测失败时的回退；实际维度按 embedder 探测传入）。
 	SemanticCacheVectorDim = 1536
+
+	// loadCollectionAwaitCap 加载 Collection 时等待就绪的最长时间上限。
+	// 本地 Milvus 偶发无法完成加载（etcd/segment 未就绪），无上界的 Await 会永久挂起
+	// （曾致集成测试卡死 17min+）。此上限把"卡死"降级为可观测的超时错误。
+	loadCollectionAwaitCap = 90 * time.Second
 )
 
 // ========================================
@@ -29,10 +37,24 @@ const (
 // CacheVectorRepository 缓存向量仓储实现
 type CacheVectorRepository struct {
 	client *milvusclient.Client
+
+	// dim 向量维度。由构造方按 embedder 实际输出探测传入（DashScope text-embedding-v3
+	// 默认 1024，而非早期硬编码的 1536）。<=0 时回退到 SemanticCacheVectorDim。
+	dim int
 }
 
-// NewCacheVectorRepository 创建缓存向量仓储
-func NewCacheVectorRepository() (*CacheVectorRepository, error) {
+// effectiveDim 返回生效的向量维度：探测值优先，未设置（<=0）时回退默认常量。
+// buildSchema/Insert 统一经此取维度，避免建表维度与写入维度不一致。
+func (r *CacheVectorRepository) effectiveDim() int {
+	if r.dim > 0 {
+		return r.dim
+	}
+	return SemanticCacheVectorDim
+}
+
+// NewCacheVectorRepository 创建缓存向量仓储。
+// dim 为向量维度（按 embedder 实际输出探测传入）；传 <=0 时回退 SemanticCacheVectorDim。
+func NewCacheVectorRepository(dim int) (*CacheVectorRepository, error) {
 	cli := GetClient()
 	if cli == nil {
 		return nil, fmt.Errorf("milvus client not initialized")
@@ -40,6 +62,7 @@ func NewCacheVectorRepository() (*CacheVectorRepository, error) {
 
 	return &CacheVectorRepository{
 		client: cli,
+		dim:    dim,
 	}, nil
 }
 
@@ -75,10 +98,10 @@ func (r *CacheVectorRepository) buildSchema() *entity.Schema {
 			WithMaxLength(64).WithIsPrimaryKey(true).WithIsAutoID(false),
 	)
 
-	// 向量字段
+	// 向量字段（维度按 embedder 探测生效，见 effectiveDim）
 	schema = schema.WithField(
 		entity.NewField().WithName("vector").WithDataType(entity.FieldTypeFloatVector).
-			WithDim(SemanticCacheVectorDim),
+			WithDim(int64(r.effectiveDim())),
 	)
 
 	// 租户 ID
@@ -91,12 +114,35 @@ func (r *CacheVectorRepository) buildSchema() *entity.Schema {
 		entity.NewField().WithName("agent_type").WithDataType(entity.FieldTypeVarChar).WithMaxLength(32),
 	)
 
+	// KB 归属范围（哨兵逗号包裹格式 ",kb1,kb2,"，为空写 ""）。
+	// 用于按知识库失效硬缓存：DeleteByKB 以 like "%,kbID,%" 精确匹配单个 kb_id，
+	// 逗号包裹可避免 "kb1" 误匹配 "kb12"。
+	schema = schema.WithField(
+		entity.NewField().WithName("kb_scope").WithDataType(entity.FieldTypeVarChar).WithMaxLength(1024),
+	)
+
 	// 创建时间
 	schema = schema.WithField(
 		entity.NewField().WithName("created_at").WithDataType(entity.FieldTypeInt64),
 	)
 
 	return schema
+}
+
+// encodeKBScope 把 KB id 列表编码为哨兵逗号包裹字符串：["kb1","kb2"] -> ",kb1,kb2,"。
+// 空列表返回 ""。与 DeleteByKB 的 like "%,kbID,%" 匹配约定配套。
+func encodeKBScope(kbIDs []string) string {
+	cleaned := make([]string, 0, len(kbIDs))
+	for _, id := range kbIDs {
+		if s := strings.TrimSpace(id); s != "" {
+			cleaned = append(cleaned, s)
+		}
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	sort.Strings(cleaned) // 稳定顺序，便于排查
+	return "," + strings.Join(cleaned, ",") + ","
 }
 
 // CreateCacheIndex 创建缓存向量索引
@@ -127,8 +173,12 @@ func (r *CacheVectorRepository) LoadCacheCollection(ctx context.Context) error {
 		return fmt.Errorf("load cache collection failed: %w", err)
 	}
 
-	// 等待加载完成
-	_ = task.Await(ctx)
+	// 等待加载完成——加上界，防止本地 Milvus 加载卡死时无界阻塞（曾致集成测试挂 17min+）。
+	awaitCtx, cancel := context.WithTimeout(ctx, loadCollectionAwaitCap)
+	defer cancel()
+	if err := task.Await(awaitCtx); err != nil {
+		return fmt.Errorf("await cache collection load (cap %s): %w", loadCollectionAwaitCap, err)
+	}
 
 	log.Printf("[Milvus] Cache collection loaded: %s", SemanticCacheCollectionName)
 	return nil
@@ -201,14 +251,16 @@ func (r *CacheVectorRepository) Insert(ctx context.Context, entry *cache.CacheEn
 	vectors := [][]float32{entry.Vector}
 	tenantIDs := []int64{entry.TenantID}
 	agentTypes := []string{entry.AgentType}
-_createdAt := []int64{entry.CreatedAt}
+	kbScopes := []string{encodeKBScope(entry.KBScope)}
+	createdAts := []int64{entry.CreatedAt}
 
 	columns := []column.Column{
 		column.NewColumnVarChar("cache_id", cacheIDs),
-		column.NewColumnFloatVector("vector", SemanticCacheVectorDim, vectors),
+		column.NewColumnFloatVector("vector", r.effectiveDim(), vectors),
 		column.NewColumnInt64("tenant_id", tenantIDs),
 		column.NewColumnVarChar("agent_type", agentTypes),
-		column.NewColumnInt64("created_at", _createdAt),
+		column.NewColumnVarChar("kb_scope", kbScopes),
+		column.NewColumnInt64("created_at", createdAts),
 	}
 
 	// 插入数据
@@ -274,6 +326,32 @@ func (r *CacheVectorRepository) DeleteByAgent(ctx context.Context, tenantID int6
 	}
 
 	log.Printf("[Milvus] Agent cache vectors deleted: tenant_id=%d, agent_type=%s", tenantID, agentType)
+	return nil
+}
+
+// DeleteByKB 删除某租户下归属于指定知识库(kbID)的所有缓存向量。
+// 供 RAG 硬缓存的按库失效使用：知识库文档写入/删除后调用，避免命中陈旧答案。
+// 依赖写入时 kb_scope 的哨兵逗号包裹格式，用 like "%,kbID,%" 精确匹配单个 kb_id。
+func (r *CacheVectorRepository) DeleteByKB(ctx context.Context, tenantID int64, kbID string) error {
+	kbID = strings.TrimSpace(kbID)
+	if kbID == "" {
+		return fmt.Errorf("delete cache by kb: empty kbID")
+	}
+	// kb id 由业务生成（UUID/雪花），不含引号；此处仍拒绝含引号者以防表达式破坏。
+	if strings.ContainsAny(kbID, `"'%`) {
+		return fmt.Errorf("delete cache by kb: illegal kbID %q", kbID)
+	}
+
+	expr := fmt.Sprintf("tenant_id == %d && kb_scope like \"%%,%s,%%\"", tenantID, kbID)
+
+	deleteOpt := milvusclient.NewDeleteOption(SemanticCacheCollectionName)
+	deleteOpt.WithExpr(expr)
+
+	if _, err := r.client.Delete(ctx, deleteOpt); err != nil {
+		return fmt.Errorf("delete cache vectors by kb failed: %w", err)
+	}
+
+	log.Printf("[Milvus] KB cache vectors deleted: tenant_id=%d, kb_id=%s", tenantID, kbID)
 	return nil
 }
 
@@ -354,9 +432,10 @@ func (r *CacheVectorRepository) GetCacheCollectionStats(ctx context.Context) (ma
 // Initialization Helper
 // ========================================
 
-// InitializeCacheCollection 初始化缓存 Collection
-func InitializeCacheCollection(ctx context.Context) error {
-	repo, err := NewCacheVectorRepository()
+// InitializeCacheCollection 初始化缓存 Collection。
+// dim 为向量维度（按 embedder 探测传入）；<=0 回退 SemanticCacheVectorDim。
+func InitializeCacheCollection(ctx context.Context, dim int) error {
+	repo, err := NewCacheVectorRepository(dim)
 	if err != nil {
 		return err
 	}

@@ -31,7 +31,11 @@ type openaiChatRepo struct {
 	tools    []*domainllm.Tool
 }
 
-// NewOpenAIChatRepo 创建 OpenAI LLM 客户端
+// NewOpenAIChatRepo 创建 OpenAI LLM 客户端。
+//
+// Deprecated: 已退出 live 路径，OpenAI 兼容 provider 统一改用 NewEinoLLMClient（基于 eino
+// 的 DSML 归一化客户端）。本实现缺少 DeepSeek 原生 tool_calls 归一化，仅保留供既有单测覆盖，
+// 请勿在新代码中引用。
 func NewOpenAIChatRepo(config *domainllm.ModelConfig) (domainllm.LLMClient, error) {
 	if config.APIKey == "" {
 		return nil, fmt.Errorf("api_key is required for openai")
@@ -701,12 +705,14 @@ func convertUsage(u openaiUsage) *domainllm.Usage {
 // 工厂函数
 // ========================================
 
-// NewChatRepository 创建 LLM 客户端
+// NewChatRepository 创建 LLM 客户端。
+// OpenAI 兼容 provider 统一走基于 eino 的 DSML 归一化客户端（NewEinoLLMClient），
+// 与 modelFactory.registerDefaultProviders 保持一致，退休已弃用的 openaiChatRepo。
 func NewChatRepository(config *domainllm.ModelConfig) (domainllm.LLMClient, error) {
 	switch config.Provider {
 	case domainllm.ProviderOpenAI, domainllm.ProviderAliyun, domainllm.ProviderDeepSeek,
 		domainllm.ProviderLKEAP, domainllm.ProviderQwen, domainllm.ProviderGeneric:
-		return NewOpenAIChatRepo(config)
+		return NewEinoLLMClient(config)
 	case domainllm.ProviderOllama:
 		return NewOllamaChatRepo(config)
 	default:

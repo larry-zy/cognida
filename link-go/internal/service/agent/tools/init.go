@@ -30,7 +30,7 @@ func (r *ToolRegistry) registerSQLTools() error {
 	}
 
 	// sql_execute
-	sqlExecuteTool := NewSQLExecuteTool(r.deps.SQLDB, r.deps.DatasourceProvider, r.deps.ResultStore)
+	sqlExecuteTool := NewSQLExecuteTool(r.deps.SQLDB, r.deps.DatasourceProvider, r.deps.ResultStore, r.deps.ColumnProfileStore)
 	if sqlExecuteTool != nil {
 		if err := r.Register("sql", sqlExecuteTool); err != nil {
 			return err
@@ -86,6 +86,15 @@ func (r *ToolRegistry) registerKBTools() error {
 	kbRouteTool := NewKbRouteTool()
 	if kbRouteTool != nil {
 		if err := r.Register("kb", kbRouteTool); err != nil {
+			return err
+		}
+	}
+
+	// kb_fetch_chunks：按 kb/chunk/knowledge 等标量条件精确直取分块原文（与 rag_query 语义检索互补）。
+	// ChunkFetcher 未接线时仍注册，Run 时返回降级提示。
+	kbFetchChunksTool := NewKbFetchChunksTool(r.deps.ChunkFetcher)
+	if kbFetchChunksTool != nil {
+		if err := r.Register("kb", kbFetchChunksTool); err != nil {
 			return err
 		}
 	}

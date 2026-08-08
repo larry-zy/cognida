@@ -110,7 +110,7 @@ func (r *RetrieverImpl) RetrieveWithEmbedding(ctx context.Context, tenantID, kbI
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {
 		rerankStart := time.Now()
-		filtered, _ = r.reranker.Rerank(ctx, filtered, query)
+		filtered = rerankOrKeep(ctx, r.reranker, filtered, query)
 		trace.RerankLatency = time.Since(rerankStart).Milliseconds()
 		trace.RerankedCount = len(filtered)
 	}
@@ -187,7 +187,7 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {
 		rerankStart := time.Now()
-		filtered, _ = r.reranker.Rerank(ctx, filtered, query)
+		filtered = rerankOrKeep(ctx, r.reranker, filtered, query)
 		trace.RerankLatency = time.Since(rerankStart).Milliseconds()
 		trace.RerankedCount = len(filtered)
 	}
@@ -360,7 +360,7 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {
 		rerankStart := time.Now()
-		filtered, _ = r.reranker.Rerank(ctx, filtered, query)
+		filtered = rerankOrKeep(ctx, r.reranker, filtered, query)
 		trace.RerankLatency = time.Since(rerankStart).Milliseconds()
 		trace.RerankedCount = len(filtered)
 	}

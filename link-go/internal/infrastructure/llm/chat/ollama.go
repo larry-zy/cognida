@@ -224,6 +224,12 @@ func (c *ollamaClient) Stream(ctx context.Context, messages []*schema.Message, o
 				return
 			}
 		}
+
+		// 同 openai：读取错误（连接中断/超时）会让 Scan() 静默返回 false，
+		// 必须显式下发错误，否则截断流被当成完整成功、无法触发重试/降级。
+		if err := scanner.Err(); err != nil {
+			writer.Send(nil, fmt.Errorf("ollama 流式读取中断: %w", err))
+		}
 	}()
 
 	return reader, nil

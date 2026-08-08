@@ -47,6 +47,8 @@ type Builder struct {
 
 	summarizer ctxeng.Summarizer // ③ 折叠兜底摘要器；nil 且启用压缩时自动用 LLM 语义摘要（llmsummary），否则抽取式
 
+	counter ctxeng.TokenCounter // 三级压缩统一 token 计数器；nil 时默认字符启发式，可注入真实 BPE（bpecount）
+
 	collabRegistry *CollaborationRegistry
 	collabConfig   *CollaborationConfig
 
@@ -249,6 +251,17 @@ func (b *Builder) WithReasoningEviction(n int) *Builder {
 // 时先就地压缩该条（复用 ctxeng.CapContentByTokens，保住其中的 result_id）。n<=0 时不启用。
 func (b *Builder) WithMaxMessageTokens(n int) *Builder {
 	b.maxMessageTokens = n
+	return b
+}
+
+// WithTokenCounter 注入三级压缩统一使用的 token 计数器（能力层 ctxeng.TokenCounter）。
+// 不注入时默认字符启发式 ApproxTokenCounter；注入真实 BPE 分词器（bpecount）可消除对
+// 「中文夹数字/百分号」分析型文本约 30% 的低估，使 ①逐条压缩 / ③折叠 / ③.5 剥离的触发线更准。
+// nil 时忽略（保持默认启发式）。
+func (b *Builder) WithTokenCounter(c ctxeng.TokenCounter) *Builder {
+	if c != nil {
+		b.counter = c
+	}
 	return b
 }
 
@@ -576,6 +589,7 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 		maxMessageTokens:      b.maxMessageTokens,
 		reasoningEvictTokens:  b.reasoningEvictTokens,
 		summarizer:            b.summarizer,
+		counter:               b.counter,
 		memoryService:         b.memoryService,
 		contextBuilder:        b.contextBuilder,
 		enableMemory:          b.enableMemory,

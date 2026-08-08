@@ -16,6 +16,19 @@ import (
 	"link/internal/infrastructure/llm/httpx"
 )
 
+// HTTPStatusError 表示上游返回了非 2xx HTTP 状态。它保留状态码与原始 Retry-After 头，
+// 供上层弹性装饰器（llm/resilience）精确分级——把可重试的 429/5xx 与终止的 4xx 区分开，
+// 避免在只拿到格式化字符串时误判为终态而不重试/降级。Error() 保持原有文案以兼容既有断言。
+type HTTPStatusError struct {
+	StatusCode int
+	RetryAfter string // 原始 Retry-After 头值，可空
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("api error (status %d): %s", e.StatusCode, e.Body)
+}
+
 // ========================================
 // OpenAI Client Implementation
 // ========================================
@@ -79,7 +92,7 @@ func (c *openaiClient) Generate(ctx context.Context, messages []*schema.Message,
 	// 解析响应
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After"), Body: string(body)}
 	}
 
 	var openaiResp openaiChatResponse
@@ -150,7 +163,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After"), Body: string(body)}
 	}
 
 	// 创建流式读取器
@@ -161,6 +174,9 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 		defer resp.Body.Close()
 
 		scanner := bufio.NewScanner(resp.Body)
+		// 单条 SSE data 行可能超过 bufio.Scanner 默认 64KB 上限（大 tool_call 参数分片 / 大 content delta），
+		// 抬高到 1MB，避免 ErrTooLong 让流被下面的循环静默截断。
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		hasSentData := false
 		var streamUsage *openaiUsage // 流末 usage chunk 携带的 token 用量（若服务端上报）
 		toolCallCount := 0
@@ -303,14 +319,22 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 
 						hasSentData = true
 						writer.Send(&schema.Message{
-							Role:      schema.Assistant,
-							Content:   "",
-							ToolCalls: toolCalls,
+							Role:             schema.Assistant,
+							Content:          "",
+							ReasoningContent: reasoningBuilder.String(),
+							ToolCalls:        toolCalls,
 						}, nil)
 						pendingToolCalls = make(map[int]*schema.ToolCall)
+						reasoningBuilder.Reset()
 					}
 				}
 			}
+		}
+
+		// 循环因读取错误提前结束（连接中断/超时/ErrTooLong）时，Scan() 返回 false 且并非 [DONE] 正常收尾；
+		// 必须把错误显式下发给消费者，否则截断流会被当成"干净完整"的成功，resilience 装饰器也无法据此重试/降级。
+		if err := scanner.Err(); err != nil {
+			writer.Send(nil, fmt.Errorf("openai 流式读取中断: %w", err))
 		}
 	}()
 
@@ -421,13 +445,11 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 	return req
 }
 
-// getOptions 从选项数组中提取Options
+// getOptions 从选项数组中提取 Options。
+// 用 eino 官方 model.GetCommonOptions 真正 apply 传入的 opts（Temperature/TopP/MaxTokens 等），
+// 原实现返回空 Options，导致上层设置的采样参数全被丢弃、从不生效。
 func getOptions(opts []model.Option) *model.Options {
-	options := &model.Options{}
-	// 注意：由于opt.apply是未导出的，我们需要构建选项
-	// 这里简化处理，直接创建一个空的Options
-	// 实际使用时，应该在调用buildRequest之前就处理选项
-	return options
+	return model.GetCommonOptions(&model.Options{}, opts...)
 }
 
 // sendRequest 发送HTTP请求

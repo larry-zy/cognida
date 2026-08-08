@@ -6,7 +6,6 @@ import pytest
 
 from services.document import (
     parse_document,
-    ocr_image,
     chunk_text,
     ChunkStrategy,
 )

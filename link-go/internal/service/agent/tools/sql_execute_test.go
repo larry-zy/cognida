@@ -267,6 +267,46 @@ func TestEnsureLimit(t *testing.T) {
 	}
 }
 
+// TestEnsureLimit_SubqueryLimit 回归：子查询里的 LIMIT 不得被当成外层已限行，
+// 且改写尾部 LIMIT 时不得误伤子查询 LIMIT。
+func TestEnsureLimit_SubqueryLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		maxRows int
+		want    string
+	}{
+		{
+			// 外层无 LIMIT、子查询有 LIMIT：必须给外层补 LIMIT，子查询 LIMIT 原样保留。
+			name:    "subquery limit only -> append outer limit",
+			sql:     "SELECT * FROM (SELECT id FROM users LIMIT 5) t",
+			maxRows: 100,
+			want:    "SELECT * FROM (SELECT id FROM users LIMIT 5) t LIMIT 100",
+		},
+		{
+			// 外层尾部 LIMIT 超上限：只压外层这一处，子查询 LIMIT 不动。
+			name:    "outer limit capped, subquery limit untouched",
+			sql:     "SELECT * FROM (SELECT id FROM users LIMIT 5) t LIMIT 999999",
+			maxRows: 100,
+			want:    "SELECT * FROM (SELECT id FROM users LIMIT 5) t LIMIT 100",
+		},
+		{
+			// 尾部 `LIMIT offset, count`：以 count 判定上限并整体压回 maxRows。
+			name:    "limit offset,count capped by count",
+			sql:     "SELECT * FROM users LIMIT 100, 5000",
+			maxRows: 100,
+			want:    "SELECT * FROM users LIMIT 100",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ensureLimit(tt.sql, tt.maxRows); got != tt.want {
+				t.Errorf("ensureLimit()\n got = %q\nwant = %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestSQLExecute 测试 SQL 执行工具
 func TestSQLExecute(t *testing.T) {
 	gormDB, mock, rows := setupMockDB(t)
@@ -286,7 +326,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		result, err := sqlExecute(ctx, req, gormDB, nil, nil)
+		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -312,7 +352,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		result, err := sqlExecute(ctx, req, gormDB, nil, nil)
+		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -333,7 +373,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		result, err := sqlExecute(ctx, req, gormDB, nil, nil)
+		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -349,7 +389,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		_, err := sqlExecute(ctx, req, gormDB, nil, nil)
+		_, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error for DELETE query, got nil")
 		}
@@ -361,7 +401,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		_, err := sqlExecute(ctx, req, gormDB, nil, nil)
+		_, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error for empty SQL, got nil")
 		}
@@ -374,7 +414,7 @@ func TestSQLExecute(t *testing.T) {
 		}
 
 		// 业务库未注入（nil）时应报错：数据库未初始化。
-		_, err := sqlExecute(ctx, req, nil, nil, nil)
+		_, err := sqlExecute(ctx, req, nil, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error when DB is nil, got nil")
 		}
@@ -399,7 +439,7 @@ func TestSQLExecuteResult(t *testing.T) {
 		MaxRows: 10,
 	}
 
-	result, err := sqlExecute(ctx, req, gormDB, nil, nil)
+	result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("sqlExecute() error = %v", err)
 	}

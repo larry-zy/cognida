@@ -33,7 +33,6 @@ from .graders import (
     register_grader,
 )
 from .metrics import (
-    AgentMetrics,
     GenerationMetrics,
     LLMJudgeMetrics,
     RetrievalMetrics,
@@ -67,5 +66,4 @@ __all__ = [
     "GenerationMetrics",
     "SemanticMetrics",
     "LLMJudgeMetrics",
-    "AgentMetrics",
 ]

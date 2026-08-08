@@ -191,7 +191,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
 	evaluationWorker := ProvideEvaluationWorker(evaluationQueue, progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, datasourceService)
-	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, retrievalCapability, graphService, knowledgeBaseRepository, writer, datasourceService, agentHandler, embedder)
+	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, evaluationWorker, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, datasourceService, agentHandler, embedder)
 	return app, nil
 }
 
@@ -1100,6 +1100,8 @@ type App struct {
 	RetrievalCapability     *knowledge2.RetrievalCapability
 	GraphService            *knowledge2.GraphService
 	KnowledgeBaseRepository knowledge.KnowledgeBaseRepository
+	// KnowledgeBaseService 暴露给组合根：文档写入/删除后经 SetCacheInvalidator 接线 RAG 硬缓存按库失效。
+	KnowledgeBaseService knowledge2.KnowledgeBaseService
 	// AuditWriter 暴露给组合根：优雅关闭时 flush 积压审计。
 	AuditWriter *audit.Writer
 	// DataSourceService 暴露给组合根：把查询类工具的 database_id 路由
@@ -1124,6 +1126,7 @@ func ProvideApp(
 	retrievalCapability *knowledge2.RetrievalCapability,
 	graphService *knowledge2.GraphService,
 	kbRepo knowledge.KnowledgeBaseRepository,
+	kbService knowledge2.KnowledgeBaseService,
 	auditWriter *audit.Writer,
 	dataSourceService *datasource2.Service,
 	agentHandler *handler.AgentHandler,
@@ -1140,6 +1143,7 @@ func ProvideApp(
 		RetrievalCapability:     retrievalCapability,
 		GraphService:            graphService,
 		KnowledgeBaseRepository: kbRepo,
+		KnowledgeBaseService:    kbService,
 		AuditWriter:             auditWriter,
 		DataSourceService:       dataSourceService,
 		AgentHandler:            agentHandler,

@@ -1205,6 +1205,8 @@ type App struct {
 	RetrievalCapability     *app_kb.RetrievalCapability
 	GraphService            *app_kb.GraphService
 	KnowledgeBaseRepository domain_knowledge.KnowledgeBaseRepository
+	// KnowledgeBaseService 暴露给组合根：文档写入/删除后经 SetCacheInvalidator 接线 RAG 硬缓存按库失效。
+	KnowledgeBaseService app_kb.KnowledgeBaseService
 	// AuditWriter 暴露给组合根：优雅关闭时 flush 积压审计。
 	AuditWriter *auditsvc.Writer
 	// DataSourceService 暴露给组合根：把查询类工具的 database_id 路由
@@ -1229,6 +1231,7 @@ func ProvideApp(
 	retrievalCapability *app_kb.RetrievalCapability,
 	graphService *app_kb.GraphService,
 	kbRepo domain_knowledge.KnowledgeBaseRepository,
+	kbService app_kb.KnowledgeBaseService,
 	auditWriter *auditsvc.Writer,
 	dataSourceService *datasourcesvc.Service,
 	agentHandler *handler.AgentHandler,
@@ -1245,6 +1248,7 @@ func ProvideApp(
 		RetrievalCapability:     retrievalCapability,
 		GraphService:            graphService,
 		KnowledgeBaseRepository: kbRepo,
+		KnowledgeBaseService:    kbService,
 		AuditWriter:             auditWriter,
 		DataSourceService:       dataSourceService,
 		AgentHandler:            agentHandler,

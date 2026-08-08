@@ -237,7 +237,7 @@ func TestDistributedLock_Lock_Blocking(t *testing.T) {
 		select {
 		case err := <-done:
 			assert.Error(t, err)
-			assert.Equal(t, context.Canceled, err)
+			assert.ErrorIs(t, err, context.Canceled)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for context cancellation")
 		}

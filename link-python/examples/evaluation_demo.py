@@ -1,7 +1,6 @@
 """评测服务使用示例。"""
 
 import asyncio
-import json
 
 from services.evaluation.graders import get_grader, list_graders
 from services.evaluation.strategies import get_strategy

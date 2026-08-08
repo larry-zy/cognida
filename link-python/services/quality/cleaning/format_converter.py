@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from .base import Cleaner, TextCleaner
+from .base import Cleaner
 from ..models import CleaningOperation, CleaningResult
 from ..registry import register_cleaner
 

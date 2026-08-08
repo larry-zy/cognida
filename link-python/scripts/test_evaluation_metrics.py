@@ -1,7 +1,6 @@
 """评测指标测试脚本。"""
 
 import asyncio
-from typing import List
 
 # ===== 检索评测指标 =====
 
@@ -104,7 +103,6 @@ def test_generation_metrics():
 async def test_semantic_metrics():
     """测试语义相似度评测指标。"""
     from services.evaluation.metrics import (
-        SemanticMetrics,
         compute_semantic_metrics,
     )
 
@@ -141,7 +139,6 @@ async def test_semantic_metrics():
 async def test_llm_judge_metrics():
     """测试 LLM 裁判评测指标。"""
     from services.evaluation.metrics import (
-        LLMJudgeMetrics,
         compute_llm_judge_metrics,
     )
 

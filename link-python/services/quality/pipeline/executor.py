@@ -7,12 +7,9 @@ from typing import Any
 
 import pandas as pd
 
-from ..cleaning.base import Cleaner
-from ..dimensions.base import DimensionEvaluator
 from ..models import (
     CleaningResult,
     Decision,
-    DimensionScore,
     PipelineResult,
     QualityReport,
     UnstructuredQualityReport,

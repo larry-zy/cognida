@@ -33,7 +33,6 @@ class MarkdownParser(BaseParser):
             解析结果
         """
         try:
-            from io import BytesIO
 
             if isinstance(source, str):
                 # 假设是文件路径

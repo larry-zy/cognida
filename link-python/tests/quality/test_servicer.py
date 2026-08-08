@@ -3,11 +3,10 @@
 import io
 import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from grpc import ServicerContext
 
 from proto import quality_pb2
-from proto import quality_pb2_grpc
 from services.quality.servicer import QualityServicer
 
 
@@ -459,7 +458,7 @@ class TestQualityServicer:
 
     def test_convert_quality_report(self, servicer):
         """测试质量报告转换。"""
-        from services.quality.models import QualityReport, DimensionScore, QualityIssue
+        from services.quality.models import QualityReport, DimensionScore
 
         report = QualityReport(
             overall_score=85.0,
@@ -488,7 +487,6 @@ class TestQualityServicer:
         from services.quality.models import (
             UnstructuredQualityReport,
             UnstructuredDimensionScore,
-            TextQualityIssue,
         )
 
         report = UnstructuredQualityReport(

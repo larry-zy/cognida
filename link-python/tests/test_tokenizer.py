@@ -1,6 +1,5 @@
 """分词器单元测试。"""
 
-import pytest
 
 from services.evaluation.metrics.tokenizer import (
     tokenize,

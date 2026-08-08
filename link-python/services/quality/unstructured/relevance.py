@@ -3,7 +3,6 @@
 评估文本与预期主题的相关性。
 """
 
-import re
 from typing import Any
 
 import jieba

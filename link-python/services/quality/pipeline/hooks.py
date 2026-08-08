@@ -3,10 +3,10 @@
 允许在 Pipeline 执行的关键节点插入自定义逻辑。
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any
 
-from ..models import CleaningResult, Decision, DimensionScore, PipelineResult
+from ..models import CleaningResult, Decision, DimensionScore
 
 
 class PipelineContext:

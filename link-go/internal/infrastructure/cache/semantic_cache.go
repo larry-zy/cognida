@@ -136,6 +136,83 @@ func (s *SemanticCacheService) Get(ctx context.Context, req *domaincache.CacheRe
 	return &domaincache.CacheResponse{FromCache: false}, nil
 }
 
+// RecallSimilar 软语义缓存（few-shot）召回：检索与当前查询相似的历史问答，
+// 但**不短路返回**、**不校验 PromptHash**——仅作为参考示例交由上层注入上下文，
+// 由 LLM 结合实时数据重新生成。用于 data agent 等"数据会变、必须重算"的场景。
+//
+// 与 Get 的差异：Get 是硬缓存（命中即返回、需 PromptHash 一致）；本方法是软缓存
+// （返回多条示例、忽略 PromptHash、由调用方决定如何使用）。二者共用同一向量检索底座。
+func (s *SemanticCacheService) RecallSimilar(ctx context.Context, req *domaincache.CacheRequest, topN int) ([]domaincache.RecalledExample, error) {
+	if !s.IsEnabled(req.AgentType) {
+		return nil, nil
+	}
+	config := s.strategy.GetAgentConfig(req.AgentType)
+	if topN <= 0 {
+		topN = config.TopK
+	}
+	if topN <= 0 {
+		topN = 3
+	}
+
+	vector, err := s.embedVector(ctx, req.Query)
+	if err != nil {
+		log.Printf("[Cache] RecallSimilar embedding failed: %v", err)
+		return nil, nil
+	}
+
+	searchResults, err := s.vectorRepo.Search(ctx, vector, req.TenantID, req.AgentType, topN)
+	if err != nil {
+		log.Printf("[Cache] RecallSimilar search failed: %v", err)
+		return nil, nil
+	}
+	if len(searchResults) == 0 {
+		return nil, nil
+	}
+
+	cacheIDs := make([]string, len(searchResults))
+	for i, r := range searchResults {
+		cacheIDs[i] = r.CacheID
+	}
+	entries, err := s.contentRepo.MGetContents(ctx, cacheIDs)
+	if err != nil {
+		log.Printf("[Cache] RecallSimilar content fetch failed: %v", err)
+		return nil, nil
+	}
+
+	// searchResults 已按相似度降序；按序过阈值组装（不校验 PromptHash）。
+	examples := make([]domaincache.RecalledExample, 0, len(searchResults))
+	for _, sr := range searchResults {
+		entry, ok := entries[sr.CacheID]
+		if !ok || entry.Response == "" {
+			continue // 孤儿向量或空内容
+		}
+		if sr.Similarity < config.Threshold {
+			continue // 低于软阈值，作参考价值不足
+		}
+		examples = append(examples, domaincache.RecalledExample{
+			Query:      entry.Query,
+			Response:   entry.Response,
+			Similarity: sr.Similarity,
+		})
+	}
+	return examples, nil
+}
+
+// InvalidateByKB 按知识库失效硬缓存：删除该租户下归属 kbID 的全部缓存条目（向量+内容）。
+// 供 RAG 知识库文档写入/删除后调用，避免命中陈旧答案。
+func (s *SemanticCacheService) InvalidateByKB(ctx context.Context, tenantID int64, kbID string) error {
+	vecRepo, ok := s.vectorRepo.(*milvuscache.CacheVectorRepository)
+	if !ok {
+		return fmt.Errorf("invalidate by kb: vector repo does not support kb-scoped delete")
+	}
+	if err := vecRepo.DeleteByKB(ctx, tenantID, kbID); err != nil {
+		return fmt.Errorf("invalidate by kb failed: %w", err)
+	}
+	// 内容侧（Redis）无 kb 索引，靠 TTL 自然过期；向量删除后即不会再被检索命中。
+	log.Printf("[Cache] Invalidated KB cache: tenant_id=%d, kb_id=%s", tenantID, kbID)
+	return nil
+}
+
 // Set 设置缓存（异步）
 func (s *SemanticCacheService) Set(ctx context.Context, req *domaincache.CacheRequest, resp string, tokensUsed int) error {
 	config := s.strategy.GetAgentConfig(req.AgentType)
@@ -266,6 +343,7 @@ func (s *SemanticCacheService) writeCache(ctx context.Context, req *domaincache.
 		AgentType:  req.AgentType,
 		TenantID:   req.TenantID,
 		PromptHash: s.promptHash(req.PromptTemplate),
+		KBScope:    req.KBScope,
 		Vector:     vector,
 		CreatedAt:  now,
 		UpdatedAt:  now,

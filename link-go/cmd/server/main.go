@@ -8,32 +8,42 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"link/cmd/wire"
 
+	cachesvc "link/internal/infrastructure/cache"
 	rediscache "link/internal/infrastructure/cache/redis"
 	"link/internal/infrastructure/config"
 	llmchat "link/internal/infrastructure/llm/chat"
 	"link/internal/infrastructure/mcp"
 	obstel "link/internal/infrastructure/observability"
-	agenttelemetry "link/internal/service/agent/telemetry"
+	domaincache "link/internal/model/cache"
 	"link/internal/repository/milvus"
+	milvusretriever "link/internal/repository/milvus/retriever"
 	"link/internal/repository/mysql"
 	neo4jrepo "link/internal/repository/neo4j"
+	redisrepo "link/internal/repository/redis"
 	agentadapters "link/internal/service/agent/adapters"
 	experiencesvc "link/internal/service/agent/experience"
 	"link/internal/service/agent/genui"
 	agentinit "link/internal/service/agent/initializer"
 	"link/internal/service/agent/pendingaction"
+	dataagent "link/internal/service/agent/presets/data_agent"
 	"link/internal/service/agent/resultstore"
-	"link/internal/service/agent/uibinding"
 	"link/internal/service/agent/semanticcache"
+	"link/internal/service/agent/skills"
 	skilltools "link/internal/service/agent/skills/tools"
+	agenttelemetry "link/internal/service/agent/telemetry"
 	"link/internal/service/agent/termgrounding"
 	ragtool "link/internal/service/agent/tools"
+	"link/internal/service/agent/uibinding"
+	knowledgesvc "link/internal/service/knowledge"
 
+	"github.com/cloudwego/eino/components/embedding"
 	neo4jsdk "github.com/neo4j/neo4j-go-driver/v5/neo4j"
 
 	"github.com/joho/godotenv"
@@ -182,13 +192,28 @@ func main() {
 				if app.GraphService != nil {
 					graphSink = experiencesvc.NewGraphSink(app.GraphService.GetGraphRepo())
 				}
+				// 技能沉淀（把 skill_worthy 经验落成 SKILL.md）与图谱同属一次蒸馏 pass 的下游产物，
+				// 但独立门控（EXPERIENCE_SKILL_SINK_ENABLED，默认关）：落盘目录取加载扫描范围内首个已存在者，
+				// 并注入 registrar 把新技能即时注册进运行中的全局管理器（运行期可见，不必等下次加载）。
+				var skillSink *experiencesvc.SkillSink
+				if experiencesvc.SkillSinkEnabledFromEnv() {
+					mgr := skills.GetGlobalManager()
+					registrar := func(name, path string) error {
+						if _, ok := mgr.GetSkill(name); ok {
+							_ = mgr.UnloadSkill(name) // 已存在则先卸载再加载以刷新内容
+						}
+						_, err := mgr.LoadSkill(path)
+						return err
+					}
+					skillSink = experiencesvc.NewSkillSink(skills.SkillDirFromEnv(), mysql.NewExperienceRepository(db), registrar)
+				}
 				experienceWorker = experiencesvc.NewWorker(
 					expCfg,
 					mysql.NewExperienceRepository(db),
 					msgRepo,
 					experiencesvc.NewSummarizer(toolModel),
 					graphSink,
-					experiencesvc.NewSkillSink(experiencesvc.SkillDirFromEnv()),
+					skillSink,
 				)
 			}
 
@@ -320,6 +345,20 @@ func main() {
 				log.Println("⚠️  图谱服务未就绪，graph_query 工具未接线")
 			}
 
+			// 知识块精确拉取工具（kb_fetch_chunks）：按 kb/chunk/knowledge 等标量条件直取分块原文。
+			// VectorRetriever 复用 Milvus 单例连接（构造廉价），租户与 KB 范围由 ctx 强制（同 rag_query 治理）。
+			// 嵌入器/向量库未就绪时不接线，工具降级返回提示。
+			if app.Embedder != nil {
+				if vr, verr := milvusretriever.NewVectorRetriever(app.Embedder); verr != nil {
+					log.Printf("⚠️  向量检索器初始化失败，kb_fetch_chunks 工具未接线: %v", verr)
+				} else {
+					deps.ChunkFetcher = agentadapters.NewChunkFetchAdapter(vr, app.KnowledgeBaseRepository)
+					log.Println("✅ 知识块精确拉取工具（kb_fetch_chunks）已接线向量库")
+				}
+			} else {
+				log.Println("⚠️  嵌入器未就绪，kb_fetch_chunks 工具未接线")
+			}
+
 			// ==================== 构造工具注册表并注入默认槽位 ====================
 			reg, regErr := ragtool.NewToolRegistry(deps)
 			if regErr != nil {
@@ -345,10 +384,42 @@ func main() {
 				genui.SetModel(toolModel)
 				log.Println("✅ 生成式 UI（GenUI）已启用 LLM 定制布局")
 
+				// 历史经验召回器（自进化读侧）：EXPERIENCE_RECALL_ENABLED 开启且图谱可用时，
+				// 用与沉淀同源的图谱仓储装配，供 Data Agent 首答注入过往会话经验。默认关 → nil（不召回）。
+				var experienceRecall *experiencesvc.GraphRecaller
+				if experiencesvc.RecallEnabledFromEnv() && app.GraphService != nil {
+					experienceRecall = experiencesvc.NewGraphRecaller(app.GraphService.GetGraphRepo())
+					log.Println("✅ 历史经验召回已启用（图谱召回 + 首答注入）")
+				}
+
+				// 语义缓存（一套向量底座，两种消费模式；默认全关 → nil）：
+				//   - RAG 知识库助手 → 硬缓存短路返回（NewCachingAgent）
+				//   - Data Agent → 软 few-shot 读侧（Before hook）+ 软写穿写侧（NewWriteThroughAgent）
+				// 仅在真正装配（非 nil）时挂接 With*，避免把 typed-nil 具体指针混入接口字段。
+				semanticCache := buildSemanticCache(ctx, app.Embedder)
+
 				// 工具注册表就绪后构造 Initializer（工具注册表构造期显式注入，
 				// 替代 tools 包级 GetTool/GetToolsByGroup 全局查询）。
 				initializer := agentinit.NewInitializer(app.AgentRegistry, reg, msgRepo).
-					WithEmbedder(app.Embedder)
+					WithEmbedder(app.Embedder).
+					WithExperienceRecall(experienceRecall)
+				if semanticCache != nil {
+					initializer = initializer.
+						WithSemanticFewShot(semanticCache).
+						WithRAGHardCache(semanticCache).
+						WithDataSoftCache(semanticCache)
+
+					// 文档写入/删除后按库失效 RAG 硬缓存：把缓存服务经 setter 注入知识库服务
+					// （setter 在具体类型上，接口未暴露 → 类型断言获取）。断言失败仅记日志，不阻断。
+					if inv, ok := app.KnowledgeBaseService.(interface {
+						SetCacheInvalidator(knowledgesvc.KBCacheInvalidator)
+					}); ok {
+						inv.SetCacheInvalidator(semanticCache)
+						log.Println("✅ RAG 硬缓存按库失效已接线（文档变更 → InvalidateByKB）")
+					} else {
+						log.Println("⚠️  知识库服务未暴露 SetCacheInvalidator，RAG 硬缓存按库失效未接线")
+					}
+				}
 
 				// 初始化所有 Agents
 				if err := initializer.Initialize(ctx, toolModel); err != nil {
@@ -463,4 +534,144 @@ func main() {
 	if err := app.Router.Run(addr); err != nil {
 		log.Fatalf("❌ 服务器启动失败: %v", err)
 	}
+}
+
+// ==================== 语义缓存装配（组合根，默认全关 → 零回归）====================
+
+// 语义缓存的两个逻辑消费键（与领域 AgentType 无关，用于隔离命名空间/开关；见各 preset 说明）：
+//   - ragCacheKey  "rag_assistant"：硬缓存（高阈值，命中短路返回，知识稳定安全）
+//   - dataCacheKey "data_agent"   ：软缓存（低阈值，few-shot 注入 + 软写穿，数据会变需重算）
+const (
+	ragCacheKey  = "rag_assistant"
+	dataCacheKey = dataagent.DataAgentCacheKey
+)
+
+// buildSemanticCache 按环境变量装配语义缓存服务（一套向量检索/回写底座，两种消费模式）。
+// 总开关 SEMANTIC_CACHE_ENABLED 默认关；两种模式各自独立门控，均关闭时不装配。
+// 任一前置（嵌入器/Milvus/Redis）不就绪时降级为「不装配」并记日志，绝不阻断启动。
+// 返回 nil 表示未装配——调用方据此跳过全部 With* 挂接（避免 typed-nil 混入接口，见 preset 说明）。
+func buildSemanticCache(ctx context.Context, embedder embedding.Embedder) *cachesvc.SemanticCacheService {
+	if !getEnvBool("SEMANTIC_CACHE_ENABLED", false) {
+		return nil
+	}
+	ragEnabled := getEnvBool("RAG_HARD_CACHE_ENABLED", false)
+	dataEnabled := getEnvBool("DATA_SOFT_CACHE_ENABLED", false)
+	if !ragEnabled && !dataEnabled {
+		log.Println("ℹ️  语义缓存总开关开启，但 RAG_HARD_CACHE_ENABLED / DATA_SOFT_CACHE_ENABLED 均关，跳过装配")
+		return nil
+	}
+	if embedder == nil {
+		log.Println("⚠️  语义缓存已开启但嵌入器未就绪，跳过装配")
+		return nil
+	}
+	if rediscache.Client == nil {
+		log.Println("⚠️  语义缓存需要 Redis 存储内容但 Redis 未就绪，跳过装配")
+		return nil
+	}
+
+	// 探测嵌入维度（DashScope v3=1024，模型不同维度不同）：用真实输出长度建表，避免维度不一致。
+	vecs, err := embedder.EmbedStrings(ctx, []string{"semantic cache dimension probe"})
+	if err != nil || len(vecs) == 0 || len(vecs[0]) == 0 {
+		log.Printf("⚠️  语义缓存嵌入维度探测失败，跳过装配: %v", err)
+		return nil
+	}
+	dim := len(vecs[0])
+
+	if err := milvus.InitializeCacheCollection(ctx, dim); err != nil {
+		log.Printf("⚠️  语义缓存 Milvus collection 初始化失败，跳过装配: %v", err)
+		return nil
+	}
+	vectorRepo, err := milvus.NewCacheVectorRepository(dim)
+	if err != nil {
+		log.Printf("⚠️  语义缓存向量仓储构造失败，跳过装配: %v", err)
+		return nil
+	}
+	contentRepo := redisrepo.NewCacheContentRepository(rediscache.Client)
+
+	strategy := &domaincache.AgentCacheStrategy{
+		Global: domaincache.SemanticCacheConfig{
+			Enabled:   true,
+			Threshold: getEnvFloat32("SEMANTIC_CACHE_THRESHOLD", 0.90),
+			TTL:       getEnvDuration("SEMANTIC_CACHE_TTL", 24*time.Hour),
+			TopK:      getEnvInt("SEMANTIC_CACHE_TOP_K", 5),
+		},
+		Defaults: domaincache.AgentCacheConfig{
+			Enabled:   false, // 未显式列出的 agent 一律不启用（GetAgentConfig 兜底也返回关闭）
+			Threshold: 0.90,
+			TTL:       24 * time.Hour,
+			TopK:      5,
+		},
+		Agents: map[string]domaincache.AgentCacheConfig{},
+	}
+	if ragEnabled {
+		// RAG 硬缓存：高阈值（0.95）——只有极相似的问题才短路返回旧答案（知识稳定，误命中代价高）。
+		strategy.Agents[ragCacheKey] = domaincache.AgentCacheConfig{
+			Enabled:   true,
+			Threshold: getEnvFloat32("RAG_HARD_CACHE_THRESHOLD", 0.95),
+			TTL:       getEnvDuration("RAG_HARD_CACHE_TTL", 24*time.Hour),
+			TopK:      getEnvInt("RAG_HARD_CACHE_TOP_K", 3),
+		}
+	}
+	if dataEnabled {
+		// Data 软缓存：低阈值（0.82）——较宽松地召回相似历史问答作 few-shot 参考（不短路，LLM 结合实时数据重算）。
+		strategy.Agents[dataCacheKey] = domaincache.AgentCacheConfig{
+			Enabled:   true,
+			Threshold: getEnvFloat32("DATA_SOFT_CACHE_THRESHOLD", 0.82),
+			TTL:       getEnvDuration("DATA_SOFT_CACHE_TTL", 6*time.Hour),
+			TopK:      getEnvInt("DATA_SOFT_CACHE_TOP_K", 3),
+		}
+	}
+
+	log.Printf("✅ 语义缓存已装配（dim=%d，RAG硬缓存=%v，Data软缓存=%v）", dim, ragEnabled, dataEnabled)
+	return cachesvc.NewSemanticCacheService(vectorRepo, contentRepo, strategy, embedder)
+}
+
+// ---- 组合根本地 env 读取小工具（仅本包使用，避免暴露 config 内部 helper）----
+
+func getEnvBool(key string, def bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
+}
+
+func getEnvInt(key string, def int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+func getEnvFloat32(key string, def float32) float32 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil {
+		return def
+	}
+	return float32(f)
+}
+
+func getEnvDuration(key string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }

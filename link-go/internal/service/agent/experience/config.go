@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"link/internal/service/agent/skills"
 )
 
 // ConfigFromEnv 从环境变量装配 Worker 配置（缺省回落 DefaultConfig）：
@@ -17,8 +15,10 @@ import (
 //   - EXPERIENCE_MIN_MESSAGES：最少消息数（默认 2）
 //   - EXPERIENCE_BATCH_SIZE：单轮批量（默认 20）
 //   - EXPERIENCE_MAX_CONCURRENT：并发蒸馏上限（默认 2）
-//   - EXPERIENCE_DEDUP_THRESHOLD：近重复合并的 Jaccard 阈值（默认 0.8；<=0 关闭）
 //   - EXPERIENCE_START_FROM：起始时间下限，只沉淀该时刻后新建的会话（默认空=不限，历史存量不回溯）
+//   - EXPERIENCE_MIN_CONFIDENCE：质量门，低于此置信度记 skipped 不落图谱（默认 60；0=关闭该门）
+//   - EXPERIENCE_PREGATE_ENABLED：客观失败前置门总开关（默认开，true/1；false/0 关闭）
+//   - EXPERIENCE_SKILL_MIN_CONFIDENCE：技能沉淀置信门，skill_worthy 且置信度≥此值才落 SKILL.md（默认 80；0=不额外设限）
 func ConfigFromEnv() Config {
 	cfg := DefaultConfig()
 
@@ -30,9 +30,48 @@ func ConfigFromEnv() Config {
 	cfg.MinMessages = intEnv("EXPERIENCE_MIN_MESSAGES", cfg.MinMessages)
 	cfg.BatchSize = intEnv("EXPERIENCE_BATCH_SIZE", cfg.BatchSize)
 	cfg.MaxConcurrent = intEnv("EXPERIENCE_MAX_CONCURRENT", cfg.MaxConcurrent)
-	cfg.DedupThreshold = floatEnv("EXPERIENCE_DEDUP_THRESHOLD", cfg.DedupThreshold)
 	cfg.StartFrom = timeEnv("EXPERIENCE_START_FROM", cfg.StartFrom)
+	// MinConfidence 允许 0（显式关闭质量门），故用 nonNegIntEnv 而非要求正数的 intEnv。
+	cfg.MinConfidence = nonNegIntEnv("EXPERIENCE_MIN_CONFIDENCE", cfg.MinConfidence)
+	if v := strings.TrimSpace(os.Getenv("EXPERIENCE_PREGATE_ENABLED")); v != "" {
+		cfg.PreGateEnabled = v == "true" || v == "1"
+	}
+	// SkillMinConfidence 允许 0（不额外设限），故用 nonNegIntEnv。
+	cfg.SkillMinConfidence = nonNegIntEnv("EXPERIENCE_SKILL_MIN_CONFIDENCE", cfg.SkillMinConfidence)
 	return cfg
+}
+
+// SkillSinkEnabledFromEnv 读技能沉淀开关（与写侧 EXPERIENCE_DISTILL_ENABLED 相互独立）：
+//   - EXPERIENCE_SKILL_SINK_ENABLED：true/1 开启把 skill_worthy 经验落成 SKILL.md；默认关。
+//
+// 独立门控便于「先只攒经验/图谱、确认质量后再放开生成技能文件」——技能会落进 git 跟踪的
+// skills/ 目录并进未来 system prompt，副作用大于图谱沉淀，故默认关、单独开。
+func SkillSinkEnabledFromEnv() bool {
+	v := strings.TrimSpace(os.Getenv("EXPERIENCE_SKILL_SINK_ENABLED"))
+	return v == "true" || v == "1"
+}
+
+// nonNegIntEnv 解析非负整数环境变量（区别于 intEnv 要求正数）：允许 0 用于「显式关闭」语义。
+func nonNegIntEnv(key string, def int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		log.Printf("[ExperienceWorker] %s=%q 非法（需非负整数），回落 %d", key, v, def)
+		return def
+	}
+	return n
+}
+
+// RecallEnabledFromEnv 读经验召回开关（读侧，与写侧 EXPERIENCE_DISTILL_ENABLED 相互独立）：
+//   - EXPERIENCE_RECALL_ENABLED：true/1 开启首答注入历史经验；默认关。
+//
+// 读写分离便于「先攒一段时间沉淀、再放开召回」，也避免空图谱时的无谓开销。
+func RecallEnabledFromEnv() bool {
+	v := strings.TrimSpace(os.Getenv("EXPERIENCE_RECALL_ENABLED"))
+	return v == "true" || v == "1"
 }
 
 // timeEnv 解析起始时间下限：接受日期 2006-01-02、日期时间 2006-01-02 15:04:05
@@ -51,35 +90,6 @@ func timeEnv(key string, def time.Time) time.Time {
 	return def
 }
 
-// SkillDirFromEnv 解析 skill 落盘目录，与技能加载侧（skills.InitializeFromEnv）对齐：
-//   - 优先 EXPERIENCE_SKILL_DIR；
-//   - 否则 LINK_SKILL_DIRS 的第一个目录（与加载侧显式配置同源）；
-//   - 再否则复用加载侧的默认候选清单（skills.DefaultSkillDirs），取首个「已存在」目录。
-//
-// 关键：默认场景不再写死 "./skills"（从 link-go/ 启动会落到 link-go/skills，而加载侧默认
-// 扫的是 ../skills，两者错位导致蒸馏产物不被加载）。取首个已存在的候选，保证落盘目录必在
-// 加载扫描范围内；候选全不存在时回落首个候选（Write 时 MkdirAll 创建），与加载侧首选一致。
-func SkillDirFromEnv() string {
-	if v := strings.TrimSpace(os.Getenv("EXPERIENCE_SKILL_DIR")); v != "" {
-		return v
-	}
-	if v := strings.TrimSpace(os.Getenv("LINK_SKILL_DIRS")); v != "" {
-		if first := strings.TrimSpace(strings.Split(v, ",")[0]); first != "" {
-			return first
-		}
-	}
-	candidates := skills.DefaultSkillDirs()
-	for _, d := range candidates {
-		if info, err := os.Stat(d); err == nil && info.IsDir() {
-			return d // 首个已存在的候选目录：加载侧必然也会扫描它
-		}
-	}
-	if len(candidates) > 0 {
-		return candidates[0] // 都不存在：回落首个候选，与加载侧首选保持一致
-	}
-	return "./skills"
-}
-
 func durationEnv(key string, def time.Duration) time.Duration {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
@@ -91,20 +101,6 @@ func durationEnv(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
-}
-
-// floatEnv 解析浮点环境变量；允许 0（用于关闭去重），仅拒绝负数与非法值。
-func floatEnv(key string, def float64) float64 {
-	v := strings.TrimSpace(os.Getenv(key))
-	if v == "" {
-		return def
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil || f < 0 {
-		log.Printf("[ExperienceWorker] %s=%q 非法，回落 %v", key, v, def)
-		return def
-	}
-	return f
 }
 
 func intEnv(key string, def int) int {

@@ -39,6 +39,8 @@ var (
 	RouteSelectionKey = contextKey("kb_route_selection")
 	// DatasourceIDKey 会话选定的外部数据源 ID key（string，空表示当前业务库）
 	DatasourceIDKey = contextKey("datasource_id")
+	// RetrievalParamsKey 会话级检索参数 key（*RetrievalParams，用户在会话设置里持久化）
+	RetrievalParamsKey = contextKey("retrieval_params")
 )
 
 // 知识库选择模式常量。
@@ -273,6 +275,38 @@ func GetDatasourceID(ctx context.Context) (string, bool) {
 func MustGetDatasourceID(ctx context.Context) string {
 	id, _ := GetDatasourceID(ctx)
 	return id
+}
+
+// ========================================
+// RetrievalParams 传递辅助函数（会话级检索参数治理）
+// ========================================
+
+// RetrievalParams 承载用户在会话设置里持久化的检索治理参数，经入口 handler 从
+// RetrievalSetting 加载并注入 ctx；检索适配器读取后覆盖 LLM 经工具参数给出的即兴取值。
+// 全部字段用指针以区分「未设置」与「显式设为零值」——nil 表示不覆盖，回退工具参数/系统默认。
+type RetrievalParams struct {
+	// TopK 会话级返回片段数（覆盖工具 top_k）
+	TopK *int
+	// MinScore 会话级最小相似度阈值（覆盖工具 min_score）
+	MinScore *float64
+	// RerankEnabled 会话级重排开关（覆盖工具 enable_rerank）
+	RerankEnabled *bool
+	// Alpha 混合检索向量/关键词权重（工具参数未暴露，仅会话级可控）
+	Alpha *float64
+}
+
+// WithRetrievalParams 将会话级检索参数注入到 Go context 中（nil 不注入）。
+func WithRetrievalParams(ctx context.Context, p *RetrievalParams) context.Context {
+	if p == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, RetrievalParamsKey, p)
+}
+
+// GetRetrievalParams 从 Go context 中获取会话级检索参数。
+func GetRetrievalParams(ctx context.Context) (*RetrievalParams, bool) {
+	p, ok := ctx.Value(RetrievalParamsKey).(*RetrievalParams)
+	return p, ok
 }
 
 // ========================================

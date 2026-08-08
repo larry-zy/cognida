@@ -29,6 +29,8 @@ type ToolDeps struct {
 
 	// RAGService RAG 检索服务（可选）；nil 时 rag_query 返回未初始化提示。
 	RAGService RAGQueryService
+	// ChunkFetcher 知识块精确拉取服务（可选）；nil 时 kb_fetch_chunks 返回未初始化提示。
+	ChunkFetcher ChunkFetcher
 	// GraphService 图谱检索服务（可选）；nil 时 graph_query 返回未初始化提示。
 	GraphService GraphQueryService
 	// ResultStore 结果存储（可选）；由 sql_execute / etl_run / data_analysis /

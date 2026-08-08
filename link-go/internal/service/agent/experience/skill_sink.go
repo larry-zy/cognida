@@ -1,3 +1,7 @@
+// 本文件是经验沉淀的「技能」环节：把被标记 skill_worthy 的会话经验落成一份
+// 可复用的 SKILL.md，供技能系统在未来同类问题时加载复用。与图谱沉淀（graph_sink.go）
+// 并列，同属一次蒸馏 pass 的下游产物；能力（渲染/落盘/近重复合并纯逻辑）在此，
+// 业务阈值/门控与「写哪个目录、注册进哪个管理器」在 config.go 与组合根装配。
 package experience
 
 import (
@@ -5,155 +9,162 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
+	"unicode"
 
 	domain_experience "link/internal/model/agent/experience"
 	"link/internal/service/agent/skills"
 )
 
-// SkillSink 把「值得复用」的经验落盘为 SKILL.md，写入配置的技能根目录下
-// 单层子目录 <root>/<slug>/SKILL.md（SkillLoader.LoadDir 只扫两层，故须一层），
-// 落盘后触发 skills.ReloadSkills 让新技能即时可被发现。
-//
-// 幂等：同名 skill 目录已存在则跳过（不覆盖既有技能），返回既有名。
+// distilledSkillAuthor 是自动沉淀技能的作者落款，必须与加载侧
+// skills/loader.go 的 distilledSkillAuthor 常量逐字一致——加载侧据此识别沉淀技能
+// 并施加 TTL 回收。两处各留一份常量（跨包不便共享），改动需同步。
+const distilledSkillAuthor = "experience-distill"
+
+// skillNameMaxRunes 落盘技能名（目录名）最长 rune 数，避免超长标题撑出畸形目录名。
+const skillNameMaxRunes = 60
+
+// SkillRegistrar 把新落盘的 SKILL.md 即时注册进运行中的技能管理器（运行期可见），
+// 由组合根注入；为 nil 时仅落盘，靠加载侧下次扫描/热更新兜底生效。
+type SkillRegistrar func(name, path string) error
+
+// SkillSink 把 skill_worthy 的经验渲染为 SKILL.md 并幂等落盘。
 type SkillSink struct {
-	root string // 技能根目录（写入目标）
+	dir       string                                 // 落盘根目录（须 ⊆ 加载扫描范围，见 skills.SkillDirFromEnv）
+	repo      domain_experience.ExperienceRepository // 近重复合并判定；可空
+	registrar SkillRegistrar                         // 运行期即时注册；可空
 }
 
-// NewSkillSink 创建 skill 落盘器。root 为空时 Write 返回错误由调用方降级。
-func NewSkillSink(root string) *SkillSink {
-	return &SkillSink{root: strings.TrimSpace(root)}
+// NewSkillSink 创建技能落盘器。dir 为空时 Write 会报错（调用方须给出有效目录）。
+func NewSkillSink(dir string, repo domain_experience.ExperienceRepository, registrar SkillRegistrar) *SkillSink {
+	return &SkillSink{dir: strings.TrimSpace(dir), repo: repo, registrar: registrar}
 }
 
-// Write 依据经验生成 SKILL.md。返回生成（或既有）的 skill 名。
-// 若经验不满足落盘条件（非 skill_worthy / 指引为空），返回空名且无错误。
+// Write 把一条 skill_worthy 经验落成 SKILL.md，返回落盘的技能名（供回填 SkillName）。
+// 非 skill_worthy、无指引正文、或名称非法时静默返回空名不报错（视为「本条不产技能」）。
 func (s *SkillSink) Write(ctx context.Context, exp *domain_experience.Experience) (string, error) {
-	if s == nil || s.root == "" {
-		return "", fmt.Errorf("skill sink: 技能根目录未配置")
+	if s == nil || exp == nil || !exp.SkillWorthy {
+		return "", nil
 	}
-	if exp == nil || !exp.SkillWorthy || strings.TrimSpace(exp.SkillInstructions) == "" {
-		return "", nil // 不满足落盘条件：静默跳过
+	if strings.TrimSpace(exp.SkillInstructions) == "" {
+		return "", nil
 	}
-
-	// 名称必须能通过注册器校验（IsValidSkillName），否则沉淀出的技能加载时会被拒。
-	// slugify 保留 [a-z0-9\p{Han}]，正常与校验集合一致；这里再兜一层，
-	// 万一标题折叠后为空或含非法字符，回退到稳定的 experience-<id>。
 	name := slugify(exp.Title)
+	// 与加载/注册侧 skills.IsValidSkillName 对齐：名称落不进注册表就别落盘，避免「沉淀却注册不进」。
 	if name == "" || !skills.IsValidSkillName(name) {
-		name = fmt.Sprintf("experience-%d", exp.ID)
+		return "", nil
+	}
+	if s.dir == "" {
+		return "", fmt.Errorf("skill sink: 落盘目录未配置")
 	}
 
-	dir := filepath.Join(s.root, name)
-	skillPath := filepath.Join(dir, "SKILL.md")
-	if _, err := os.Stat(skillPath); err == nil {
-		// 同名技能已存在：不覆盖，视为幂等命中。
+	// 近重复合并：同租户已有相同 slug 的技能（多为不同会话得出的同名解法）→ 复用既有技能名，
+	// 本次不再另落一份内容雷同的技能，避免目录堆同义重复。
+	if s.repo != nil {
+		if existing, err := s.repo.FindSkillWorthyByTenant(ctx, exp.TenantID, 200); err == nil {
+			for _, e := range existing {
+				if e == nil || e.SessionID == exp.SessionID {
+					continue
+				}
+				if e.SkillName != "" && slugify(e.Title) == name {
+					return e.SkillName, nil
+				}
+			}
+		}
+	}
+
+	dir := filepath.Join(s.dir, name)
+	path := filepath.Join(dir, "SKILL.md")
+	content := renderSkillMarkdown(name, exp)
+
+	// 幂等落盘：内容未变则跳过写入，保持文件 mtime 稳定（加载侧据 mtime 判 TTL 过期）。
+	if prev, err := os.ReadFile(path); err == nil && string(prev) == content {
 		return name, nil
 	}
-
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("skill sink: 创建目录失败: %w", err)
+		return "", fmt.Errorf("skill sink: 建目录 %s 失败: %w", dir, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("skill sink: 落盘 %s 失败: %w", path, err)
 	}
 
-	content := renderSkillMarkdown(exp, name)
-	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("skill sink: 写入 SKILL.md 失败: %w", err)
-	}
-
-	// 让新技能即时可被 skill_list/skill_match 发现。重载失败不致命（下次启动会加载）。
-	if err := skills.ReloadSkills(); err != nil {
-		// 不返回错误：文件已落盘，重载失败仅影响本进程即时可见性。
-		_ = err
+	// 运行期可见：即时注册进运行中的管理器（best-effort，失败靠加载侧下次扫描兜底）。
+	if s.registrar != nil {
+		_ = s.registrar(name, path)
 	}
 	return name, nil
 }
 
-// renderSkillMarkdown 组装 SKILL.md：YAML frontmatter（name/description/when_to_use/
-// tags/category/experimental）+ 正文（问题背景 + 可复用操作指引）。
-func renderSkillMarkdown(exp *domain_experience.Experience, name string) string {
-	desc := exp.Title
+// renderSkillMarkdown 渲染确定性的 SKILL.md 文本（YAML frontmatter + 指引正文）。
+// 输出必须确定：同一 exp 恒产出同一字节串，才能支撑上面的幂等（内容未变不重写）判定。
+func renderSkillMarkdown(name string, exp *domain_experience.Experience) string {
+	desc := strings.TrimSpace(exp.Title)
 	if desc == "" {
-		desc = firstNonEmpty(exp.Problem, "由会话经验自动沉淀的可复用技能")
+		desc = strings.TrimSpace(exp.Problem)
+	}
+	if desc == "" {
+		desc = name
 	}
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "name: %s\n", yamlScalar(name))
-	fmt.Fprintf(&b, "description: %s\n", yamlScalar(desc))
-	if exp.Problem != "" {
-		fmt.Fprintf(&b, "when_to_use: %s\n", yamlScalar("遇到类似问题时："+oneLine(exp.Problem)))
+	fmt.Fprintf(&b, "name: %s\n", yamlInline(name))
+	fmt.Fprintf(&b, "description: %s\n", yamlInline(desc))
+	if wt := strings.TrimSpace(exp.Problem); wt != "" {
+		fmt.Fprintf(&b, "when_to_use: %s\n", yamlInline(wt))
 	}
-	b.WriteString("category: experience\n")
+	fmt.Fprintf(&b, "author: %s\n", yamlInline(distilledSkillAuthor))
 	b.WriteString("experimental: true\n")
-	b.WriteString("author: experience-distill\n")
 	if len(exp.Tags) > 0 {
 		b.WriteString("tags:\n")
 		for _, t := range exp.Tags {
-			fmt.Fprintf(&b, "  - %s\n", yamlScalar(t))
+			if t = strings.TrimSpace(t); t != "" {
+				fmt.Fprintf(&b, "  - %s\n", yamlInline(t))
+			}
 		}
 	}
-	// disable_model_invocation：纯指导性技能（不自带工具白名单），仅供模型参考。
-	b.WriteString("disable_model_invocation: true\n")
 	b.WriteString("---\n\n")
-
-	fmt.Fprintf(&b, "# %s\n\n", firstNonEmpty(exp.Title, name))
-	b.WriteString("> 本技能由会话经验自动沉淀生成，供遇到同类问题时复用。\n\n")
-
-	if exp.Problem != "" {
-		b.WriteString("## 适用场景\n\n")
-		b.WriteString(exp.Problem)
-		b.WriteString("\n\n")
-	}
-	b.WriteString("## 操作指引\n\n")
-	b.WriteString(exp.SkillInstructions)
+	b.WriteString(strings.TrimSpace(exp.SkillInstructions))
 	b.WriteString("\n")
-
-	if len(exp.Tools) > 0 {
-		b.WriteString("\n## 涉及工具\n\n")
-		for _, t := range exp.Tools {
-			fmt.Fprintf(&b, "- `%s`\n", t)
-		}
-	}
-	fmt.Fprintf(&b, "\n---\n_来源会话：%s，沉淀于 %s_\n", exp.SessionID, exp.CreatedAt.Format(time.RFC3339))
 	return b.String()
 }
 
-var slugInvalid = regexp.MustCompile(`[^a-z0-9\p{Han}]+`)
-
-// slugify 把标题转为文件系统友好的 slug：保留字母数字与汉字，其余折叠为连字符。
-func slugify(title string) string {
-	s := strings.ToLower(strings.TrimSpace(title))
-	s = slugInvalid.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	if len(s) > 60 {
-		s = s[:60]
-		s = strings.Trim(s, "-")
-	}
-	return s
-}
-
-// yamlScalar 把字符串包装为安全的 YAML 双引号标量（转义引号与反斜杠）。
-func yamlScalar(s string) string {
-	s = oneLine(s)
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	return "\"" + s + "\""
-}
-
-// oneLine 把多行折叠为单行（换行替换为空格），供 frontmatter 单行标量使用。
-func oneLine(s string) string {
+// yamlInline 把短字符串安全地表示为 YAML 单行双引号标量（折叠换行、转义引号/反斜杠），
+// 避免标题/标签里的冒号、井号等破坏 frontmatter 解析。
+func yamlInline(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + strings.TrimSpace(s) + `"`
 }
 
-// firstNonEmpty 返回首个非空字符串。
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
+// slugify 把标题折叠为技能名/目录名：保留小写字母、数字、汉字，其余（空格/标点/大写等）
+// 折叠为单个连字符并去除首尾连字符。产出集合 [a-z0-9\p{Han}-] 必落在 skills.IsValidSkillName
+// 允许范围内——二者是「沉淀得出即注册得进」的同一契约的两侧。
+func slugify(s string) string {
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range strings.TrimSpace(s) {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + ('a' - 'A'))
+			lastHyphen = false
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || unicode.Is(unicode.Han, r):
+			b.WriteRune(r)
+			lastHyphen = false
+		default:
+			if b.Len() > 0 && !lastHyphen {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
 		}
 	}
-	return ""
+	slug := strings.Trim(b.String(), "-")
+
+	// 限长（按 rune），并再次去尾连字符，避免截断处留下悬空连字符。
+	if runes := []rune(slug); len(runes) > skillNameMaxRunes {
+		slug = strings.Trim(string(runes[:skillNameMaxRunes]), "-")
+	}
+	return slug
 }

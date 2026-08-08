@@ -86,7 +86,11 @@ func (s *Optimizer) HyDERetrieve(ctx context.Context, req *HyDERetrieveRequest) 
 
 	if req.EnableMultiDoc && req.DocCount > 1 {
 		// 多文档 HyDE
-		docsList, err := s.hydeGenerator.GenerateMultiple(ctx, req.Query, req.DocCount, opts)
+		// 注意：这里必须用 `=` 复用外层 err，不能 `:=` 另建局部 err——否则
+		// GenerateMultiple / retrieveWithMultipleDocs 的错误只落到影子变量里，
+		// 外层 err 恒为 nil，下面的「降级到普通检索」判定永远失效。
+		var docsList []string
+		docsList, err = s.hydeGenerator.GenerateMultiple(ctx, req.Query, req.DocCount, opts)
 		if err == nil && len(docsList) > 0 {
 			hypotheticalDoc = docsList[0]
 			// 使用多个假设文档进行检索

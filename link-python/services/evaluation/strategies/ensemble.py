@@ -5,7 +5,6 @@
 
 from typing import Any, Dict, List, Optional
 
-from ..graders import get_grader
 from .base import BaseStrategy, StrategyConfig
 
 

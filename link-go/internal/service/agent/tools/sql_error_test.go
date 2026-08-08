@@ -62,7 +62,7 @@ func TestRetriableByKind(t *testing.T) {
 func TestNewRepairableSQLError_ObservationShape(t *testing.T) {
 	// target=nil → 走通用提示分支，不检索 schema。
 	re := newRepairableSQLError(context.Background(), nil, "SELECT bad FROM orders",
-		&mysql.MySQLError{Number: 1054, Message: "Unknown column 'bad' in 'field list'"})
+		&mysql.MySQLError{Number: 1054, Message: "Unknown column 'bad' in 'field list'"}, nil, "")
 
 	if re.ErrorKind != string(sqlErrUnknownColumn) {
 		t.Fatalf("ErrorKind=%q, want unknown_column", re.ErrorKind)
@@ -94,7 +94,7 @@ func TestNewRepairableSQLError_ExternalRedaction(t *testing.T) {
 	target := &queryTarget{external: true, dbName: "remote"}
 	raw := "Access denied for user 'admin'@'10.0.0.5' (using password: YES)"
 	re := newRepairableSQLError(context.Background(), target, "SELECT * FROM t",
-		&mysql.MySQLError{Number: 1044, Message: raw})
+		&mysql.MySQLError{Number: 1044, Message: raw}, nil, "")
 
 	if re.ErrorKind != string(sqlErrPermission) {
 		t.Fatalf("ErrorKind=%q, want permission", re.ErrorKind)
@@ -124,7 +124,7 @@ func TestNewRepairableSQLError_ExternalRedaction(t *testing.T) {
 func TestBuildSchemaHint_NilDBDegrades(t *testing.T) {
 	target := &queryTarget{external: false, dbName: "link"} // db 为 nil
 	// 不应 panic；应退化为 tip-only。
-	hint := buildSchemaHint(context.Background(), target, sqlErrUnknownTable, "ordrs", "SELECT 1 FROM ordrs")
+	hint := buildSchemaHint(context.Background(), target, sqlErrUnknownTable, "ordrs", "SELECT 1 FROM ordrs", nil, "")
 	m, ok := hint.(map[string]interface{})
 	if !ok {
 		t.Fatalf("hint 类型异常: %T", hint)

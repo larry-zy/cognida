@@ -17,13 +17,23 @@ import (
 )
 
 const (
-	// DatasetDir 数据集目录
-	DatasetDir = "D:/link/datasets"
 	// MetaFileName 元数据文件名
 	MetaFileName = "meta.json"
 	// SamplesFileName 样本文件名
 	SamplesFileName = "samples.jsonl"
+	// defaultDatasetDir 数据集根目录的跨平台默认值（相对当前工作目录）。
+	defaultDatasetDir = "datasets"
 )
+
+// DatasetDir 数据集根目录。可用环境变量 EVAL_DATASET_DIR 覆盖；未设置时取相对路径 datasets/。
+// 原实现硬编码 "D:/link/datasets"（Windows 绝对路径），在 macOS/Linux 上永远不存在，
+// 文件系统回退加载必失败。
+var DatasetDir = func() string {
+	if dir := os.Getenv("EVAL_DATASET_DIR"); dir != "" {
+		return dir
+	}
+	return defaultDatasetDir
+}()
 
 // DatasetLoader 数据集加载器
 type DatasetLoader struct {

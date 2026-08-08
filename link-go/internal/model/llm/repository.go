@@ -147,18 +147,6 @@ type ModelRegistry interface {
 	ListAll() ([]*ModelInfo, error)
 }
 
-// TokenCounter Token 计数器接口
-type TokenCounter interface {
-	// CountTokens 计算 token 数量
-	CountTokens(text string) int
-
-	// CountMessageTokens 计算消息 token 数量
-	CountMessageTokens(messages []*Message) int
-
-	// Estimate 估算 token 数量（快速但不精确）
-	Estimate(text string) int
-}
-
 // StreamingWriter 流式写入器接口
 type StreamingWriter interface {
 	// WriteChunk 写入分块

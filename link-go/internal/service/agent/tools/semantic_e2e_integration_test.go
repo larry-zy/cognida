@@ -101,7 +101,7 @@ func TestSemanticGovernanceE2E(t *testing.T) {
 		SQL:        res.SQL,
 		DatabaseID: res.DatabaseID, // 关键：显式打向电商演示库，而非会话隐式选库
 		MaxRows:    10,
-	}, db /*businessDB 兜底，不应命中*/, cm, nil /*无 result store*/)
+	}, db /*businessDB 兜底，不应命中*/, cm, nil /*无 result store*/, nil /*无列画像*/)
 	require.NoError(t, err, "治理 SQL 应能在 ecommerce_demo 上成功执行")
 	require.Greater(t, exec.RowCount, 0, "按城市看营收应取到真实行")
 	assert.Contains(t, exec.Columns, "城市")

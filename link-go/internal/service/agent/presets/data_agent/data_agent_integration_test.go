@@ -136,8 +136,8 @@ func TestDataAgent_FetchAnalyzeRenderE2E(t *testing.T) {
 	registry := infraagent.NewSpecRegistry()
 
 	// 声明式注册 Data Agent（单一 ReAct）。
-	// msgRepo 传 nil：本用例不校验多轮记忆，ContextBuilder 不装配。
-	require.NoError(t, registry.RegisterSpec(ctx, Spec(toolModel, nil, reg)))
+	// msgRepo/recaller/fewShot/softCache 传 nil：本用例不校验多轮记忆、历史经验召回与软语义缓存，均不装配。
+	require.NoError(t, registry.RegisterSpec(ctx, Spec(toolModel, nil, reg, nil, nil, nil)))
 
 	dataAgent, ok := registry.GetInstance(DataAgentID)
 	require.True(t, ok, "Data Agent 应已注册")

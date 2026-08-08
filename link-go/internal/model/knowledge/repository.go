@@ -330,9 +330,6 @@ type VectorRepository interface {
 	// CreateCollection create collection
 	CreateCollection(ctx context.Context, kbID int64, dimension int, opts *CollectionOptions) error
 
-	// DropCollection drop collection
-	DropCollection(ctx context.Context, kbID int64) error
-
 	// HasCollection check if collection exists
 	HasCollection(ctx context.Context, kbID int64) (bool, error)
 

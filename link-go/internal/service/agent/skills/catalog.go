@@ -14,7 +14,7 @@ import (
 
 const (
 	// maxCatalogSkills 目录最多展开多少个技能。目录随每次请求进 system prompt，而
-	// SkillSink 会持续把会话经验沉淀成新技能（实验性），注册表只增不减；无上限会让
+	// 经验沉淀会持续把会话经验落成新技能（实验性），注册表只增不减；无上限会让
 	// 每次请求的 prompt token 随技能数无界增长。超出者不展开，仅计数提示。
 	maxCatalogSkills = 40
 	// maxCatalogDescRunes 单技能描述在目录中的 rune 上限（超长描述截断，保住主体）。

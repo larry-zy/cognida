@@ -359,3 +359,54 @@ func TestFoldOlderMessages_TailNeverStartsAtOrphanTool(t *testing.T) {
 		}
 	}
 }
+
+// TestMsgTokens_CountsToolCallArguments 验证账目修正（Gap #1）：tool_calls 的 Function.Name/Arguments
+// 也是被迫逐轮上传的上行 token（data agent 里常是整段 SQL/大 JSON），必须计入。若只数 Content 会
+// 系统性低估、令 ③ 折叠触发线偏晚——与漏数 reasoning 属同一类缺陷。
+func TestMsgTokens_CountsToolCallArguments(t *testing.T) {
+	c := ctxeng.ApproxTokenCounter{}
+
+	bigSQL := "SELECT " + strings.Repeat("col_name, ", 400) + "id FROM huge_table WHERE region='east'"
+	m := schema.AssistantMessage("好的", []schema.ToolCall{{
+		ID:       "c1",
+		Function: schema.FunctionCall{Name: "sql_execute", Arguments: bigSQL},
+	}})
+
+	contentOnly := c.Count(m.Content)
+	full := msgTokens(m, c)
+	if full <= contentOnly {
+		t.Fatalf("msgTokens 应把 tool_calls 参数计入：contentOnly=%d full=%d", contentOnly, full)
+	}
+	// 差额应恰等于 Name + Arguments 的 token（大 JSON/SQL 体量远超短 Content）。
+	wantDelta := c.Count("sql_execute") + c.Count(bigSQL)
+	if got := full - contentOnly; got != wantDelta {
+		t.Errorf("tool_calls token 差额=%d, 期望=%d（Name+Arguments）", got, wantDelta)
+	}
+}
+
+// TestCompactObservation_PreservesResultID 验证 Gap #3：超长非信封化观察被字符盲切时，
+// 正文尾部的 result_id 不能被一起切掉——下游按引用取回完整结果集依赖它。
+func TestCompactObservation_PreservesResultID(t *testing.T) {
+	// 用不含内部下划线的 id（collectResultIDs 正则 rs_[0-9a-zA-Z-]+ 不含 '_'）。
+	rid := "rs_tail0bs"
+	// 把 result_id 放在末尾，确保 8000 字符盲切一定会把它切掉。
+	output := strings.Repeat("填充数据行内容12345 ", 3000) + " 结果引用见 " + rid
+
+	got := compactObservation(output)
+
+	if !strings.Contains(got, "观察已截断") {
+		t.Fatalf("预期发生截断（输出远超上限），但未见截断标注")
+	}
+	if !strings.Contains(got, rid) {
+		t.Errorf("截断后必须兜回末尾 result_id %q，实际丢失: ...%q", rid, tailRunes(got, 80))
+	}
+}
+
+// tailRunes 返回末尾 n 个 rune，便于报错时定位。
+func tailRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[len(r)-n:])
+	}
+	return s
+}

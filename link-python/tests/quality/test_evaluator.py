@@ -2,7 +2,6 @@
 
 import pandas as pd
 import pytest
-from pathlib import Path
 
 from services.quality.evaluator import DataQualityEvaluator
 from services.quality.models import QualityReport, UnstructuredQualityReport

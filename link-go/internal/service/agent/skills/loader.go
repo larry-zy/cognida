@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	// distilledSkillAuthor 标记「会话经验自动沉淀」的技能作者（见 experience.SkillSink）。
+	// distilledSkillAuthor 标记「会话经验自动沉淀」的技能作者（见 experience 经验沉淀，author=experience-distill）。
 	distilledSkillAuthor = "experience-distill"
-	// distilledSkillTTL 自动沉淀技能的存活期。SkillSink 只增不减地把会话经验落成技能，
+	// distilledSkillTTL 自动沉淀技能的存活期。经验沉淀只增不减地把会话经验落成技能，
 	// 无 TTL 会让目录/注册表随时间无界膨胀且塞满陈旧经验。超过此期限的沉淀技能加载时
 	// 静默跳过（文件保留在盘上、可人工复核或复活），仅不进目录、不可 invoke——非破坏式回收。
 	distilledSkillTTL = 30 * 24 * time.Hour
@@ -33,7 +33,7 @@ var ErrSkillExpired = errors.New("skill expired: auto-distilled past TTL")
 var nowFunc = time.Now
 
 // isExpiredDistilledSkill 判断是否为超过 TTL 的自动沉淀技能。仅约束 experience-distill，
-// 策展技能与手工技能永不因时间过期。modTime 取自 SKILL.md 文件——SkillSink 幂等落盘
+// 策展技能与手工技能永不因时间过期。modTime 取自 SKILL.md 文件——经验沉淀幂等落盘
 // （已存在即跳过），故 mtime 稳定反映沉淀时刻，不会被重复命中刷新。
 func isExpiredDistilledSkill(skill *Skill, modTime time.Time) bool {
 	if skill == nil || skill.Author != distilledSkillAuthor {
