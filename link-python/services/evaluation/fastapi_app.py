@@ -1,5 +1,6 @@
 """评测服务 FastAPI 接口。"""
 
+import logging
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -7,6 +8,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 # 加载环境变量（支持不同工作目录）
 possible_paths = [
@@ -509,7 +512,10 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
         bleu_1_sum = 0.0
         bleu_2_sum = 0.0
         bleu_4_sum = 0.0
-        count = 0
+        # 生成指标（ROUGE/BLEU）专用分母：仅统计「有非空参考答案」的样本。
+        # 无参考答案的样本（如 SQL/纯检索题）ROUGE/BLEU 恒 0，若并入总样本数分母会稀释均值，
+        # 与 sql.py/检索指标「无标注即剔除」的口径不一致。
+        generation_count = 0
 
         # 检索指标累加器（仅统计含相关文档标注的样本）
         precision_sum = 0.0
@@ -524,7 +530,7 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
         semantic_count = 0
         llm_sum = 0.0
         llm_count = 0
-
+        llm_failed = 0  # 裁判调用异常的样本数（网络/解析失败），用于可观测与失败率告警
         # 语义相似度所需数据（整批一次性计算，复用同一模型）
         semantic_indices: List[int] = []
         semantic_refs: List[str] = []
@@ -547,9 +553,10 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
         for i, item in enumerate(request.items):
             item_result = ComputeItemResult(index=i)
 
-            # 生成指标 (ROUGE, BLEU)
-            if gen_requested:
+            # 生成指标 (ROUGE, BLEU)——仅对有非空参考答案的样本计算并计入分母
+            if gen_requested and (item.reference_answer or "").strip():
                 handled |= gen_requested
+                generation_count += 1
                 gen = compute_generation_metrics(
                     item.reference_answer,
                     item.generated_answer,
@@ -576,6 +583,9 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                 if "bleu_4" in gen:
                     item_result.bleu_4 = gen["bleu_4"]
                     bleu_4_sum += gen["bleu_4"]
+            elif gen_requested:
+                # 被请求但该样本无参考答案：标记为已处理（不落到通用路径），但不计入生成分母。
+                handled |= gen_requested
 
             # 检索指标（只要有相关文档标注即计入；检索结果为空是合法的零召回样本，
             # 应记 recall=0 并计入分母，而非静默剔除——否则「什么都没检索到」的差样本反而
@@ -626,8 +636,15 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                     if item_result.llm_score is not None:
                         llm_sum += item_result.llm_score
                         llm_count += 1
-                except Exception:
-                    pass  # LLM Judge 失败不影响其他指标
+                except Exception as e:
+                    # 裁判调用失败属「无法评估」而非「答错」：不记 0（避免冤枉）、不并入分母（避免虚高），
+                    # 但必须显式记录并计数——否则一批样本静默失败后，llm_score 只按少数成功样本求均值
+                    # （分母缩水、分数虚高），甚至全批失败时该指标无声消失，无从排查。
+                    llm_failed += 1
+                    logger.warning(
+                        "LLM Judge 第 %d 条样本评分失败（question=%r）: %s",
+                        i, (item.question or "")[:80], e, exc_info=True,
+                    )
 
             # 收集 RAG 专属指标所需数据（按批计算）
             if item.retrieved_contexts:
@@ -638,7 +655,6 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                 rag_retrieved_ids.append(item.retrieved_pids)
 
             items_result.append(item_result)
-            count += 1
 
         # 语义相似度（整批一次性计算，复用进程级共享模型）
         if semantic_indices:
@@ -649,19 +665,23 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                         items_result[idx].semantic_similarity = sim
                         semantic_sum += sim
                         semantic_count += 1
-            except Exception:
-                pass  # 语义指标失败不影响其他指标
+            except Exception as e:
+                # 整批语义相似度失败不影响其他指标，但必须落外层日志——否则整批语义分静默缺席，
+                # 只有内层降级 warning 时无从判断是「未请求」还是「批量算子异常」。
+                logger.error("批量语义相似度计算失败（%d 条样本）: %s", len(semantic_indices), e, exc_info=True)
 
-        # 计算聚合指标（按请求的评分器输出，合法的 0 分也应保留）
-        if count > 0:
+        # 计算聚合指标（按请求的评分器输出，合法的 0 分也应保留）。
+        # 生成指标以 generation_count（有参考答案的样本数）为分母，不用总样本数 count，
+        # 避免无参考样本的 0 分稀释均值。
+        if generation_count > 0:
             if "rouge" in supported_names or supported_names & {"rouge_1", "rouge_2", "rouge_l"}:
-                aggregate["rouge_1"] = rouge_1_sum / count
-                aggregate["rouge_2"] = rouge_2_sum / count
-                aggregate["rouge_l"] = rouge_l_sum / count
+                aggregate["rouge_1"] = rouge_1_sum / generation_count
+                aggregate["rouge_2"] = rouge_2_sum / generation_count
+                aggregate["rouge_l"] = rouge_l_sum / generation_count
             if "bleu" in supported_names or supported_names & {"bleu_1", "bleu_2", "bleu_4"}:
-                aggregate["bleu_1"] = bleu_1_sum / count
-                aggregate["bleu_2"] = bleu_2_sum / count
-                aggregate["bleu_4"] = bleu_4_sum / count
+                aggregate["bleu_1"] = bleu_1_sum / generation_count
+                aggregate["bleu_2"] = bleu_2_sum / generation_count
+                aggregate["bleu_4"] = bleu_4_sum / generation_count
 
         # 检索指标聚合（仅对含标注的样本求均值）
         if retrieval_count > 0:
@@ -676,6 +696,13 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
             aggregate["semantic_similarity"] = semantic_sum / semantic_count
         if llm_count > 0:
             aggregate["llm_score"] = llm_sum / llm_count
+        # 裁判失败可观测：有失败即告警（含失败率）；全批失败时 llm_score 缺席但日志留痕。
+        if llm_failed > 0:
+            total_judged = llm_count + llm_failed
+            logger.warning(
+                "LLM Judge 失败 %d/%d 条（成功 %d 条，llm_score 仅按成功样本求均值）",
+                llm_failed, total_judged, llm_count,
+            )
 
         # RAG 专属指标聚合（忠实度 / 上下文相关性 / 噪声比）
         if rag_contexts:
@@ -687,11 +714,20 @@ async def compute_metrics(request: ComputeMetricsRequest) -> ComputeMetricsRespo
                 aggregate["context_relevance"] = context_relevance(rag_questions, rag_contexts)
             if "noise_ratio" in supported_names and any(rag_relevant_ids):
                 handled.add("noise_ratio")
-                aggregate["noise_ratio"] = noise_ratio(
-                    retrieved_contexts=rag_contexts,
-                    relevant_doc_ids=rag_relevant_ids,
-                    retrieved_doc_ids=rag_retrieved_ids,
-                )
+                # 仅统计「有相关文档标注」的样本，与 precision/recall 同口径：无标注样本的相关集合为空，
+                # 会把整个检索结果都算成噪声（noise=100%），把无标注误当「全是噪声」而虚高噪声比。
+                nr_contexts, nr_relevant, nr_retrieved = [], [], []
+                for ctx, rel, ret in zip(rag_contexts, rag_relevant_ids, rag_retrieved_ids):
+                    if rel:
+                        nr_contexts.append(ctx)
+                        nr_relevant.append(rel)
+                        nr_retrieved.append(ret)
+                if nr_relevant:
+                    aggregate["noise_ratio"] = noise_ratio(
+                        retrieved_contexts=nr_contexts,
+                        relevant_doc_ids=nr_relevant,
+                        retrieved_doc_ids=nr_retrieved,
+                    )
 
         # 无论 RAG 数据是否齐全，rag 家族一旦被请求即视为由专属路径负责，不落到通用路径
         handled |= rag_requested

@@ -285,3 +285,71 @@ def test_rouge_aggregate_kept_when_score_is_zero():
     agg = resp.json()["aggregate"]
     assert "rouge_1" in agg and agg["rouge_1"] == 0.0
     assert "rouge_l" in agg and agg["rouge_l"] == 0.0
+
+
+def test_generation_aggregate_denominator_excludes_empty_reference():
+    """Rank 5 回归：无参考答案的样本无法评估生成质量，必须剔除出 ROUGE/BLEU 分母，
+    不能按 0 拉低均值。
+
+    构造两条：一条参考=生成完全一致（rouge_1≈1.0），一条 reference_answer 为空（应剔除）。
+    正确聚合只由第一条决定 = 1.0；若空参考样本按 0 计入分母则虚低为 0.5。
+    """
+    payload = {
+        "items": [
+            {
+                "question": "q1",
+                "reference_answer": "爱因斯坦提出了相对论",
+                "generated_answer": "爱因斯坦提出了相对论",
+            },
+            {
+                "question": "q2",
+                "reference_answer": "",  # 无参考 → 无法评估生成质量，应剔除出分母
+                "generated_answer": "任意输出",
+            },
+        ],
+        "graders": ["rouge"],
+    }
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 200, resp.text
+    agg = resp.json()["aggregate"]
+    assert "rouge_1" in agg
+    assert abs(agg["rouge_1"] - 1.0) < 1e-6, (
+        f"空参考样本疑似按 0 计入 ROUGE 分母，rouge_1={agg['rouge_1']}（应为 1.0，仅一条有参考）"
+    )
+
+
+def test_noise_ratio_excludes_samples_without_relevant_labels():
+    """Rank 6 回归：无相关文档标注（relevant_pids 为空）的样本无法判定「噪声」，
+    必须剔除出 noise_ratio 分母，不能把其全部检索误当噪声（ratio=1.0）虚高均值。
+
+    构造两条：一条有相关标注、2 检索命中 1（噪声比 0.5），一条 relevant_pids 为空（应剔除）。
+    正确聚合只由第一条决定 = 0.5；若空标注样本混入（其检索全被当噪声=1.0）则虚高为 0.75。
+    """
+    payload = {
+        "items": [
+            {
+                "question": "q1",
+                "reference_answer": "r1",
+                "generated_answer": "g1",
+                "retrieved_pids": ["c1", "c9"],
+                "relevant_pids": ["c1"],
+                "retrieved_contexts": ["相关内容", "无关内容"],
+            },
+            {
+                "question": "q2",
+                "reference_answer": "r2",
+                "generated_answer": "g2",
+                "retrieved_pids": ["c3", "c7"],
+                "relevant_pids": [],  # 无相关标注 → 无法判定噪声，应剔除
+                "retrieved_contexts": ["内容甲", "内容乙"],
+            },
+        ],
+        "graders": ["noise_ratio"],
+    }
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 200, resp.text
+    agg = resp.json()["aggregate"]
+    assert "noise_ratio" in agg
+    assert abs(agg["noise_ratio"] - 0.5) < 1e-6, (
+        f"无相关标注样本疑似混入 noise_ratio，agg={agg['noise_ratio']}（应为 0.5，仅一条有标注）"
+    )

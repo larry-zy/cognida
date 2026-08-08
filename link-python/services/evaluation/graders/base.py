@@ -4,11 +4,14 @@
 核心规则：同一 Grader 的多个指标必须基于同一类型。
 """
 
+import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -258,6 +261,10 @@ class BaseGrader(ABC):
         try:
             return await self._aevaluate(query, response, reference, context, **kwargs)
         except Exception as e:
+            # 显式记录：aevaluate 把异常收敛成 GraderError 对象返回（不抛出），而通用聚合路径
+            # 只保留 GraderScore、静默丢弃 GraderError——若不落日志，某 grader 全批失败时该指标会
+            # 无声从聚合中消失（既不在结果里也不在 unsupported 里），无从排查。
+            logger.warning("grader %s 评估失败: %s", self.name, e, exc_info=True)
             return GraderError(
                 name=self.name,
                 metric_type=MetricType.SCORE,
