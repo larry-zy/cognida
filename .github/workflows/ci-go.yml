@@ -10,12 +10,10 @@ on:
     paths:
       - 'services/cognida-go/**'
       - '.github/workflows/ci-go.yml'
-      - '.claude/hooks/check-go-architecture.sh'
   pull_request:
     paths:
       - 'services/cognida-go/**'
       - '.github/workflows/ci-go.yml'
-      - '.claude/hooks/check-go-architecture.sh'
 
 defaults:
   run:
@@ -71,11 +69,10 @@ jobs:
   vuln:
     name: 漏洞扫描 (govulncheck)
     runs-on: ubuntu-latest
-    # 棕地存量: 当前依赖树存在 6 个可达漏洞(excelize / etcd / quic-go / 标准库 crypto-tls 等),
-    # 先作非阻断反馈; 待依赖升级(独立任务, 需完整回归)清零后转门禁,
+    # 存量可达漏洞已清零: 升级 grpc / x/text / excelize / quic-go / etcd 等依赖并将 go 版本钉到
+    # 1.25.12(修复 crypto/tls ECH 漏洞 GO-2026-5856)后, govulncheck 对"可达"漏洞报告为空。
+    # govulncheck 只报告调用链真正触及的漏洞, 误报极低; 故转为硬门禁,
     # 与本仓库 golangci-lint / ruff / mypy / safety / bandit 的"存量先反馈、清零后转门禁"一致。
-    # 注: govulncheck 只报告"可达"漏洞(调用链真正触及), 误报极低, 存量清零后应优先转阻断。
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -95,11 +92,15 @@ jobs:
   architecture:
     name: 架构合规检查
     runs-on: ubuntu-latest
+    # 修正 import 前缀(link→cognida)后校验真正生效, 暴露的历史越界已清零:
+    #   - handler→infrastructure/cache: 限流器装配上移组合根(cmd/server), 经 Setup 注入;
+    #   - service→infrastructure/reliability: 熔断器归类为横切容错原语(与 config/id/observability
+    #     同列于脚本 allow_crosscutting), 见〔X-4〕。
+    # 现转为硬门禁, 与仓库"存量先反馈、清零后转门禁"一致。
     steps:
       - uses: actions/checkout@v4
 
-      # 复用 .claude/hooks 中已维护的架构校验脚本作为单一事实源
-      # (原 workflow 引用的 cmd/archcheck/main.go 并不存在)。
-      # 脚本以自身位置推导 PROJECT_ROOT, 与 cwd 无关。
+      # 架构校验脚本纳入仓库(services/cognida-go/scripts/), 作为单一事实源;
+      # 脚本以自身位置推导 GO_ROOT, 与 cwd 无关。
       - name: 检查 Clean Architecture 依赖方向
-        run: bash "$GITHUB_WORKSPACE/.claude/hooks/check-go-architecture.sh"
+        run: bash scripts/check-architecture.sh

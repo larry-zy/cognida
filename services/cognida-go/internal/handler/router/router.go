@@ -12,7 +12,6 @@ import (
 	"cognida/internal/handler"
 	"cognida/internal/handler/middleware"
 	"cognida/internal/handler/web"
-	rediscache "cognida/internal/infrastructure/cache/redis"
 )
 
 // ========================================
@@ -114,11 +113,15 @@ func NewRouter(
 	}
 }
 
-// Setup 设置路由
-func (r *Router) Setup() {
-	// 限流器〔INF-2〕：优先 Redis 令牌桶（多实例共享配额），Redis 未就绪时降级为进程内令牌桶。
+// Setup 设置路由。
+//
+// 限流器〔INF-2〕由组合根（cmd/server）构建后注入：router 属 handler 层，不应直接依赖
+// infrastructure/cache/redis 拿 *redis.Client（Clean Architecture 依赖方向），故 Redis 令牌桶
+// 的装配上移到 main，本层只消费 *middleware.RateLimiter。
+func (r *Router) Setup(rateLimiter *middleware.RateLimiter) {
 	// 全局兜底限流对每个请求生效（/health 与静态资源除外，见 Global 内部跳过逻辑）。
-	r.rateLimiter = middleware.NewRateLimiter(rediscache.Client)
+	// 优先 Redis 令牌桶（多实例共享配额），Redis 未就绪时降级为进程内令牌桶。
+	r.rateLimiter = rateLimiter
 	r.engine.Use(r.rateLimiter.Global())
 
 	// 健康检查

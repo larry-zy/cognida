@@ -1,6 +1,6 @@
 module cognida
 
-go 1.25.8
+go 1.25.12
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -22,16 +22,16 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
 	github.com/sugarme/tokenizer v0.3.0
-	github.com/xuri/excelize/v2 v2.10.1
+	github.com/xuri/excelize/v2 v2.11.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0
-	go.opentelemetry.io/otel v1.41.0
-	go.opentelemetry.io/otel/metric v1.41.0
-	go.opentelemetry.io/otel/sdk v1.40.0
-	go.opentelemetry.io/otel/trace v1.41.0
-	golang.org/x/crypto v0.51.0
-	golang.org/x/text v0.37.0
+	go.opentelemetry.io/otel v1.43.0
+	go.opentelemetry.io/otel/metric v1.43.0
+	go.opentelemetry.io/otel/sdk v1.43.0
+	go.opentelemetry.io/otel/trace v1.43.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/text v0.39.0
 	golang.org/x/time v0.12.0
-	google.golang.org/grpc v1.79.3
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
@@ -115,8 +115,8 @@ require (
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.0 // indirect
-	github.com/richardlehane/mscfb v1.0.6 // indirect
+	github.com/quic-go/quic-go v0.59.1 // indirect
+	github.com/richardlehane/mscfb v1.0.7 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
@@ -151,13 +151,13 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.etcd.io/bbolt v1.3.12 // indirect
-	go.etcd.io/etcd/api/v3 v3.5.23 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.5.23 // indirect
-	go.etcd.io/etcd/client/v2 v2.305.23 // indirect
-	go.etcd.io/etcd/client/v3 v3.5.23 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.5.23 // indirect
-	go.etcd.io/etcd/raft/v3 v3.5.23 // indirect
-	go.etcd.io/etcd/server/v3 v3.5.23 // indirect
+	go.etcd.io/etcd/api/v3 v3.5.30 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.5.30 // indirect
+	go.etcd.io/etcd/client/v2 v2.305.30 // indirect
+	go.etcd.io/etcd/client/v3 v3.5.30 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.5.30 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.30 // indirect
+	go.etcd.io/etcd/server/v3 v3.5.30 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.29.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.20.0 // indirect
@@ -169,12 +169,12 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

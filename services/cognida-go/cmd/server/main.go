@@ -15,6 +15,7 @@ import (
 
 	"cognida/internal/wire"
 
+	"cognida/internal/handler/middleware"
 	cachesvc "cognida/internal/infrastructure/cache"
 	rediscache "cognida/internal/infrastructure/cache/redis"
 	"cognida/internal/infrastructure/config"
@@ -504,8 +505,9 @@ func main() {
 		log.Println("✅ 数据源健康检查已启动")
 	}
 
-	// 设置路由
-	app.Router.Setup()
+	// 设置路由。限流器在组合根装配（Redis 令牌桶，Redis 未就绪则降级进程内），注入 router，
+	// 使 handler 层不直接依赖 infrastructure/cache/redis（Clean Architecture 依赖方向）。
+	app.Router.Setup(middleware.NewRateLimiter(rediscache.Client))
 
 	// 优雅关闭
 	go func() {
