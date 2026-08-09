@@ -59,10 +59,12 @@ jobs:
           cache: true
           cache-dependency-path: services/cognida-go/go.sum
 
-      # 直跑 golangci-lint(不用 action): 便于预热缓存、开 --verbose 定位卡点、旁路内存监控。
-      # 版本钉到 v1.64.8 与本地一致, 排除 action "latest"/Node 运行时的不确定性。
+      # 用 go install 从源码现编 golangci-lint(而非下载官方 go1.24 预编译二进制): 关键根因修复——
+      # 官方 v1.64.8 由 go1.24 构建, 分析本仓库 go1.25 代码时读不了 go1.25 的 export data, 退化为
+      # 整棵依赖闭包源码内联类型检查 + 全 SSA 驻留 → 峰值 ~15-16GB 顶死 16GB runner。用 setup-go 装的
+      # go1.25 现编后, golangci-lint 版本与工具链对齐、复用 export data, 峰值回落到 ~2GB。版本仍钉 v1.64.8。
       - name: 安装 golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v1.64.8
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
       # 预热 module 与编译缓存: 冷 GOCACHE 下 golangci-lint 会自行编译整棵依赖树取 export data,
       # 内存/耗时不可控(疑为 CI 卡死主因); 先 go build ./... 把结果落进 GOCACHE 让 lint 直接复用。
