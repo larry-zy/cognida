@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"cognida/cmd/wire"
+	"cognida/internal/wire"
 
 	cachesvc "cognida/internal/infrastructure/cache"
 	rediscache "cognida/internal/infrastructure/cache/redis"

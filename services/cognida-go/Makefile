@@ -86,7 +86,7 @@ fmt:
 # Generate wire code
 wire:
 	@echo "Generating wire code..."
-	cd cmd/wire && wire gen
+	cd internal/wire && wire gen
 
 # Quick test for development (runs fast unit tests)
 test-quick:

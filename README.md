@@ -288,16 +288,32 @@ Cognida 的价值在"数据 + 知识 + 受治理执行 + 可评测"叠加时才�
 ```
 cognida/
 ├── services/
-│   ├── cognida-go/     # Go 主后端（API / 编排 / Agent / RAG / 图谱 / 语义 / 评测编排）
-│   │   └── skills/     # Agent Skill 定义（运行时按 ./skills 加载）
-│   └── cognida-python/ # Python 计算服务（文档解析 / 评测 / 质量 / analytics，gRPC + MCP + HTTP）
+│   ├── cognida-go/               # Go 主后端（API / 编排 / Agent / RAG / 图谱 / 语义 / 评测编排）
+│   │   ├── cmd/                  # 可执行入口：server / migrate-db / seed-*（演示与冷启动灌数）
+│   │   ├── internal/
+│   │   │   ├── handler/          # HTTP handlers（依赖方向：handler → service → model ← repository）
+│   │   │   ├── service/          # 业务逻辑：agent / knowledge / semantic / evaluation / quality …
+│   │   │   ├── repository/       # 数据访问实现（MySQL / Milvus / Neo4j / Redis）
+│   │   │   ├── model/            # 实体与接口定义
+│   │   │   ├── infrastructure/   # 基础设施：llm / mcp / cache / graph / auth / config …
+│   │   │   ├── wire/             # 依赖注入装配（google/wire 组合根）
+│   │   │   └── prompt/           # 提示词配置（//go:embed 打包）
+│   │   ├── migrations/           # golang-migrate 版本化迁移（业务表结构唯一真源）
+│   │   ├── skills/               # Agent Skill 定义（SKILL.md，运行时按 ./skills 加载）
+│   │   ├── api/ · scripts/ · examples/
+│   │   └── go.mod
+│   └── cognida-python/           # Python 计算服务（文档解析 / 评测 / 质量 / analytics）
+│       ├── grpc_service/ · mcp_service/    # gRPC 服务端 + MCP 服务端
+│       ├── services/ · core/ · plugins/    # 业务逻辑 / 内核 / 插件
+│       ├── api/ · tools/ · tests/
+│       └── main.py · pyproject.toml
 ├── apps/
-│   └── cognida-web/    # Vue 3 前端（Vite）
-├── proto/          # gRPC 契约（buf 管理，单一数据源）
-├── deploy/         # 部署与日志采集（Loki 等）
-├── openspec/       # OpenSpec 变更提案与规范
-├── docs/           # 文档
-└── var/            # 运行时产物（uploads / run / test-output，gitignore，本地留存）
+│   └── cognida-web/              # Vue 3 前端（Vite）：src / public / docs
+├── proto/                        # gRPC 契约（buf 管理，单一数据源）
+├── deploy/                       # 部署与日志采集（Loki 等）
+├── .github/                      # CI（含 gitleaks 安全扫描门）
+├── buf.yaml · buf.gen.yaml       # buf 代码生成配置
+└── dev.sh                        # 本地一键起停脚本
 ```
 
 ---
