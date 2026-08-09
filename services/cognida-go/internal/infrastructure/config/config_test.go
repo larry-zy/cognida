@@ -1,10 +1,132 @@
-// Package config: JWT 密钥启动校验单元测试。
+// Package config: JWT 密钥启动校验 + 非密配置（config.yaml）加载单元测试。
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// repoConfigYAMLPath 返回入库 config.yaml 相对本测试包（internal/infrastructure/config）的路径。
+const repoConfigYAMLPath = "../../../config/config.yaml"
+
+// TestBuildFileConfig_FallbackToDefaults 找不到 yaml 时回退到代码内默认值（不 fatal）。
+func TestBuildFileConfig_FallbackToDefaults(t *testing.T) {
+	// 指向不存在的文件，强制 ReadFile 失败 → 保持默认基线。
+	t.Setenv("CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+
+	fc := buildFileConfig()
+	want := defaultFileConfig()
+	if !reflect.DeepEqual(fc, want) {
+		t.Fatalf("缺失 yaml 时应回退到默认基线\n got=%+v\nwant=%+v", fc, want)
+	}
+}
+
+// TestBuildFileConfig_RepoYAMLEqualsDefaults 行为等价核心断言：
+// 入库 config.yaml 的每个值必须与代码内默认完全一致，
+// 从而保证「无 env」时改造前后取到相同的值。
+func TestBuildFileConfig_RepoYAMLEqualsDefaults(t *testing.T) {
+	if _, err := os.Stat(repoConfigYAMLPath); err != nil {
+		t.Fatalf("入库 config.yaml 不存在: %v", err)
+	}
+	t.Setenv("CONFIG_FILE", repoConfigYAMLPath)
+
+	fc := buildFileConfig()
+	want := defaultFileConfig()
+	if !reflect.DeepEqual(fc, want) {
+		t.Fatalf("config.yaml 值与代码默认不一致（行为不等价）\n yaml=%+v\ndefault=%+v", fc, want)
+	}
+}
+
+// TestBuildFileConfig_YAMLBaseline yaml 中出现的 key 覆盖默认，未出现的保持默认。
+func TestBuildFileConfig_YAMLBaseline(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.yaml")
+	content := "" +
+		"server:\n" +
+		"  port: \"9090\"\n" +
+		"redis:\n" +
+		"  pool_size: 42\n"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatalf("写临时 yaml 失败: %v", err)
+	}
+	t.Setenv("CONFIG_FILE", tmp)
+
+	fc := buildFileConfig()
+	if fc.Server.Port != "9090" {
+		t.Errorf("yaml 应覆盖 server.port: got %q want %q", fc.Server.Port, "9090")
+	}
+	if fc.Redis.PoolSize != 42 {
+		t.Errorf("yaml 应覆盖 redis.pool_size: got %d want 42", fc.Redis.PoolSize)
+	}
+	// 未在 yaml 中出现的 key 保持代码默认
+	if fc.Server.Host != "0.0.0.0" {
+		t.Errorf("未覆盖的 server.host 应保持默认: got %q", fc.Server.Host)
+	}
+	if fc.Skill.Endpoint != "http://localhost:3100/mcp" {
+		t.Errorf("未覆盖的 skill.endpoint 应保持默认: got %q", fc.Skill.Endpoint)
+	}
+}
+
+// TestEnvOverridesYAML 环境变量优先级最高，覆盖 yaml 基线值。
+func TestEnvOverridesYAML(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(tmp, []byte("server:\n  port: \"9090\"\n"), 0o644); err != nil {
+		t.Fatalf("写临时 yaml 失败: %v", err)
+	}
+	t.Setenv("CONFIG_FILE", tmp)
+	t.Setenv("SERVER_PORT", "7777") // env 覆盖 yaml
+
+	if got := getEnv("SERVER_PORT", buildFileConfig().Server.Port); got != "7777" {
+		t.Errorf("env 应覆盖 yaml: got %q want 7777", got)
+	}
+}
+
+// TestSecretsNeverInYAML 硬性要求：入库 config.yaml 不得出现任何密钥/占位密钥值。
+func TestSecretsNeverInYAML(t *testing.T) {
+	data, err := os.ReadFile(repoConfigYAMLPath)
+	if err != nil {
+		t.Fatalf("读取 config.yaml 失败: %v", err)
+	}
+	// 逐行检查：只看键名/值内容中是否出现密钥类 token（注释行豁免，注释只是说明文档）。
+	re := regexp.MustCompile(`(?i)(password|secret|token|api_?key)`)
+	for i, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue // 跳过空行与整行注释
+		}
+		// 去掉行尾注释后再判定
+		codePart := trimmed
+		if idx := strings.Index(codePart, "#"); idx >= 0 {
+			codePart = codePart[:idx]
+		}
+		if re.MatchString(codePart) {
+			t.Errorf("config.yaml 第 %d 行疑似含密钥类字段: %q", i+1, line)
+		}
+	}
+}
+
+// TestFileConfigStructHasNoSecretFields 反射校验 FileConfig 不含任何密钥类 yaml 字段。
+func TestFileConfigStructHasNoSecretFields(t *testing.T) {
+	re := regexp.MustCompile(`(?i)(password|secret|token|api_?key)`)
+	var walk func(rt reflect.Type)
+	walk = func(rt reflect.Type) {
+		for i := 0; i < rt.NumField(); i++ {
+			f := rt.Field(i)
+			// 只校验 yaml tag（真正落入入库文件的键名）；Go 字段名不入库，豁免。
+			tag := f.Tag.Get("yaml")
+			if re.MatchString(tag) {
+				t.Errorf("FileConfig 含疑似密钥 yaml 字段: %s (yaml:%q)", f.Name, tag)
+			}
+			if f.Type.Kind() == reflect.Struct {
+				walk(f.Type)
+			}
+		}
+	}
+	walk(reflect.TypeOf(FileConfig{}))
+}
 
 // TestJWTValidate_MissingSecret 未配置密钥必须校验失败。
 func TestJWTValidate_MissingSecret(t *testing.T) {

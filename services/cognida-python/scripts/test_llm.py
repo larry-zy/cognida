@@ -1,17 +1,23 @@
-"""测试 LLM 连接。"""
+"""测试 LLM 连接。
+
+运行前请通过环境变量或 .env 提供配置（切勿在源码里硬编码密钥）：
+    export LLM_PROVIDER=deepseek
+    export LLM_MODEL=deepseek-v4-flash
+    export LLM_BASE_URL=https://api.deepseek.com
+    export LLM_API_KEY=sk-xxxx        # 必填，来自环境，不入库
+"""
 
 import os
 import sys
 
-# 设置项目根目录
-PROJECT_ROOT = "D:\\link\\cognida-python"
+# 以本服务根目录（services/cognida-python）为导入根，兼容任意启动 cwd
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-# 设置环境变量（直接设置）
-os.environ["LLM_PROVIDER"] = "deepseek"
-os.environ["LLM_MODEL"] = "deepseek-v4-flash"
-os.environ["LLM_API_KEY"] = "sk-34865eb399c54e11862853e370205cca"
-os.environ["LLM_BASE_URL"] = "https://api.deepseek.com"
+# 非密默认值：仅当环境未提供时兜底；密钥（LLM_API_KEY）只来自环境，绝不硬编码
+os.environ.setdefault("LLM_PROVIDER", "deepseek")
+os.environ.setdefault("LLM_MODEL", "deepseek-v4-flash")
+os.environ.setdefault("LLM_BASE_URL", "https://api.deepseek.com")
 
 from services.evaluation.llm import get_llm_client
 

@@ -1,21 +1,84 @@
 """配置管理模块。"""
 
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
+
+
+def _resolve_config_yaml() -> Path | None:
+    """健壮解析非密 config.yaml 路径。
+
+    优先级：CONFIG_FILE 环境变量 > 与本模块同目录的 config.yaml
+    > 相对候选路径（服务从 services/cognida-python/ 启动）。
+    找不到时返回 None（不报错，回退到 Field 默认 / 环境变量）。
+    """
+    candidates: list[Path] = []
+
+    env_path = os.getenv("CONFIG_FILE")
+    if env_path:
+        candidates.append(Path(env_path))
+
+    # 与 settings.py 同目录，最稳，不受启动 cwd 影响
+    candidates.append(Path(__file__).resolve().parent / "config.yaml")
+
+    # 相对 cwd 的候选（服务从 services/cognida-python/ 启动）
+    candidates.append(Path("config/config.yaml"))
+    candidates.append(Path("../config/config.yaml"))
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 class Settings(BaseSettings):
-    """应用配置。"""
+    """应用配置。
+
+    加载优先级（后者覆盖前者）：
+        代码内 Field 默认 < config.yaml（非密） < 环境变量 / .env（含密钥唯一来源）
+    密钥字段（llm_api_key / database_url / redis_url）不写入 config.yaml，只来自环境变量。
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",  # 忽略额外的环境变量
+        yaml_file=_resolve_config_yaml(),
+        yaml_file_encoding="utf-8",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """自定义配置源优先级。
+
+        返回元组中靠前的源优先级更高：
+            init > 环境变量 > .env > config.yaml > file_secret（Field 默认兜底）。
+        即：环境变量 / .env 覆盖 config.yaml，config.yaml 覆盖 Field 默认。
+        """
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
     # 应用配置
     app_name: str = Field(default="cognida-python", description="应用名称")

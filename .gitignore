@@ -72,3 +72,9 @@ services/cognida-python/data/
 /services/cognida-go/seed-eval-datasets
 # 测评/联调一次性脚手架产物（非源码）
 /services/cognida-go/test-output/
+
+# ---- 文档（本地留存，不纳入仓库；含 docs/openspec）----
+/docs/
+
+# ---- Claude Code 工具目录（hooks/skills/settings，本地留存，不纳入仓库）----
+/.claude/

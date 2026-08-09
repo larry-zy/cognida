@@ -4,11 +4,223 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 	"cognida/internal/model/common"
 )
+
+// ========================================
+// 非密配置文件（config.yaml）加载
+// ========================================
+//
+// 加载优先级：代码内兜底默认 < config.yaml（非密真源）< 环境变量（覆盖，且是密钥唯一来源）。
+// FileConfig 只包含【非密】字段（有 yaml key）；密钥字段没有 yaml key，只从 env 读。
+
+// FileConfig 映射 config.yaml 的非密配置。所有字段均为非密项。
+type FileConfig struct {
+	Database struct {
+		Host     string `yaml:"host"`
+		Port     string `yaml:"port"`
+		User     string `yaml:"user"`
+		Database string `yaml:"database"`
+	} `yaml:"database"`
+	Milvus struct {
+		Host string `yaml:"host"`
+	} `yaml:"milvus"`
+	Neo4j struct {
+		URI         string `yaml:"uri"`
+		Username    string `yaml:"username"`
+		MaxPoolSize int    `yaml:"max_pool_size"`
+	} `yaml:"neo4j"`
+	JWT struct {
+		AccessTokenExpire  int `yaml:"access_expire"`
+		RefreshTokenExpire int `yaml:"refresh_expire"`
+	} `yaml:"jwt"`
+	Tenant struct {
+		EnableMultiTenant       bool  `yaml:"enable_multi_tenant"`
+		EnableCrossTenantAccess bool  `yaml:"enable_cross_tenant_access"`
+		DefaultStorageQuota     int64 `yaml:"default_storage_quota"`
+	} `yaml:"tenant"`
+	Chat struct {
+		Source    string `yaml:"source"`
+		BaseURL   string `yaml:"base_url"`
+		ModelName string `yaml:"model_name"`
+		Provider  string `yaml:"provider"`
+	} `yaml:"chat"`
+	Search struct {
+		APIEndpoint string `yaml:"api_endpoint"`
+	} `yaml:"search"`
+	Embedding struct {
+		Provider string `yaml:"provider"`
+		Model    string `yaml:"model"`
+		BaseURL  string `yaml:"base_url"`
+	} `yaml:"embedding"`
+	Server struct {
+		Port string `yaml:"port"`
+		Mode string `yaml:"mode"`
+		Host string `yaml:"host"`
+	} `yaml:"server"`
+	PythonGrpc struct {
+		Enabled bool   `yaml:"enabled"`
+		Target  string `yaml:"target"`
+		Timeout int    `yaml:"timeout"`
+	} `yaml:"python_grpc"`
+	Redis struct {
+		Addr         string `yaml:"addr"`
+		DB           int    `yaml:"db"`
+		PoolSize     int    `yaml:"pool_size"`
+		MinIdleConns int    `yaml:"min_idle_conns"`
+		MaxRetries   int    `yaml:"max_retries"`
+	} `yaml:"redis"`
+	TaskQueue struct {
+		DequeueTimeout int `yaml:"dequeue_timeout"`
+	} `yaml:"task_queue"`
+	Worker struct {
+		Concurrency     int  `yaml:"concurrency"`
+		ShutdownTimeout int  `yaml:"shutdown_timeout"`
+		Enabled         bool `yaml:"enabled"`
+	} `yaml:"worker"`
+	Evaluation struct {
+		MaxConcurrent       int    `yaml:"max_concurrent"`
+		WorkerEnabled       bool   `yaml:"worker_enabled"`
+		PythonEndpoint      string `yaml:"python_endpoint"`
+		DefaultTimeout      int    `yaml:"default_timeout"`
+		AgentTimeout        int    `yaml:"agent_timeout"`
+		MaxRetries          int    `yaml:"max_retries"`
+		ProgressCacheExpiry int    `yaml:"progress_cache_expiry"`
+	} `yaml:"evaluation"`
+	Skill struct {
+		Enabled    bool   `yaml:"enabled"`
+		Endpoint   string `yaml:"endpoint"`
+		Timeout    int    `yaml:"timeout"`
+		CacheTTL   int    `yaml:"cache_ttl"`
+		MaxRetries int    `yaml:"max_retries"`
+	} `yaml:"skill"`
+	Upload struct {
+		UploadDir string `yaml:"upload_dir"`
+	} `yaml:"upload"`
+	Collaboration struct {
+		DefaultMode           string `yaml:"default_mode"`
+		MaxDelegateDepth      int    `yaml:"max_delegate_depth"`
+		EnableCyclicDetection bool   `yaml:"enable_cyclic_detection"`
+	} `yaml:"collaboration"`
+	SemanticCache struct {
+		Enabled   bool    `yaml:"enabled"`
+		Threshold float32 `yaml:"threshold"`
+		TTL       string  `yaml:"ttl"`
+		TopK      int     `yaml:"top_k"`
+	} `yaml:"semantic_cache"`
+}
+
+// defaultFileConfig 返回与历史代码内兜底默认完全一致的基线。
+// config.yaml 会在此基线上做覆盖：未出现的 key 保持这里的默认值，
+// 从而保证「无 yaml、无 env」时行为与改造前等价。
+func defaultFileConfig() *FileConfig {
+	fc := &FileConfig{}
+	fc.Database.Host = "localhost"
+	fc.Database.Port = "3306"
+	fc.Database.User = "root"
+	fc.Database.Database = "cognida"
+	fc.Milvus.Host = ""
+	fc.Neo4j.URI = "bolt://localhost:7687"
+	fc.Neo4j.Username = "neo4j"
+	fc.Neo4j.MaxPoolSize = 50
+	fc.JWT.AccessTokenExpire = 86400
+	fc.JWT.RefreshTokenExpire = 604800
+	fc.Tenant.EnableMultiTenant = false
+	fc.Tenant.EnableCrossTenantAccess = false
+	fc.Tenant.DefaultStorageQuota = 10 * 1024 * 1024 * 1024
+	fc.Chat.Source = string(common.ModelSourceRemote)
+	fc.Chat.BaseURL = "https://api.deepseek.com/v1"
+	fc.Chat.ModelName = "deepseek-chat"
+	fc.Chat.Provider = "deepseek"
+	fc.Search.APIEndpoint = "https://metaso.cn/api/v1/search"
+	fc.Embedding.Provider = "dashscope"
+	fc.Embedding.Model = "text-embedding-v3"
+	fc.Embedding.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
+	fc.Server.Port = "8080"
+	fc.Server.Mode = "debug"
+	fc.Server.Host = "0.0.0.0"
+	fc.PythonGrpc.Enabled = true
+	fc.PythonGrpc.Target = "localhost:50051"
+	fc.PythonGrpc.Timeout = 30
+	fc.Redis.Addr = "localhost:6379"
+	fc.Redis.DB = 0
+	fc.Redis.PoolSize = 10
+	fc.Redis.MinIdleConns = 2
+	fc.Redis.MaxRetries = 3
+	fc.TaskQueue.DequeueTimeout = 30
+	fc.Worker.Concurrency = 4
+	fc.Worker.ShutdownTimeout = 30
+	fc.Worker.Enabled = false
+	fc.Evaluation.MaxConcurrent = 3
+	fc.Evaluation.WorkerEnabled = true
+	fc.Evaluation.PythonEndpoint = "http://localhost:18888"
+	fc.Evaluation.DefaultTimeout = 30
+	fc.Evaluation.AgentTimeout = 180
+	fc.Evaluation.MaxRetries = 3
+	fc.Evaluation.ProgressCacheExpiry = 3600
+	fc.Skill.Enabled = false
+	fc.Skill.Endpoint = "http://localhost:3100/mcp"
+	fc.Skill.Timeout = 30
+	fc.Skill.CacheTTL = 60
+	fc.Skill.MaxRetries = 3
+	fc.Upload.UploadDir = "../../var/uploads"
+	fc.Collaboration.DefaultMode = "summary"
+	fc.Collaboration.MaxDelegateDepth = 10
+	fc.Collaboration.EnableCyclicDetection = true
+	fc.SemanticCache.Enabled = false
+	fc.SemanticCache.Threshold = 0.85
+	fc.SemanticCache.TTL = "24h"
+	fc.SemanticCache.TopK = 5
+	return fc
+}
+
+// resolveConfigFilePath 解析 config.yaml 路径（对齐 skills 加载的 CWD 兜底风格）：
+// 优先 CONFIG_FILE 环境变量，否则依次尝试候选相对路径。找不到返回空串（不 fatal）。
+func resolveConfigFilePath() string {
+	if p := os.Getenv("CONFIG_FILE"); p != "" {
+		return p
+	}
+	candidates := []string{
+		"./config/config.yaml",
+		"../config/config.yaml",
+		"../../config/config.yaml",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return ""
+}
+
+// buildFileConfig 以代码内默认为基线，叠加 config.yaml 中出现的 key（若文件存在）。
+// 文件缺失/解析失败时静默回退到默认值，保证行为等价、绝不 fatal。
+func buildFileConfig() *FileConfig {
+	fc := defaultFileConfig()
+	if path := resolveConfigFilePath(); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			_ = yaml.Unmarshal(data, fc) // 仅覆盖文件中出现的字段
+		}
+	}
+	return fc
+}
+
+var (
+	fileConfigOnce  sync.Once
+	fileConfigCache *FileConfig
+)
+
+// loadFileConfig 返回进程内缓存的非密配置基线（首次加载后复用，避免重复读文件）。
+func loadFileConfig() *FileConfig {
+	fileConfigOnce.Do(func() {
+		fileConfigCache = buildFileConfig()
+	})
+	return fileConfigCache
+}
 
 // ========================================
 // 默认值常量
@@ -332,12 +544,13 @@ func LoadDatabaseConfig() *DatabaseConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &DatabaseConfig{
-		Host:     getEnv("DB_HOST", "localhost"),
-		Port:     getEnv("DB_PORT", "3306"),
-		User:     getEnv("DB_USER", "root"),
-		Password: getEnv("DB_PASSWORD", ""),
-		Database: getEnv("DB_NAME", "cognida"),
+		Host:     getEnv("DB_HOST", fc.Database.Host),
+		Port:     getEnv("DB_PORT", fc.Database.Port),
+		User:     getEnv("DB_USER", fc.Database.User),
+		Password: getEnv("DB_PASSWORD", ""), // 密钥：仅 env
+		Database: getEnv("DB_NAME", fc.Database.Database),
 	}
 }
 
@@ -348,9 +561,10 @@ func LoadMilvusConfig() *MilvusConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &MilvusConfig{
-		Host:  getEnv("MILVUS_HOST", ""),
-		Token: getEnv("MILVUS_TOKEN", ""),
+		Host:  getEnv("MILVUS_HOST", fc.Milvus.Host),
+		Token: getEnv("MILVUS_TOKEN", ""), // 密钥：仅 env
 	}
 }
 
@@ -361,11 +575,12 @@ func LoadNeo4jConfig() *Neo4jConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &Neo4jConfig{
-		URI:         getEnv("NEO4J_URI", "bolt://localhost:7687"),
-		Username:    getEnv("NEO4J_USERNAME", "neo4j"),
-		Password:    getEnv("NEO4J_PASSWORD", ""),
-		MaxPoolSize: getEnvAsInt("NEO4J_MAX_POOL_SIZE", 50),
+		URI:         getEnv("NEO4J_URI", fc.Neo4j.URI),
+		Username:    getEnv("NEO4J_USERNAME", fc.Neo4j.Username),
+		Password:    getEnv("NEO4J_PASSWORD", ""), // 密钥：仅 env
+		MaxPoolSize: getEnvAsInt("NEO4J_MAX_POOL_SIZE", fc.Neo4j.MaxPoolSize),
 	}
 }
 
@@ -376,11 +591,12 @@ func LoadJWTConfig() *JWTConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &JWTConfig{
-		// 无默认密钥：缺失由 Validate() 在启动装配处 fail-closed
+		// 无默认密钥：缺失由 Validate() 在启动装配处 fail-closed（密钥：仅 env）
 		Secret:             getEnv("JWT_SECRET", ""),
-		AccessTokenExpire:  getEnvAsInt("JWT_ACCESS_TOKEN_EXPIRE", 86400),   // 24小时
-		RefreshTokenExpire: getEnvAsInt("JWT_REFRESH_TOKEN_EXPIRE", 604800), // 7天
+		AccessTokenExpire:  getEnvAsInt("JWT_ACCESS_TOKEN_EXPIRE", fc.JWT.AccessTokenExpire),
+		RefreshTokenExpire: getEnvAsInt("JWT_REFRESH_TOKEN_EXPIRE", fc.JWT.RefreshTokenExpire),
 	}
 }
 
@@ -391,14 +607,15 @@ func LoadChatConfig() *ChatConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
-	source := common.ModelSource(getEnv("CHAT_SOURCE", string(common.ModelSourceRemote)))
+	fc := loadFileConfig()
+	source := common.ModelSource(getEnv("CHAT_SOURCE", fc.Chat.Source))
 
 	return &ChatConfig{
 		Source:    source,
-		BaseURL:   getEnv("CHAT_BASE_URL", "https://api.deepseek.com/v1"),
-		ModelName: getEnv("CHAT_MODEL_NAME", "deepseek-chat"),
-		APIKey:    getEnv("CHAT_API_KEY", ""),
-		Provider:  getEnv("CHAT_PROVIDER", "deepseek"),
+		BaseURL:   getEnv("CHAT_BASE_URL", fc.Chat.BaseURL),
+		ModelName: getEnv("CHAT_MODEL_NAME", fc.Chat.ModelName),
+		APIKey:    getEnv("CHAT_API_KEY", ""), // 密钥：仅 env
+		Provider:  getEnv("CHAT_PROVIDER", fc.Chat.Provider),
 	}
 }
 
@@ -409,9 +626,10 @@ func LoadSearchConfig() *SearchConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &SearchConfig{
-		MetasoAPIKey: getEnv("METASO_API_KEY", ""),
-		APIEndpoint:  getEnv("SEARCH_API_ENDPOINT", "https://metaso.cn/api/v1/search"),
+		MetasoAPIKey: getEnv("METASO_API_KEY", ""), // 密钥：仅 env
+		APIEndpoint:  getEnv("SEARCH_API_ENDPOINT", fc.Search.APIEndpoint),
 	}
 }
 
@@ -422,11 +640,12 @@ func LoadEmbeddingConfig() *EmbeddingConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &EmbeddingConfig{
-		Provider: getEnv("EMBEDDING_PROVIDER", "dashscope"),
-		APIKey:   getEnv("EMBEDDING_API_KEY", ""),
-		Model:    getEnv("EMBEDDING_MODEL", "text-embedding-v3"),
-		BaseURL:  getEnv("EMBEDDING_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"),
+		Provider: getEnv("EMBEDDING_PROVIDER", fc.Embedding.Provider),
+		APIKey:   getEnv("EMBEDDING_API_KEY", ""), // 密钥：仅 env
+		Model:    getEnv("EMBEDDING_MODEL", fc.Embedding.Model),
+		BaseURL:  getEnv("EMBEDDING_BASE_URL", fc.Embedding.BaseURL),
 	}
 }
 
@@ -437,10 +656,11 @@ func LoadTenantConfig() *TenantConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &TenantConfig{
-		EnableMultiTenant:       getEnvAsBool("TENANT_ENABLED", false),
-		EnableCrossTenantAccess: getEnvAsBool("TENANT_CROSS_ACCESS", false),
-		DefaultStorageQuota:     getEnvAsInt64("TENANT_DEFAULT_QUOTA", 10*1024*1024*1024), // 10GB
+		EnableMultiTenant:       getEnvAsBool("TENANT_ENABLED", fc.Tenant.EnableMultiTenant),
+		EnableCrossTenantAccess: getEnvAsBool("TENANT_CROSS_ACCESS", fc.Tenant.EnableCrossTenantAccess),
+		DefaultStorageQuota:     getEnvAsInt64("TENANT_DEFAULT_QUOTA", fc.Tenant.DefaultStorageQuota),
 	}
 }
 
@@ -451,10 +671,11 @@ func LoadServerConfig() *ServerConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &ServerConfig{
-		Port: getEnv("SERVER_PORT", "8080"),
-		Mode: getEnv("GIN_MODE", "debug"),
-		Host: getEnv("SERVER_HOST", "0.0.0.0"),
+		Port: getEnv("SERVER_PORT", fc.Server.Port),
+		Mode: getEnv("GIN_MODE", fc.Server.Mode),
+		Host: getEnv("SERVER_HOST", fc.Server.Host),
 	}
 }
 
@@ -465,10 +686,11 @@ func LoadPythonGrpcConfig() *PythonGrpcConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &PythonGrpcConfig{
-		Enabled: getEnvAsBool("PYTHON_GRPC_ENABLED", true),
-		Target:  getEnv("PYTHON_GRPC_TARGET", "localhost:50051"),
-		Timeout: getEnvAsInt("PYTHON_GRPC_TIMEOUT", 30),
+		Enabled: getEnvAsBool("PYTHON_GRPC_ENABLED", fc.PythonGrpc.Enabled),
+		Target:  getEnv("PYTHON_GRPC_TARGET", fc.PythonGrpc.Target),
+		Timeout: getEnvAsInt("PYTHON_GRPC_TIMEOUT", fc.PythonGrpc.Timeout),
 	}
 }
 
@@ -479,13 +701,14 @@ func LoadRedisConfig() *RedisConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &RedisConfig{
-		Addr:         getEnv("REDIS_ADDR", "localhost:6379"),
-		Password:     getEnv("REDIS_PASSWORD", ""),
-		DB:           getEnvAsInt("REDIS_DB", 0),
-		PoolSize:     getEnvAsInt("REDIS_POOL_SIZE", 10),
-		MinIdleConns: getEnvAsInt("REDIS_MIN_IDLE_CONNS", 2),
-		MaxRetries:   getEnvAsInt("REDIS_MAX_RETRIES", 3),
+		Addr:         getEnv("REDIS_ADDR", fc.Redis.Addr),
+		Password:     getEnv("REDIS_PASSWORD", ""), // 密钥：仅 env
+		DB:           getEnvAsInt("REDIS_DB", fc.Redis.DB),
+		PoolSize:     getEnvAsInt("REDIS_POOL_SIZE", fc.Redis.PoolSize),
+		MinIdleConns: getEnvAsInt("REDIS_MIN_IDLE_CONNS", fc.Redis.MinIdleConns),
+		MaxRetries:   getEnvAsInt("REDIS_MAX_RETRIES", fc.Redis.MaxRetries),
 	}
 }
 
@@ -495,8 +718,9 @@ func LoadTaskQueueConfig() *TaskQueueConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &TaskQueueConfig{
-		DequeueTimeout: getEnvAsInt("TASK_DEQUEUE_TIMEOUT", 30),
+		DequeueTimeout: getEnvAsInt("TASK_DEQUEUE_TIMEOUT", fc.TaskQueue.DequeueTimeout),
 	}
 }
 
@@ -506,10 +730,11 @@ func LoadWorkerConfig() *WorkerConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &WorkerConfig{
-		Concurrency:     getEnvAsInt("WORKER_CONCURRENCY", 4),
-		ShutdownTimeout: getEnvAsInt("WORKER_SHUTDOWN_TIMEOUT", 30),
-		Enabled:         getEnvAsBool("WORKER_ENABLED", false),
+		Concurrency:     getEnvAsInt("WORKER_CONCURRENCY", fc.Worker.Concurrency),
+		ShutdownTimeout: getEnvAsInt("WORKER_SHUTDOWN_TIMEOUT", fc.Worker.ShutdownTimeout),
+		Enabled:         getEnvAsBool("WORKER_ENABLED", fc.Worker.Enabled),
 	}
 }
 
@@ -533,11 +758,12 @@ func LoadSemanticCacheConfig() *SemanticCacheConfig {
 
 // defaultSemanticCacheConfig 返回默认的语义缓存配置
 func defaultSemanticCacheConfig() *SemanticCacheConfig {
+	fc := loadFileConfig()
 	cfg := &SemanticCacheConfig{
-		Enabled:   false, // 默认关闭
-		Threshold: 0.85,
-		TTL:       "24h",
-		TopK:      5,
+		Enabled:   fc.SemanticCache.Enabled, // 非密真源在 config.yaml，默认关闭
+		Threshold: fc.SemanticCache.Threshold,
+		TTL:       fc.SemanticCache.TTL,
+		TopK:      fc.SemanticCache.TopK,
 		Agents:    make(map[string]AgentCacheConfigOverride),
 	}
 
@@ -604,10 +830,11 @@ func mergeEnvToSemanticCacheConfig(cfg *SemanticCacheConfig) {
 
 // defaultCollaborationConfig 返回默认的协作配置
 func defaultCollaborationConfig() *CollaborationConfig {
+	fc := loadFileConfig()
 	cfg := &CollaborationConfig{
-		DefaultMode:           "summary",
-		MaxDelegateDepth:      10,
-		EnableCyclicDetection: true,
+		DefaultMode:           fc.Collaboration.DefaultMode,
+		MaxDelegateDepth:      fc.Collaboration.MaxDelegateDepth,
+		EnableCyclicDetection: fc.Collaboration.EnableCyclicDetection,
 		Scenarios:             make(map[string]ScenarioConfig),
 	}
 
@@ -654,14 +881,15 @@ func mergeEnvToCollaborationConfig(cfg *CollaborationConfig) {
 
 // LoadEvaluationConfig 加载评测系统配置
 func LoadEvaluationConfig() *EvaluationConfig {
+	fc := loadFileConfig()
 	return &EvaluationConfig{
-		MaxConcurrent:       getEnvAsInt("EVALUATION_MAX_CONCURRENT", 3),
-		WorkerEnabled:       getEnvAsBool("EVALUATION_WORKER_ENABLED", true),
-		PythonEndpoint:      getEnv("PYTHON_EVALUATION_ENDPOINT", "http://localhost:18888"),
-		DefaultTimeout:      getEnvAsInt("EVALUATION_DEFAULT_TIMEOUT", 30),
-		AgentTimeout:        getEnvAsInt("EVALUATION_AGENT_TIMEOUT", 180),
-		MaxRetries:          getEnvAsInt("EVALUATION_MAX_RETRIES", 3),
-		ProgressCacheExpiry: getEnvAsInt("EVALUATION_PROGRESS_CACHE_EXPIRY", 3600),
+		MaxConcurrent:       getEnvAsInt("EVALUATION_MAX_CONCURRENT", fc.Evaluation.MaxConcurrent),
+		WorkerEnabled:       getEnvAsBool("EVALUATION_WORKER_ENABLED", fc.Evaluation.WorkerEnabled),
+		PythonEndpoint:      getEnv("PYTHON_EVALUATION_ENDPOINT", fc.Evaluation.PythonEndpoint),
+		DefaultTimeout:      getEnvAsInt("EVALUATION_DEFAULT_TIMEOUT", fc.Evaluation.DefaultTimeout),
+		AgentTimeout:        getEnvAsInt("EVALUATION_AGENT_TIMEOUT", fc.Evaluation.AgentTimeout),
+		MaxRetries:          getEnvAsInt("EVALUATION_MAX_RETRIES", fc.Evaluation.MaxRetries),
+		ProgressCacheExpiry: getEnvAsInt("EVALUATION_PROGRESS_CACHE_EXPIRY", fc.Evaluation.ProgressCacheExpiry),
 	}
 }
 
@@ -671,15 +899,16 @@ func LoadSkillConfig() *SkillConfig {
 	envPath := filepath.Join(projectRoot, ".env")
 	_ = godotenv.Load(envPath)
 
+	fc := loadFileConfig()
 	return &SkillConfig{
-		Enabled:    getEnvAsBool("SKILL_ENABLED", false),
+		Enabled: getEnvAsBool("SKILL_ENABLED", fc.Skill.Enabled),
 		// MCP/技能工具端点：必须指向 Python MCP 服务（dev.sh py-mcp 监听 :3100），
 		// 而非 Go 自身的 Gin 端口(:8080，无 /mcp 路由)。默认值配错会导致 data_analysis
 		// 工具（correlation/insight）POST /mcp 打到 8080 → 404，Agent 退回手写 SQL。
-		Endpoint:   getEnv("SKILL_ENDPOINT", "http://localhost:3100/mcp"),
-		Timeout:    getEnvAsInt("SKILL_TIMEOUT", 30),
-		CacheTTL:   getEnvAsInt("SKILL_CACHE_TTL", 60),
-		MaxRetries: getEnvAsInt("SKILL_MAX_RETRIES", 3),
+		Endpoint:   getEnv("SKILL_ENDPOINT", fc.Skill.Endpoint),
+		Timeout:    getEnvAsInt("SKILL_TIMEOUT", fc.Skill.Timeout),
+		CacheTTL:   getEnvAsInt("SKILL_CACHE_TTL", fc.Skill.CacheTTL),
+		MaxRetries: getEnvAsInt("SKILL_MAX_RETRIES", fc.Skill.MaxRetries),
 	}
 }
 
@@ -687,7 +916,8 @@ func LoadSkillConfig() *SkillConfig {
 func LoadUploadConfig() *UploadConfig {
 	// 默认落在仓库根 var/uploads（服务从 services/cognida-go/ 启动，故 ../../var/uploads）；
 	// 与 Python 侧 UPLOAD_BASE_DIR/ALLOWED_PATHS 指向同一共享目录。
-	uploadDir := getEnv("UPLOAD_DIR", "../../var/uploads")
+	fc := loadFileConfig()
+	uploadDir := getEnv("UPLOAD_DIR", fc.Upload.UploadDir)
 
 	// 确保上传目录存在
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {

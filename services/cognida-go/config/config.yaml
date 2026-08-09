@@ -1,0 +1,129 @@
+# Cognida Go 服务 —— 非密配置真源
+# =====================================================================
+# 本文件入库（可公开），只放【非密】配置：Host/Port、开关、超时、阈值、
+# 池大小、并发数、端点、模型名、目录、TTL、分页等。
+#
+# 加载优先级（从低到高）：
+#   代码内兜底默认  <  本文件 config.yaml  <  环境变量（覆盖）
+#
+# 【严禁】在本文件出现任何密钥/密码/Token/APIKey。
+# 密钥类字段没有对应 yaml key，只能来自环境变量（见 .env / .env.example）：
+#   DB_PASSWORD、MILVUS_TOKEN、NEO4J_PASSWORD、JWT_SECRET、
+#   CHAT_API_KEY、METASO_API_KEY、EMBEDDING_API_KEY、REDIS_PASSWORD、
+#   DATASOURCE_SECRET_KEY。
+#
+# 路径解析：优先环境变量 CONFIG_FILE；否则依次尝试
+#   ./config/config.yaml、../config/config.yaml、../../config/config.yaml。
+# 找不到本文件不会 fatal，会回退到代码内默认值。
+# =====================================================================
+
+# 数据库（MySQL）—— 密码走 DB_PASSWORD 环境变量
+database:
+  host: localhost
+  port: "3306"
+  user: root
+  database: cognida
+
+# Milvus 向量库 —— Token 走 MILVUS_TOKEN 环境变量
+milvus:
+  host: ""
+
+# Neo4j 图数据库 —— 密码走 NEO4J_PASSWORD 环境变量
+neo4j:
+  uri: bolt://localhost:7687
+  username: neo4j
+  max_pool_size: 50
+
+# JWT —— Secret 走 JWT_SECRET 环境变量（此处仅过期时长，非密）
+jwt:
+  access_expire: 86400   # access 过期，24 小时（秒）
+  refresh_expire: 604800 # refresh 过期，7 天（秒）
+
+# 多租户
+tenant:
+  enable_multi_tenant: false
+  enable_cross_tenant_access: false
+  default_storage_quota: 10737418240 # 10GB（bytes）
+
+# 聊天模型 —— APIKey 走 CHAT_API_KEY 环境变量
+chat:
+  source: remote               # local / remote
+  base_url: https://api.deepseek.com/v1
+  model_name: deepseek-chat
+  provider: deepseek
+
+# 搜索（Metaso）—— APIKey 走 METASO_API_KEY 环境变量
+search:
+  api_endpoint: https://metaso.cn/api/v1/search
+
+# Embedding —— APIKey 走 EMBEDDING_API_KEY 环境变量
+embedding:
+  provider: dashscope
+  model: text-embedding-v3
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings
+
+# HTTP 服务
+server:
+  port: "8080"
+  mode: debug                  # debug / release
+  host: 0.0.0.0
+
+# Python gRPC 服务
+python_grpc:
+  enabled: true
+  target: localhost:50051
+  timeout: 30                  # 连接超时（秒）
+
+# Redis —— 密码走 REDIS_PASSWORD 环境变量
+redis:
+  addr: localhost:6379
+  db: 0
+  pool_size: 10
+  min_idle_conns: 2
+  max_retries: 3
+
+# 任务队列
+task_queue:
+  dequeue_timeout: 30          # 队列消费超时（秒）
+
+# 任务处理器
+worker:
+  concurrency: 4
+  shutdown_timeout: 30         # 优雅关闭超时（秒）
+  enabled: false
+
+# 评测系统（独立评测 FastAPI，:18888，非基础服务 :8000）
+evaluation:
+  max_concurrent: 3
+  worker_enabled: true
+  python_endpoint: http://localhost:18888
+  default_timeout: 30          # 单 QA 超时（秒）
+  agent_timeout: 180           # Agent 单条评测超时（秒）
+  max_retries: 3
+  progress_cache_expiry: 3600  # 进度缓存过期（秒）
+
+# Skill / MCP 工具端点（必须指向 Python MCP 服务 :3100，非 Go 自身 :8080）
+skill:
+  enabled: false
+  endpoint: http://localhost:3100/mcp
+  timeout: 30
+  cache_ttl: 60                # Skill 列表缓存有效期（秒）
+  max_retries: 3
+
+# 文件上传目录（服务从 services/cognida-go/ 启动，故相对 ../../var/uploads；
+# 与 Python 侧共享同一目录。可用 UPLOAD_DIR 环境变量按机器覆盖）
+upload:
+  upload_dir: ../../var/uploads
+
+# Agent 协作（scenarios 明细见代码默认；此处仅顶层标量）
+collaboration:
+  default_mode: summary        # none / summary / recent / full / isolated
+  max_delegate_depth: 10
+  enable_cyclic_detection: true
+
+# 语义缓存（agents 明细见代码默认；此处仅顶层标量）
+semantic_cache:
+  enabled: false
+  threshold: 0.85
+  ttl: 24h
+  top_k: 5

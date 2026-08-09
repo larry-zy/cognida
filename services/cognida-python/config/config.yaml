@@ -1,0 +1,46 @@
+# Cognida Python 服务非密配置
+#
+# 说明：
+#   本文件入库，只放【非密】配置。任何密钥/口令/凭证严禁写入本文件，
+#   它们只能来自环境变量 / .env（见 .env.example）。
+#   加载优先级：代码内 Field 默认 < 本文件(config.yaml) < 环境变量/.env（覆盖）。
+#   密钥字段（LLM 凭证、database_url、redis_url）不在此文件出现，只走环境变量。
+
+# ── 应用配置 ─────────────────────────────────────────────
+app_name: cognida-python
+app_env: dev            # dev | test | prod
+log_level: INFO         # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+# ── HTTP API 配置（用于调试和管理）───────────────────────
+api_host: 0.0.0.0
+api_port: 8000
+
+# ── MCP 配置（AI 工具调用）───────────────────────────────
+# 与 dev.sh(py-mcp)/Go 侧真源对齐：http 模式 + :3100。
+# 用 stdio/:3000 会让 Go 的 data_analysis 工具连不上 → 404，Agent 退回手写 SQL。
+mcp_mode: http          # stdio | http
+mcp_host: 0.0.0.0
+mcp_port: 3100
+
+# ── gRPC 配置（高性能任务）───────────────────────────────
+grpc_enabled: true
+grpc_port: 50051
+grpc_max_workers: 10
+
+# ── Go 服务配置 ──────────────────────────────────────────
+go_service_url: http://localhost:8080
+
+# ── LLM 配置（仅非密项；LLM 凭证走环境变量）──────────────
+llm_provider: openai
+llm_base_url: https://api.openai.com/v1
+llm_model: gpt-4
+
+# ── 存储配置（Python 服务直连；无内嵌凭证）───────────────
+milvus_host: localhost
+milvus_port: 19530
+neo4j_uri: bolt://localhost:7687
+
+# ── 文件上传配置（与 Go 共享同一目录）───────────────────
+upload_base_dir: ../../var/uploads
+allowed_paths:
+  - ../../var/uploads
