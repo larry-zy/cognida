@@ -550,11 +550,60 @@ func hasType(spec *UISpec, typ string) bool {
 	return false
 }
 
+// sampleGroupedCountFirst 复现分组查询的典型列序：维度 region + 计数列 cnt 在前、真正度量
+// amount 在后。修复前 buildSeries 取「第一个数值列」会误选 cnt（记录数）作图而非销售额——
+// 正是 Data-Agent 测评里反复自我修复、白烧多轮的那个缺陷。
+const sampleGroupedCountFirst = `{
+  "result_id": "rs_grp",
+  "columns": ["region", "cnt", "amount"],
+  "samples": [
+    {"region": "华东", "cnt": 3, "amount": 4500},
+    {"region": "华北", "cnt": 3, "amount": 2400},
+    {"region": "华南", "cnt": 2, "amount": 1300}
+  ],
+  "row_count": 3,
+  "executed_sql": "SELECT region, COUNT(*) cnt, SUM(amount) amount FROM sales GROUP BY region"
+}`
+
+// TestBuildSeries_PrefersMeasureOverCountColumn 锁定回归：无 data_analysis 给定 value_col 时，
+// 序列图必须挑真正的度量列（amount），跳过计数列（cnt），否则看板静默画错指标。
+func TestBuildSeries_PrefersMeasureOverCountColumn(t *testing.T) {
+	dm := AssembleDataModel(sampleGroupedCountFirst, "")
+	if dm == nil || dm.Series == nil {
+		t.Fatalf("expected series from grouped result, got %v", dm)
+	}
+	if dm.Series.Name != "amount" {
+		t.Errorf("series value col = %q, want amount (must skip count column cnt)", dm.Series.Name)
+	}
+	if len(dm.Series.Actual) != 3 || dm.Series.Actual[0] != 4500 || dm.Series.Actual[2] != 1300 {
+		t.Errorf("series actual = %v, want amount values [4500 2400 1300], not cnt", dm.Series.Actual)
+	}
+	if len(dm.Series.Labels) != 3 || dm.Series.Labels[0] != "华东" {
+		t.Errorf("series labels = %v, want region dimension (not cnt)", dm.Series.Labels)
+	}
+}
+
+// TestLooksLikeCount 锁定计数类列名的词边界判定：计数语义命中，真正度量（amount/discount/
+// account 等含子串但非计数）不得误伤。
+func TestLooksLikeCount(t *testing.T) {
+	for _, c := range []string{"cnt", "count", "COUNT(*)", "num", "order_num", "record_count", "qty", "记录数", "订单数量", "总数"} {
+		if !looksLikeCount(c) {
+			t.Errorf("looksLikeCount(%q) = false, want true", c)
+		}
+	}
+	for _, m := range []string{"amount", "discount_amount", "account_balance", "sales", "revenue", "sum_amount", "销售额", "金额", "客单价"} {
+		if looksLikeCount(m) {
+			t.Errorf("looksLikeCount(%q) = true, want false (real measure)", m)
+		}
+	}
+}
+
 // 确保样本 JSON 合法（防止手写样本走样）。
 func TestSamplesAreValidJSON(t *testing.T) {
 	for name, s := range map[string]string{
 		"sql": sampleSQL, "trend": sampleTrend, "kpi": sampleKPI,
 		"categorical": sampleCategorical, "twoNumeric": sampleTwoNumeric, "correlation": sampleCorrelation,
+		"groupedCountFirst": sampleGroupedCountFirst,
 	} {
 		var v interface{}
 		if err := json.Unmarshal([]byte(s), &v); err != nil {

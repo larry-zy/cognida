@@ -2,7 +2,9 @@ package genui
 
 import (
 	"encoding/json"
+	"regexp"
 	"strconv"
+	"strings"
 )
 
 // sqlExecuteOutput 对应 tools.SQLExecuteResult 的信封 JSON 形态（仅取需要的字段）。
@@ -340,13 +342,43 @@ func buildSeries(sqlOut sqlExecuteOutput, an analysisOutput, hasAnalysis bool) *
 
 // ---- 列类型启发式 ----
 
-func firstNumericColumn(sqlOut sqlExecuteOutput) string {
-	for _, col := range sqlOut.Columns {
-		if _, ok := toFloat(sqlOut.Samples[0][col]); ok {
-			return col
+// countLikeLatin 匹配把 cnt/count/num/qty 作为独立词出现的列名（词边界约束，避免误伤
+// discount/account/amount）。分组查询常形如 `SELECT dim, COUNT(*) cnt, SUM(x) amount`，
+// 若按列序取「第一个数值列」会选中计数列而非真正度量，故对计数类列名降级。
+var countLikeLatin = regexp.MustCompile(`(?i)(^|[^a-z])(cnt|count|num|qty)([^a-z]|$)`)
+
+// countLikeCJK 中文无分词，用整词包含匹配计数类语义（销售额/金额等度量不含这些词）。
+var countLikeCJK = []string{"记录数", "条数", "数量", "计数", "总条数", "总数"}
+
+// looksLikeCount 判断列名是否为计数类，用于图表选值列时优先真正的度量列。
+func looksLikeCount(col string) bool {
+	if countLikeLatin.MatchString(col) {
+		return true
+	}
+	for _, kw := range countLikeCJK {
+		if strings.Contains(col, kw) {
+			return true
 		}
 	}
-	return ""
+	return false
+}
+
+// firstNumericColumn 取序列图的值列：优先第一个「非计数类」数值列（真正的度量，如 amount/
+// sum_*），仅当全部数值列都是计数类时才退回第一个作兜底——修复分组结果里图表误画记录数而非度量。
+func firstNumericColumn(sqlOut sqlExecuteOutput) string {
+	fallback := ""
+	for _, col := range sqlOut.Columns {
+		if _, ok := toFloat(sqlOut.Samples[0][col]); !ok {
+			continue
+		}
+		if !looksLikeCount(col) {
+			return col
+		}
+		if fallback == "" {
+			fallback = col
+		}
+	}
+	return fallback
 }
 
 func firstNonNumericColumn(sqlOut sqlExecuteOutput, exclude string) string {
