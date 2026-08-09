@@ -1,8 +1,9 @@
 name: CI - 安全扫描
 
 # 仓库级密钥扫描门（〔INF-13〕）：gitleaks 扫描全部提交历史，拦截真实凭证泄漏。
-# 已核实的示例/测试假密钥经仓库根 .gitleaksignore 允许清单排除，故本门为阻断门禁
+# 已核实的示例/测试假密钥经仓库根 .gitleaks.toml 的「路径/正则允许清单」排除，故本门为阻断门禁
 # （区别于 Go/Python CI 内部的存量非阻断扫描器）。
+# 注：不再用 .gitleaksignore 指纹清单——指纹含 commit 哈希，history 一经 rebase/filter 即整体失配。
 
 on:
   push:
@@ -26,5 +27,5 @@ jobs:
           gitleaks version
 
       - name: gitleaks detect（提交历史 + 允许清单）
-        # gitleaks 默认读取仓库根 .gitleaksignore 允许清单；发现未列入清单的密钥即以非零退出阻断。
-        run: gitleaks detect --redact --no-banner --exit-code 1
+        # --config 显式指定仓库根 .gitleaks.toml 允许清单；发现未列入清单的密钥即以非零退出阻断。
+        run: gitleaks detect --redact --no-banner --config .gitleaks.toml --exit-code 1

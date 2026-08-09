@@ -1,0 +1,29 @@
+# gitleaks 配置：仓库级密钥扫描门（〔INF-13〕，见 .github/workflows/ci-security.yml）。
+#
+# 用「路径/正则允许清单」替代原来的 .gitleaksignore 指纹清单：
+# 指纹是 <commit>:<file>:<rule>:<line>，一旦 git 历史被 rebase/filter 重写（哈希变化）
+# 就会整体失配、把已核实的示例值重新报成泄漏——这正是 2026-08 link→cognida 收敛后门禁失败的原因。
+# 按「内容/路径」豁免则不随历史重写失效。
+#
+# 原则：真实凭证一律去源头吊销轮换，绝不在此豁免；此处仅豁免已核实的示例/测试假密钥，
+#       以及仅遗留于历史提交、无法从工作树消除的路径。
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "已核实的示例/测试假密钥与仅存于历史的路径（非真实凭证）"
+
+# paths 正则匹配「命中文件的路径」。命中即豁免，覆盖该文件在全部历史提交中的匹配。
+paths = [
+  # 1) 代码评审提示文档：演示"硬编码密钥=反模式"的占位示例值。
+  '''\.claude/hooks/bug-detection\.md''',
+
+  # 2) 集成测试用 apiKey：旧路径 link-go/ 与重命名后的 services/cognida-go/ 均豁免。
+  #    该值已从工作树移除；若确认为真实凭证，须在源头吊销轮换（豁免只为放行历史门禁）。
+  '''(?:link-go|services/cognida-go)/internal/service/agent/rag_integration_test\.go''',
+
+  # 3) 本配置文件与旧的 .gitleaksignore：其注释中出现示例字面量，避免自我误报。
+  '''(?:^|/)\.gitleaks\.toml$''',
+  '''(?:^|/)\.gitleaksignore$''',
+]

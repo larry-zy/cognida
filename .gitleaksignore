@@ -1,8 +1,0 @@
-# gitleaks 允许清单（已核实的示例/测试用假密钥，非真实凭证）。
-# 列入清单后，仓库级密钥扫描门（.github/workflows/ci-security.yml）方可作为阻断门禁，
-# 只拦真实新泄漏而不被历史示例值误伤。格式：<commit>:<file>:<rule>:<line>
-#
-# 1) 代码评审提示文档中演示"硬编码密钥=反模式"的示例值：const API_KEY = "sk-1234567890"。
-62f9d9ffe3b088a790610bf393a02d1c5c437726:.claude/hooks/bug-detection.md:generic-api-key:509
-# 2) 旧 link-go/（已重命名为 services/cognida-go）路径下集成测试的假 apiKey，仅存于历史提交。
-62f9d9ffe3b088a790610bf393a02d1c5c437726:link-go/internal/service/agent/rag_integration_test.go:generic-api-key:279
