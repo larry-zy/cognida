@@ -71,15 +71,14 @@ jobs:
           go mod download
           go build ./...
 
-      # 旁路每 10s 采样内存到文件, --verbose 打印各 linter 进度。GOMEMLIMIT=14GiB 作软上限
-      # (略低于 16GB 物理内存, 避免 OS-OOM; 又高于串行分析实际峰值, 避免 GC 死亡螺旋)。
-      # 外层 coreutils timeout 作硬墙: 无论 golangci-lint 卡在包加载(其 --timeout 抢占不了)
-      # 还是 GC 抖死, 都会被 SIGKILL 终止, 随后 tail 内存时间线一定能落进 step 日志(区分 OOM/hang)。
+      # 旁路每 10s 把内存采样直接打到 stdout(实时流式): 即使 runner 被 OS-OOM 杀死,
+      # 已 flush 的行也会留在 step 日志里, 可读到爬升峰值坐实 OOM(写文件+末尾 cat 的做法在 OOM 时丢失)。
+      # GOMEMLIMIT=14GiB 仅对可回收垃圾有效; 外层 coreutils timeout 24m 作硬墙兜底 hang。
       - name: golangci-lint
         env:
           GOMEMLIMIT: "14GiB"
         run: |
-          ( while true; do printf '%s ' "$(date +%T)"; free -m | awk '/Mem:/{printf "mem used=%sMB avail=%sMB\n",$3,$7}'; sleep 10; done ) > /tmp/mem.log 2>&1 &
+          ( while true; do printf '[MEM] %s ' "$(date +%T)"; free -m | awk '/Mem:/{printf "used=%sMB avail=%sMB\n",$3,$7}'; sleep 10; done ) &
           MON=$!
           set +e
           timeout --signal=KILL --kill-after=20s 24m \
@@ -87,8 +86,6 @@ jobs:
           RC=$?
           set -e
           kill "$MON" 2>/dev/null || true
-          echo "===== 内存采样时间线 (used/avail MB) ====="
-          cat /tmp/mem.log || true
           echo "===== golangci-lint exit=$RC (124/137=timeout 硬墙触发) ====="
           exit $RC
 
