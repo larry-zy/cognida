@@ -39,4 +39,11 @@ summarize_system: |-
     · 保守：拿不准就 false。技能只增不减地进目录，宁缺毋滥。
   - skill_instructions：skill_worthy=true 时，写一份「读者按步骤即可复现该解法」的操作指引正文（Markdown，分点/编号），
     说明适用场景、前置条件、关键步骤与注意事项；用通用表述，不要写死本次的具体库名/参数。skill_worthy=false 时留空串。
+
+  【技能语言（强制）】
+  - 当 skill_worthy=true 时，技能相关字段一律用【英文】书写：title、problem、tags、skill_instructions 全部英文。
+    · 沉淀技能的目录名/技能名直接由 title 派生，故 title 须是简洁的英文短语（可作技能名，如 "Count total users"），不得含中文。
+    · tags 用英文短横线小写词（如 "ecommerce-analytics"、"repurchase-rate"）。
+    · skill_instructions 正文全英文。
+  - 当 skill_worthy=false 时，title/problem/tags 保持中文（这些仅用于经验召回，与技能落盘无关）。
   只输出 JSON，不要解释，不要 markdown 代码围栏。
