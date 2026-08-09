@@ -10,8 +10,9 @@ import (
 	"testing"
 )
 
-// repoConfigYAMLPath 返回入库 config.yaml 相对本测试包（internal/infrastructure/config）的路径。
-const repoConfigYAMLPath = "../../../config/config.yaml"
+// repoConfigYAMLPath 入库 config.yaml 现与本测试包同目录（internal/infrastructure/config），
+// go test 的 CWD 即包目录，故直接引用文件名。
+const repoConfigYAMLPath = "config.yaml"
 
 // TestBuildFileConfig_FallbackToDefaults 找不到 yaml 时回退到代码内默认值（不 fatal）。
 func TestBuildFileConfig_FallbackToDefaults(t *testing.T) {

@@ -1,4 +1,10 @@
 // Package cache provides feature flag support for semantic cache
+//
+// 注意（未接线）：本文件的热更新/文件监听/reloader 子系统（HotReloader /
+// FileConfigWatcher / FeatureFlagReloader / LoadConfigFromFile 等）目前**未在运行时装配**——
+// 无任何构造点，配套的 admin 路由（cache_admin_middleware.go 的 RegisterRoutes）也无人调用。
+// 运行时语义缓存实际走 cmd/server/main.go 的 buildSemanticCache（直接读 env）。
+// 保留为实验性/待接线代码；接线或确认废弃前，勿据此判断其为“在用”。
 package cache
 
 import (

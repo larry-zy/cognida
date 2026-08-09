@@ -1,6 +1,10 @@
 // Package middleware provides admin middleware for cache management API
 package middleware
 
+// 注意（未接线）：本文件的缓存管理/Feature-Flag admin 路由（RegisterRoutes）
+// 目前**未在任何 router 中注册**，配套的 infrastructure/cache 热更新子系统也未装配。
+// 保留为实验性/待接线代码；接线或确认废弃前，勿据此判断其为“在用”。
+
 import (
 	"fmt"
 	"net/http"

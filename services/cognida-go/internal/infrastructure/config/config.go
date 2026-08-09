@@ -1,6 +1,7 @@
 package config
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,12 @@ import (
 	"gopkg.in/yaml.v3"
 	"cognida/internal/model/common"
 )
+
+// embeddedConfigYAML 内嵌的非密配置真源（与本文件同目录的 config.yaml）。
+// 编译期打包进二进制，运行时无需关心 CWD，也不会因缺文件而回退。
+//
+//go:embed config.yaml
+var embeddedConfigYAML []byte
 
 // ========================================
 // 非密配置文件（config.yaml）加载
@@ -74,14 +81,6 @@ type FileConfig struct {
 		MinIdleConns int    `yaml:"min_idle_conns"`
 		MaxRetries   int    `yaml:"max_retries"`
 	} `yaml:"redis"`
-	TaskQueue struct {
-		DequeueTimeout int `yaml:"dequeue_timeout"`
-	} `yaml:"task_queue"`
-	Worker struct {
-		Concurrency     int  `yaml:"concurrency"`
-		ShutdownTimeout int  `yaml:"shutdown_timeout"`
-		Enabled         bool `yaml:"enabled"`
-	} `yaml:"worker"`
 	Evaluation struct {
 		MaxConcurrent       int    `yaml:"max_concurrent"`
 		WorkerEnabled       bool   `yaml:"worker_enabled"`
@@ -101,17 +100,6 @@ type FileConfig struct {
 	Upload struct {
 		UploadDir string `yaml:"upload_dir"`
 	} `yaml:"upload"`
-	Collaboration struct {
-		DefaultMode           string `yaml:"default_mode"`
-		MaxDelegateDepth      int    `yaml:"max_delegate_depth"`
-		EnableCyclicDetection bool   `yaml:"enable_cyclic_detection"`
-	} `yaml:"collaboration"`
-	SemanticCache struct {
-		Enabled   bool    `yaml:"enabled"`
-		Threshold float32 `yaml:"threshold"`
-		TTL       string  `yaml:"ttl"`
-		TopK      int     `yaml:"top_k"`
-	} `yaml:"semantic_cache"`
 }
 
 // defaultFileConfig 返回与历史代码内兜底默认完全一致的基线。
@@ -151,10 +139,6 @@ func defaultFileConfig() *FileConfig {
 	fc.Redis.PoolSize = 10
 	fc.Redis.MinIdleConns = 2
 	fc.Redis.MaxRetries = 3
-	fc.TaskQueue.DequeueTimeout = 30
-	fc.Worker.Concurrency = 4
-	fc.Worker.ShutdownTimeout = 30
-	fc.Worker.Enabled = false
 	fc.Evaluation.MaxConcurrent = 3
 	fc.Evaluation.WorkerEnabled = true
 	fc.Evaluation.PythonEndpoint = "http://localhost:18888"
@@ -168,42 +152,23 @@ func defaultFileConfig() *FileConfig {
 	fc.Skill.CacheTTL = 60
 	fc.Skill.MaxRetries = 3
 	fc.Upload.UploadDir = "../../var/uploads"
-	fc.Collaboration.DefaultMode = "summary"
-	fc.Collaboration.MaxDelegateDepth = 10
-	fc.Collaboration.EnableCyclicDetection = true
-	fc.SemanticCache.Enabled = false
-	fc.SemanticCache.Threshold = 0.85
-	fc.SemanticCache.TTL = "24h"
-	fc.SemanticCache.TopK = 5
 	return fc
 }
 
-// resolveConfigFilePath 解析 config.yaml 路径（对齐 skills 加载的 CWD 兜底风格）：
-// 优先 CONFIG_FILE 环境变量，否则依次尝试候选相对路径。找不到返回空串（不 fatal）。
-func resolveConfigFilePath() string {
-	if p := os.Getenv("CONFIG_FILE"); p != "" {
-		return p
-	}
-	candidates := []string{
-		"./config/config.yaml",
-		"../config/config.yaml",
-		"../../config/config.yaml",
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c
-		}
-	}
-	return ""
-}
-
-// buildFileConfig 以代码内默认为基线，叠加 config.yaml 中出现的 key（若文件存在）。
-// 文件缺失/解析失败时静默回退到默认值，保证行为等价、绝不 fatal。
+// buildFileConfig 三层叠加非密配置（低→高）：
+//  1. 代码内兜底默认（defaultFileConfig）；
+//  2. 内嵌 config.yaml（embeddedConfigYAML，非密真源，编译期打包，始终存在）；
+//  3. 可选外部文件 CONFIG_FILE（供运维免重编覆盖，缺失/解析失败静默跳过）。
+//
+// 任一层解析失败都不 fatal，保证「无外部文件」时行为完全由内嵌真源决定。
 func buildFileConfig() *FileConfig {
 	fc := defaultFileConfig()
-	if path := resolveConfigFilePath(); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
-			_ = yaml.Unmarshal(data, fc) // 仅覆盖文件中出现的字段
+	if len(embeddedConfigYAML) > 0 {
+		_ = yaml.Unmarshal(embeddedConfigYAML, fc) // 内嵌非密真源，仅覆盖出现的字段
+	}
+	if p := os.Getenv("CONFIG_FILE"); p != "" {
+		if data, err := os.ReadFile(p); err == nil {
+			_ = yaml.Unmarshal(data, fc) // 外部覆盖（可选）
 		}
 	}
 	return fc
@@ -237,9 +202,6 @@ const DefaultPageSize = 20
 
 // MaxPageSize 最大分页大小
 const MaxPageSize = 100
-
-// DefaultSessionTimeout 默认会话超时时间
-const DefaultSessionTimeout = 30 * 60 // 30分钟
 
 // ========================================
 // Helper Functions
@@ -390,11 +352,6 @@ type RedisConfig struct {
 	MaxRetries   int    // 最大重试次数
 }
 
-// TaskQueueConfig 任务队列配置
-type TaskQueueConfig struct {
-	DequeueTimeout int // 队列消费超时时间（秒），默认 30
-}
-
 // EvaluationConfig 评测系统配置
 type EvaluationConfig struct {
 	MaxConcurrent       int    // 最大并发任务数，默认 3
@@ -420,101 +377,6 @@ type UploadConfig struct {
 	UploadDir string // 文件上传目录
 }
 
-// WorkerConfig 任务处理器配置
-type WorkerConfig struct {
-	Concurrency     int  // 并发处理任务数，默认 4
-	ShutdownTimeout int  // 优雅关闭超时时间（秒），默认 30
-	Enabled         bool // 是否启用 Worker，默认 false
-}
-
-// CollaborationConfig Agent 协作配置
-type CollaborationConfig struct {
-	// DefaultMode 默认上下文模式: none, summary, recent, full, isolated
-	DefaultMode string `yaml:"default_mode" env:"COLLAB_DEFAULT_MODE"`
-
-	// MaxDelegateDepth 最大委派深度，防止无限循环
-	MaxDelegateDepth int `yaml:"max_delegate_depth" env:"COLLAB_MAX_DELEGATE_DEPTH"`
-
-	// EnableCyclicDetection 是否启用循环检测
-	EnableCyclicDetection bool `yaml:"enable_cyclic_detection" env:"COLLAB_ENABLE_CYCLIC_DETECTION"`
-
-	// Scenarios 不同场景的配置覆盖
-	Scenarios map[string]ScenarioConfig `yaml:"scenarios"`
-}
-
-// SemanticCacheConfig 语义缓存配置
-type SemanticCacheConfig struct {
-	// Enabled 是否启用语义缓存
-	Enabled bool `yaml:"enabled" env:"SEMANTIC_CACHE_ENABLED"`
-
-	// Threshold 相似度阈值 (0-1)
-	Threshold float32 `yaml:"threshold" env:"SEMANTIC_CACHE_THRESHOLD"`
-
-	// TTL 缓存过期时间
-	TTL string `yaml:"ttl" env:"SEMANTIC_CACHE_TTL"`
-
-	// TopK 检索数量
-	TopK int `yaml:"top_k" env:"SEMANTIC_CACHE_TOP_K"`
-
-	// Agents 各 Agent 类型的独立配置
-	Agents map[string]AgentCacheConfigOverride `yaml:"agents"`
-}
-
-// AgentCacheConfigOverride Agent 缓存配置覆盖
-type AgentCacheConfigOverride struct {
-	Enabled   bool    `yaml:"enabled"`
-	Threshold float32 `yaml:"threshold"`
-	TTL       string  `yaml:"ttl"`
-	TopK      int     `yaml:"top_k"`
-}
-
-// ScenarioConfig 场景配置
-type ScenarioConfig struct {
-	// Description 场景描述
-	Description string `yaml:"description"`
-
-	// AgentTypes 该场景下的 Agent 类型列表
-	AgentTypes []string `yaml:"agent_types"`
-
-	// ContextMode 该场景使用的上下文模式
-	ContextMode string `yaml:"context_mode"`
-
-	// ContextLimit 上下文消息数量限制（用于 recent 模式）
-	ContextLimit int `yaml:"context_limit,omitempty"`
-}
-
-// ContextModeRecallStrategy 上下文模式召回策略配置
-type ContextModeRecallStrategy struct {
-	// None 无上下文模式
-	None struct {
-		Enabled bool `yaml:"enabled"`
-	} `yaml:"none"`
-
-	// Summary 摘要模式
-	Summary struct {
-		Enabled        bool `yaml:"enabled"`
-		SummaryTokens  int  `yaml:"summary_tokens"`  // 摘要最大 token 数
-		RecentMessages int  `yaml:"recent_messages"` // 附加的最近消息数
-	} `yaml:"summary"`
-
-	// Recent 最近消息模式
-	Recent struct {
-		Enabled bool `yaml:"enabled"`
-		Limit   int  `yaml:"limit"` // 最近消息数量
-	} `yaml:"recent"`
-
-	// Full 完整历史模式
-	Full struct {
-		Enabled         bool `yaml:"enabled"`
-		MaxHistoryDepth int  `yaml:"max_history_depth"` // 最大历史深度
-	} `yaml:"full"`
-
-	// Isolated 隔离模式
-	Isolated struct {
-		Enabled bool `yaml:"enabled"`
-	} `yaml:"isolated"`
-}
-
 // Config 总配置
 type Config struct {
 	Database      *DatabaseConfig
@@ -528,13 +390,9 @@ type Config struct {
 	Server        *ServerConfig
 	PythonGrpc    *PythonGrpcConfig
 	Redis         *RedisConfig
-	TaskQueue     *TaskQueueConfig
-	Worker        *WorkerConfig
-	Collaboration *CollaborationConfig // Agent 协作配置
-	SemanticCache *SemanticCacheConfig // 语义缓存配置
-	Evaluation    *EvaluationConfig    // 评测系统配置
-	Skill         *SkillConfig         // Skill 系统配置
-	Upload        *UploadConfig        // 文件上传配置
+	Evaluation    *EvaluationConfig // 评测系统配置
+	Skill         *SkillConfig      // Skill 系统配置
+	Upload        *UploadConfig     // 文件上传配置
 }
 
 // LoadDatabaseConfig 从环境变量加载数据库配置
@@ -712,173 +570,6 @@ func LoadRedisConfig() *RedisConfig {
 	}
 }
 
-// LoadTaskQueueConfig 加载任务队列配置
-func LoadTaskQueueConfig() *TaskQueueConfig {
-	projectRoot, _ := os.Getwd()
-	envPath := filepath.Join(projectRoot, ".env")
-	_ = godotenv.Load(envPath)
-
-	fc := loadFileConfig()
-	return &TaskQueueConfig{
-		DequeueTimeout: getEnvAsInt("TASK_DEQUEUE_TIMEOUT", fc.TaskQueue.DequeueTimeout),
-	}
-}
-
-// LoadWorkerConfig 加载任务处理器配置
-func LoadWorkerConfig() *WorkerConfig {
-	projectRoot, _ := os.Getwd()
-	envPath := filepath.Join(projectRoot, ".env")
-	_ = godotenv.Load(envPath)
-
-	fc := loadFileConfig()
-	return &WorkerConfig{
-		Concurrency:     getEnvAsInt("WORKER_CONCURRENCY", fc.Worker.Concurrency),
-		ShutdownTimeout: getEnvAsInt("WORKER_SHUTDOWN_TIMEOUT", fc.Worker.ShutdownTimeout),
-		Enabled:         getEnvAsBool("WORKER_ENABLED", fc.Worker.Enabled),
-	}
-}
-
-// LoadCollaborationConfig 加载 Agent 协作配置
-func LoadCollaborationConfig() *CollaborationConfig {
-	projectRoot, _ := os.Getwd()
-	envPath := filepath.Join(projectRoot, ".env")
-	_ = godotenv.Load(envPath)
-
-	return defaultCollaborationConfig()
-}
-
-// LoadSemanticCacheConfig 加载语义缓存配置
-func LoadSemanticCacheConfig() *SemanticCacheConfig {
-	projectRoot, _ := os.Getwd()
-	envPath := filepath.Join(projectRoot, ".env")
-	_ = godotenv.Load(envPath)
-
-	return defaultSemanticCacheConfig()
-}
-
-// defaultSemanticCacheConfig 返回默认的语义缓存配置
-func defaultSemanticCacheConfig() *SemanticCacheConfig {
-	fc := loadFileConfig()
-	cfg := &SemanticCacheConfig{
-		Enabled:   fc.SemanticCache.Enabled, // 非密真源在 config.yaml，默认关闭
-		Threshold: fc.SemanticCache.Threshold,
-		TTL:       fc.SemanticCache.TTL,
-		TopK:      fc.SemanticCache.TopK,
-		Agents:    make(map[string]AgentCacheConfigOverride),
-	}
-
-	// 从环境变量覆盖
-	mergeEnvToSemanticCacheConfig(cfg)
-
-	// 设置默认 Agent 配置
-	if len(cfg.Agents) == 0 {
-		cfg.Agents = map[string]AgentCacheConfigOverride{
-			"rag_agent": {
-				Enabled:   true,
-				Threshold: 0.90,
-				TTL:       "24h",
-				TopK:      3,
-			},
-			"qa_agent": {
-				Enabled:   true,
-				Threshold: 0.95,
-				TTL:       "168h", // 7天
-				TopK:      5,
-			},
-			"code_agent": {
-				Enabled:   true,
-				Threshold: 0.92,
-				TTL:       "24h",
-				TopK:      5,
-			},
-			"react_agent": {
-				Enabled:   false, // ReAct 默认关闭
-				Threshold: 0.85,
-				TTL:       "5m",
-				TopK:      5,
-			},
-			"deep_research": {
-				Enabled:   false, // 深度研究默认关闭
-				Threshold: 0.80,
-				TTL:       "1h",
-				TopK:      5,
-			},
-		}
-	}
-
-	return cfg
-}
-
-// mergeEnvToSemanticCacheConfig 合并环境变量到语义缓存配置
-func mergeEnvToSemanticCacheConfig(cfg *SemanticCacheConfig) {
-	if enabled := os.Getenv("SEMANTIC_CACHE_ENABLED"); enabled != "" {
-		cfg.Enabled = getEnvAsBool("SEMANTIC_CACHE_ENABLED", false)
-	}
-	if threshold := os.Getenv("SEMANTIC_CACHE_THRESHOLD"); threshold != "" {
-		var val float32
-		if _, err := fmt.Sscanf(threshold, "%f", &val); err == nil {
-			cfg.Threshold = val
-		}
-	}
-	if ttl := os.Getenv("SEMANTIC_CACHE_TTL"); ttl != "" {
-		cfg.TTL = ttl
-	}
-	if topK := os.Getenv("SEMANTIC_CACHE_TOP_K"); topK != "" {
-		cfg.TopK = getEnvAsInt("SEMANTIC_CACHE_TOP_K", 5)
-	}
-}
-
-// defaultCollaborationConfig 返回默认的协作配置
-func defaultCollaborationConfig() *CollaborationConfig {
-	fc := loadFileConfig()
-	cfg := &CollaborationConfig{
-		DefaultMode:           fc.Collaboration.DefaultMode,
-		MaxDelegateDepth:      fc.Collaboration.MaxDelegateDepth,
-		EnableCyclicDetection: fc.Collaboration.EnableCyclicDetection,
-		Scenarios:             make(map[string]ScenarioConfig),
-	}
-
-	// 从环境变量覆盖
-	mergeEnvToCollaborationConfig(cfg)
-
-	// 设置默认场景
-	if len(cfg.Scenarios) == 0 {
-		cfg.Scenarios = map[string]ScenarioConfig{
-			"data_analysis": {
-				Description:  "数据分析场景",
-				AgentTypes:   []string{"analyst", "query_agent"},
-				ContextMode:  "summary",
-				ContextLimit: 10,
-			},
-			"research": {
-				Description: "研究分析场景",
-				AgentTypes:  []string{"researcher", "writer"},
-				ContextMode: "full",
-			},
-			"simple_task": {
-				Description: "简单任务场景",
-				AgentTypes:  []string{"executor"},
-				ContextMode: "none",
-			},
-		}
-	}
-
-	return cfg
-}
-
-// mergeEnvToCollaborationConfig 合并环境变量到协作配置
-func mergeEnvToCollaborationConfig(cfg *CollaborationConfig) {
-	if mode := os.Getenv("COLLAB_DEFAULT_MODE"); mode != "" {
-		cfg.DefaultMode = mode
-	}
-	if depth := os.Getenv("COLLAB_MAX_DELEGATE_DEPTH"); depth != "" {
-		cfg.MaxDelegateDepth = getEnvAsInt("COLLAB_MAX_DELEGATE_DEPTH", 10)
-	}
-	if cyclic := os.Getenv("COLLAB_ENABLE_CYCLIC_DETECTION"); cyclic != "" {
-		cfg.EnableCyclicDetection = getEnvAsBool("COLLAB_ENABLE_CYCLIC_DETECTION", true)
-	}
-}
-
 // LoadEvaluationConfig 加载评测系统配置
 func LoadEvaluationConfig() *EvaluationConfig {
 	fc := loadFileConfig()
@@ -945,10 +636,6 @@ func LoadConfig() *Config {
 		Server:        LoadServerConfig(),
 		PythonGrpc:    LoadPythonGrpcConfig(),
 		Redis:         LoadRedisConfig(),
-		TaskQueue:     LoadTaskQueueConfig(),
-		Worker:        LoadWorkerConfig(),
-		Collaboration: LoadCollaborationConfig(),
-		SemanticCache: LoadSemanticCacheConfig(),
 		Evaluation:    LoadEvaluationConfig(),
 		Skill:         LoadSkillConfig(),
 		Upload:        LoadUploadConfig(),

@@ -6,8 +6,6 @@ import (
 	"log"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-
-	"cognida/internal/infrastructure/config"
 )
 
 // ========================================
@@ -38,13 +36,4 @@ func CreateDriver(ctx context.Context, cfg Neo4jConfig) (neo4j.DriverWithContext
 
 	log.Printf("✅ Neo4j 连接成功: %s\n", cfg.URI)
 	return driver, nil
-}
-
-// ========================================
-// Config Providers - 配置提供者
-// ========================================
-
-// ProvideConfig 从配置文件加载配置
-func ProvideConfig() *config.Config {
-	return config.LoadConfig()
 }

@@ -12,9 +12,9 @@
 #   CHAT_API_KEY、METASO_API_KEY、EMBEDDING_API_KEY、REDIS_PASSWORD、
 #   DATASOURCE_SECRET_KEY。
 #
-# 路径解析：优先环境变量 CONFIG_FILE；否则依次尝试
-#   ./config/config.yaml、../config/config.yaml、../../config/config.yaml。
-# 找不到本文件不会 fatal，会回退到代码内默认值。
+# 加载方式：本文件与 config.go 同目录，由 //go:embed 编译期打包进二进制，
+# 运行时无需关心工作目录、也不依赖磁盘副本。若需免重编覆盖，设置环境变量
+# CONFIG_FILE 指向外部 yaml（叠加在内嵌真源之上，缺失/解析失败静默跳过）。
 # =====================================================================
 
 # 数据库（MySQL）—— 密码走 DB_PASSWORD 环境变量
@@ -82,16 +82,6 @@ redis:
   min_idle_conns: 2
   max_retries: 3
 
-# 任务队列
-task_queue:
-  dequeue_timeout: 30          # 队列消费超时（秒）
-
-# 任务处理器
-worker:
-  concurrency: 4
-  shutdown_timeout: 30         # 优雅关闭超时（秒）
-  enabled: false
-
 # 评测系统（独立评测 FastAPI，:18888，非基础服务 :8000）
 evaluation:
   max_concurrent: 3
@@ -114,16 +104,3 @@ skill:
 # 与 Python 侧共享同一目录。可用 UPLOAD_DIR 环境变量按机器覆盖）
 upload:
   upload_dir: ../../var/uploads
-
-# Agent 协作（scenarios 明细见代码默认；此处仅顶层标量）
-collaboration:
-  default_mode: summary        # none / summary / recent / full / isolated
-  max_delegate_depth: 10
-  enable_cyclic_detection: true
-
-# 语义缓存（agents 明细见代码默认；此处仅顶层标量）
-semantic_cache:
-  enabled: false
-  threshold: 0.85
-  ttl: 24h
-  top_k: 5
