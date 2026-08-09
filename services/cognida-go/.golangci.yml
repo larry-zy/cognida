@@ -1,7 +1,10 @@
 # golangci-lint 配置 (v1.60+)
 # 棕地项目: 先启用一组高信噪比的核心 linter, 避免一次性铺满导致无法落地。
 run:
-  timeout: 10m
+  # CI 实测: 包加载仅 ~9s, 但 staticcheck/unused/gosimple 的全程序 SSA 分析在 4-vCPU runner 上
+  # 串行(concurrency=1)真实耗时 >10min(本地 M 系 mac 仅 ~44s, CI 单核约 7× 慢)。给足 20m 预算,
+  # 避免 golangci-lint 自身 timeout 中途杀死分析(单个 whole-program linter 无法被抢占)。
+  timeout: 20m
   tests: true
   # staticcheck/unused/gosimple 做全程序分析(构建整棵依赖树的 SSA), 默认按 CPU 数(4)并行会把
   # 16GB runner 峰值内存打爆 → OS-OOM 杀 runner(表现为 "runner received a shutdown signal")。
