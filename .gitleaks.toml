@@ -19,6 +19,9 @@ paths = [
   # 1) 代码评审提示文档：演示"硬编码密钥=反模式"的占位示例值。
   '''\.claude/hooks/bug-detection\.md''',
 
+  # 1b) 脱敏逻辑单测：故意内嵌假 token 以验证错误信息中的密钥被打码。
+  '''services/cognida-go/internal/model/llm/error_test\.go''',
+
   # 2) 集成测试用 apiKey：旧路径 link-go/ 与重命名后的 services/cognida-go/ 均豁免。
   #    该值已从工作树移除；若确认为真实凭证，须在源头吊销轮换（豁免只为放行历史门禁）。
   '''(?:link-go|services/cognida-go)/internal/service/agent/rag_integration_test\.go''',
