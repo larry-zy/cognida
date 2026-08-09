@@ -34,6 +34,12 @@ func (e *HTTPStatusError) Error() string {
 // ========================================
 
 // openaiClient OpenAI客户端
+// defaultMaxOutputTokens 是调用方未显式指定 max_tokens 时的兜底输出上限。
+// 取 DeepSeek 单轮生成上限 8192：thinking 模型的 reasoning_content 计入输出预算，
+// 依赖 provider 较小的默认上限会在 tool_call 发出前被长思维链耗尽（finish_reason=length），
+// 显式抬到 8192 给 thinking + 正文 + tool_call 留足空间，避免截断导致 agent"卡住"。
+const defaultMaxOutputTokens = 8192
+
 type openaiClient struct {
 	baseURL   string
 	apiKey    string
@@ -130,23 +136,28 @@ func (c *openaiClient) Generate(ctx context.Context, messages []*schema.Message,
 		ToolCalls:        toolCalls,
 		// 回填本轮 token 用量：此前该字段从未被填充，导致 ReAct 循环里 usageTotalTokens(msg)
 		// 恒为 0，Agent 评测的 tokens_used 指标全部落 0。API 已返回 usage，此处透出。
-		ResponseMeta: newResponseMeta(openaiResp.Usage),
+		// 同时透出 finish_reason，供上层识别 length 截断（thinking 链撑爆输出预算）。
+		ResponseMeta: newResponseMeta(openaiResp.Usage, choice.FinishReason),
 	}, nil
 }
 
-// newResponseMeta 将 OpenAI 兼容响应的 usage 转成 eino schema.ResponseMeta。
-// usage 全 0（部分供应商省略）时返回 nil，避免伪造零用量掩盖"未上报"与"确为 0"的区别。
-func newResponseMeta(u openaiUsage) *schema.ResponseMeta {
-	if u.PromptTokens == 0 && u.CompletionTokens == 0 && u.TotalTokens == 0 {
+// newResponseMeta 将 OpenAI 兼容响应的 usage + finish_reason 转成 eino schema.ResponseMeta。
+// usage 全 0（部分供应商省略）且 finishReason 为空时返回 nil，避免伪造零用量掩盖"未上报"与"确为 0"
+// 的区别；但只要 finishReason 非空就必须返回非 nil，否则 ReAct 循环无从判定截断（finish_reason=length）。
+func newResponseMeta(u openaiUsage, finishReason string) *schema.ResponseMeta {
+	hasUsage := u.PromptTokens != 0 || u.CompletionTokens != 0 || u.TotalTokens != 0
+	if !hasUsage && finishReason == "" {
 		return nil
 	}
-	return &schema.ResponseMeta{
-		Usage: &schema.TokenUsage{
+	rm := &schema.ResponseMeta{FinishReason: finishReason}
+	if hasUsage {
+		rm.Usage = &schema.TokenUsage{
 			PromptTokens:     u.PromptTokens,
 			CompletionTokens: u.CompletionTokens,
 			TotalTokens:      u.TotalTokens,
-		},
+		}
 	}
+	return rm
 }
 
 // Stream 流式生成
@@ -179,6 +190,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		hasSentData := false
 		var streamUsage *openaiUsage // 流末 usage chunk 携带的 token 用量（若服务端上报）
+		var streamFinishReason string // 本轮结束原因（length=截断/tool_calls/stop），透出供上层判截断
 		toolCallCount := 0
 		pendingToolCalls := make(map[int]*schema.ToolCall)
 		// 累积 thinking 模式的 reasoning_content 分片，附加到带 tool_calls 的 assistant 消息上，
@@ -229,7 +241,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 				// 追发一条仅携带 usage 的结尾消息，供 eino 拼接时并入 token 用量
 				// （ConcatMessages 会对各分片的 Usage 取最大值合并）。
 				if streamUsage != nil {
-					if rm := newResponseMeta(*streamUsage); rm != nil {
+					if rm := newResponseMeta(*streamUsage, streamFinishReason); rm != nil {
 						writer.Send(&schema.Message{
 							Role:         schema.Assistant,
 							Content:      "",
@@ -299,9 +311,12 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 
 				// 检查是否完成（finish_reason 不为空）
 				if choice.FinishReason != nil && *choice.FinishReason != "" {
-					// 发送待处理的工具调用
+					streamFinishReason = *choice.FinishReason
+
+					// 收敛待发的工具调用（若有）。
+					var toolCalls []schema.ToolCall
 					if len(pendingToolCalls) > 0 {
-						toolCalls := make([]schema.ToolCall, 0, len(pendingToolCalls))
+						toolCalls = make([]schema.ToolCall, 0, len(pendingToolCalls))
 						// 按 index 排序
 						for i := 0; i < len(pendingToolCalls); i++ {
 							if tc := pendingToolCalls[i]; tc != nil {
@@ -316,17 +331,22 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 						for _, tc := range toolCalls {
 							fmt.Printf("   → %s(%s)\n", tc.Function.Name, truncateArgs(tc.Function.Arguments))
 						}
-
-						hasSentData = true
-						writer.Send(&schema.Message{
-							Role:             schema.Assistant,
-							Content:          "",
-							ReasoningContent: reasoningBuilder.String(),
-							ToolCalls:        toolCalls,
-						}, nil)
-						pendingToolCalls = make(map[int]*schema.ToolCall)
-						reasoningBuilder.Reset()
 					}
+
+					// 始终下发一条携带 finish_reason 的收尾消息：即便本轮没有工具调用（如 thinking 链
+					// 撑爆输出预算导致 finish_reason=length、正文被半途截断），也要把结束原因透出到合并后的
+					// 最终消息，供 ReAct 循环识别截断、避免把半句正文误当最终答案而让前端空轮询"卡住"。
+					// ConcatMessages 取最后一个非空 FinishReason，故此消息即结束原因的可靠载体。
+					hasSentData = true
+					writer.Send(&schema.Message{
+						Role:             schema.Assistant,
+						Content:          "",
+						ReasoningContent: reasoningBuilder.String(),
+						ToolCalls:        toolCalls,
+						ResponseMeta:     &schema.ResponseMeta{FinishReason: *choice.FinishReason},
+					}, nil)
+					pendingToolCalls = make(map[int]*schema.ToolCall)
+					reasoningBuilder.Reset()
 				}
 			}
 		}
@@ -440,6 +460,13 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 	}
 	if options.MaxTokens != nil {
 		req.MaxTokens = *options.MaxTokens
+	} else {
+		// 调用方未显式指定输出上限时兜一个宽松默认（而非依赖 provider 默认）。
+		// DeepSeek thinking 模型的 reasoning_content 计入输出预算：重型 agent 首轮的长思维链
+		// 会在 provider 较小的默认上限（常见 4096）内、于发出 tool_call 之前就把预算耗尽，
+		// finish_reason=length 截断 → 上层把半句正文误当最终答案 → 前端空轮询"卡住"。
+		// 给到 DeepSeek 单轮上限 8192，让 thinking + 正文 + tool_call 有足够空间落地。
+		req.MaxTokens = defaultMaxOutputTokens
 	}
 
 	return req

@@ -809,7 +809,23 @@ const (
 	TerminatedByTokenBudget = "token_budget"
 	// TerminatedByDeadline 表示挂钟预算耗尽（运行超时）而终止。
 	TerminatedByDeadline = "deadline"
+	// TerminatedByTruncated 表示模型输出被 finish_reason=length 截断（thinking 链撑爆输出预算），
+	// 有界重试后仍未产出工具调用而转 wind-down 收尾。
+	TerminatedByTruncated = "output_truncated"
 )
+
+// maxTruncationRetries 是「finish_reason=length 截断且无工具调用」时注入精简提示后的最大重试轮数。
+// 超过即转 wind-down，避免在持续截断下无谓消耗迭代预算。
+const maxTruncationRetries = 2
+
+// truncationNudge 在检测到截断后注入，引导模型压缩思考、直接产出工具调用而非长篇叙述。
+const truncationNudge = "上一轮的思考过长，在发出工具调用前就触达了输出长度上限被截断，导致本轮没有产出任何工具调用。" +
+	"请大幅精简你的思考过程，不要在正文里长篇复述计划，直接输出你要调用的下一个工具及其参数。"
+
+// isLengthTruncated 判定一次生成是否因输出长度上限被截断（finish_reason=length）。
+func isLengthTruncated(msg *schema.Message) bool {
+	return msg != nil && msg.ResponseMeta != nil && msg.ResponseMeta.FinishReason == "length"
+}
 
 // windDownPrompt 是达到 maxIter/预算上限时注入的收尾指令：要求模型不再调用工具，
 // 直接基于已获得的观察结果交付一个自洽的最终答复，避免返回空内容或过程性话术。
@@ -913,6 +929,7 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	// ReAct 循环受 maxIter 与 token 预算共同约束：任一到达上限即终止并收尾。
 	var res execResult
 	naturalFinish := false // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
+	truncationRetries := 0 // finish_reason=length 截断且无工具调用时的已重试次数（有界）
 	// 挂钟护栏起点：仅在配置了 wallClock 时计时；time.Since(loopStart) 到点即终止并 wind-down。
 	loopStart := time.Now()
 	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
@@ -954,6 +971,22 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 
 		// 检查是否有工具调用
 		if len(msg.ToolCalls) == 0 {
+			// finish_reason=length 截断且无工具调用：thinking 链撑爆输出预算，正文在发出 tool_call
+			// 前被半途切断——绝非模型主动收尾。若直接当最终答案交付，用户拿到的是半句话、前端空轮询
+			// 即表现为"卡住"。注入一次「精简思考、直接给工具」的提示后有界重试本轮，避免静默挂起。
+			if hasTools && isLengthTruncated(msg) {
+				if truncationRetries < maxTruncationRetries {
+					truncationRetries++
+					messages = append(messages, schema.SystemMessage(truncationNudge))
+					log.Printf("[agent:%s] 第%d步 finish_reason=length 截断且无工具调用，注入精简提示后重试(%d/%d)",
+						a.name, i+1, truncationRetries, maxTruncationRetries)
+					continue
+				}
+				// 重试仍被截断：不把半句正文当最终答案，转 wind-down 给出诚实结论。
+				res.terminatedBy = TerminatedByTruncated
+				res.iterations = i + 1
+				break
+			}
 			// 没有工具调用，模型主动收尾（Content 可能为空，但仍属自然结束，不应误判为达上限）
 			res.content = msg.Content
 			res.role = string(msg.Role)
