@@ -59,16 +59,33 @@ jobs:
           cache: true
           cache-dependency-path: services/cognida-go/go.sum
 
+      # 直跑 golangci-lint(不用 action): 便于预热缓存、开 --verbose 定位卡点、旁路内存监控。
+      # 版本钉到 v1.64.8 与本地一致, 排除 action "latest"/Node 运行时的不确定性。
+      - name: 安装 golangci-lint
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v1.64.8
+
+      # 预热 module 与编译缓存: 冷 GOCACHE 下 golangci-lint 会自行编译整棵依赖树取 export data,
+      # 内存/耗时不可控(疑为 CI 卡死主因); 先 go build ./... 把结果落进 GOCACHE 让 lint 直接复用。
+      - name: 预热依赖与编译缓存
+        run: |
+          go mod download
+          go build ./...
+
+      # 旁路每 10s 打印内存, --verbose 打印各 linter 进度: 一次跑即可判定 OOM(内存爬升被杀)
+      # 还是 hang(内存平但时间流逝)。GOMEMLIMIT 作内存软上限兜底。
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        # 16GB runner 上全程序分析易 OOM: 给 golangci-lint 进程设内存软上限,
-        # 逼近时主动 GC 而非被内核 OOM-kill; GOGC 调低进一步压低堆高水位。
         env:
-          GOMEMLIMIT: "12GiB"
-          GOGC: "50"
-        with:
-          version: latest
-          working-directory: services/cognida-go
+          GOMEMLIMIT: "13GiB"
+        run: |
+          ( while true; do printf '%s ' "$(date +%T)"; free -m | awk '/Mem:/{printf "mem used=%sMB avail=%sMB\n",$3,$7}'; sleep 10; done ) &
+          MON=$!
+          set +e
+          "$(go env GOPATH)/bin/golangci-lint" run --verbose --timeout=10m ./...
+          RC=$?
+          set -e
+          kill "$MON" 2>/dev/null || true
+          echo "golangci-lint exit=$RC"
+          exit $RC
 
   vuln:
     name: 漏洞扫描 (govulncheck)
