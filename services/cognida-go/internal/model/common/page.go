@@ -40,7 +40,7 @@ func NewReq(page, pageSize int) *Req {
 // GetFromGin 从 Gin 获取分页参数
 func GetFromGin(c *gin.Context) *Req {
 	var req Req
-	c.ShouldBindQuery(&req)
+	_ = c.ShouldBindQuery(&req) // 绑定失败保持零值，由 Normalize 兜底默认值
 	return req.Normalize()
 }
 

@@ -14,7 +14,7 @@ import (
 // ========================================
 
 // Factory 创建 Critic 实例
-func Factory(criticType string, llm model.ChatModel, dimensions []reflection.DimensionConfig) (reflection.Critic, error) {
+func Factory(criticType string, llm model.BaseChatModel, dimensions []reflection.DimensionConfig) (reflection.Critic, error) {
 	switch criticType {
 	case "llm":
 		if llm == nil {
@@ -31,6 +31,6 @@ func Factory(criticType string, llm model.ChatModel, dimensions []reflection.Dim
 }
 
 // NewCritic 创建 Critic（便捷方法）
-func NewCritic(config *reflection.ReflectionConfig, llm model.ChatModel) (reflection.Critic, error) {
+func NewCritic(config *reflection.ReflectionConfig, llm model.BaseChatModel) (reflection.Critic, error) {
 	return Factory(config.CriticType, llm, config.Dimensions)
 }

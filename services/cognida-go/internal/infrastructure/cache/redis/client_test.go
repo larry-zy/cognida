@@ -27,8 +27,8 @@ func getRedisTestConfig() *config.RedisConfig {
 	password := os.Getenv("TEST_REDIS_PASSWORD")
 	db := 0
 	if dbStr := os.Getenv("TEST_REDIS_DB"); dbStr != "" {
-		if _, err := parseTestDB(dbStr); err == nil {
-			// 使用环境变量指定的数据库
+		if parsed, err := parseTestDB(dbStr); err == nil {
+			db = parsed // 使用环境变量指定的数据库
 		}
 	}
 

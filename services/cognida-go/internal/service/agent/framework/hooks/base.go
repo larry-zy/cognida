@@ -120,7 +120,7 @@ func (h *BaseHook) SafeExecute(ctx context.Context, fn func() error) (err error)
 	// Apply timeout
 	if h.timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, h.timeout)
+		_, cancel = context.WithTimeout(ctx, h.timeout)
 		defer cancel()
 	}
 

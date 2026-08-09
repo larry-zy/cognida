@@ -286,36 +286,36 @@ func (r *VectorRetriever) CreateIndex(ctx context.Context, kbID int64, opts *Ind
 	case IndexTypeIvfFlat:
 		nlist := 128
 		if val, ok := opts.IndexParams["nlist"]; ok {
-			fmt.Sscanf(val, "%d", &nlist)
+			_, _ = fmt.Sscanf(val, "%d", &nlist) // 解析失败保持零值
 		}
 		idx = index.NewIvfFlatIndex(opts.MetricType, nlist)
 	case IndexTypeIvfSq8:
 		nlist := 128
 		if val, ok := opts.IndexParams["nlist"]; ok {
-			fmt.Sscanf(val, "%d", &nlist)
+			_, _ = fmt.Sscanf(val, "%d", &nlist) // 解析失败保持零值
 		}
 		idx = index.NewIvfSQ8Index(opts.MetricType, nlist)
 	case IndexTypeHnsw:
 		M := 16
 		efConstruction := 256
 		if val, ok := opts.IndexParams["M"]; ok {
-			fmt.Sscanf(val, "%d", &M)
+			_, _ = fmt.Sscanf(val, "%d", &M) // 解析失败保持零值
 		}
 		if val, ok := opts.IndexParams["efConstruction"]; ok {
-			fmt.Sscanf(val, "%d", &efConstruction)
+			_, _ = fmt.Sscanf(val, "%d", &efConstruction) // 解析失败保持零值
 		}
 		idx = index.NewHNSWIndex(opts.MetricType, M, efConstruction)
 	case IndexTypeSparseInverted:
 		dropRatio := 0.2
 		if val, ok := opts.IndexParams["drop_ratio"]; ok {
-			fmt.Sscanf(val, "%f", &dropRatio)
+			_, _ = fmt.Sscanf(val, "%f", &dropRatio) // 解析失败保持零值
 		}
 		idx = index.NewSparseInvertedIndex(opts.MetricType, dropRatio)
 	default:
 		// 默认使用 IVF_FLAT
 		nlist := 128
 		if val, ok := opts.IndexParams["nlist"]; ok {
-			fmt.Sscanf(val, "%d", &nlist)
+			_, _ = fmt.Sscanf(val, "%d", &nlist) // 解析失败保持零值
 		}
 		idx = index.NewIvfFlatIndex(opts.MetricType, nlist)
 	}

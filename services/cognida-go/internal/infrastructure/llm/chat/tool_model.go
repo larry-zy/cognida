@@ -51,26 +51,9 @@ func (m *toolCallingModelAdapter) WithTools(tools []*schema.ToolInfo) (model.Too
 	return &toolCallingModelAdapter{client: newClient}, nil
 }
 
-// chatModelAdapter 将 BaseChatModel 适配为已弃用的 model.ChatModel 接口，
-// 供 HyDE / Guardrail 等仅需 Generate 能力的组件使用。
-type chatModelAdapter struct {
-	model.BaseChatModel
-	tools []*schema.ToolInfo
-}
-
-// BindTools 实现 model.ChatModel 接口。
-// 当前消费方（HyDE 生成、查询改写、内容护栏）仅使用 Generate 能力，
-// 这里保存工具信息以满足接口契约。
-func (m *chatModelAdapter) BindTools(tools []*schema.ToolInfo) error {
-	m.tools = tools
-	return nil
-}
-
-// NewChatModel 创建兼容已弃用 model.ChatModel 接口的聊天模型。
-func NewChatModel(ctx context.Context, config *ChatConfig) (model.ChatModel, error) {
-	base, err := NewToolCallingChatModel(ctx, config)
-	if err != nil {
-		return nil, err
-	}
-	return &chatModelAdapter{BaseChatModel: base}, nil
+// NewChatModel 创建仅需 Generate 能力的聊天模型（HyDE / Guardrail 等消费方）。
+// 返回 BaseChatModel：底层实现（ToolCallingChatModel）天然满足该接口，
+// 无需再包一层已弃用的 model.ChatModel（BindTools）适配器。
+func NewChatModel(ctx context.Context, config *ChatConfig) (model.BaseChatModel, error) {
+	return NewToolCallingChatModel(ctx, config)
 }

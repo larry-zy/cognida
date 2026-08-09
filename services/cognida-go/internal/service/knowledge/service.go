@@ -46,7 +46,7 @@ func NewRAGServiceWithOptimizer(
 	graphRepo domain_knowledge.GraphRepository,
 	graphQueryRepo domain_knowledge.GraphQueryRepository,
 	llmChat domainrag.LLMChat,
-	llmModel model.ChatModel, // eino.ChatModel for optimizer
+	llmModel model.BaseChatModel, // eino.ChatModel for optimizer
 	graphExtractor domain_knowledge.GraphExtractor,
 ) *RAGService {
 	return &RAGService{

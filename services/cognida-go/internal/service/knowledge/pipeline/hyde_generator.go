@@ -19,11 +19,11 @@ import (
 
 // HyDEGeneratorImpl HyDE 生成器实现
 type HyDEGeneratorImpl struct {
-	llm model.ChatModel
+	llm model.BaseChatModel
 }
 
 // NewHyDEGenerator 创建 HyDE 生成器
-func NewHyDEGenerator(llm model.ChatModel) domainrag.HyDEGenerator {
+func NewHyDEGenerator(llm model.BaseChatModel) domainrag.HyDEGenerator {
 	return &HyDEGeneratorImpl{
 		llm: llm,
 	}
@@ -158,11 +158,11 @@ func (h *HyDEGeneratorImpl) extractHypotheticalDoc(content string) string {
 
 // QueryRewriterImpl 查询重写器实现
 type QueryRewriterImpl struct {
-	llm model.ChatModel
+	llm model.BaseChatModel
 }
 
 // NewQueryRewriter 创建查询重写器
-func NewQueryRewriter(llm model.ChatModel) domainrag.QueryRewriter {
+func NewQueryRewriter(llm model.BaseChatModel) domainrag.QueryRewriter {
 	return &QueryRewriterImpl{
 		llm: llm,
 	}

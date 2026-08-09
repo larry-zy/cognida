@@ -462,9 +462,7 @@ func (g *GraphData) Merge(other *GraphData) *GraphData {
 				existing.AddChunk(chunkID)
 			}
 			// Merge attributes
-			for _, attr := range node.Attributes {
-				existing.Attributes = append(existing.Attributes, attr)
-			}
+			existing.Attributes = append(existing.Attributes, node.Attributes...)
 		} else {
 			nodeMap[node.Name] = node
 			result.Node = append(result.Node, node)

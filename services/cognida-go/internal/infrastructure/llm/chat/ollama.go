@@ -158,6 +158,7 @@ func (c *ollamaClient) Generate(ctx context.Context, messages []*schema.Message,
 func (c *ollamaClient) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	reqBody := c.buildRequest(messages, opts, true)
 
+	//nolint:bodyclose // 流式响应：body 交由下方读取 goroutine 的 defer resp.Body.Close() 在流生命周期结束时关闭；此处提前关闭会截断流。bodyclose 无法跨 goroutine 追踪该关闭。
 	resp, err := c.sendRequest(ctx, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("send request failed: %w", err)

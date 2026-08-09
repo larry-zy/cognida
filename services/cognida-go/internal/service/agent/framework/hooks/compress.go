@@ -153,7 +153,9 @@ func (h *AutoCompressHook) After(ctx context.Context, resp interface{}) error {
 	// 执行压缩
 	if h.asyncMode {
 		// 异步模式：不阻塞响应
-		go h.executeCompress(context.Background(), sessionID)
+		go func() {
+			_ = h.executeCompress(context.Background(), sessionID) // 异步压缩失败保持静默，不影响主流程
+		}()
 		return nil
 	}
 

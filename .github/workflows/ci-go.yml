@@ -24,10 +24,10 @@ jobs:
     name: 构建与测试
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 设置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: services/cognida-go/go.mod
           cache: true
@@ -48,13 +48,12 @@ jobs:
   lint:
     name: 代码检查 (golangci-lint)
     runs-on: ubuntu-latest
-    # 棕地存量: golangci-lint 首次接入存量问题多, 先作非阻断反馈, 分批清理后转门禁。
-    continue-on-error: true
+    # 棕地存量已清零(91 个真实问题全部修复 + grpc SA1019 专项豁免待迁移), 转为硬门禁。
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 设置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: services/cognida-go/go.mod
           cache: true
@@ -74,10 +73,10 @@ jobs:
     # govulncheck 只报告调用链真正触及的漏洞, 误报极低; 故转为硬门禁,
     # 与本仓库 golangci-lint / ruff / mypy / safety / bandit 的"存量先反馈、清零后转门禁"一致。
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 设置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: services/cognida-go/go.mod
           cache: true
@@ -98,7 +97,7 @@ jobs:
     #     同列于脚本 allow_crosscutting), 见〔X-4〕。
     # 现转为硬门禁, 与仓库"存量先反馈、清零后转门禁"一致。
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 架构校验脚本纳入仓库(services/cognida-go/scripts/), 作为单一事实源;
       # 脚本以自身位置推导 GO_ROOT, 与 cwd 无关。

@@ -466,7 +466,7 @@ func (l *DatasetLoader) NewDatasetFile(datasetID, name, description string, eval
 	}
 
 	metaPath := filepath.Join(dirPath, MetaFileName)
-	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
+	if err := os.WriteFile(metaPath, metaData, 0600); err != nil {
 		return fmt.Errorf("failed to write metadata: %w", err)
 	}
 

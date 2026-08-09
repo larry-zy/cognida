@@ -82,7 +82,7 @@ func (r *Neo4jRepository) UpdateCentralityScores(ctx context.Context, namespace 
 
 	defer func() {
 		if r := recover(); r != nil {
-			tx.Rollback(ctx)
+			_ = tx.Rollback(ctx)
 			panic(r)
 		}
 	}()
@@ -111,7 +111,7 @@ func (r *Neo4jRepository) UpdateCentralityScores(ctx context.Context, namespace 
 			"kbId":     namespace.KnowledgeBaseID,
 		})
 		if err != nil {
-			tx.Rollback(ctx)
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("更新中心性分数失败: %w", err)
 		}
 	}

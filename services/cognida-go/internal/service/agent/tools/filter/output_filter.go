@@ -18,11 +18,11 @@ import (
 
 // OutputFilterImpl 输出过滤器实现
 type OutputFilterImpl struct {
-	llm model.ChatModel
+	llm model.BaseChatModel
 }
 
 // NewOutputFilter 创建输出过滤器
-func NewOutputFilter(llm model.ChatModel) domainguardrail.OutputFilter {
+func NewOutputFilter(llm model.BaseChatModel) domainguardrail.OutputFilter {
 	return &OutputFilterImpl{
 		llm: llm,
 	}

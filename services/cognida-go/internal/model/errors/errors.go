@@ -319,6 +319,7 @@ const (
 	ErrorCodeTenantNotFound     = "TENANT_NOT_FOUND"
 	ErrorCodeTenantSuspended    = "TENANT_SUSPENDED"
 	ErrorCodeUserNotFound       = "USER_NOT_FOUND"
+	// #nosec G101 -- 这是错误码常量字符串（非真实凭据），供 API 返回标识鉴权失败原因
 	ErrorCodeInvalidCredentials = "INVALID_CREDENTIALS"
 	ErrorCodeKBNotFound         = "KB_NOT_FOUND"
 	ErrorCodeSessionNotFound    = "SESSION_NOT_FOUND"

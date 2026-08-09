@@ -15,7 +15,7 @@ jobs:
     name: 密钥扫描 (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # 全提交历史，gitleaks detect 需完整 git log
 

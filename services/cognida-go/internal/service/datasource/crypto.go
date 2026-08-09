@@ -15,6 +15,7 @@ import (
 // SecretKeyEnv 凭证加密密钥环境变量名。
 // 密钥经 SHA-256 派生为 AES-256 key；密钥变更后旧密文不可解，
 // 对应数据源应标记 need_credentials 要求重录密码。
+// #nosec G101 -- 这是环境变量名字符串（非真实密钥），真正的密钥值在运行时从该环境变量读取
 const SecretKeyEnv = "DATASOURCE_SECRET_KEY"
 
 // ErrSecretKeyMissing 未配置加密密钥

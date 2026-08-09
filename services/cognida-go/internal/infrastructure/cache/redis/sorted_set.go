@@ -80,12 +80,13 @@ func (c *sortedSetCache) ZRangeByScore(ctx context.Context, key string, min, max
 		return nil, cache.ErrCacheKeyEmpty
 	}
 
-	opt := &redis.ZRangeBy{
-		Min: fmt.Sprintf("%f", min),
-		Max: fmt.Sprintf("%f", max),
-	}
-
-	return c.client.ZRangeByScore(ctx, key, opt).Result()
+	// ZRangeArgs{ByScore:true} 替代已弃用的 ZRangeByScore（Redis 6.2+）：按分数区间取升序成员。
+	return c.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     key,
+		ByScore: true,
+		Start:   fmt.Sprintf("%f", min),
+		Stop:    fmt.Sprintf("%f", max),
+	}).Result()
 }
 
 // ZRangeWithScores 按分数范围获取成员及分数（升序）
@@ -183,7 +184,13 @@ func (c *sortedSetCache) ZRevRange(ctx context.Context, key string, start, stop 
 		return nil, cache.ErrCacheKeyEmpty
 	}
 
-	return c.client.ZRevRange(ctx, key, start, stop).Result()
+	// ZRangeArgs{Rev:true} 替代已弃用的 ZRevRange（Redis 6.2+）：按排名区间取降序成员。
+	return c.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:   key,
+		Rev:   true,
+		Start: start,
+		Stop:  stop,
+	}).Result()
 }
 
 // ZRevRangeWithScores 按排名范围获取成员及分数（降序）

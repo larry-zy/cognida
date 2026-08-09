@@ -26,7 +26,7 @@ type Optimizer struct {
 
 // NewOptimizer 创建检索优化服务
 func NewOptimizer(
-	llm model.ChatModel,
+	llm model.BaseChatModel,
 	baseRetriever domainrag.Retriever,
 ) *Optimizer {
 	// 创建各个优化组件

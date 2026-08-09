@@ -509,7 +509,7 @@ func (s *documentProcessorService) vectorizeChunks(
 		// 解析 Metadata
 		var metadata map[string]interface{}
 		if chunk.Metadata != nil {
-			json.Unmarshal([]byte(*chunk.Metadata), &metadata)
+			_ = json.Unmarshal([]byte(*chunk.Metadata), &metadata) // 解析失败保持零值
 		}
 
 		docs[i] = &domain_knowledge.VectorDocument{
@@ -533,7 +533,7 @@ func (s *documentProcessorService) vectorizeChunks(
 	// kbID 转换为 int64，如果为空则使用 0（统一 collection）
 	var kbIDInt64 int64
 	if kbID != "" {
-		fmt.Sscanf(kbID, "%d", &kbIDInt64)
+		_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt64) // 解析失败保持零值
 	}
 	if err := s.vectorRepo.Insert(ctx, kbIDInt64, docs); err != nil {
 		return fmt.Errorf("failed to insert vectors: %w", err)

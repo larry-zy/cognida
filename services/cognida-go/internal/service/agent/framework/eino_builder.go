@@ -379,8 +379,8 @@ func (b *Builder) WithClarification(clarifier *hooks.IntentClarifier) *Builder {
 }
 
 // WithReflectionFromToolModel 用 Builder 已持有的 ToolCallingChatModel 作为反思的 Actor/Critic 模型，
-// 配置反思 Hook。供只持有 toolModel、拿不到 model.ChatModel 的调用方（如 data_agent 预设）使用：
-// 内部用 toolModelToChatModelAdapter 适配，无需调用方自行构造适配器。
+// 配置反思 Hook。供只持有 toolModel、拿不到 model.BaseChatModel 的调用方（如 data_agent 预设）使用：
+// toolModel（ToolCallingChatModel）天然满足 BaseChatModel，直接传入，无需适配器。
 // memory 可为 nil（仅评估不沉淀经验）；非 nil 时反思会检索/存储历史教训（自我进化闭环）。
 func (b *Builder) WithReflectionFromToolModel(
 	config *agentreflection.ReflectionConfig,
@@ -390,7 +390,7 @@ func (b *Builder) WithReflectionFromToolModel(
 	if b.toolModel == nil {
 		return b
 	}
-	return b.WithReflection(&toolModelToChatModelAdapter{model: b.toolModel}, config, agentID, memory)
+	return b.WithReflection(b.toolModel, config, agentID, memory)
 }
 
 // WithReflection 配置反思 Hook。
@@ -398,7 +398,7 @@ func (b *Builder) WithReflectionFromToolModel(
 // memory 可为 nil（仅评估、不检索/沉淀历史经验）；非 nil 时启用自我进化闭环：
 // 第一次迭代检索历史教训注入 refine prompt，评估结束异步存储成功/失败经验。
 func (b *Builder) WithReflection(
-	chatModel model.ChatModel,
+	chatModel model.BaseChatModel,
 	config *agentreflection.ReflectionConfig,
 	agentID string,
 	memory agentreflection.ReflectionMemory,
@@ -617,7 +617,7 @@ func firstGenModel(m model.BaseChatModel, tm model.ToolCallingChatModel) llmsumm
 // ========================================
 
 // NewSimpleAgent 创建一个简单的 Agent（无工具）。
-func NewSimpleAgent(chatModel model.ChatModel, name, prompt string) Agent {
+func NewSimpleAgent(chatModel model.BaseChatModel, name, prompt string) Agent {
 	builder := New(chatModel).
 		Name(name).
 		Prompt(prompt)
@@ -661,7 +661,7 @@ func NewAgentFromRegistry(toolModel model.ToolCallingChatModel, name, prompt str
 
 // llmAdapter 将 eino ChatModel 适配为 hooks.LLMClient
 type llmAdapter struct {
-	model model.ChatModel
+	model model.BaseChatModel
 }
 
 func (a *llmAdapter) Chat(ctx context.Context, messages []hooks.Message) (string, error) {
@@ -686,29 +686,6 @@ func (a *llmAdapter) Chat(ctx context.Context, messages []hooks.Message) (string
 
 	// 提取内容
 	return resp.Content, nil
-}
-
-// toolModelToChatModelAdapter 将 ToolCallingChatModel 适配为 ChatModel
-type toolModelToChatModelAdapter struct {
-	model model.ToolCallingChatModel
-}
-
-func (a *toolModelToChatModelAdapter) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	// ToolCallingChatModel 有 Generate 方法，直接调用
-	return a.model.Generate(ctx, messages, opts...)
-}
-
-func (a *toolModelToChatModelAdapter) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	// ToolCallingChatModel 有 Stream 方法，直接调用
-	return a.model.Stream(ctx, messages, opts...)
-}
-
-func (a *toolModelToChatModelAdapter) BindTools(tools []*schema.ToolInfo) error {
-	// ToolCallingChatModel 使用 WithTools 方法，返回新实例
-	// 这里为了适配 ChatModel 接口，忽略返回值
-	// 注意：这意味着工具绑定后需要使用返回的新实例
-	_, err := a.model.WithTools(tools)
-	return err
 }
 
 // toolModelAdapter 将 eino ToolCallingChatModel 适配为 hooks.LLMClient
@@ -743,7 +720,7 @@ func (a *toolModelAdapter) Chat(ctx context.Context, messages []hooks.Message) (
 
 // NewAgentFromConfig 根据配置创建 Agent
 func NewAgentFromConfig(
-	chatModel model.ChatModel,
+	chatModel model.BaseChatModel,
 	config *agent.AgentConfig,
 ) (Agent, error) {
 	if config == nil {
@@ -825,10 +802,10 @@ func NewAgentFromConfigWithTools(
 		adapter = &toolModelAdapter{model: toolModel}
 	}
 
-	// 创建 ChatModel 适配器供 Reflection 使用
-	var chatModelAdapter model.ChatModel
+	// toolModel（ToolCallingChatModel）天然满足 BaseChatModel，直接供 Reflection 使用
+	var reflectionModel model.BaseChatModel
 	if config.ReflectionConfig != nil && config.ReflectionConfig.Enabled {
-		chatModelAdapter = &toolModelToChatModelAdapter{model: toolModel}
+		reflectionModel = toolModel
 	}
 
 	// Hook 配置
@@ -864,7 +841,7 @@ func NewAgentFromConfigWithTools(
 	if config.ReflectionConfig != nil && config.ReflectionConfig.Enabled {
 		// Reflection 需要一个 embedder，这里暂时使用 nil
 		// 实际使用时需要从外部注入 embedder
-		builder.WithReflection(chatModelAdapter, config.ReflectionConfig, "", nil)
+		builder.WithReflection(reflectionModel, config.ReflectionConfig, "", nil)
 	}
 
 	return builder.Build(context.Background())

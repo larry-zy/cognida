@@ -393,10 +393,10 @@ func ProvideModelFactory() llm.ModelFactory {
 	return llm2.NewModelFactoryWithObservability()
 }
 
-// ProvideChatModel 基于聊天配置创建 model.ChatModel，
+// ProvideChatModel 基于聊天配置创建 model.BaseChatModel，
 // 供 RAG 检索优化（HyDE/查询改写）与安全护栏使用。
 // 未配置或创建失败时返回 nil，对应功能降级。
-func ProvideChatModel(chatConfig *config.ChatConfig) model.ChatModel {
+func ProvideChatModel(chatConfig *config.ChatConfig) model.BaseChatModel {
 	if chatConfig == nil || chatConfig.APIKey == "" {
 		return nil
 	}
@@ -778,7 +778,7 @@ func ProvideTaskHandler(taskService *evaluation.TaskService) *handler.TaskHandle
 
 // ProvideRAGOptimizerHandler 装配 RAG 检索优化器。
 // 未配置 ChatModel 时降级（handler 内部判空跳过优化）。
-func ProvideRAGOptimizerHandler(chatModel model.ChatModel, baseRetriever rag.Retriever) *handler.RAGOptimizerHandler {
+func ProvideRAGOptimizerHandler(chatModel model.BaseChatModel, baseRetriever rag.Retriever) *handler.RAGOptimizerHandler {
 	if chatModel == nil {
 		return handler.NewRAGOptimizerHandler(nil)
 	}
@@ -788,7 +788,7 @@ func ProvideRAGOptimizerHandler(chatModel model.ChatModel, baseRetriever rag.Ret
 
 // ProvideGuardrailHandler 装配内容安全护栏。
 // 未配置 ChatModel 时降级（handler 内部判空放行）。
-func ProvideGuardrailHandler(chatModel model.ChatModel) *handler.GuardrailHandler {
+func ProvideGuardrailHandler(chatModel model.BaseChatModel) *handler.GuardrailHandler {
 	if chatModel == nil {
 		return handler.NewGuardrailHandler(nil)
 	}

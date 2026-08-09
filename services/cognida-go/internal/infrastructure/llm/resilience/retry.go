@@ -16,6 +16,7 @@ func backoff(attempt int, cfg domainllm.ResilienceConfig, retryAfter time.Durati
 	if ceiling <= 0 || ceiling > cfg.MaxBackoff {
 		ceiling = cfg.MaxBackoff
 	}
+	// #nosec G404 -- 重试退避 jitter 非加密用途，math/rand 足够
 	jittered := time.Duration(rand.Int63n(int64(ceiling) + 1))
 	if retryAfter > jittered {
 		return retryAfter

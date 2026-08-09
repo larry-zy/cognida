@@ -84,7 +84,7 @@ func (s *SkillSink) Write(ctx context.Context, exp *domain_experience.Experience
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("skill sink: 建目录 %s 失败: %w", dir, err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return "", fmt.Errorf("skill sink: 落盘 %s 失败: %w", path, err)
 	}
 

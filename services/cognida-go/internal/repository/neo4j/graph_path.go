@@ -117,29 +117,25 @@ func (r *Neo4jRepository) FindShortestPath(ctx context.Context, namespace knowle
 		weight := getFloat64Value(record, "weight")
 
 		nodes := make([]*knowledge.GraphNode, 0)
-		if nodesData != nil {
-			for _, n := range nodesData {
-				if nodeMap, ok := n.(map[string]interface{}); ok {
-					nodes = append(nodes, &knowledge.GraphNode{
-						ID:         getValueAsString(nodeMap, "id"),
-						Name:       getValueAsString(nodeMap, "name"),
-						EntityType: getValueAsString(nodeMap, "entityType"),
-					})
-				}
+		for _, n := range nodesData {
+			if nodeMap, ok := n.(map[string]interface{}); ok {
+				nodes = append(nodes, &knowledge.GraphNode{
+					ID:         getValueAsString(nodeMap, "id"),
+					Name:       getValueAsString(nodeMap, "name"),
+					EntityType: getValueAsString(nodeMap, "entityType"),
+				})
 			}
 		}
 
 		relations := make([]*knowledge.GraphRelation, 0)
-		if relationsData != nil {
-			for _, r := range relationsData {
-				if relMap, ok := r.(map[string]interface{}); ok {
-					relations = append(relations, &knowledge.GraphRelation{
-						ID:       getValueAsString(relMap, "id"),
-						Type:     getValueAsString(relMap, "type"),
-						Strength: getValueAsFloat64(relMap, "strength"),
-						Weight:   getValueAsFloat64(relMap, "weight"),
-					})
-				}
+		for _, r := range relationsData {
+			if relMap, ok := r.(map[string]interface{}); ok {
+				relations = append(relations, &knowledge.GraphRelation{
+					ID:       getValueAsString(relMap, "id"),
+					Type:     getValueAsString(relMap, "type"),
+					Strength: getValueAsFloat64(relMap, "strength"),
+					Weight:   getValueAsFloat64(relMap, "weight"),
+				})
 			}
 		}
 
@@ -212,29 +208,25 @@ func (r *Neo4jRepository) FindKShortestPaths(ctx context.Context, namespace know
 		weight := getFloat64Value(record, "weight")
 
 		nodes := make([]*knowledge.GraphNode, 0)
-		if nodesData != nil {
-			for _, n := range nodesData {
-				if nodeMap, ok := n.(map[string]interface{}); ok {
-					nodes = append(nodes, &knowledge.GraphNode{
-						ID:         getValueAsString(nodeMap, "id"),
-						Name:       getValueAsString(nodeMap, "name"),
-						EntityType: getValueAsString(nodeMap, "entityType"),
-					})
-				}
+		for _, n := range nodesData {
+			if nodeMap, ok := n.(map[string]interface{}); ok {
+				nodes = append(nodes, &knowledge.GraphNode{
+					ID:         getValueAsString(nodeMap, "id"),
+					Name:       getValueAsString(nodeMap, "name"),
+					EntityType: getValueAsString(nodeMap, "entityType"),
+				})
 			}
 		}
 
 		relations := make([]*knowledge.GraphRelation, 0)
-		if relationsData != nil {
-			for _, r := range relationsData {
-				if relMap, ok := r.(map[string]interface{}); ok {
-					relations = append(relations, &knowledge.GraphRelation{
-						ID:       getValueAsString(relMap, "id"),
-						Type:     getValueAsString(relMap, "type"),
-						Strength: getValueAsFloat64(relMap, "strength"),
-						Weight:   getValueAsFloat64(relMap, "weight"),
-					})
-				}
+		for _, r := range relationsData {
+			if relMap, ok := r.(map[string]interface{}); ok {
+				relations = append(relations, &knowledge.GraphRelation{
+					ID:       getValueAsString(relMap, "id"),
+					Type:     getValueAsString(relMap, "type"),
+					Strength: getValueAsFloat64(relMap, "strength"),
+					Weight:   getValueAsFloat64(relMap, "weight"),
+				})
 			}
 		}
 
@@ -300,29 +292,25 @@ func (r *Neo4jRepository) FindPathWithTypes(ctx context.Context, namespace knowl
 		weight := getFloat64Value(record, "weight")
 
 		nodes := make([]*knowledge.GraphNode, 0)
-		if nodesData != nil {
-			for _, n := range nodesData {
-				if nodeMap, ok := n.(map[string]interface{}); ok {
-					nodes = append(nodes, &knowledge.GraphNode{
-						ID:         getValueAsString(nodeMap, "id"),
-						Name:       getValueAsString(nodeMap, "name"),
-						EntityType: getValueAsString(nodeMap, "entityType"),
-					})
-				}
+		for _, n := range nodesData {
+			if nodeMap, ok := n.(map[string]interface{}); ok {
+				nodes = append(nodes, &knowledge.GraphNode{
+					ID:         getValueAsString(nodeMap, "id"),
+					Name:       getValueAsString(nodeMap, "name"),
+					EntityType: getValueAsString(nodeMap, "entityType"),
+				})
 			}
 		}
 
 		relations := make([]*knowledge.GraphRelation, 0)
-		if relationsData != nil {
-			for _, r := range relationsData {
-				if relMap, ok := r.(map[string]interface{}); ok {
-					relations = append(relations, &knowledge.GraphRelation{
-						ID:       getValueAsString(relMap, "id"),
-						Type:     getValueAsString(relMap, "type"),
-						Strength: getValueAsFloat64(relMap, "strength"),
-						Weight:   getValueAsFloat64(relMap, "weight"),
-					})
-				}
+		for _, r := range relationsData {
+			if relMap, ok := r.(map[string]interface{}); ok {
+				relations = append(relations, &knowledge.GraphRelation{
+					ID:       getValueAsString(relMap, "id"),
+					Type:     getValueAsString(relMap, "type"),
+					Strength: getValueAsFloat64(relMap, "strength"),
+					Weight:   getValueAsFloat64(relMap, "weight"),
+				})
 			}
 		}
 

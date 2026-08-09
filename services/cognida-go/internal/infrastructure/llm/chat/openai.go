@@ -166,6 +166,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 	reqBody := c.buildRequest(messages, opts, true)
 
 	// 发送请求
+	//nolint:bodyclose // 流式响应：body 交由下方读取 goroutine 的 defer resp.Body.Close() 在流生命周期结束时关闭；此处提前关闭会截断流。bodyclose 无法跨 goroutine 追踪该关闭。
 	resp, err := c.sendRequest(ctx, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("send request failed: %w", err)
@@ -226,7 +227,6 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 						ReasoningContent: reasoningBuilder.String(),
 						ToolCalls:        toolCalls,
 					}, nil)
-					pendingToolCalls = make(map[int]*schema.ToolCall)
 					reasoningBuilder.Reset()
 				}
 

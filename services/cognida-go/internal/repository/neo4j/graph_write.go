@@ -24,7 +24,7 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 	defer func() {
 		// Rollback on panic
 		if r := recover(); r != nil {
-			tx.Rollback(ctx)
+			_ = tx.Rollback(ctx)
 			panic(r)
 		}
 	}()
@@ -70,7 +70,7 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 				"properties": string(propsJSON),
 			})
 			if err != nil {
-				tx.Rollback(ctx)
+				_ = tx.Rollback(ctx)
 				return fmt.Errorf("添加节点失败: %w", err)
 			}
 		}
@@ -113,7 +113,7 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 				"kbId":       namespace.KnowledgeBaseID,
 			})
 			if err != nil {
-				tx.Rollback(ctx)
+				_ = tx.Rollback(ctx)
 				return fmt.Errorf("添加关系失败: %w", err)
 			}
 		}

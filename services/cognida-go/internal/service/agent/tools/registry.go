@@ -149,7 +149,7 @@ func (r *ToolRegistry) Register(group string, t tool.BaseTool) error {
 	}
 
 	// 获取工具名称
-	info, err := t.Info(nil)
+	info, err := t.Info(context.TODO())
 	if err != nil {
 		return fmt.Errorf("failed to get tool info: %w", err)
 	}

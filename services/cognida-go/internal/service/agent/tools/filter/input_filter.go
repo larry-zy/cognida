@@ -19,11 +19,11 @@ import (
 
 // InputFilterImpl 输入过滤器实现
 type InputFilterImpl struct {
-	llm model.ChatModel
+	llm model.BaseChatModel
 }
 
 // NewInputFilter 创建输入过滤器
-func NewInputFilter(llm model.ChatModel) domainguardrail.InputFilter {
+func NewInputFilter(llm model.BaseChatModel) domainguardrail.InputFilter {
 	return &InputFilterImpl{
 		llm: llm,
 	}

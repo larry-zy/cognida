@@ -68,12 +68,12 @@ type TaskPlan struct {
 
 // TaskDecomposer decomposes complex queries into sub-tasks.
 type TaskDecomposer struct {
-	llm    model.ChatModel
+	llm    model.BaseChatModel
 	prompt string
 }
 
 // NewTaskDecomposer creates a new task decomposer.
-func NewTaskDecomposer(llm model.ChatModel) *TaskDecomposer {
+func NewTaskDecomposer(llm model.BaseChatModel) *TaskDecomposer {
 	return &TaskDecomposer{
 		llm: llm,
 		// 提示词正文集中于 internal/prompt/configs/collaboration.yaml。

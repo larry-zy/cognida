@@ -19,7 +19,7 @@ func TestClassifySQLError_ByCodeAndText(t *testing.T) {
 		wantKind   sqlErrorKind
 		wantIdent  string
 	}{
-		{"未知列", &mysql.MySQLError{Number: 1054, Message: "Unknown column 'user_nmae' in 'field list'"}, sqlErrUnknownColumn, "user_nmae"},
+		{"未知列", &mysql.MySQLError{Number: 1054, Message: "Unknown column 'user_name' in 'field list'"}, sqlErrUnknownColumn, "user_name"},
 		{"未知表", &mysql.MySQLError{Number: 1146, Message: "Table 'link.ordrs' doesn't exist"}, sqlErrUnknownTable, "ordrs"},
 		{"语法错误", &mysql.MySQLError{Number: 1064, Message: "You have an error in your SQL syntax"}, sqlErrSyntax, ""},
 		{"权限不足_1044", &mysql.MySQLError{Number: 1044, Message: "Access denied"}, sqlErrPermission, ""},

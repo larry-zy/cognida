@@ -286,7 +286,7 @@ type RefinementResult struct {
 
 // NewReflectionHookFromConfig 从配置创建 Reflection Hook
 func NewReflectionHookFromConfig(
-	actor model.ChatModel,
+	actor model.BaseChatModel,
 	config *reflection.ReflectionConfig,
 	agentID string,
 ) (*ReflectionHook, error) {
@@ -316,7 +316,7 @@ func (h *ReflectionHook) SetMemory(memory reflection.ReflectionMemory) {
 
 // einoModelAdapter 将 eino ChatModel 适配为 ChatModel 接口
 type einoModelAdapter struct {
-	model model.ChatModel
+	model model.BaseChatModel
 }
 
 func (a *einoModelAdapter) Chat(ctx context.Context, messages []Message, opts interface{}) (interface{}, error) {

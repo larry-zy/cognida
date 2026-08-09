@@ -75,8 +75,8 @@ func (p *pubSub) Unsubscribe(ctx context.Context, channels ...string) error {
 	sub := p.client.Subscribe(ctx, channels...)
 	defer sub.Close()
 
-	// Unsubscribe 不返回错误
-	sub.Unsubscribe(ctx, channels...)
+	// best-effort 取消订阅，紧接着 defer sub.Close() 关闭连接，失败无需中断
+	_ = sub.Unsubscribe(ctx, channels...)
 	return nil
 }
 
@@ -121,8 +121,8 @@ func (p *pubSub) PUnsubscribe(ctx context.Context, patterns ...string) error {
 	sub := p.client.PSubscribe(ctx, patterns...)
 	defer sub.Close()
 
-	// PUnsubscribe 不返回错误
-	sub.PUnsubscribe(ctx, patterns...)
+	// best-effort 取消模式订阅，紧接着 defer sub.Close() 关闭连接，失败无需中断
+	_ = sub.PUnsubscribe(ctx, patterns...)
 	return nil
 }
 

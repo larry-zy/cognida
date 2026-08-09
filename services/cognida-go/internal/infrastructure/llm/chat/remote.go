@@ -3,8 +3,6 @@ package chat
 import (
 	"context"
 	"fmt"
-
-	"github.com/cloudwego/eino/components/model"
 )
 
 // ========================================
@@ -180,43 +178,4 @@ type genericCreator struct{}
 func (c *genericCreator) createClient(config *ChatConfig) (*openaiClient, error) {
 	// Generic provider使用OpenAI兼容API
 	return newOpenAIClient(config)
-}
-
-// ========================================
-// Legacy Functions (for backward compatibility)
-// ========================================
-
-// createRemoteModel 创建远程模型（已弃用，保留用于兼容）
-func createRemoteModel(config *ChatConfig, provider string) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
-}
-
-// createOpenAIModel 创建OpenAI模型（已弃用）
-func createOpenAIModel(config *ChatConfig) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
-}
-
-// createAliyunModel 创建Aliyun模型（已弃用）
-func createAliyunModel(config *ChatConfig) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
-}
-
-// createDeepSeekModel 创建DeepSeek模型（已弃用）
-func createDeepSeekModel(config *ChatConfig) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
-}
-
-// createLKEAPModel 创建LKEAP模型（已弃用）
-func createLKEAPModel(config *ChatConfig) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
-}
-
-// createQwenModel 创建Qwen模型（已弃用）
-func createQwenModel(config *ChatConfig) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
-}
-
-// createGenericModel 创建Generic模型（已弃用）
-func createGenericModel(config *ChatConfig) (model.BaseChatModel, error) {
-	return nil, fmt.Errorf("deprecated: use NewRemoteChat instead")
 }

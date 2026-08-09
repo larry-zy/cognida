@@ -203,16 +203,16 @@ func (m *EvaluationResultModel) ToDomain() *evaluation.EvaluationResult {
 
 	// 解析 JSON 字段
 	if m.RetrievedPIDs != "" {
-		json.Unmarshal([]byte(m.RetrievedPIDs), &result.RetrievedPIDs)
+		_ = json.Unmarshal([]byte(m.RetrievedPIDs), &result.RetrievedPIDs) // 解析失败保持零值
 	}
 	if m.RelevantPIDs != "" {
-		json.Unmarshal([]byte(m.RelevantPIDs), &result.RelevantPIDs)
+		_ = json.Unmarshal([]byte(m.RelevantPIDs), &result.RelevantPIDs) // 解析失败保持零值
 	}
 
 	// 动态指标载体:NULL/空列兼容为空 map
 	result.Scores = map[string]float64{}
 	if len(m.Scores) > 0 {
-		json.Unmarshal(m.Scores, &result.Scores)
+		_ = json.Unmarshal(m.Scores, &result.Scores) // 解析失败保持零值
 	}
 
 	return result

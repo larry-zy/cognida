@@ -23,13 +23,13 @@ jobs:
     name: 代码检查
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 安装 uv
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
       - name: 设置 Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: 安装依赖 (dev)
@@ -52,13 +52,13 @@ jobs:
     name: 测试
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 安装 uv
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
       - name: 设置 Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: 安装依赖 (全部 extras)
@@ -82,13 +82,13 @@ jobs:
     name: 安全扫描
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 安装 uv
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
       - name: 设置 Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: 安装扫描工具
@@ -104,7 +104,7 @@ jobs:
     needs: [lint, test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: 登录镜像仓库

@@ -57,7 +57,7 @@ type DatasetRecordModel struct {
 // decodeJSONStringSlice 解析 JSON 数组字符串到 []string（空串安全跳过）。
 func decodeJSONStringSlice(raw nullableJSON, dst *[]string) {
 	if raw != "" {
-		json.Unmarshal([]byte(raw), dst)
+		_ = json.Unmarshal([]byte(raw), dst) // 解析失败保持零值
 	}
 }
 
@@ -91,7 +91,7 @@ func (m *DatasetRecordModel) ToDomain() *evaluation.DatasetRecord {
 
 	// 解析 relevant_pids JSON 字段
 	if m.RelevantPIDs != "" {
-		json.Unmarshal([]byte(m.RelevantPIDs), &record.RelevantPIDs)
+		_ = json.Unmarshal([]byte(m.RelevantPIDs), &record.RelevantPIDs) // 解析失败保持零值
 	}
 	decodeJSONStringSlice(m.ExpectedTools, &record.ExpectedTools)
 	decodeJSONStringSlice(m.ExpectedSteps, &record.ExpectedSteps)
@@ -109,7 +109,7 @@ func (m *DatasetRecordModel) ToDomainWithQAPair() *evaluation.QAPair {
 
 	// 解析 relevant_pids JSON 字段
 	if m.RelevantPIDs != "" {
-		json.Unmarshal([]byte(m.RelevantPIDs), &pair.RelevantPIDs)
+		_ = json.Unmarshal([]byte(m.RelevantPIDs), &pair.RelevantPIDs) // 解析失败保持零值
 	}
 	decodeJSONStringSlice(m.ExpectedTools, &pair.ExpectedTools)
 	decodeJSONStringSlice(m.ExpectedSteps, &pair.ExpectedSteps)

@@ -23,7 +23,7 @@ type GuardrailServiceImpl struct {
 }
 
 // NewGuardrailService 创建安全护栏服务
-func NewGuardrailService(llm model.ChatModel) domainguardrail.GuardrailService {
+func NewGuardrailService(llm model.BaseChatModel) domainguardrail.GuardrailService {
 	return &GuardrailServiceImpl{
 		inputFilter:  filter.NewInputFilter(llm),
 		outputFilter: filter.NewOutputFilter(llm),

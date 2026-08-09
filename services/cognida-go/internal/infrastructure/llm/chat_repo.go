@@ -130,6 +130,7 @@ func (r *openaiChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequ
 	reqBody := r.buildRequest(req, true)
 
 	// 发送请求
+	//nolint:bodyclose // 流式响应：body 交由下方读取 goroutine 的 defer resp.Body.Close() 在流生命周期结束时关闭；此处提前关闭会截断流。bodyclose 无法跨 goroutine 追踪该关闭。
 	resp, err := r.sendRequest(ctx, reqBody)
 	if err != nil {
 		return nil, apiErrorFromTransport(r.provider, r.model, err)
@@ -172,7 +173,6 @@ func (r *openaiChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequ
 						ToolCalls: toolCalls,
 						Done:      true,
 					}
-					pendingToolCalls = make(map[int]*domainllm.ToolCall)
 				}
 
 				// 发送结束标记
@@ -433,6 +433,7 @@ func (r *ollamaChatRepo) Chat(ctx context.Context, req *domainllm.ChatRequest) (
 
 // ChatStream 执行流式聊天
 func (r *ollamaChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequest) (<-chan *domainllm.ChatChunk, error) {
+	//nolint:bodyclose // 流式响应：body 交由下方读取 goroutine 的 defer resp.Body.Close() 在流生命周期结束时关闭；此处提前关闭会截断流。bodyclose 无法跨 goroutine 追踪该关闭。
 	resp, err := r.sendRequest(ctx, req, true)
 	if err != nil {
 		return nil, apiErrorFromTransport(domainllm.ProviderOllama, r.model, err)

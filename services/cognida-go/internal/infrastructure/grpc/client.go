@@ -129,6 +129,7 @@ func newClient(cfg *Config, opts []ClientOption) (*Client, error) {
 	// TLS
 	if cfg.TLS != nil && cfg.TLS.Enabled {
 		tlsCfg := &tls.Config{
+			// #nosec G402 -- 仅在配置显式开启的开发/内网场景跳过校验，生产默认关闭
 			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 			ServerName:         cfg.TLS.ServerName,
 		}

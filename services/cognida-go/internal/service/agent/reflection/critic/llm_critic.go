@@ -18,13 +18,13 @@ import (
 
 // LLMCritic 使用 LLM 进行输出质量评估
 type LLMCritic struct {
-	llm            model.ChatModel
+	llm            model.BaseChatModel
 	dimensions     []reflection.DimensionConfig
 	promptTemplate string
 }
 
 // NewLLMCritic 创建 LLM Critic
-func NewLLMCritic(llm model.ChatModel, dimensions []reflection.DimensionConfig) *LLMCritic {
+func NewLLMCritic(llm model.BaseChatModel, dimensions []reflection.DimensionConfig) *LLMCritic {
 	return &LLMCritic{
 		llm:        llm,
 		dimensions: dimensions,

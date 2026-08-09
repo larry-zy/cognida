@@ -61,6 +61,7 @@ func (s *Service) SampleCSV(ctx context.Context, tenantID int64, datasourceID, t
 	}
 
 	// 表名已白名单校验并转义、limit 为经上限收敛的整数，拼接安全（无外部字符串入 SQL）
+	// #nosec G202 -- 表名已对照数据源真实表清单白名单校验并经 drv.QuoteIdent 转义，limit 为整型，无外部字符串入 SQL
 	query := "SELECT * FROM " + drv.QuoteIdent(table) + " LIMIT " + strconv.Itoa(limit)
 	rows, err := db.QueryContext(queryCtx, query)
 	if err != nil {

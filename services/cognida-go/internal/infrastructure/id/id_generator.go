@@ -4,6 +4,7 @@ package id
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"time"
 )
 
@@ -31,7 +32,11 @@ func NewIDGenerator() IDGenerator {
 func (g *DefaultIDGenerator) Generate() string {
 	timestamp := time.Now().Format("20060102150405")
 	randomBytes := make([]byte, 8)
-	rand.Read(randomBytes)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// crypto/rand 读取失败属不可恢复的系统级错误（熵源不可用），
+		// 降级用零值随机串会产出可预测 ID，安全上不可接受；接口签名无法返回 error，故 panic。
+		panic(fmt.Sprintf("id: crypto/rand read failed: %v", err))
+	}
 	randomStr := hex.EncodeToString(randomBytes)
 	return timestamp + randomStr
 }

@@ -19,13 +19,13 @@ import (
 
 // JailbreakDetectorImpl 越狱检测器实现
 type JailbreakDetectorImpl struct {
-	llm         model.ChatModel
+	llm         model.BaseChatModel
 	patterns    []*domainguardrail.AttackPattern
 	customPatterns map[string]*domainguardrail.AttackPattern
 }
 
 // NewJailbreakDetector 创建越狱检测器
-func NewJailbreakDetector(llm model.ChatModel) domainguardrail.JailbreakDetector {
+func NewJailbreakDetector(llm model.BaseChatModel) domainguardrail.JailbreakDetector {
 	return &JailbreakDetectorImpl{
 		llm:           llm,
 		patterns:      JailbreakPatterns,

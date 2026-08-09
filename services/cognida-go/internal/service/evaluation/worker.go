@@ -239,14 +239,14 @@ func (w *EvaluationWorker) workerLoop() {
 		taskID, err := w.dequeue()
 		if err != nil {
 			log.Printf("[Worker] Dequeue error: %v", err)
-			w.queue.ReleaseSlot(context.Background())
+			_ = w.queue.ReleaseSlot(context.Background()) // best-effort 释放，失败无从补救
 			time.Sleep(backoffDuration)
 			continue
 		}
 
 		if taskID == "" {
 			// 队列为空，释放槽位并使用退避策略
-			w.queue.ReleaseSlot(context.Background())
+			_ = w.queue.ReleaseSlot(context.Background()) // best-effort 释放，失败无从补救
 			emptyQueueCount++
 
 			// 指数退避：连续空队列时增加等待时间
@@ -271,7 +271,7 @@ func (w *EvaluationWorker) workerLoop() {
 		go func(taskID string) {
 			defer w.wg.Done()
 			defer func() {
-				w.queue.ReleaseSlot(context.Background())
+				_ = w.queue.ReleaseSlot(context.Background()) // best-effort 释放，失败无从补救
 			}()
 			// B1: 兜底 recover。后台 goroutine 里的 panic（单条坏 QA、被测 Agent、指标计算等）
 			// 若不拦截会直接带崩整个进程、拖垮全部并发任务。此处捕获后打印堆栈并把任务标记 failed，
@@ -950,8 +950,8 @@ func (w *EvaluationWorker) handleTaskError(ctx context.Context, taskID string, e
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 
-	// 更新 Redis 进度缓存
-	w.progressCache.SetError(persistCtx, taskID, err.Error(), 0)
+	// 更新 Redis 进度缓存（best-effort，数据库状态才是权威来源）
+	_ = w.progressCache.SetError(persistCtx, taskID, err.Error(), 0)
 
 	// 更新数据库任务状态
 	_ = w.taskRepo.UpdateError(persistCtx, taskID, err.Error())
@@ -960,7 +960,7 @@ func (w *EvaluationWorker) handleTaskError(ctx context.Context, taskID string, e
 
 // updateProgress 更新进度
 func (w *EvaluationWorker) updateProgress(ctx context.Context, taskID string, progress *domeval.Progress) {
-	w.progressCache.SetProgress(ctx, taskID, progress)
+	_ = w.progressCache.SetProgress(ctx, taskID, progress) // best-effort 进度上报，失败不影响任务执行
 }
 
 // Stop 停止 Worker

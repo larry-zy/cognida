@@ -400,7 +400,7 @@ func (r *CacheContentRepository) unmarshalEntry(data map[string]string) (*cache.
 
 	// 解析 tenant_id
 	if tenantIDStr := data["tenant_id"]; tenantIDStr != "" {
-		fmt.Sscanf(tenantIDStr, "%d", &entry.TenantID)
+		_, _ = fmt.Sscanf(tenantIDStr, "%d", &entry.TenantID) // 解析失败保持零值
 	}
 
 	// 解析向量
@@ -412,20 +412,20 @@ func (r *CacheContentRepository) unmarshalEntry(data map[string]string) (*cache.
 
 	// 解析时间戳
 	if createdAtStr := data["created_at"]; createdAtStr != "" {
-		fmt.Sscanf(createdAtStr, "%d", &entry.CreatedAt)
+		_, _ = fmt.Sscanf(createdAtStr, "%d", &entry.CreatedAt) // 解析失败保持零值
 	}
 	if updatedAtStr := data["updated_at"]; updatedAtStr != "" {
-		fmt.Sscanf(updatedAtStr, "%d", &entry.UpdatedAt)
+		_, _ = fmt.Sscanf(updatedAtStr, "%d", &entry.UpdatedAt) // 解析失败保持零值
 	}
 
 	// 解析命中计数
 	if hitCountStr := data["hit_count"]; hitCountStr != "" {
-		fmt.Sscanf(hitCountStr, "%d", &entry.HitCount)
+		_, _ = fmt.Sscanf(hitCountStr, "%d", &entry.HitCount) // 解析失败保持零值
 	}
 
 	// 解析元数据
 	if metadataJSON := data["metadata"]; metadataJSON != "" && metadataJSON != "{}" {
-		json.Unmarshal([]byte(metadataJSON), &entry.Metadata)
+		_ = json.Unmarshal([]byte(metadataJSON), &entry.Metadata) // 解析失败保持零值
 	}
 
 	return entry, nil

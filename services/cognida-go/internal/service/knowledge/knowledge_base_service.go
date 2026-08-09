@@ -440,7 +440,7 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 	if s.vectorRepo != nil {
 		var kbIDInt int64
 		if kbID != "" {
-			fmt.Sscanf(kbID, "%d", &kbIDInt)
+			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
 		}
 		if err := s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID); err != nil {
 			log.Printf("[KnowledgeBaseService] Warning: failed to delete vectors for knowledge %s: %v", knowledgeID, err)

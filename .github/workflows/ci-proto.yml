@@ -32,7 +32,7 @@ jobs:
     name: 契约门 (lint + 漂移 + 破坏)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 设置 buf
         uses: bufbuild/buf-setup-action@v1

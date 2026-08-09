@@ -193,7 +193,7 @@ func (c *StringCache) SetNX(ctx context.Context, key string, value interface{}, 
 		return false, cache.ErrCacheKeyEmpty
 	}
 
-	return c.client.SetNX(ctx, key, value, expiration).Result()
+	return setNX(ctx, c.client, key, value, expiration)
 }
 
 // GetSet 设置新值并返回旧值
@@ -202,7 +202,8 @@ func (c *StringCache) GetSet(ctx context.Context, key string, value interface{})
 		return "", cache.ErrCacheKeyEmpty
 	}
 
-	val, err := c.client.GetSet(ctx, key, value).Result()
+	// SetArgs{Get:true} 等价于已弃用的 GETSET：写入新值并返回旧值，键不存在时返回 redis.Nil。
+	val, err := c.client.SetArgs(ctx, key, value, redis.SetArgs{Get: true}).Result()
 	if err == redis.Nil {
 		return "", nil // 返回空字符串表示键不存在
 	}

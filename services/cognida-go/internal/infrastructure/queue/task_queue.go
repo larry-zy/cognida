@@ -122,10 +122,14 @@ func (q *RedisTaskQueue) GetDelayedTasks(ctx context.Context, limit int) ([]*dom
 	now := float64(time.Now().Unix())
 
 	// 获取已到期的任务
-	results, err := q.client.ZRangeByScore(ctx, "task:delayed", &redis.ZRangeBy{
-		Min:   "0",
-		Max:   fmt.Sprintf("%f", now),
-		Count: int64(limit),
+	// ZRangeArgs{ByScore:true} 替代已弃用的 ZRangeByScore（Redis 6.2+）：取到期任务（score ≤ now）。
+	results, err := q.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     "task:delayed",
+		ByScore: true,
+		Start:   "0",
+		Stop:    fmt.Sprintf("%f", now),
+		Offset:  0,
+		Count:   int64(limit),
 	}).Result()
 	if err != nil {
 		return nil, err

@@ -278,6 +278,7 @@ type itemLine struct {
 }
 
 func main() {
+	// #nosec G404 -- 播种测试数据非加密用途
 	r := rand.New(rand.NewSource(20260705))
 	now := time.Now()
 	dayDates, dayCum := buildDayWeights(now, spanOrderDays)

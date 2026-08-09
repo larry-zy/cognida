@@ -52,12 +52,12 @@ const (
 
 // ResultAggregator aggregates results from multiple agents.
 type ResultAggregator struct {
-	llm       model.ChatModel
+	llm       model.BaseChatModel
 	strategy  AggregationStrategy
 }
 
 // NewResultAggregator creates a new result aggregator.
-func NewResultAggregator(llm model.ChatModel, strategy AggregationStrategy) *ResultAggregator {
+func NewResultAggregator(llm model.BaseChatModel, strategy AggregationStrategy) *ResultAggregator {
 	if strategy == "" {
 		strategy = StrategySynthesize
 	}
@@ -451,13 +451,13 @@ type AggregatedResponse struct {
 
 // SynthesizerAgent is an agent that synthesizes results from multiple agents.
 type SynthesizerAgent struct {
-	llm     model.ChatModel
+	llm     model.BaseChatModel
 	aggregator *ResultAggregator
 	name    string
 }
 
 // NewSynthesizerAgent creates a new synthesizer infraagent.
-func NewSynthesizerAgent(llm model.ChatModel, strategy AggregationStrategy) *SynthesizerAgent {
+func NewSynthesizerAgent(llm model.BaseChatModel, strategy AggregationStrategy) *SynthesizerAgent {
 	return &SynthesizerAgent{
 		llm:        llm,
 		aggregator: NewResultAggregator(llm, strategy),

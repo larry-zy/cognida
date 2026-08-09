@@ -268,6 +268,7 @@ func computeColumnProfiles(ctx context.Context, db *sql.DB, tenantID int64, data
 		}
 		selects = append(selects, "SUM("+q+" IS NULL)", distinctExpr)
 	}
+	// #nosec G202 -- 拼入的库/表/列名均来自元数据（TableSchema），且已由 quoteMySQLIdent 反引号转义，非外部用户输入
 	aggSQL := "SELECT " + strings.Join(selects, ", ") + " FROM " + tableRef
 
 	row := db.QueryRowContext(ctx, aggSQL)
@@ -358,6 +359,7 @@ func baseType(colType string) string {
 // computeTopValues 取单列按频次降序的 Top-N 非空取值分布。
 func computeTopValues(ctx context.Context, db *sql.DB, tableRef, column string) ([]dataprofile.ValueFrequency, error) {
 	q := quoteMySQLIdent(column)
+	// #nosec G201 -- %s 仅注入已由 quoteMySQLIdent 转义的表/列名标识符（来自元数据），%d 为整型常量 topValuesLimit，无外部字符串入 SQL
 	sqlText := fmt.Sprintf(
 		"SELECT %s AS v, COUNT(*) AS c FROM %s WHERE %s IS NOT NULL GROUP BY %s ORDER BY c DESC, v ASC LIMIT %d",
 		q, tableRef, q, q, topValuesLimit,

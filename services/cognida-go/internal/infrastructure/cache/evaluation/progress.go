@@ -114,16 +114,16 @@ func (c *ProgressCache) GetProgress(ctx context.Context, taskID string) (*Progre
 
 	// 解析数字字段
 	if current, ok := data["current"]; ok && current != "" {
-		fmt.Sscanf(current, "%d", &progress.Current)
+		_, _ = fmt.Sscanf(current, "%d", &progress.Current) // 解析失败保持零值
 	}
 	if total, ok := data["total"]; ok && total != "" {
-		fmt.Sscanf(total, "%d", &progress.Total)
+		_, _ = fmt.Sscanf(total, "%d", &progress.Total) // 解析失败保持零值
 	}
 	if percentage, ok := data["percentage"]; ok && percentage != "" {
-		fmt.Sscanf(percentage, "%d", &progress.Percentage)
+		_, _ = fmt.Sscanf(percentage, "%d", &progress.Percentage) // 解析失败保持零值
 	}
 	if retryCount, ok := data["retry_count"]; ok && retryCount != "" {
-		fmt.Sscanf(retryCount, "%d", &progress.RetryCount)
+		_, _ = fmt.Sscanf(retryCount, "%d", &progress.RetryCount) // 解析失败保持零值
 	}
 
 	return progress, nil

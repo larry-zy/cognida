@@ -37,6 +37,13 @@ issues:
     - path: wire_gen\.go
       linters:
         - all
+    # gRPC 客户端迁移（DialContext/WithBlock→NewClient、otelgrpc 拦截器→NewClientHandler）
+    # 涉及连接语义变化（懒连接、启动即校验连通丢失），需专项验证后再动，暂定向豁免其 SA1019。
+    # 其余 SA1019（ChatModel / go-redis）已全部迁移清零。
+    - path: internal/infrastructure/grpc/
+      text: "SA1019"
+      linters:
+        - staticcheck
 
 linters-settings:
   gosec:

@@ -47,10 +47,10 @@ func (r *Neo4jRepository) GetGraph(ctx context.Context, namespace knowledge.Name
 		}
 
 		var chunks []string
-		json.Unmarshal([]byte(chunksStr), &chunks)
+		_ = json.Unmarshal([]byte(chunksStr), &chunks) // 解析失败保持零值
 
 		var properties map[string]string
-		json.Unmarshal([]byte(propsStr), &properties)
+		_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
 
 		nodes = append(nodes, &knowledge.GraphNode{
 			ID:         id,
@@ -96,10 +96,10 @@ func (r *Neo4jRepository) GetGraph(ctx context.Context, namespace knowledge.Name
 		}
 
 		var chunkIds []string
-		json.Unmarshal([]byte(chunkIdsStr), &chunkIds)
+		_ = json.Unmarshal([]byte(chunkIdsStr), &chunkIds) // 解析失败保持零值
 
 		var properties map[string]string
-		json.Unmarshal([]byte(propsStr), &properties)
+		_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
 
 		relations = append(relations, &knowledge.GraphRelation{
 			ID:         id,
@@ -158,10 +158,10 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			}
 
 			var chunks []string
-			json.Unmarshal([]byte(chunksStr), &chunks)
+			_ = json.Unmarshal([]byte(chunksStr), &chunks) // 解析失败保持零值
 
 			var properties map[string]string
-			json.Unmarshal([]byte(propsStr), &properties)
+			_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
 
 			nodes = append(nodes, &knowledge.GraphNode{
 				ID:         id,
@@ -210,10 +210,10 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 				}
 
 				var chunkIds []string
-				json.Unmarshal([]byte(chunkIdsStr), &chunkIds)
+				_ = json.Unmarshal([]byte(chunkIdsStr), &chunkIds) // 解析失败保持零值
 
 				var properties map[string]string
-				json.Unmarshal([]byte(propsStr), &properties)
+				_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
 
 				relations = append(relations, &knowledge.GraphRelation{
 					ID:         id,
@@ -314,13 +314,13 @@ func (r *Neo4jRepository) SearchNodes(ctx context.Context, namespace knowledge.N
 		}
 
 		var chunks []string
-		json.Unmarshal([]byte(chunksStr), &chunks)
+		_ = json.Unmarshal([]byte(chunksStr), &chunks) // 解析失败保持零值
 
 		var attributes []string
-		json.Unmarshal([]byte(attrsStr), &attributes)
+		_ = json.Unmarshal([]byte(attrsStr), &attributes) // 解析失败保持零值
 
 		var properties map[string]string
-		json.Unmarshal([]byte(propsStr), &properties)
+		_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
 
 		nodes = append(nodes, &knowledge.GraphNode{
 			ID:         id,
@@ -407,10 +407,10 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 			center.ID = getStringValue(record, "centerId")
 			center.EntityType = getStringValue(record, "centerType")
 			var centerChunks []string
-			json.Unmarshal([]byte(getStringValue(record, "centerChunks")), &centerChunks)
+			_ = json.Unmarshal([]byte(getStringValue(record, "centerChunks")), &centerChunks) // 解析失败保持零值
 			center.Chunks = centerChunks
 			var centerAttrs []string
-			json.Unmarshal([]byte(getStringValue(record, "centerAttrs")), &centerAttrs)
+			_ = json.Unmarshal([]byte(getStringValue(record, "centerAttrs")), &centerAttrs) // 解析失败保持零值
 			center.Attributes = centerAttrs
 			centerLoaded = true
 		}
@@ -432,10 +432,10 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 		relTarget := getStringValue(record, "relTarget")
 
 		var chunks []string
-		json.Unmarshal([]byte(getStringValue(record, "chunks")), &chunks)
+		_ = json.Unmarshal([]byte(getStringValue(record, "chunks")), &chunks) // 解析失败保持零值
 
 		var relChunks []string
-		json.Unmarshal([]byte(getStringValue(record, "relChunks")), &relChunks)
+		_ = json.Unmarshal([]byte(getStringValue(record, "relChunks")), &relChunks) // 解析失败保持零值
 
 		neighbors = append(neighbors, &knowledge.GraphNode{
 			ID:         id,
@@ -488,7 +488,7 @@ func (r *Neo4jRepository) GetNodeCommunity(ctx context.Context, namespace knowle
 
 		labelsStr := getStringValue(record, "labels")
 		var labels []string
-		json.Unmarshal([]byte(labelsStr), &labels)
+		_ = json.Unmarshal([]byte(labelsStr), &labels) // 解析失败保持零值
 
 		return &knowledge.Community{
 			ID:              getStringValue(record, "id"),

@@ -39,7 +39,7 @@ func (l *distributedLock) TryLock(ctx context.Context, key string, expiration ti
 	lockVal := generateLockValue()
 
 	// SET NX EX 命令
-	acquired, err := l.client.SetNX(ctx, lockKey, lockVal, expiration).Result()
+	acquired, err := setNX(ctx, l.client, lockKey, lockVal, expiration)
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", cache.ErrLockAcquisitionFailed, err)
 	}
@@ -67,7 +67,7 @@ func (l *distributedLock) Lock(ctx context.Context, key string, expiration time.
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			acquired, err := l.client.SetNX(ctx, lockKey, lockVal, expiration).Result()
+			acquired, err := setNX(ctx, l.client, lockKey, lockVal, expiration)
 			if err != nil {
 				return fmt.Errorf("%w: %w", cache.ErrLockAcquisitionFailed, err)
 			}
@@ -161,7 +161,7 @@ func (l *lockWithTracking) LockWithContext(ctx context.Context, expiration time.
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			acquired, err := l.client.SetNX(ctx, l.lockKey, l.lockValue, expiration).Result()
+			acquired, err := setNX(ctx, l.client, l.lockKey, l.lockValue, expiration)
 			if err != nil {
 				return fmt.Errorf("%w: %w", cache.ErrLockAcquisitionFailed, err)
 			}
@@ -216,5 +216,19 @@ func (l *lockWithTracking) ExtendWithContext(ctx context.Context, expiration tim
 func (l *lockWithTracking) TryLockWithContext(ctx context.Context, expiration time.Duration) (bool, error) {
 	l.lockValue = generateLockValue()
 
-	return l.client.SetNX(ctx, l.lockKey, l.lockValue, expiration).Result()
+	return setNX(ctx, l.client, l.lockKey, l.lockValue, expiration)
+}
+
+// setNX 用 SET key val NX EX 原子获取锁，替代已弃用的 SetNX（语义等价：
+// bool 表示是否获取成功）。SetArgs 在键已存在时返回 redis.Nil，这里归一化为
+// (false, nil)——未抢到锁不是错误；仅真实 IO/协议错误才回传 error。
+func setNX(ctx context.Context, client *redis.Client, key string, val interface{}, expiration time.Duration) (bool, error) {
+	res, err := client.SetArgs(ctx, key, val, redis.SetArgs{Mode: "NX", TTL: expiration}).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return res == "OK", nil
 }

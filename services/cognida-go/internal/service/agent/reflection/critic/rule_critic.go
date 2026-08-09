@@ -3,7 +3,6 @@ package critic
 
 import (
 	"context"
-	"regexp"
 	"strings"
 
 	"cognida/internal/model/agent/reflection"
@@ -140,11 +139,32 @@ func (r *FormatRule) Evaluate(task, output string) (float64, string) {
 		return 0.6, "代码块格式不完整"
 	}
 
-	// 检查是否有过多重复字符
-	repeatPattern := regexp.MustCompile(`(.)\1{5,}`)
-	if repeatPattern.MatchString(output) {
+	// 检查是否有过多重复字符（同一字符连续出现 6 次及以上）
+	if hasExcessiveRepeat(output, 6) {
 		return 0.5, "存在重复字符"
 	}
 
 	return 1.0, "格式正常"
+}
+
+// hasExcessiveRepeat 判断字符串中是否存在同一字符连续出现 minRun 次及以上。
+// Go 的 RE2 正则不支持反向引用（\1），故用一次线性扫描替代原正则实现。
+func hasExcessiveRepeat(s string, minRun int) bool {
+	if minRun <= 1 {
+		return s != ""
+	}
+	run := 0
+	var prev rune
+	for i, r := range s {
+		if i > 0 && r == prev {
+			run++
+			if run >= minRun {
+				return true
+			}
+		} else {
+			run = 1
+			prev = r
+		}
+	}
+	return false
 }
