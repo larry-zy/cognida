@@ -29,11 +29,14 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, description="API 监听端口")
 
     # MCP 配置
+    # 默认与部署真源 dev.sh(py-mcp 以 http 模式监听 :3100)对齐：Go 侧 data_analysis 工具
+    # (correlation/insight)固定 POST http://localhost:3100/mcp，若这里默认回退到 stdio/:3000，
+    # 缺省启动的 MCP 服务既不开 HTTP 也不在 3100，工具调用 → 连不上/404，Agent 退回手写 SQL。
     mcp_mode: Literal["stdio", "http"] = Field(
-        default="stdio", description="MCP 运行模式"
+        default="http", description="MCP 运行模式"
     )
     mcp_host: str = Field(default="0.0.0.0", description="MCP HTTP 监听地址")
-    mcp_port: int = Field(default=3000, description="MCP HTTP 端口")
+    mcp_port: int = Field(default=3100, description="MCP HTTP 端口")
 
     # gRPC 配置
     grpc_enabled: bool = Field(default=True, description="是否启用 gRPC 服务")

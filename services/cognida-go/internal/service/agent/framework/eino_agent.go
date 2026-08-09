@@ -28,17 +28,8 @@ import (
 var frameworkTracer = obs.NewTracer()
 
 // ========================================
-// MemoryService and ContextBuilder 接口
+// ContextBuilder 接口
 // ========================================
-
-// MemoryService 定义 Agent 需要的记忆服务接口
-// 这是一个简化接口，避免循环依赖
-type MemoryService interface {
-	SaveMessage(ctx context.Context, msg *memory.Message) error
-	LoadHistoryWithLimit(ctx context.Context, sessionID string, limit int) ([]*memory.Message, error)
-	UpdateSummary(ctx context.Context, sessionID string, summary string) error
-	GetSummary(ctx context.Context, sessionID string) (string, error)
-}
 
 // ContextBuilder 定义 Agent 需要的上下文构建器接口
 type ContextBuilder interface {
@@ -166,6 +157,17 @@ type agentImpl struct {
 	maxIter       int // 最大迭代次数（用于工具调用循环）
 	tokenBudget   int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
 
+	// wallClock ReAct 循环的挂钟预算（0 表示不限）：一次运行累计耗时达到该值即终止并 wind-down。
+	// 与 maxIter/tokenBudget 互补——推理模型某几步可能极慢（长思考/工具阻塞），步数/计费 token 都未到
+	// 上限却已让用户干等数分钟；挂钟护栏为「感知到的卡住」兜底，到点即交付基于现有观察的部分结论。
+	wallClock time.Duration
+
+	// toolTimeout 单次工具调用的挂钟上限（0 表示不限）：wallClock 的两处检查都在工具执行「之后」，
+	// 若某工具自身无内部超时且永久阻塞，循环会卡死在那一步、wallClock 永远轮不到——本字段为所有
+	// 工具统一兜底。到点即以超时观察回灌 LLM（非致命，供其换路径），把工具级 hang 收敛为一次可恢复的失败。
+	// 各工具自带的更短超时（sql 30s、MCP 30s、委派 30/60s）会先于本兜底触发，本兜底只兜「没自带超时」的缺口。
+	toolTimeout time.Duration
+
 	// 运行时上下文压缩（三级压缩之①③，见 normalizeContext）。都为 0 时不启用，零回归。
 	compactTrigger   int // ③整段对话：累计上下文 token ≥ 该值 → 就地折叠
 	compactTarget    int // ③折叠目标水位
@@ -184,8 +186,7 @@ type agentImpl struct {
 	// （bpecount），消除对「中文夹数字/百分号」分析型文本 ~30% 的低估、让折叠触发线不再偏晚。
 	counter ctxeng.TokenCounter
 
-	// Memory 和 Context Builder 支持
-	memoryService  MemoryService  // 记忆服务接口
+	// Context Builder 支持（记忆读入口）
 	contextBuilder ContextBuilder // 上下文构建器接口
 	enableMemory   bool           // 是否启用记忆功能
 
@@ -709,21 +710,8 @@ func (a *agentImpl) buildInitialMessages(ctx context.Context, req runRequest) ([
 		builtCtx, err = a.contextBuilder.Build(ctx, buildReq)
 	}
 
-	// 同步持久化本轮用户消息：存 rawMessage（用户原话），不存 hook 注入后的版本。
-	// 必须放在 Build 之后：Build 已把处理后的 CurrentMessage 追加到 prompt 末尾，
-	// 若先落库，历史里的 raw 与末尾的 processed 内容不同、去重失效，用户问题会在 prompt 出现两遍。
-	if a.memoryService != nil {
-		userMsg := &memory.Message{
-			ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			SessionID: req.sessionID,
-			Type:      memory.MessageTypeUser,
-			Role:      "user",
-			Content:   req.rawMessage,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		_ = a.memoryService.SaveMessage(ctx, userMsg)
-	}
+	// 用户/助手消息的落库统一由 handler 层 AgentPersistenceService 负责
+	// （SaveUserMessage/SaveAssistantMessage → messageRepo），此处只读装配历史，不再重复写。
 
 	if err != nil || builtCtx == nil {
 		return def, rc // 降级到简单模式（builtCtx 保持 nil）
@@ -755,29 +743,15 @@ func roleOf(role string) schema.RoleType {
 	}
 }
 
-// persistResult 是 MemoryStrategy 的写出口：落库助手响应并更新协作摘要。
-// 仅记忆激活时生效（与旧记忆分支一致；非记忆分支从不触碰记忆/摘要）。
-// 愈合：无论 chat/stream、有无工具，记忆激活即统一落库 + 更新摘要。
-func (a *agentImpl) persistResult(ctx context.Context, rc *runContext, messages []*schema.Message, content string) {
+// persistResult 是 MemoryStrategy 的写出口：更新本轮协作摘要（in-memory）。
+// 仅记忆激活时生效（非记忆分支从不触碰记忆/摘要）。
+// 助手响应的落库由 handler 层 AgentPersistenceService.SaveAssistantMessage 负责，此处不重复写。
+func (a *agentImpl) persistResult(_ context.Context, rc *runContext, messages []*schema.Message, content string) {
 	if !rc.memoryActive {
 		return
 	}
 
-	// 保存助手响应到记忆
-	if a.memoryService != nil && content != "" {
-		assistantMsg := &memory.Message{
-			ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			SessionID: rc.sessionID,
-			Type:      memory.MessageTypeAssistant,
-			Role:      "assistant",
-			Content:   content,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		go a.memoryService.SaveMessage(context.Background(), assistantMsg)
-	}
-
-	// 更新协作摘要
+	// 更新协作摘要（in-memory：供本请求内其他协作参与者读取同一份 collabCtx）
 	if rc.hasCollab && rc.collabCtx != nil {
 		// 获取最后一条用户消息
 		lastUserMsg := ""
@@ -795,14 +769,6 @@ func (a *agentImpl) persistResult(ctx context.Context, rc *runContext, messages 
 			newSummary += fmt.Sprintf("\nUser: %s\nAssistant: %s", lastUserMsg, truncateString(content, 200))
 		}
 		rc.collabCtx.UpdateSummary(newSummary)
-
-		if a.memoryService != nil {
-			// 分离 ctx（不随请求取消）但携带租户：首建摘要行需要 tenant_id，
-			// 裸 context.Background() 会把 tenant_id=0 永久写入。
-			tenantID, _ := domainagent.GetTenantID(ctx)
-			bgCtx := domainagent.WithTenantID(context.Background(), tenantID)
-			go a.memoryService.UpdateSummary(bgCtx, rc.sessionID, newSummary)
-		}
 	}
 }
 
@@ -841,6 +807,8 @@ const (
 	TerminatedByMaxIter = "max_iter"
 	// TerminatedByTokenBudget 表示 token 预算耗尽而终止。
 	TerminatedByTokenBudget = "token_budget"
+	// TerminatedByDeadline 表示挂钟预算耗尽（运行超时）而终止。
+	TerminatedByDeadline = "deadline"
 )
 
 // windDownPrompt 是达到 maxIter/预算上限时注入的收尾指令：要求模型不再调用工具，
@@ -945,6 +913,8 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	// ReAct 循环受 maxIter 与 token 预算共同约束：任一到达上限即终止并收尾。
 	var res execResult
 	naturalFinish := false // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
+	// 挂钟护栏起点：仅在配置了 wallClock 时计时；time.Since(loopStart) 到点即终止并 wind-down。
+	loopStart := time.Now()
 	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
 	guard := newFailureGuard()
 	for i := 0; i < a.maxIter; i++ {
@@ -955,6 +925,13 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		// token 预算前置检查：预算已耗尽则不再发起新一轮生成。
 		if a.tokenBudget > 0 && res.tokensUsed >= a.tokenBudget {
 			res.terminatedBy = TerminatedByTokenBudget
+			res.iterations = i
+			break
+		}
+
+		// 挂钟预算前置检查：本轮运行累计耗时已达上限则不再发起新一轮生成，交由下方 wind-down 收尾。
+		if a.wallClock > 0 && time.Since(loopStart) >= a.wallClock {
+			res.terminatedBy = TerminatedByDeadline
 			res.iterations = i
 			break
 		}
@@ -1013,6 +990,14 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		// 本轮工具执行后再判预算：耗尽则标记终止，交由下方 wind-down 收尾。
 		if a.tokenBudget > 0 && res.tokensUsed >= a.tokenBudget {
 			res.terminatedBy = TerminatedByTokenBudget
+			res.iterations = i + 1
+			break
+		}
+
+		// 本轮工具执行后再判挂钟：耗时达上限则标记终止，交由下方 wind-down 收尾。
+		// 工具阻塞（长 SQL/子代理委派）常在此处才越线——放在工具执行后判定能及时兜住这类卡顿。
+		if a.wallClock > 0 && time.Since(loopStart) >= a.wallClock {
+			res.terminatedBy = TerminatedByDeadline
 			res.iterations = i + 1
 			break
 		}
@@ -1395,15 +1380,54 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (o
 		return "", false, fmt.Errorf("tool not found: %s", toolCall.Function.Name)
 	}
 
-	// 执行工具
+	// 执行工具：可选套统一的单次工具超时兜底（toolTimeout>0 时）。
+	if a.toolTimeout <= 0 {
+		out, err := a.runSelectedTool(ctx, selectedTool, toolCall)
+		return out, false, err
+	}
+	out, err := a.runToolWithTimeout(ctx, selectedTool, toolCall)
+	return out, false, err
+}
+
+// runToolWithTimeout 在 toolTimeout 挂钟上限内执行工具：派生带 deadline 的子 ctx 传给工具（协作型
+// I/O 会据此及时取消，不泄漏），同时把执行放到 goroutine 并 select ctx.Done()——即便某工具忽略 ctx、
+// 纯阻塞，invokeTool 也能在到点后返回一次可恢复的超时观察，不把 ReAct 循环拖死（这正是「单步 hang 使
+// wallClock 失效」的堵口）。到点后被遗弃的 goroutine 会在其自身返回时自然结束，不影响主循环推进。
+func (a *agentImpl) runToolWithTimeout(ctx context.Context, selectedTool tool.BaseTool, toolCall schema.ToolCall) (string, error) {
+	toolCtx, cancel := context.WithTimeout(ctx, a.toolTimeout)
+	defer cancel()
+
+	type toolOutcome struct {
+		out string
+		err error
+	}
+	done := make(chan toolOutcome, 1) // 缓冲 1：超时遗弃后 goroutine 仍能无阻塞写入并退出，不泄漏
+	go func() {
+		out, err := a.runSelectedTool(toolCtx, selectedTool, toolCall)
+		done <- toolOutcome{out: out, err: err}
+	}()
+
+	select {
+	case r := <-done:
+		return r.out, r.err
+	case <-toolCtx.Done():
+		// 到点即返回：区分整体取消（客户端断开）与单纯超时，便于上层归因。
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("工具 %s 执行超过 %s 未返回（已中止本步，交由循环换路径或收尾）", toolCall.Function.Name, a.toolTimeout)
+	}
+}
+
+// runSelectedTool 执行已定位的工具（Invokable / Streamable），不含超时逻辑。
+func (a *agentImpl) runSelectedTool(ctx context.Context, selectedTool tool.BaseTool, toolCall schema.ToolCall) (string, error) {
 	switch t := selectedTool.(type) {
 	case tool.InvokableTool:
-		out, runErr := t.InvokableRun(ctx, toolCall.Function.Arguments)
-		return out, false, runErr
+		return t.InvokableRun(ctx, toolCall.Function.Arguments)
 	case tool.StreamableTool:
 		stream, err := t.StreamableRun(ctx, toolCall.Function.Arguments)
 		if err != nil {
-			return "", false, fmt.Errorf("streamable run failed: %w", err)
+			return "", fmt.Errorf("streamable run failed: %w", err)
 		}
 
 		// 收集流式结果
@@ -1416,14 +1440,14 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (o
 					break
 				}
 				stream.Close()
-				return "", false, fmt.Errorf("recv failed: %w", err)
+				return "", fmt.Errorf("recv failed: %w", err)
 			}
 			result.WriteString(chunk)
 		}
 		stream.Close()
-		return result.String(), false, nil
+		return result.String(), nil
 	default:
-		return "", false, fmt.Errorf("unsupported tool type: %T", t)
+		return "", fmt.Errorf("unsupported tool type: %T", t)
 	}
 }
 

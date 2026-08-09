@@ -115,13 +115,6 @@ export async function* streamKnowledgeChat(request: string | AgentChatRequest, o
 }
 
 /**
- * Agent 流式聊天（保留兼容性）
- */
-export async function* streamAgentChat(request: string | AgentChatRequest, opts?: StreamOptions): AsyncGenerator<AgentStreamEvent> {
-  yield* streamChat('/agent/chat/stream', request, opts)
-}
-
-/**
  * Data Agent 流式聊天。
  *
  * 后端入口 /agent/text2sql/stream 已迁移为 Data Agent 主入口（单一 ReAct 内核
@@ -236,7 +229,6 @@ export async function confirmOperation(params: {
  */
 export const agentApi = {
   streamKnowledgeChat,
-  streamAgentChat,
   streamDataChat,
   getUISurfacePage,
   confirmOperation,

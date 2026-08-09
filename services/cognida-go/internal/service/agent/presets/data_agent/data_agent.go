@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -35,6 +39,17 @@ const (
 	// 上下文规模改由三级压缩（就地折叠，见下）治理，避免长对话被过早掐断。
 	defaultTokenBudget = 0
 
+	// defaultWallClock 默认挂钟预算：一次运行累计耗时达到该值即终止并 wind-down，交付基于现有观察的
+	// 部分结论。收敛「步数/计费 token 都没到上限、却因推理模型某几步极慢或工具阻塞（长 SQL/子代理委派）
+	// 让用户干等数分钟」的「感知到的卡住」。取 3 分钟：足够覆盖正常的多步取数+分析链，又不至于让用户长等。
+	defaultWallClock = 3 * time.Minute
+
+	// defaultToolTimeout 单次工具调用的统一挂钟兜底：wallClock 只在工具执行「之后」检查，救不了自身
+	// 无内部超时且永久阻塞的工具（如 get_schema/graph_query 未自带超时）——那种情况下循环会卡死在那一步、
+	// wallClock 永远轮不到。取 90s：宽于各工具自带超时（sql/MCP 30s、委派 30/60s），只在「没自带超时」的
+	// 工具真卡住时兜底触发，正常慢查询/委派不会误伤。可经 DATA_AGENT_TOOL_TIMEOUT_SECONDS 覆盖（0=关闭）。
+	defaultToolTimeout = 90 * time.Second
+
 	// —— 三级上下文压缩阈值（业务策略层设定，能力层只提供机制）——
 	// ① 单条消息：单条 token 超过该值 → 先压该条（保 result_id）。
 	maxMessageTokens = 32000
@@ -47,6 +62,24 @@ const (
 	// 只让最近一轮带 thinking——远早于 128k 触发线，避免陈旧思考在上下文里长期占位。
 	reasoningEvictTokens = 16000
 )
+
+// toolTimeoutFromEnv 读取 DATA_AGENT_TOOL_TIMEOUT_SECONDS 覆盖默认单次工具超时；未设/非法用默认，
+// 显式设为 0（或负）则关闭统一超时兜底（回退到「仅各工具自带超时」的行为）。
+func toolTimeoutFromEnv() time.Duration {
+	v := strings.TrimSpace(os.Getenv("DATA_AGENT_TOOL_TIMEOUT_SECONDS"))
+	if v == "" {
+		return defaultToolTimeout
+	}
+	secs, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("[Agent] DATA_AGENT_TOOL_TIMEOUT_SECONDS=%q 解析失败，回退默认 %s", v, defaultToolTimeout)
+		return defaultToolTimeout
+	}
+	if secs <= 0 {
+		return 0 // 显式关闭统一兜底
+	}
+	return time.Duration(secs) * time.Second
+}
 
 // capabilityGroups 是四类能力对应的工具分组（present-if-registered）：
 // 查(sql/semantic/graph) / 析(analytics) / 渲(render) / 操(operation)，外加 skill 供 playbook 调用。
@@ -81,7 +114,7 @@ func collectCapabilityTools(ctx context.Context, registry *toolregistry.ToolRegi
 // msgRepo 非 nil 时启用跨轮对话记忆：从 messages 表回放会话历史，装配多轮上下文。
 // recaller 非 nil 时启用「历史经验召回」首答注入（自进化读侧）；nil 时恒等透传。
 // softCache 非 nil 且启用时，data agent 应答经软写穿装饰器回写语义缓存，供后续会话 few-shot 召回
-//（写侧；读侧由 fewShot 的 Before hook 承担）。nil 时恒等透传，零回归。
+// （写侧；读侧由 fewShot 的 Before hook 承担）。nil 时恒等透传，零回归。
 func Spec(
 	toolModel model.ToolCallingChatModel,
 	msgRepo conversation.MessageRepository,
@@ -160,13 +193,15 @@ func buildDataAgent(
 		Prompt(skills.AugmentPromptWithCatalog(systemPrompt)). // 追加技能目录（Level 1 渐进式披露）
 		WithToolModel(toolModel).
 		Tools(tools...).
-		Before(toolPolicyHook()).               // 硬工具门：以原始消息匹配 skill，须先于 playbook 注入
-		Before(intentRoutingHook(toolModel)).   // LLM 意图分类（词法兜底），注入对应 playbook
-		Before(skills.InjectFromContextHook()). // 把入口暂存的命中 skill 指导自动注入（自动注入）
-		Before(experienceRecallHook(recaller)).                 // 图谱经验召回（结构化问题→解法）
+		Before(toolPolicyHook()).                                // 硬工具门：以原始消息匹配 skill，须先于 playbook 注入
+		Before(intentRoutingHook(toolModel)).                    // LLM 意图分类（词法兜底），注入对应 playbook
+		Before(skills.InjectFromContextHook()).                  // 把入口暂存的命中 skill 指导自动注入（自动注入）
+		Before(experienceRecallHook(recaller)).                  // 图谱经验召回（结构化问题→解法）
 		Before(semanticFewShotHook(fewShot, DataAgentCacheKey)). // 末位：软语义缓存 few-shot（相似历史问答向量近邻，与图谱召回互补）
 		WithMaxIterations(defaultMaxIter).
 		WithTokenBudget(defaultTokenBudget).
+		WithWallClock(defaultWallClock).                                  // 挂钟护栏：单次运行超 3min 即收尾交付部分结论，兜住「感知到的卡住」
+		WithToolTimeout(toolTimeoutFromEnv()).                            // 单次工具超时兜底：统一封顶工具级 hang，防其拖死循环使 wallClock 失效
 		WithContextCompaction(compactTriggerTokens, compactTargetTokens). // ③整段对话：累计≥128k就地折叠回~64k
 		WithMaxMessageTokens(maxMessageTokens).                           // ①单条消息：>32k先压该条（保 result_id）
 		WithReasoningEviction(reasoningEvictTokens).                      // ③.5陈旧思考：旧轮reasoning累计≥16k整轮折走，只留本轮thinking

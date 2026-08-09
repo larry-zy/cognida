@@ -273,10 +273,16 @@ func main() {
 				log.Println("⚠️  Redis 未配置，待确认操作存储降级为进程内内存后端")
 			}
 
+			// 会话取数注册表（进程内）：记录每会话最近取数结果与 SQL 去重索引。
+			// 与 Result Store 共享 TTL；支撑 sql_execute 复用同句结果、data_analysis
+			// 缺 result_id 时回退到会话最近取数（收敛「取数→分析」委派链的空转与重查）。
+			sessionResults := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
+
 			deps := ragtool.ToolDeps{
-				SQLDB:       db,
-				ResultStore: rs,
-				UIBinding:   uiBindingStore,
+				SQLDB:          db,
+				ResultStore:    rs,
+				SessionResults: sessionResults,
+				UIBinding:      uiBindingStore,
 				// 列画像（数据事实）：get_schema 精确取表时惰性附上空值率/基数/枚举分布，
 				// 写通落应用自身 MySQL；缺失时不带事实、零回归。
 				ColumnProfileStore: mysql.NewColumnProfileRepository(db),

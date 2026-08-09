@@ -28,15 +28,15 @@ WEB_PM="npm"
 service_defs() {
   cat <<'EOF'
 go|services/cognida-go|8080|go run ./cmd/server/main.go
-py-grpc|services/cognida-python|50051 50053|uv run python -m grpc_service.server
+py-grpc|services/cognida-python|50051|uv run python -m grpc_service.server
 py-http|services/cognida-python|8000|uv run python main.py
-py-eval|services/cognida-python|18888|uv run uvicorn services.evaluation.fastapi_app:app --host 0.0.0.0 --port 18888
+py-eval|services/cognida-python|18888|uv run python -m uvicorn services.evaluation.fastapi_app:app --host 0.0.0.0 --port 18888
 py-mcp|services/cognida-python|3100|uv run python -m mcp_service.server
 web|apps/cognida-web|5173|__WEB_DEV__
 EOF
 }
 
-ALL_PORTS="8080 50051 50053 8000 18888 3100 5173"
+ALL_PORTS="8080 50051 8000 18888 3100 5173"
 
 # ---- 中间件(可选,--with-deps 时纳入启停) ------------------------------------
 # Milvus 跑在 docker 容器(embed 脚本仅首次建容器用一次,日常 docker start/stop 即可);
@@ -149,7 +149,9 @@ start_one() {
   info "启动 $name ..."
   (
     cd "$ROOT/$dir" || exit 1
-    if [ "$name" = "py-mcp" ]; then export MCP_MODE="${MCP_MODE:-http}"; fi
+    # py-mcp：显式导出监听端口，与进程表声明的端口（:3100）自洽，避免真实监听端口
+    # 依赖 python .env 的 MCP_PORT——一旦那行缺失会退回 :3000，而 status/stop 仍按 3100 记账。
+    if [ "$name" = "py-mcp" ]; then export MCP_MODE="${MCP_MODE:-http}" MCP_PORT="${MCP_PORT:-$ports}"; fi
     if [ "$cmd" = "__WEB_DEV__" ]; then
       exec "$WEB_PM" run dev
     else

@@ -318,10 +318,6 @@ func (r *Router) setupAgentRoutes(api *gin.RouterGroup) {
 	// 昂贵端点限流〔INF-2〕：Agent 流式对话/Text2SQL 等直连 LLM，防并发打爆与成本失控。
 	agent.Use(r.rateLimiter.Expensive())
 	{
-		// AgenticRAG 聊天（原有接口，已废弃）
-		// agent.POST("/chat", r.agentHandler.Chat)
-		// agent.POST("/chat/stream", r.agentHandler.ChatStream)
-
 		// Knowledge Chat（知识库对话，带持久化）
 		agent.POST("/knowledge/stream", r.agentHandler.KnowledgeStream)
 

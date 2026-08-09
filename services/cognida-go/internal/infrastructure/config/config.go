@@ -197,7 +197,7 @@ type EvaluationConfig struct {
 // SkillConfig Skill 系统配置
 type SkillConfig struct {
 	Enabled    bool   // 是否启用 Skill 系统
-	Endpoint   string // MCP Server 端点，如: http://localhost:8080/mcp
+	Endpoint   string // MCP Server 端点，须指向 Python MCP 服务，如: http://localhost:3100/mcp（非 Go 自身 :8080）
 	Timeout    int    // 默认超时时间（秒），默认 30
 	CacheTTL   int    // Skill 列表缓存有效期（秒），默认 60
 	MaxRetries int    // 最大重试次数，默认 3
@@ -673,7 +673,10 @@ func LoadSkillConfig() *SkillConfig {
 
 	return &SkillConfig{
 		Enabled:    getEnvAsBool("SKILL_ENABLED", false),
-		Endpoint:   getEnv("SKILL_ENDPOINT", "http://localhost:8080/mcp"),
+		// MCP/技能工具端点：必须指向 Python MCP 服务（dev.sh py-mcp 监听 :3100），
+		// 而非 Go 自身的 Gin 端口(:8080，无 /mcp 路由)。默认值配错会导致 data_analysis
+		// 工具（correlation/insight）POST /mcp 打到 8080 → 404，Agent 退回手写 SQL。
+		Endpoint:   getEnv("SKILL_ENDPOINT", "http://localhost:3100/mcp"),
 		Timeout:    getEnvAsInt("SKILL_TIMEOUT", 30),
 		CacheTTL:   getEnvAsInt("SKILL_CACHE_TTL", 60),
 		MaxRetries: getEnvAsInt("SKILL_MAX_RETRIES", 3),

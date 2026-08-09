@@ -20,23 +20,24 @@ import (
 
 // Builder provides a fluent API for constructing Agent instances.
 type Builder struct {
-	model          model.BaseChatModel        // 使用 BaseChatModel（ChatModel 已废弃）
-	toolModel      model.ToolCallingChatModel // 用于工具调用
-	name           string
-	description    string
-	prompt         string
-	tools          []tool.BaseTool
-	beforeHooks    []BeforeHook
-	afterHooks     []AfterHook
-	observerHooks  []AfterHook // 只读响应观察者（对所有 sink 生效，含纯流式），供异步旁路消费最终回答
-	middleware     []Middleware
-	registry       ToolRegistry
-	ragService     RAGService
-	memory         Memory
-	sessionID      string
-	autoSelect     bool
-	maxIter        int // 最大迭代次数
-	tokenBudget    int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
+	model         model.BaseChatModel        // 使用 BaseChatModel（ChatModel 已废弃）
+	toolModel     model.ToolCallingChatModel // 用于工具调用
+	name          string
+	description   string
+	prompt        string
+	tools         []tool.BaseTool
+	beforeHooks   []BeforeHook
+	afterHooks    []AfterHook
+	observerHooks []AfterHook // 只读响应观察者（对所有 sink 生效，含纯流式），供异步旁路消费最终回答
+	middleware    []Middleware
+	registry      ToolRegistry
+	ragService    RAGService
+	sessionID     string
+	autoSelect    bool
+	maxIter       int           // 最大迭代次数
+	tokenBudget   int           // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
+	wallClock     time.Duration // 挂钟预算（0 表示不限），与 maxIter/tokenBudget 共同约束 ReAct 循环
+	toolTimeout   time.Duration // 单次工具调用挂钟上限（0 表示不限），统一兜底工具级 hang
 
 	// 运行时上下文压缩（三级压缩之②③）。都为 0 时不启用，逐字节零回归。
 	compactTrigger   int // ③整段对话：运行累计上下文 token ≥ 该值 → 就地折叠（不停机）
@@ -52,8 +53,7 @@ type Builder struct {
 	collabRegistry *CollaborationRegistry
 	collabConfig   *CollaborationConfig
 
-	// Memory and Context Builder support (Phase 6)
-	memoryService  MemoryService  // 记忆服务接口
+	// Context Builder support (Phase 6)：记忆读入口，写出口在 handler 层 AgentPersistenceService
 	contextBuilder ContextBuilder // 上下文构建器接口
 	enableMemory   bool           // 是否启用记忆功能
 
@@ -88,12 +88,6 @@ type ToolRegistry interface {
 // RAGService defines the interface for RAG capabilities.
 type RAGService interface {
 	// RAG retrieval methods will be defined by the specific implementation
-}
-
-// Memory defines the interface for session/memory management.
-type Memory interface {
-	LoadHistory(ctx context.Context, sessionID string) ([]*schema.Message, error)
-	SaveMessage(ctx context.Context, sessionID string, message *schema.Message) error
 }
 
 // Name sets the agent's name.
@@ -176,20 +170,6 @@ func (b *Builder) WithRAG(ragService RAGService) *Builder {
 	return b
 }
 
-// WithMemory sets the memory for this agent.
-func (b *Builder) WithMemory(memory Memory) *Builder {
-	b.memory = memory
-	return b
-}
-
-// WithMemoryService sets the memory service for this agent (Phase 6 - 协作记忆支持).
-// MemoryService 提供更强大的记忆管理，包括消息保存、历史加载、摘要更新等。
-func (b *Builder) WithMemoryService(memoryService MemoryService) *Builder {
-	b.memoryService = memoryService
-	b.enableMemory = true
-	return b
-}
-
 // WithContextBuilder sets the context builder for this agent (Phase 6 - 协作上下文构建).
 // ContextBuilder 负责根据不同的协作模式构建 LLM 上下文。
 // 设置 ContextBuilder 即启用记忆分支（enableMemory），使统一主干 run 的 buildInitialMessages
@@ -216,6 +196,23 @@ func (b *Builder) WithMaxIterations(maxIter int) *Builder {
 // 传入 <=0 表示不限预算，仅受 maxIter 约束。
 func (b *Builder) WithTokenBudget(tokenBudget int) *Builder {
 	b.tokenBudget = tokenBudget
+	return b
+}
+
+// WithWallClock 设置 ReAct 循环的挂钟预算（一次运行累计耗时达到该值即终止并 wind-down 收尾）。
+// 与 maxIter/tokenBudget 互补：为「步数/计费 token 都没到上限、却因某几步极慢而让用户长时间干等」
+// 的卡顿兜底，到点即交付基于现有观察的部分结论。传入 <=0 表示不限挂钟。
+func (b *Builder) WithWallClock(d time.Duration) *Builder {
+	b.wallClock = d
+	return b
+}
+
+// WithToolTimeout 设置单次工具调用的挂钟上限：wallClock 的检查都在工具执行「之后」，若某工具自身
+// 无内部超时且永久阻塞，循环会卡死在那一步、wallClock 永远轮不到——本兜底为所有工具统一封顶，到点即
+// 以可恢复的超时观察回灌 LLM（换路径或收尾），把工具级 hang 收敛掉。各工具自带的更短超时会先触发；
+// 本兜底只兜「没自带超时」的缺口（如 get_schema/graph_query）。传入 <=0 表示不套统一超时。
+func (b *Builder) WithToolTimeout(d time.Duration) *Builder {
+	b.toolTimeout = d
 	return b
 }
 
@@ -584,13 +581,14 @@ func (b *Builder) Build(ctx context.Context) (Agent, error) {
 		middleware:            b.middleware,
 		maxIter:               b.maxIter,
 		tokenBudget:           b.tokenBudget,
+		wallClock:             b.wallClock,
+		toolTimeout:           b.toolTimeout,
 		compactTrigger:        b.compactTrigger,
 		compactTarget:         b.compactTarget,
 		maxMessageTokens:      b.maxMessageTokens,
 		reasoningEvictTokens:  b.reasoningEvictTokens,
 		summarizer:            b.summarizer,
 		counter:               b.counter,
-		memoryService:         b.memoryService,
 		contextBuilder:        b.contextBuilder,
 		enableMemory:          b.enableMemory,
 		outputGuardrailActive: b.outputGuardrailActive,

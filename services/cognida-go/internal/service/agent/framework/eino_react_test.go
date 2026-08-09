@@ -3,7 +3,9 @@ package framework
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -184,6 +186,132 @@ func TestReAct_MaxIterTermination(t *testing.T) {
 	}
 	if resp.Content == "" {
 		t.Errorf("wind-down must fill a non-empty partial conclusion")
+	}
+}
+
+// sleepingTool 是一个在执行时消耗挂钟时间的 InvokableTool 桩，用于驱动挂钟护栏路径
+// （模拟长 SQL / 子代理委派阻塞让单步极慢）。
+type sleepingTool struct {
+	name  string
+	delay time.Duration
+	calls *[]string
+}
+
+func (t *sleepingTool) Info(_ context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{Name: t.name, Desc: "sleeping tool " + t.name}, nil
+}
+
+func (t *sleepingTool) InvokableRun(_ context.Context, _ string, _ ...tool.Option) (string, error) {
+	time.Sleep(t.delay)
+	*t.calls = append(*t.calls, t.name)
+	return "ok:" + t.name, nil
+}
+
+// TestReAct_WallClockTermination 验证挂钟预算耗尽时循环提前终止并 wind-down 收尾，
+// terminated_by=deadline、partial=true，且在越线的那一步（工具阻塞后）就地止损。
+// 收敛「步数/计费 token 都没到上限、却因单步极慢让用户干等」的「感知到的卡住」。
+func TestReAct_WallClockTermination(t *testing.T) {
+	var order []string
+	// 工具单次执行 40ms > 挂钟预算 20ms：i=0 前置检查（≈0ms）放行 → 生成工具调用 →
+	// 工具阻塞 40ms → 工具执行后挂钟检查（≈40ms≥20ms）越线 → 终止，恰好 1 次工具调用。
+	slow := &sleepingTool{name: "query", delay: 40 * time.Millisecond, calls: &order}
+
+	// 脚本：首轮返回工具调用触发阻塞越线；脚本随即耗尽，wind-down 生成走默认收尾语（非空）。
+	tm := &scriptedToolModel{script: []*schema.Message{
+		toolCallMsg("1", "query"),
+	}}
+
+	a := &agentImpl{
+		name:      "react",
+		toolModel: tm,
+		prompt:    "p",
+		tools:     []tool.BaseTool{slow},
+		maxIter:   10,
+		wallClock: 20 * time.Millisecond,
+	}
+
+	resp, err := a.Chat(context.Background(), "长耗时查询")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Metadata["terminated_by"] != TerminatedByDeadline {
+		t.Errorf("expected terminated_by=deadline, got %v", resp.Metadata["terminated_by"])
+	}
+	if len(order) >= 10 {
+		t.Errorf("wall clock should terminate well before maxIter, got %d calls", len(order))
+	}
+	if resp.Metadata["partial"] != true {
+		t.Errorf("expected partial=true on deadline termination")
+	}
+	if resp.Content == "" {
+		t.Errorf("wind-down must fill a non-empty partial conclusion")
+	}
+}
+
+// blockingTool 是一个忽略 ctx、纯阻塞直到被外部信号放行的 InvokableTool 桩，
+// 用于验证「工具自身不响应 ctx 取消」时统一超时兜底仍能让循环及时返回。
+type blockingTool struct {
+	name    string
+	release chan struct{} // 关闭即放行，避免 goroutine 永久泄漏
+	started chan struct{}
+}
+
+func (t *blockingTool) Info(_ context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{Name: t.name, Desc: "blocking tool " + t.name}, nil
+}
+
+func (t *blockingTool) InvokableRun(_ context.Context, _ string, _ ...tool.Option) (string, error) {
+	if t.started != nil {
+		close(t.started)
+	}
+	<-t.release // 无视传入 ctx，只认外部放行信号
+	return "released:" + t.name, nil
+}
+
+// TestReAct_ToolTimeout 验证单次工具超时兜底：即便工具忽略 ctx、纯阻塞，invokeTool 也在
+// toolTimeout 到点后返回一次可恢复的超时观察，不把 ReAct 循环拖死（堵住「单步 hang 使 wallClock 失效」）。
+func TestReAct_ToolTimeout(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release) // 测试结束放行遗弃的 goroutine，防泄漏
+	blocker := &blockingTool{name: "query", release: release, started: make(chan struct{})}
+
+	// 脚本：首轮调用阻塞工具触发超时；随后脚本耗尽，wind-down 走默认收尾语。
+	tm := &scriptedToolModel{script: []*schema.Message{
+		toolCallMsg("1", "query"),
+	}}
+
+	a := &agentImpl{
+		name:        "react",
+		toolModel:   tm,
+		prompt:      "p",
+		tools:       []tool.BaseTool{blocker},
+		maxIter:     10,
+		toolTimeout: 30 * time.Millisecond,
+	}
+
+	resp, err := a.Chat(context.Background(), "调用会卡死的工具")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	// 循环没有被阻塞工具拖死：正常返回（wind-down 收尾）。
+	if resp == nil {
+		t.Fatal("expected a response despite the blocking tool")
+	}
+	// 阻塞工具确实被调用过（started 关闭），但超时后循环继续而非卡死。
+	select {
+	case <-blocker.started:
+	default:
+		t.Error("blocking tool should have been invoked")
+	}
+	// 超时观察应记为一次工具失败并进入历史（tool_calls 里带 error）。
+	var sawTimeoutErr bool
+	for _, tc := range resp.ToolCalls {
+		if tc.Name == "query" && tc.Error != nil && strings.Contains(tc.Error.Error(), "执行超过") {
+			sawTimeoutErr = true
+		}
+	}
+	if !sawTimeoutErr {
+		t.Errorf("expected a per-tool timeout error recorded in tool calls, got %+v", resp.ToolCalls)
 	}
 }
 

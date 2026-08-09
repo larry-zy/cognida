@@ -30,7 +30,7 @@ func (r *ToolRegistry) registerSQLTools() error {
 	}
 
 	// sql_execute
-	sqlExecuteTool := NewSQLExecuteTool(r.deps.SQLDB, r.deps.DatasourceProvider, r.deps.ResultStore, r.deps.ColumnProfileStore)
+	sqlExecuteTool := NewSQLExecuteTool(r.deps.SQLDB, r.deps.DatasourceProvider, r.deps.ResultStore, r.deps.ColumnProfileStore, r.deps.SessionResults)
 	if sqlExecuteTool != nil {
 		if err := r.Register("sql", sqlExecuteTool); err != nil {
 			return err
@@ -152,7 +152,7 @@ func (r *ToolRegistry) registerGraphTools() error {
 // 工具本身无需 MCP 客户端即可注册；真实 MCP 调用器由组合根经
 // ToolDeps.DataAnalysisInvoker 注入。未注入时调用返回非致命错误结果。
 func (r *ToolRegistry) registerAnalyticsTools() error {
-	dataAnalysisTool, err := NewDataAnalysisTool(r.deps.DataAnalysisInvoker, r.deps.ResultStore)
+	dataAnalysisTool, err := NewDataAnalysisTool(r.deps.DataAnalysisInvoker, r.deps.ResultStore, r.deps.SessionResults)
 	if err != nil {
 		return err
 	}

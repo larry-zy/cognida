@@ -36,6 +36,10 @@ type ToolDeps struct {
 	// ResultStore 结果存储（可选）；由 sql_execute / etl_run / data_analysis /
 	// data_export / render_ui 共享，nil 时对应工具降级不落库。
 	ResultStore resultstore.Store
+	// SessionResults 会话取数注册表（可选）；进程内、owner 隔离，记录每会话最近取数结果与
+	// SQL 去重索引，供 sql_execute 复用同句结果（去重）、data_analysis 缺 result_id 时回退
+	// 到会话最近结果。nil 时两处降级为原有行为（不去重、缺来源即失败）。
+	SessionResults *resultstore.SessionRegistry
 	// UIBinding UI surface 回调绑定存储（可选）；render_ui 落绑定、handler 回调路由共享，
 	// nil 时 render_ui 降级为无交互回调。经此字段显式注入，取代原 uibinding 包级单例。
 	UIBinding uibinding.Store

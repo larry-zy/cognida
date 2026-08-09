@@ -285,7 +285,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { agentApi } from '@/api/agent'
 import { datasourceApi } from '@/api/datasource'
@@ -305,6 +306,10 @@ interface DataMessage extends Message {
   steps?: AgentStep[]
   ui_surfaces?: A2UISpec[]   // 本轮智能体产出的 A2UI 面板（可多个）
 }
+
+// ===== 路由：会话 id 作为路径参数写入 URL，刷新/分享可深链恢复 =====
+const route = useRoute()
+const router = useRouter()
 
 // ===== Auth / Markdown =====
 const authStore = useAuthStore()
@@ -582,6 +587,28 @@ const {
   }
 })
 
+// ===== URL ↔ 会话 id 同步（路径参数 /data-agent/:conversationId?）=====
+// 读取当前 URL 上的会话 id（缺省为空串，表示空白开场）。
+function routeConversationId(): string {
+  const cid = route.params.conversationId
+  return typeof cid === 'string' ? cid : ''
+}
+
+// currentSessionId 是唯一真源：流式新建、切换、新建会话都改它 → 统一在此把 URL 对齐。
+// 用 replace 避免污染历史；URL 已一致时跳过，规避 NavigationDuplicated 告警。
+watch(currentSessionId, id => {
+  if (id === routeConversationId()) return
+  router.replace({ name: 'DataAgent', params: id ? { conversationId: id } : {} })
+})
+
+// 响应浏览器前进/后退：URL 上的会话 id 变了而与当前不符时，切换或回到空白态。
+watch(() => route.params.conversationId, () => {
+  const cid = routeConversationId()
+  if (cid === currentSessionId.value) return
+  if (cid) switchSession(cid)
+  else createNewSession()
+})
+
 // ===== 生命周期 =====
 function closeDsDropdown() {
   dsSelectOpen.value = false
@@ -590,6 +617,9 @@ function closeDsDropdown() {
 onMounted(() => {
   loadSessions()
   loadDatasources()
+  // 深链恢复：URL 带会话 id 时切到该会话并加载历史，否则保持空白开场。
+  const cid = routeConversationId()
+  if (cid) switchSession(cid)
   nextTick(() => textareaRef.value?.focus())
   document.addEventListener('click', closeDsDropdown)
 })

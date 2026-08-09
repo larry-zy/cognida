@@ -158,6 +158,34 @@ func (idx *index) inferTables(expr string) map[string]struct{} {
 	return out
 }
 
+// tableHasMeasure 判定逻辑表是否为「事实表」：拥有至少一个度量即视作事实表（度量是
+// 可聚合的原子列，只挂在事实表上）。用于 D3——基表/代表表选取以「声明的事实表」为准，
+// 而非别名字典序的偶然结果。
+func (idx *index) tableHasMeasure(id string) bool {
+	return len(idx.measNameByID[id]) > 0
+}
+
+// preferFact 在候选表集合里挑一个确定性代表：先在「事实表（有度量）」中取别名字典序最小，
+// 若无事实表再退回全体别名字典序最小。把 D3 的选取从「纯字典序」升级为「事实表优先、
+// 字典序仅作同类内定序」，避免维表因别名恰好更小被误当基表。
+func (idx *index) preferFact(cands map[string]struct{}) string {
+	var factBest, anyBest string
+	for id := range cands {
+		if anyBest == "" || idx.aliasByID[id] < idx.aliasByID[anyBest] {
+			anyBest = id
+		}
+		if idx.tableHasMeasure(id) {
+			if factBest == "" || idx.aliasByID[id] < idx.aliasByID[factBest] {
+				factBest = id
+			}
+		}
+	}
+	if factBest != "" {
+		return factBest
+	}
+	return anyBest
+}
+
 // chooseBase 选基表：优先取某个指标/度量归属的表（事实表），否则取首个维度的表，
 // 否则取模型唯一逻辑表。needed 为所有已解析字段涉及的表集合。
 func (idx *index) chooseBase(metrics, dims []selectItem, needed map[string]struct{}) string {
@@ -174,14 +202,8 @@ func (idx *index) chooseBase(metrics, dims []selectItem, needed map[string]struc
 	if len(idx.bundle.LogicalTables) == 1 {
 		return idx.bundle.LogicalTables[0].ID
 	}
-	// needed 里任取其一（确定性：按别名字典序）。
-	var best string
-	for id := range needed {
-		if best == "" || idx.aliasByID[id] < idx.aliasByID[best] {
-			best = id
-		}
-	}
-	return best
+	// D3：needed 里取确定性代表——事实表优先，同类内按别名字典序。
+	return idx.preferFact(needed)
 }
 
 // planFrom 从基表出发，用已定义的 Relation 连接所有 needed 表，生成 FROM+JOIN 片段。

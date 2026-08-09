@@ -58,7 +58,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '知识库助手' }
       },
       {
-        path: '/data-agent',
+        path: '/data-agent/:conversationId?',
         name: 'DataAgent',
         component: () => import('@/views/ai/DataAgentView.vue'),
         meta: { title: 'DaDa 数据智能体' }

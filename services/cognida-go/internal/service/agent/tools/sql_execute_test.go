@@ -334,7 +334,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -360,7 +360,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -381,7 +381,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -397,7 +397,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		_, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
+		_, err := sqlExecute(ctx, req, gormDB, nil, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error for DELETE query, got nil")
 		}
@@ -409,7 +409,7 @@ func TestSQLExecute(t *testing.T) {
 			MaxRows: 100,
 		}
 
-		_, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
+		_, err := sqlExecute(ctx, req, gormDB, nil, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error for empty SQL, got nil")
 		}
@@ -422,7 +422,7 @@ func TestSQLExecute(t *testing.T) {
 		}
 
 		// 业务库未注入（nil）时应报错：数据库未初始化。
-		_, err := sqlExecute(ctx, req, nil, nil, nil, nil)
+		_, err := sqlExecute(ctx, req, nil, nil, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error when DB is nil, got nil")
 		}
@@ -447,7 +447,7 @@ func TestSQLExecuteResult(t *testing.T) {
 		MaxRows: 10,
 	}
 
-	result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil)
+	result, err := sqlExecute(ctx, req, gormDB, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("sqlExecute() error = %v", err)
 	}

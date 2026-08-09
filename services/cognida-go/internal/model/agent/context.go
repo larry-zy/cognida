@@ -41,6 +41,10 @@ var (
 	DatasourceIDKey = contextKey("datasource_id")
 	// RetrievalParamsKey 会话级检索参数 key（*RetrievalParams，用户在会话设置里持久化）
 	RetrievalParamsKey = contextKey("retrieval_params")
+	// DelegatedResultIDKey 委派信封显式携带的结果句柄 key（string）。指挥官把 result_id 钉进
+	// 子代理 childCtx，让子代理数据类工具直接按此句柄取数——句柄全程走带外通道，不必让模型从
+	// 委派提示文本里再解析回填（那正是「让机器句柄过模型的手」的断链点）。
+	DelegatedResultIDKey = contextKey("delegated_result_id")
 )
 
 // 知识库选择模式常量。
@@ -179,6 +183,28 @@ func GetToolScope(ctx context.Context) (string, bool) {
 func MustGetToolScope(ctx context.Context) string {
 	scope, _ := GetToolScope(ctx)
 	return scope
+}
+
+// ========================================
+// DelegatedResultID 传递辅助函数（委派带外结果句柄）
+// ========================================
+
+// WithDelegatedResultID 把委派信封 inputs.result_id 钉进子代理 childCtx。
+// 语义：这是指挥官为本次委派「选定」的确切结果句柄（非「最近一次」猜测），子代理数据类工具
+// 在模型未于参数里显式给 result_id 时据此精确取数。句柄由此全程走带外通道，无需模型从提示
+// 文本里转述回填。
+//
+// 无条件覆盖：以「本次委派边界」为准。嵌套委派（Report→Insight→Query）里，若内层信封未带
+// result_id，须把外层钉入的句柄清除（传空串即写入空值），否则深层 data_analysis 会误取继承自
+// 上层的句柄。故此处不设「空串跳过」短路——空串正是「本层无钉、且清掉继承值」的合法语义。
+func WithDelegatedResultID(ctx context.Context, resultID string) context.Context {
+	return context.WithValue(ctx, DelegatedResultIDKey, resultID)
+}
+
+// MustGetDelegatedResultID 获取委派钉入的结果句柄，未设置则返回空字符串。
+func MustGetDelegatedResultID(ctx context.Context) string {
+	id, _ := ctx.Value(DelegatedResultIDKey).(string)
+	return id
 }
 
 // ========================================

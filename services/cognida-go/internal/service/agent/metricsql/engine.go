@@ -264,16 +264,12 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 	return res, nil
 }
 
-// representativeTable 从推断出的表集合里挑一个确定性代表（按别名字典序最小），
-// 供 chooseBase 选基表用；完整表集合已并入 needed，JOIN 规划不依赖此代表。
+// representativeTable 从推断出的表集合里挑一个确定性代表，供 chooseBase 选基表用；
+// 完整表集合已并入 needed，JOIN 规划不依赖此代表。D3：跨表派生指标（如毛利同时引用
+// order_items 与 products）以「事实表（有度量）」为代表，而非别名字典序的偶然结果，
+// 确保聚合从事实表出发、维表始终在 JOIN 侧。
 func representativeTable(idx *index, tset map[string]struct{}) string {
-	best := ""
-	for id := range tset {
-		if best == "" || idx.aliasByID[id] < idx.aliasByID[best] {
-			best = id
-		}
-	}
-	return best
+	return idx.preferFact(tset)
 }
 
 // mapDimensionValues 把过滤值经维度 ValueMap 从业务标签翻译为物理列值（Bug C 修复）：

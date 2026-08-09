@@ -54,13 +54,15 @@ type MCPInvoker interface {
 // 描述统计 / 趋势 / 异常 / 相关性 / 综合洞察 / 对比 / 归因，产出有计算依据的结论。
 // 复用既有 MCP 通道（注入的 MCPInvoker → infrastructure/mcp.MCPClient.Invoke）。
 type dataAnalysisTool struct {
-	invoker     MCPInvoker        // 注入的 MCP 调用器；nil 时返回非致命错误结果
-	resultStore resultstore.Store // 注入的结果存储；nil 时无法按 result_id 取数
+	invoker        MCPInvoker                   // 注入的 MCP 调用器；nil 时返回非致命错误结果
+	resultStore    resultstore.Store            // 注入的结果存储；nil 时无法按 result_id 取数
+	sessionResults *resultstore.SessionRegistry // 会话取数注册表；缺 result_id 时据其回退到最近取数
 }
 
-// NewDataAnalysisTool 创建 data_analysis 工具；invoker MCP 调用器（可为 nil）、rs 结果存储（可为 nil）经参数注入。
-func NewDataAnalysisTool(invoker MCPInvoker, rs resultstore.Store) (tool.InvokableTool, error) {
-	return &dataAnalysisTool{invoker: invoker, resultStore: rs}, nil
+// NewDataAnalysisTool 创建 data_analysis 工具；invoker MCP 调用器（可为 nil）、rs 结果存储（可为 nil）、
+// reg 会话取数注册表（可为 nil）经参数注入。
+func NewDataAnalysisTool(invoker MCPInvoker, rs resultstore.Store, reg *resultstore.SessionRegistry) (tool.InvokableTool, error) {
+	return &dataAnalysisTool{invoker: invoker, resultStore: rs, sessionResults: reg}, nil
 }
 
 // Info 返回工具信息（含参数 schema）
@@ -137,6 +139,12 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	// 数据来源：result_id 引用（data-by-reference）优先，其次内联 data
 	data := arguments["data"]
 	sourceResultID, _ := arguments["result_id"].(string)
+	// 委派带外句柄：模型既没在参数里显式给 result_id、也没内联 data 时，采用委派信封钉进 childCtx
+	// 的确切句柄（指挥官为本次委派选定的那一个，非「最近一次」猜测）。句柄经带外通道抵达，无需
+	// 模型从委派提示文本里转述回填；比 ① 会话最近取数回退更精确，故置于其前。显式参数仍优先。
+	if sourceResultID == "" && data == nil {
+		sourceResultID = agentctx.MustGetDelegatedResultID(ctx)
+	}
 	if sourceResultID != "" {
 		if t.resultStore == nil {
 			return failResult(analysisType, "结果存储未启用，无法按 result_id 取数，请直接传 data"), nil
@@ -155,9 +163,37 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		// records 数组形态，Python 侧 records_to_df 直接可用
 		data = stored.Rows
 	}
+	// ① 会话取数回退：既无内联 data、无显式 result_id、也无委派 pin 时，从本会话已取数结果里挑一份。
+	// 收敛「取数→分析」委派链在 result_id 未串联时的 dead-end（Analysis 空转找不到数据）。但**不盲取
+	// latest**——多份候选时静默取「最近一次」可能取错数据集（正是要避免的「之前的情况」）：
+	//   · 恰好 1 份 live 取数 → 无歧义，直接取回；
+	//   · ≥2 份           → 宁拒不猜：非致命消歧，列出候选交回模型/指挥官显式指定其一（一次有界回合，
+	//                        failureGuard 封顶重复，不会兜圈子）；
+	//   · 0 份 live（签名索引空）→ 退到 Latest 兜底，覆盖 sql 签名为空的历史取数，保持既有兜底不回退。
+	if data == nil && sourceResultID == "" && t.sessionResults != nil && t.resultStore != nil {
+		owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx))
+		switch live := t.sessionResults.LiveFetches(owner); {
+		case len(live) >= 2:
+			return failResult(analysisType, "本会话存在多份可用取数结果，无法确定分析对象，请在参数 result_id 显式指定其一"+
+				"（委派场景由指挥官在信封 inputs.result_id 指定）。候选："+t.describeCandidates(ctx, owner, live)), nil
+		case len(live) == 1:
+			sourceResultID = live[0]
+		default:
+			if latestID, ok := t.sessionResults.Latest(owner); ok {
+				sourceResultID = latestID
+			}
+		}
+		if sourceResultID != "" {
+			if stored, gerr := t.resultStore.Get(ctx, owner, sourceResultID); gerr == nil {
+				data = stored.Rows // sourceResultID 保留，让归因信封的 drill_down 能引用来源
+			} else {
+				sourceResultID = "" // 取回失败则回到统一的「缺来源」非致命提示
+			}
+		}
+	}
 	if data == nil {
 		// 缺数据来源同属调用方错误：返回非致命结果让 Agent 补传 data 或 result_id
-		return failResult(analysisType, "缺少数据来源：data 与 result_id 必须二选一"), nil
+		return failResult(analysisType, "缺少数据来源：data 与 result_id 必须二选一，且本会话尚无可复用的取数结果"), nil
 	}
 
 	// MCP 调用器需已注入
@@ -201,6 +237,28 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
 	return string(resultBytes), nil
+}
+
+// describeCandidates 为「多份候选」消歧提示列出每个 result_id 的简述（列 + 行数），best-effort：
+// 单个候选读取失败只列 id，不因个别读失败中断整体提示；并对最近一次取数加注，便于模型快速确认。
+func (t *dataAnalysisTool) describeCandidates(ctx context.Context, owner string, ids []string) string {
+	latestID, _ := t.sessionResults.Latest(owner)
+	var b strings.Builder
+	for _, id := range ids {
+		b.WriteString("\n- ")
+		b.WriteString(id)
+		if stored, err := t.resultStore.Get(ctx, owner, id); err == nil {
+			cols := strings.Join(stored.Columns, ",")
+			if len(cols) > 80 {
+				cols = cols[:80] + "…"
+			}
+			b.WriteString(fmt.Sprintf("（列: %s / %d 行）", cols, len(stored.Rows)))
+		}
+		if id == latestID {
+			b.WriteString(" [最近一次取数]")
+		}
+	}
+	return b.String()
 }
 
 // ========================================

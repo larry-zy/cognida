@@ -181,6 +181,11 @@ func executeDelegation(ctx context.Context, registry *CollaborationRegistry, env
 	childCtx = WithToolPolicy(childCtx, &ToolPolicy{Scope: env.Constraints.Scope})
 	childCtx = domainagent.WithToolScope(childCtx, env.Constraints.Scope)
 
+	// 委派带外句柄：把信封 inputs.result_id 钉进 childCtx，子代理数据类工具据此精确取数。
+	// buildEnvelopeMessage 仍会把它渲染进提示文本（供模型理解语境），但取数不再依赖模型从那段
+	// 文本里把句柄解析回填到工具参数——句柄全程走带外通道，堵住「跨子代理句柄断链」。
+	childCtx = domainagent.WithDelegatedResultID(childCtx, env.Inputs.ResultID)
+
 	childCtx, cancel := context.WithTimeout(childCtx, delegationTimeout)
 	defer cancel()
 

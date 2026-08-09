@@ -95,7 +95,7 @@ async function fetchSSE(url: string, body: unknown, signal?: AbortSignal): Promi
  *
  * 使用示例：
  * ```ts
- * for await (const msg of readSSE('/api/v1/agent/chat/stream', { query }, signal)) {
+ * for await (const msg of readSSE('/api/v1/agent/knowledge/stream', { query }, signal)) {
  *   const event = JSON.parse(msg.data)
  * }
  * ```

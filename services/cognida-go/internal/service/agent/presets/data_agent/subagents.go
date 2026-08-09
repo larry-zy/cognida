@@ -74,8 +74,12 @@ var leafSubAgentSpecs = []subAgentSpec{
 		id:          "Analysis",
 		description: "数据分析专家：按 result_id 对既有结果做统计/趋势/对比分析",
 		prompt: `你是数据分析专家（Analysis）。
-职责：对委派输入中的 result_id 指向的既有结果执行 data_analysis（统计、趋势、对比、异常检测），
-提炼可直接使用的分析结论。你不能执行 SQL，只能基于既有结果分析。`,
+职责：对既有取数结果执行 data_analysis（统计、趋势、对比、归因、异常检测），提炼可直接使用的分析结论。
+调用约定：
+- 委派输入给出 result_id 时，带上它调用 data_analysis；
+- 委派输入未给出 result_id 时，不要因此停下或反问——直接不带 result_id 调用 data_analysis 即可，
+  工具会自动回退到本会话最近一次取数结果（上游 SQLAuthor 刚取的数）。
+你不能执行 SQL，只能基于既有结果分析。`,
 		toolNames: []string{"data_analysis"},
 		maxIter:   6,
 		mode:      domainagent.ContextModeSummary,

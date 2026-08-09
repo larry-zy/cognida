@@ -94,9 +94,9 @@ type SQLExecuteResult struct {
 // NewSQLExecuteTool 创建 SQL 执行工具。
 // 依赖经参数注入：db 业务库、dsp 外部数据源提供者（可为 nil）、rs 结果存储（可为 nil）、
 // profileStore 列画像存储（可为 nil）——失败自修复时据其把枚举列真实取值附回观察。
-func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store) *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
+func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store, reg *resultstore.SessionRegistry) *TypedBaseTool[SQLExecuteRequest, SQLExecuteResult] {
 	handler := func(ctx context.Context, req *SQLExecuteRequest) (*SQLExecuteResult, error) {
-		return sqlExecute(ctx, req, db, dsp, rs, profileStore)
+		return sqlExecute(ctx, req, db, dsp, rs, profileStore, reg)
 	}
 	return NewTypedBaseTool("sql_execute",
 		`执行只读 SQL 查询。
@@ -116,7 +116,7 @@ func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs 
 }
 
 // sqlExecute 执行 SQL 查询
-func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store) (*SQLExecuteResult, error) {
+func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store, reg *resultstore.SessionRegistry) (*SQLExecuteResult, error) {
 	startTime := time.Now()
 
 	// 参数验证
@@ -146,6 +146,34 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 
 	// 添加 LIMIT
 	execSQL := ensureLimit(req.SQL, req.MaxRows)
+
+	// 归属键 + SQL 去重签名：既用于下面的复用查找，也用于成功后登记会话最近取数。
+	owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx))
+	sqlSig := resultstore.SQLSignature(req.DatabaseID, execSQL)
+
+	// ③ 取数去重：会话内相同 SQL（同库同上限）在 TTL 内已执行过且结果仍在 → 直接复用，
+	// 跳过重复打库（收敛「卡住」时同句归因取数被反复重跑的 runaway）。任一环节缺失即回落正常执行。
+	if reg != nil && rs != nil {
+		if cachedID, ok := reg.LookupSQL(owner, sqlSig); ok {
+			if stored, gerr := rs.Get(ctx, owner, cachedID); gerr == nil {
+				env := resultstore.BuildEnvelope(stored, resultstore.DefaultSampleRows)
+				// 复用即等价于一次「取数」：刷新会话最近结果与 TTL，让后续 data_analysis 缺 result_id 回退能命中它。
+				reg.RecordFetch(owner, sqlSig, stored.ResultID)
+				return &SQLExecuteResult{
+					ResultID:    stored.ResultID,
+					Columns:     env.Columns,
+					Dtypes:      env.Dtypes,
+					RowCount:    env.RowCount,
+					Samples:     env.Samples,
+					Aggregates:  env.Aggregates,
+					Truncated:   env.Truncated,
+					LatencyMs:   time.Since(startTime).Milliseconds(),
+					Warning:     "复用会话内相同查询的既有结果（未重复执行）",
+					ExecutedSQL: execSQL,
+				}, nil
+			}
+		}
+	}
 
 	// 设置超时
 	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -201,7 +229,7 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 
 	// data-by-reference：完整结果集写入 Result Store，回灌 LLM 的只是信封。
 	result := &resultstore.Result{
-		Owner:   resultstore.OwnerKey(agentctx.MustGetTenantID(ctx), agentctx.MustGetSessionID(ctx)),
+		Owner:   owner,
 		Columns: columns,
 		Rows:    rowData,
 	}
@@ -213,6 +241,8 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 			warning = strings.TrimSpace(warning + " 结果暂存失败，未生成 result_id")
 		} else {
 			resultID = id
+			// 登记会话最近取数 + SQL 去重索引：供后续同句复用与 data_analysis 缺 result_id 回退。
+			reg.RecordFetch(owner, sqlSig, resultID)
 		}
 	} else {
 		warning = strings.TrimSpace(warning + " 结果存储未启用，未生成 result_id")

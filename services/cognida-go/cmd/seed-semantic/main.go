@@ -25,6 +25,7 @@ import (
 
 	"cognida/internal/model/semantic"
 	mysqlrepo "cognida/internal/repository/mysql"
+	"cognida/internal/service/agent/metricsql"
 )
 
 func env(k, def string) string {
@@ -68,6 +69,14 @@ func main() {
 
 	bundles := []*semantic.ModelBundle{salesBundle(), productBundle()}
 	for _, b := range bundles {
+		// 建模期治理体检（D1/D2/D3）：非致命，仅提示。修复后的模型应全清；若报出
+		// GRAIN_IDENTITY/FANOUT_RISK/FACT_NO_PK 说明有实体粒度/扇出/主键缺失风险，需先治理。
+		if warns := metricsql.ValidateBundle(b); len(warns) > 0 {
+			fmt.Printf("WARN: 语义治理校验发现 %d 项风险 @ %q：\n", len(warns), b.Model.Name)
+			for _, w := range warns {
+				fmt.Printf("  - %s\n", w.String())
+			}
+		}
 		if err := repo.UpsertBundle(ctx, b); err != nil {
 			log.Fatalf("upsert bundle %q failed: %v", b.Model.Name, err)
 		}
@@ -144,7 +153,11 @@ func salesBundle() *semantic.ModelBundle {
 			{ID: "seed_d_province", ModelID: modelID, LogicalTableID: ltCust, Name: "省份", Expr: "province", DataType: "string", Synonyms: []string{"province", "所在省份"}},
 			{ID: "seed_d_gender", ModelID: modelID, LogicalTableID: ltCust, Name: "性别", Expr: "gender", DataType: "string", Synonyms: []string{"gender"},
 				ValueMap: map[string]string{"女": "female", "女性": "female", "男": "male", "男性": "male"}},
-			{ID: "seed_d_vip", ModelID: modelID, LogicalTableID: ltCust, Name: "VIP等级", Expr: "vip_level", DataType: "string", Synonyms: []string{"vip", "vip_level", "会员等级"}},
+			// VIP 等级：物理列 vip_level 是 TINYINT 0-3（0 低→3 高），故 DataType 为 int（原误标 string）。
+			// ValueMap 把业务标签翻成码值，让「筛选金卡会员」生成 vip_level=2 而非 ='金卡'（后者 0 行）。
+			// 演示数据标签口径：0=普通 / 1=银卡 / 2=金卡 / 3=钻石（含常见别名，随时可调）。
+			{ID: "seed_d_vip", ModelID: modelID, LogicalTableID: ltCust, Name: "VIP等级", Expr: "vip_level", DataType: "int", Synonyms: []string{"vip", "vip_level", "会员等级"},
+				ValueMap: map[string]string{"普通": "0", "普通会员": "0", "非会员": "0", "银卡": "1", "银卡会员": "1", "金卡": "2", "金卡会员": "2", "钻石": "3", "钻石会员": "3", "黑金": "3"}},
 			{ID: "seed_d_regchan", ModelID: modelID, LogicalTableID: ltCust, Name: "注册渠道", Expr: "register_channel", DataType: "string", Synonyms: []string{"register_channel", "获客渠道"},
 				ValueMap: map[string]string{"广告": "ad", "自然流量": "organic", "自然": "organic", "推荐": "referral", "转介绍": "referral", "社交": "social", "社交媒体": "social", "线下": "offline"}},
 		},
@@ -193,9 +206,11 @@ func productBundle() *semantic.ModelBundle {
 				Caliber: "商品销售额 = 明细小计之和", Format: "currency", Synonyms: []string{"销售额", "sales"}},
 			{ID: "seed_mt_avgprice", ModelID: modelID, Name: "均价", Expr: "SUM(order_items.subtotal)/NULLIF(SUM(order_items.quantity),0)",
 				Caliber: "均价 = 商品销售额 / 销量", Format: "currency", Synonyms: []string{"单价", "avg_price"}},
-			// ② 跨表派生：商品成本按下单数量 × 商品成本价聚合，引用 products 触发引擎自动 JOIN。
-			{ID: "seed_mt_cogs", ModelID: modelID, Name: "商品成本", Expr: "SUM(order_items.quantity * products.cost)",
-				Caliber: "商品成本 = Σ(明细数量 × 商品成本价)", Format: "currency", Synonyms: []string{"成本", "cogs", "销货成本"}},
+			// ② 商品成本按下单数量 × 下单时成本快照聚合：cost_price 是 order_items 上的成本快照列，
+			// 全程只在事实表内计算——不引用 products.cost，既避免无谓 JOIN，又能反映历史成本（products.cost
+			// 是当前值，回溯历史订单会用错成本口径）。
+			{ID: "seed_mt_cogs", ModelID: modelID, Name: "商品成本", Expr: "SUM(order_items.quantity * order_items.cost_price)",
+				Caliber: "商品成本 = Σ(明细数量 × 下单成本单价快照)", Format: "currency", Synonyms: []string{"成本", "cogs", "销货成本"}},
 			// ② 派生：毛利引用「商品销售额」「商品成本」，毛利率再引用「毛利」（派生套派生，递归展开）。
 			{ID: "seed_mt_gp", ModelID: modelID, Name: "毛利", Expr: "{商品销售额} - {商品成本}",
 				Caliber: "毛利 = 商品销售额 - 商品成本", Format: "currency", Synonyms: []string{"gross_profit", "毛利润"}},
@@ -203,9 +218,22 @@ func productBundle() *semantic.ModelBundle {
 				Caliber: "毛利率 = 毛利 / 商品销售额", Format: "percent", Synonyms: []string{"gross_margin", "毛利润率", "毛利占比"}},
 		},
 		Dimensions: []*semantic.Dimension{
-			{ID: "seed_d_cat", ModelID: modelID, LogicalTableID: ltCat, Name: "品类", Expr: "name", DataType: "string", Synonyms: []string{"分类", "category", "品类名"}},
+			// 品类「身份」维度：绑主键 id 作分组粒度键，承接「品类/分类/category」意图。categories.name
+			// 无唯一约束，同名子类会被 GROUP BY name 合并、令品类维度榜单虚高（与商品重名同款问题）；
+			// 实体粒度必须按主键 id 分组。
+			{ID: "seed_d_catid", ModelID: modelID, LogicalTableID: ltCat, Name: "品类", Expr: "id", DataType: "int", Synonyms: []string{"品类", "分类", "category"}},
+			// 品类名称：纯展示维度，不再承接「品类/分类」（交给上面的身份维度）。同时选「品类 + 品类名称」
+			// 时引擎 GROUP BY categories.id, categories.name，得到每品类一行且带可读名。
+			{ID: "seed_d_cat", ModelID: modelID, LogicalTableID: ltCat, Name: "品类名称", Expr: "name", DataType: "string", Synonyms: []string{"品类名", "分类名", "category_name"}},
 			{ID: "seed_d_brand", ModelID: modelID, LogicalTableID: ltProd, Name: "品牌", Expr: "brand", DataType: "string", Synonyms: []string{"brand"}},
-			{ID: "seed_d_pname", ModelID: modelID, LogicalTableID: ltProd, Name: "商品名称", Expr: "name", DataType: "string", Synonyms: []string{"商品", "product", "商品名"}},
+			// 商品「身份」维度：绑主键 id 作分组粒度键，承接「商品/product」意图。
+			// name 非唯一（1200 行仅 1192 去重名，8 组重名各 2 SKU），拿 name 当分组键会把
+			// 同名多 SKU 的销量合并、令 Top 榜前排虚高；实体粒度必须按主键 id 分组。
+			{ID: "seed_d_pid", ModelID: modelID, LogicalTableID: ltProd, Name: "商品", Expr: "id", DataType: "int", Synonyms: []string{"商品", "product", "单品", "sku"}},
+			// 商品名称：纯展示维度，不再承接「商品/product」（交给上面的身份维度）。榜单同时选
+			// 「商品 + 商品名称」时，引擎 GROUP BY products.id, products.name（name 对主键函数依赖），
+			// 得到每 SKU 一行且带可读名。
+			{ID: "seed_d_pname", ModelID: modelID, LogicalTableID: ltProd, Name: "商品名称", Expr: "name", DataType: "string", Synonyms: []string{"商品名", "品名", "product_name"}},
 			{ID: "seed_d_pstatus", ModelID: modelID, LogicalTableID: ltProd, Name: "商品状态", Expr: "status", DataType: "string", Synonyms: []string{"product_status", "上架状态"},
 				ValueMap: map[string]string{"在售": "on_sale", "上架": "on_sale", "已上架": "on_sale", "销售中": "on_sale", "下架": "off_shelf", "已下架": "off_shelf", "停售": "off_shelf"}},
 		},

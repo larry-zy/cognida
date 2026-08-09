@@ -2,17 +2,18 @@
 //
 // 全部仅经公开入口 Chat/Stream，锚定「愈合后」的一致行为（Decision C）：
 //   - 有工具时，无论有无记忆、buffered 还是 streaming，都跑同一 ToolLoop（工具真的被执行）；
-//   - 记忆激活时，无论有无工具、buffered 还是 streaming，都统一构建上下文并落库；
+//   - 记忆激活时（enableMemory + contextBuilder），无论有无工具、buffered 还是 streaming，
+//     都统一经 ContextBuilder 装配多轮上下文（读入口）；消息落库由 handler 层
+//     AgentPersistenceService 负责，不在 eino 主干内重复写。
 //   - 元数据键位（with_memory / with_tools / iterations / terminated_by / partial）在各组合一致。
 //
 // 复用既有桩：mockChatModel / scriptedToolModel / recordingTool / errStreamModel /
-// fakeContextBuilder / collect / lastEvent；仅新增 recordingMemory 与流式工具桩 scriptedStreamToolModel。
+// fakeContextBuilder / collect / lastEvent；仅新增流式工具桩 scriptedStreamToolModel。
 package framework
 
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -21,49 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	domainagent "cognida/internal/model/agent"
-	"cognida/internal/model/memory"
 )
-
-// recordingMemory 线程安全记录记忆写入，用于断言「愈合后」的统一落库行为。
-type recordingMemory struct {
-	mu        chan struct{} // 简易互斥（1 容量）
-	saved     []string
-	summaries int
-}
-
-func newRecordingMemory() *recordingMemory {
-	m := &recordingMemory{mu: make(chan struct{}, 1)}
-	m.mu <- struct{}{}
-	return m
-}
-
-func (m *recordingMemory) lock()   { <-m.mu }
-func (m *recordingMemory) unlock() { m.mu <- struct{}{} }
-
-func (m *recordingMemory) SaveMessage(_ context.Context, msg *memory.Message) error {
-	m.lock()
-	m.saved = append(m.saved, msg.Role+":"+msg.Content)
-	m.unlock()
-	return nil
-}
-func (m *recordingMemory) LoadHistoryWithLimit(context.Context, string, int) ([]*memory.Message, error) {
-	return nil, nil
-}
-func (m *recordingMemory) UpdateSummary(context.Context, string, string) error {
-	m.lock()
-	m.summaries++
-	m.unlock()
-	return nil
-}
-func (m *recordingMemory) GetSummary(context.Context, string) (string, error) { return "", nil }
-
-func (m *recordingMemory) savedRoles() []string {
-	m.lock()
-	defer m.unlock()
-	out := make([]string, len(m.saved))
-	copy(out, m.saved)
-	return out
-}
 
 // scriptedStreamToolModel 是流式版可编排工具模型：每次 Stream 把脚本中的下一条消息
 // 作为单一分块下发（携带其 ToolCalls / Content），脚本尽后回退为自然收尾。
@@ -137,9 +96,8 @@ func TestMatrix_Buffered_NoMem_Tools(t *testing.T) {
 	assert.NotContains(t, resp.Metadata, "terminated_by")
 }
 
-// TestMatrix_Buffered_Mem_NoTools 有记忆无工具：构建上下文 + 落库（用户同步 + 助手异步）。
+// TestMatrix_Buffered_Mem_NoTools 有记忆无工具：经 ContextBuilder 装配多轮上下文（读入口）。
 func TestMatrix_Buffered_Mem_NoTools(t *testing.T) {
-	mem := newRecordingMemory()
 	a := &agentImpl{
 		name:           "m",
 		model:          &mockChatModel{generateFunc: func(context.Context, []*schema.Message) (*schema.Message, error) {
@@ -147,24 +105,12 @@ func TestMatrix_Buffered_Mem_NoTools(t *testing.T) {
 		}},
 		enableMemory:   true,
 		contextBuilder: &fakeContextBuilder{},
-		memoryService:  mem,
 	}
 	ctx := domainagent.WithSessionID(context.Background(), "s1")
 	resp, err := a.Chat(ctx, "hi")
 	require.NoError(t, err)
 	assert.Equal(t, "R", resp.Content)
 	assert.Equal(t, true, resp.Metadata["with_memory"])
-	// 用户消息（原话）在 buildInitialMessages 中同步落库。
-	assert.Contains(t, mem.savedRoles(), "user:hi")
-	// 助手响应异步落库（愈合：记忆激活即持久化助手响应）。
-	assert.Eventually(t, func() bool {
-		for _, s := range mem.savedRoles() {
-			if s == "assistant:R" {
-				return true
-			}
-		}
-		return false
-	}, time.Second, 10*time.Millisecond, "助手响应应被异步落库")
 }
 
 // TestMatrix_Buffered_Mem_Tools 有记忆有工具（愈合关键项）：
@@ -176,7 +122,6 @@ func TestMatrix_Buffered_Mem_Tools(t *testing.T) {
 		toolCallMsg("1", "query"),
 		{Role: schema.Assistant, Content: "done"},
 	}}
-	mem := newRecordingMemory()
 	a := &agentImpl{
 		name:           "m",
 		toolModel:      tm,
@@ -185,7 +130,6 @@ func TestMatrix_Buffered_Mem_Tools(t *testing.T) {
 		maxIter:        5,
 		enableMemory:   true,
 		contextBuilder: &fakeContextBuilder{},
-		memoryService:  mem,
 	}
 	ctx := domainagent.WithSessionID(context.Background(), "s1")
 	resp, err := a.Chat(ctx, "hi")
@@ -194,7 +138,6 @@ func TestMatrix_Buffered_Mem_Tools(t *testing.T) {
 	assert.Equal(t, []string{"query"}, order, "记忆+工具组合下工具必须真的被执行")
 	assert.Equal(t, true, resp.Metadata["with_memory"])
 	assert.Equal(t, true, resp.Metadata["with_tools"])
-	assert.Contains(t, mem.savedRoles(), "user:hi")
 }
 
 // TestMatrix_Buffered_Tools_MaxIter wind-down 在（无记忆）工具路径统一生效的锚点，
@@ -236,15 +179,13 @@ func TestMatrix_Stream_NoMem_NoTools(t *testing.T) {
 	assert.True(t, last.Done)
 }
 
-// TestMatrix_Stream_Mem_NoTools 流式有记忆无工具（愈合）：走 BuildForCollaboration/Build 并落库。
+// TestMatrix_Stream_Mem_NoTools 流式有记忆无工具（愈合）：走 BuildForCollaboration/Build 装配上下文。
 func TestMatrix_Stream_Mem_NoTools(t *testing.T) {
-	mem := newRecordingMemory()
 	a := &agentImpl{
 		name:           "m",
 		model:          &errStreamModel{chunks: []string{"答", "案"}},
 		enableMemory:   true,
 		contextBuilder: &fakeContextBuilder{},
-		memoryService:  mem,
 	}
 	ctx := domainagent.WithSessionID(context.Background(), "s1")
 	ch, err := a.Stream(ctx, "hi")
@@ -258,8 +199,6 @@ func TestMatrix_Stream_Mem_NoTools(t *testing.T) {
 	assert.Equal(t, "答案", content)
 	ev, _ := lastEvent(t, chunks)
 	assert.Equal(t, string(EventEnd), ev)
-	// 愈合：流式+记忆同样构建上下文并同步落库用户原话。
-	assert.Contains(t, mem.savedRoles(), "user:hi")
 }
 
 // TestMatrix_Stream_NoMem_Tools 流式无记忆有工具：ReAct 工具循环在流式下同样执行，
@@ -295,7 +234,7 @@ func TestMatrix_Stream_NoMem_Tools(t *testing.T) {
 }
 
 // TestMatrix_Stream_Mem_Tools 流式 + 记忆 + 工具（八组合中最全的一项）：
-// 三组件全激活——构建上下文、执行工具、流式下发、落库；元数据无回退。
+// 三组件全激活——构建上下文、执行工具、流式下发；元数据无回退。
 func TestMatrix_Stream_Mem_Tools(t *testing.T) {
 	var order []string
 	rt := &recordingTool{name: "query", calls: &order}
@@ -303,7 +242,6 @@ func TestMatrix_Stream_Mem_Tools(t *testing.T) {
 		toolCallMsg("1", "query"),
 		{Role: schema.Assistant, Content: "done"},
 	}}
-	mem := newRecordingMemory()
 	a := &agentImpl{
 		name:           "m",
 		toolModel:      sm,
@@ -312,7 +250,6 @@ func TestMatrix_Stream_Mem_Tools(t *testing.T) {
 		maxIter:        5,
 		enableMemory:   true,
 		contextBuilder: &fakeContextBuilder{},
-		memoryService:  mem,
 	}
 	ctx := domainagent.WithSessionID(context.Background(), "s1")
 	ch, err := a.Stream(ctx, "hi")
@@ -323,5 +260,4 @@ func TestMatrix_Stream_Mem_Tools(t *testing.T) {
 	}
 	assert.Equal(t, []string{"query"}, order)
 	assert.Equal(t, "done", content)
-	assert.Contains(t, mem.savedRoles(), "user:hi")
 }

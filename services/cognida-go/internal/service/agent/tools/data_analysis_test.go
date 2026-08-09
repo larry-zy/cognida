@@ -31,7 +31,7 @@ func (m *mockInvoker) Invoke(ctx interface{}, skillName string, params map[strin
 // newAnalysisTool 用显式注入的调用器与结果存储构造 data_analysis 工具（取代包级全局）。
 func newAnalysisTool(t *testing.T, inv MCPInvoker, rs resultstore.Store) tool.InvokableTool {
 	t.Helper()
-	tl, err := NewDataAnalysisTool(inv, rs)
+	tl, err := NewDataAnalysisTool(inv, rs, nil)
 	if err != nil {
 		t.Fatalf("NewDataAnalysisTool: %v", err)
 	}
@@ -39,7 +39,7 @@ func newAnalysisTool(t *testing.T, inv MCPInvoker, rs resultstore.Store) tool.In
 }
 
 func TestDataAnalysisTool_Info(t *testing.T) {
-	tool, err := NewDataAnalysisTool(&mockInvoker{}, nil)
+	tool, err := NewDataAnalysisTool(&mockInvoker{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewDataAnalysisTool: %v", err)
 	}
@@ -294,10 +294,10 @@ func TestDataAnalysisTool_ResultIDNoStore(t *testing.T) {
 // attributionResultData 模拟 Python data_attribution 经 JSON 解码后的返回。
 func attributionResultData() map[string]interface{} {
 	return map[string]interface{}{
-		"metric":    "gmv",
-		"dimension": "region",
-		"baseline":  map[string]interface{}{"label": "2026-05", "total": 2300.0},
-		"current":   map[string]interface{}{"label": "2026-06", "total": 1950.0},
+		"metric":          "gmv",
+		"dimension":       "region",
+		"baseline":        map[string]interface{}{"label": "2026-05", "total": 2300.0},
+		"current":         map[string]interface{}{"label": "2026-06", "total": 1950.0},
 		"total_delta":     -350.0,
 		"total_delta_pct": -15.22,
 		"drivers": []interface{}{
@@ -380,6 +380,232 @@ func TestDataAnalysisTool_AttributionEnvelope(t *testing.T) {
 	}
 	if sug, _ := dd["suggestion"].(string); !strings.Contains(sug, "region") || !strings.Contains(sug, "华北") {
 		t.Errorf("drill_down.suggestion = %q", sug)
+	}
+}
+
+// ========================================
+// ① 会话最近取数回退（修复「结合特征分析…卡住」的 Analysis 空转，任务 19）
+// ========================================
+
+// newAnalysisToolWithReg 用显式注入的调用器 + 结果存储 + 会话取数注册表构造工具。
+func newAnalysisToolWithReg(t *testing.T, inv MCPInvoker, rs resultstore.Store, reg *resultstore.SessionRegistry) tool.InvokableTool {
+	t.Helper()
+	tl, err := NewDataAnalysisTool(inv, rs, reg)
+	if err != nil {
+		t.Fatalf("NewDataAnalysisTool: %v", err)
+	}
+	return tl
+}
+
+// 既无内联 data 又无 result_id 时，回退到本会话最近一次取数结果（SessionRegistry.Latest）。
+func TestDataAnalysisTool_SessionLatestFallback(t *testing.T) {
+	ctx, rs := setupAnalysisStore(t)
+	owner := resultstore.OwnerKey(1, "sess-da")
+	id := putRows(t, ctx, rs, owner)
+
+	reg := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ..."), id)
+
+	inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
+	tool := newAnalysisToolWithReg(t, inv, rs, reg)
+
+	// 注意：既不带 data 也不带 result_id —— 正是 Analysis 子代理未显式串联 result_id 的委派场景。
+	out, err := tool.InvokableRun(ctx, `{"analysis_type":"trend","options":{"value_col":"gmv"}}`)
+	if err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	rows, ok := inv.gotParams["data"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("fallback should resolve latest rows into data, got %T", inv.gotParams["data"])
+	}
+	if len(rows) != 2 || rows[0]["region"] != "华北" {
+		t.Errorf("fallback rows mismatch: %v", rows)
+	}
+	var parsed map[string]interface{}
+	_ = json.Unmarshal([]byte(out), &parsed)
+	if parsed["success"] != true {
+		t.Errorf("success = %v, want true", parsed["success"])
+	}
+}
+
+// 无内联 data、无 result_id、且本会话尚无取数记录 → 非致命失败（供 Agent 自纠，不 dead-end）。
+func TestDataAnalysisTool_SessionLatestFallbackEmpty(t *testing.T) {
+	ctx, rs := setupAnalysisStore(t)
+	reg := resultstore.NewSessionRegistry(resultstore.DefaultTTL) // 未 RecordFetch 任何结果
+	tool := newAnalysisToolWithReg(t, &mockInvoker{}, rs, reg)
+
+	out, err := tool.InvokableRun(ctx, `{"analysis_type":"trend"}`)
+	if err != nil {
+		t.Fatalf("should be non-fatal: %v", err)
+	}
+	var parsed map[string]interface{}
+	_ = json.Unmarshal([]byte(out), &parsed)
+	if parsed["success"] != false {
+		t.Errorf("success = %v, want false", parsed["success"])
+	}
+	if msg, _ := parsed["error"].(string); !strings.Contains(msg, "尚无可复用") {
+		t.Errorf("error = %q, want 提示本会话尚无可复用取数", msg)
+	}
+}
+
+// 委派带外句柄：模型未在参数里给 result_id/data 时，采用委派信封钉进 childCtx 的确切句柄，
+// 且该「指挥官选定」的句柄优先于「会话最近一次取数」的猜测（防多取数场景取错数据）。
+func TestDataAnalysisTool_DelegatedResultIDPinnedOverLatest(t *testing.T) {
+	ctx, rs := setupAnalysisStore(t)
+	owner := resultstore.OwnerKey(1, "sess-da")
+
+	// pinned：指挥官为本次委派选定的结果（华南），经带外通道钉入 childCtx。
+	pinnedID, err := rs.Put(ctx, &resultstore.Result{
+		Owner:   owner,
+		Columns: []string{"region", "gmv"},
+		Rows:    []map[string]interface{}{{"region": "华南", "gmv": 888.0}},
+	}, resultstore.DefaultTTL)
+	if err != nil {
+		t.Fatalf("预置 pinned 行集失败: %v", err)
+	}
+	// latest：另有一次更晚的取数（华北）登记为会话最近——若错误地取 latest 就会命中它。
+	latestID := putRows(t, ctx, rs, owner)
+	reg := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ... latest"), latestID)
+
+	inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
+	tool := newAnalysisToolWithReg(t, inv, rs, reg)
+
+	// 把指挥官选定的句柄钉进 ctx（模拟 executeDelegation 对 childCtx 的处理）。
+	ctx = agentctx.WithDelegatedResultID(ctx, pinnedID)
+
+	// 既不带 data 也不带 result_id —— 正是 Analysis 子代理未显式串联 result_id 的委派场景。
+	if _, err := tool.InvokableRun(ctx, `{"analysis_type":"trend","options":{"value_col":"gmv"}}`); err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	rows, ok := inv.gotParams["data"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("应据带外句柄解析出行集，got %T", inv.gotParams["data"])
+	}
+	if len(rows) != 1 || rows[0]["region"] != "华南" {
+		t.Errorf("应取 pinned（华南）而非 latest（华北），got %v", rows)
+	}
+}
+
+// 嵌套委派边界：内层信封未带 result_id 时，须清除继承自外层的钉入句柄（写空串覆盖），
+// 使深层 data_analysis 回退到「本会话最近取数」而非误取上层句柄。
+func TestDataAnalysisTool_DelegatedResultIDClearedFallsBackToLatest(t *testing.T) {
+	ctx, rs := setupAnalysisStore(t)
+	owner := resultstore.OwnerKey(1, "sess-da")
+
+	// 外层曾钉入的句柄（华南）——内层应当看不到它。
+	ancestorID, err := rs.Put(ctx, &resultstore.Result{
+		Owner:   owner,
+		Columns: []string{"region", "gmv"},
+		Rows:    []map[string]interface{}{{"region": "华南", "gmv": 888.0}},
+	}, resultstore.DefaultTTL)
+	if err != nil {
+		t.Fatalf("预置 ancestor 行集失败: %v", err)
+	}
+	latestID := putRows(t, ctx, rs, owner) // 会话最近取数（华北）
+	reg := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ... latest"), latestID)
+
+	inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
+	tool := newAnalysisToolWithReg(t, inv, rs, reg)
+
+	// 模拟委派链：外层钉入 ancestorID，内层信封无 result_id → 写空串清除继承。
+	ctx = agentctx.WithDelegatedResultID(ctx, ancestorID)
+	ctx = agentctx.WithDelegatedResultID(ctx, "")
+
+	if _, err := tool.InvokableRun(ctx, `{"analysis_type":"trend","options":{"value_col":"gmv"}}`); err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	rows, ok := inv.gotParams["data"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("应回退到最近取数并解析出行集，got %T", inv.gotParams["data"])
+	}
+	if rows[0]["region"] != "华北" {
+		t.Errorf("清除继承句柄后应取 latest（华北）而非 ancestor（华南），got %v", rows)
+	}
+}
+
+// 路由消歧：本会话有 ≥2 份 live 取数、且既无 pin 又无显式 result_id 时，宁拒不猜——
+// 返回非致命消歧提示并列出候选 result_id（含「最近一次取数」标注），而非盲取 latest 静默分析错数据。
+func TestDataAnalysisTool_MultipleFetchesDisambiguation(t *testing.T) {
+	ctx, rs := setupAnalysisStore(t)
+	owner := resultstore.OwnerKey(1, "sess-da")
+
+	// 第一份取数（华北，2 行）。
+	firstID := putRows(t, ctx, rs, owner)
+	// 第二份取数（华南，1 行）——不同 SQL、不同结果，构成真歧义。
+	secondID, err := rs.Put(ctx, &resultstore.Result{
+		Owner:   owner,
+		Columns: []string{"region", "gmv"},
+		Rows:    []map[string]interface{}{{"region": "华南", "gmv": 888.0}},
+	}, resultstore.DefaultTTL)
+	if err != nil {
+		t.Fatalf("预置第二份行集失败: %v", err)
+	}
+	reg := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ... north"), firstID)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ... south"), secondID) // 最近一次
+
+	inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
+	tool := newAnalysisToolWithReg(t, inv, rs, reg)
+
+	out, err := tool.InvokableRun(ctx, `{"analysis_type":"trend","options":{"value_col":"gmv"}}`)
+	if err != nil {
+		t.Fatalf("消歧应为非致命结果: %v", err)
+	}
+	// 不得盲取任一份去调用 Python。
+	if inv.gotParams != nil {
+		t.Fatalf("多份候选时不应静默取数调用分析，got params=%v", inv.gotParams)
+	}
+	var parsed map[string]interface{}
+	_ = json.Unmarshal([]byte(out), &parsed)
+	if parsed["success"] != false {
+		t.Errorf("success = %v, want false（消歧提示）", parsed["success"])
+	}
+	msg, _ := parsed["error"].(string)
+	if !strings.Contains(msg, "多份") || !strings.Contains(msg, "result_id") {
+		t.Errorf("error = %q, want 提示存在多份候选且需显式指定 result_id", msg)
+	}
+	if !strings.Contains(msg, firstID) || !strings.Contains(msg, secondID) {
+		t.Errorf("error = %q, want 列出两个候选 result_id %s / %s", msg, firstID, secondID)
+	}
+	if !strings.Contains(msg, "[最近一次取数]") {
+		t.Errorf("error = %q, want 标注最近一次取数以便快速确认", msg)
+	}
+}
+
+// 消歧守卫只在「回退」路径生效：即便本会话存在多份候选，显式 result_id 仍直接命中、不触发消歧。
+func TestDataAnalysisTool_ExplicitResultIDOverridesAmbiguity(t *testing.T) {
+	ctx, rs := setupAnalysisStore(t)
+	owner := resultstore.OwnerKey(1, "sess-da")
+
+	firstID := putRows(t, ctx, rs, owner) // 华北
+	secondID, err := rs.Put(ctx, &resultstore.Result{
+		Owner:   owner,
+		Columns: []string{"region", "gmv"},
+		Rows:    []map[string]interface{}{{"region": "华南", "gmv": 888.0}},
+	}, resultstore.DefaultTTL)
+	if err != nil {
+		t.Fatalf("预置第二份行集失败: %v", err)
+	}
+	reg := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ... north"), firstID)
+	reg.RecordFetch(owner, resultstore.SQLSignature("db1", "SELECT ... south"), secondID)
+
+	inv := &mockInvoker{result: &modeltools.SkillInvokeResult{Success: true}}
+	tool := newAnalysisToolWithReg(t, inv, rs, reg)
+
+	// 显式指定第一份，尽管存在多份候选也不应触发消歧。
+	args := `{"analysis_type":"trend","result_id":"` + firstID + `","options":{"value_col":"gmv"}}`
+	if _, err := tool.InvokableRun(ctx, args); err != nil {
+		t.Fatalf("InvokableRun: %v", err)
+	}
+	rows, ok := inv.gotParams["data"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("显式 result_id 应直接解析行集，got %T", inv.gotParams["data"])
+	}
+	if len(rows) != 2 || rows[0]["region"] != "华北" {
+		t.Errorf("应取显式指定的第一份（华北），got %v", rows)
 	}
 }
 

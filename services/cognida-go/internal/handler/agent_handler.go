@@ -121,33 +121,6 @@ func (h *AgentHandler) SetGenUIModel(m genui.LLM) {
 	h.genuiModel = m
 }
 
-// ========================================
-// AgenticRAG 聊天接口
-// ========================================
-
-// Chat AgenticRAG 聊天请求
-func (h *AgentHandler) Chat(c *gin.Context) {
-	var req agentuc.AgenticRAGRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
-
-	// 从上下文获取用户ID
-	userID := GetUserID(c)
-	log.Printf("[AgentChat] UserID: %d, Query: %s", userID, req.Query)
-
-	// 执行 AgenticRAG 聊天
-	resp, err := h.executeUseCase.Execute(c.Request.Context(), &req)
-	if err != nil {
-		log.Printf("[AgentChat] Error 执行失败: %v", err)
-		InternalError(c, err.Error())
-		return
-	}
-
-	OK(c, resp)
-}
-
 // agentStreamResult 汇总一次流式执行的可持久化产物。
 type agentStreamResult struct {
 	Content    string                   // 完整回答文本
@@ -344,40 +317,6 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 	}
 
 	return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces}
-}
-
-// ChatStream AgenticRAG 流式聊天
-func (h *AgentHandler) ChatStream(c *gin.Context) {
-	log.Printf("[AgentChatStream] Received stream request")
-
-	var req agentuc.AgenticRAGRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("[AgentChatStream] Invalid request: %v", err)
-		BadRequest(c, err.Error())
-		return
-	}
-
-	// 从上下文获取用户ID
-	userID := GetUserID(c)
-	log.Printf("[AgentChatStream] UserID: %d, Query: %s", userID, req.Query)
-
-	// 执行流式聊天
-	chunkChan, err := h.executeUseCase.ExecuteStream(c.Request.Context(), &req)
-	if err != nil {
-		log.Printf("[AgentChatStream] Error 执行失败: %v", err)
-		InternalError(c, err.Error())
-		return
-	}
-
-	// 设置 SSE 响应头
-	sse.SetSSEHeaders(c.Writer)
-
-	// 启动心跳机制（30秒间隔）
-	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
-	defer stopHeartbeat()
-
-	// 发送流式数据（结构化 step 契约）
-	h.streamAgentChunks(c, chunkChan, genUIOption{})
 }
 
 // GetTools 获取可用工具列表
