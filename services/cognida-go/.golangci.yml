@@ -1,8 +1,12 @@
 # golangci-lint 配置 (v1.60+)
 # 棕地项目: 先启用一组高信噪比的核心 linter, 避免一次性铺满导致无法落地。
 run:
-  timeout: 5m
+  timeout: 10m
   tests: true
+  # staticcheck/unused 做全程序分析，默认按 CPU 数(4)并行会把 16GB runner 内存打爆
+  # 触发 OOM(表现为 "runner received a shutdown signal")。降到 2 路并行控峰值内存,
+  # 代价是耗时约翻倍(故 timeout 同步提到 10m)。配合 workflow 侧 GOMEMLIMIT 软上限兜底。
+  concurrency: 2
   # golangci-lint(latest 发行版)当前由 go1.24 构建, 若目标版本取自 go.mod 的 go1.25.8
   # 会因"构建版本 < 目标版本"直接拒绝运行。显式将分析目标钉到 1.24 以对齐二进制构建版本;
   # 待 golangci-lint 发行版跟进 go1.25 后可移除本行(或随 action 升级到 v2)。

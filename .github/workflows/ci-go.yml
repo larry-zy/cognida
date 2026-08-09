@@ -61,6 +61,11 @@ jobs:
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
+        # 16GB runner 上全程序分析易 OOM: 给 golangci-lint 进程设内存软上限,
+        # 逼近时主动 GC 而非被内核 OOM-kill; GOGC 调低进一步压低堆高水位。
+        env:
+          GOMEMLIMIT: "12GiB"
+          GOGC: "50"
         with:
           version: latest
           working-directory: services/cognida-go
