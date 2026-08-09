@@ -114,7 +114,7 @@ if resp.Metadata != nil {
 ## Project Structure
 
 ```
-link-python/
+services/cognida-python/
 ├── proto/
 │   └── service.proto          # Proto definition
 ├── grpc_service/
@@ -124,7 +124,7 @@ link-python/
     ├── service_pb2.py         # Generated protobuf
     └── service_pb2_grpc.py    # Generated gRPC
 
-link-go/
+services/cognida-go/
 ├── api/proto/
 │   ├── service.proto          # Copy of proto (with go_package)
 │   ├── service.pb.go          # Generated protobuf

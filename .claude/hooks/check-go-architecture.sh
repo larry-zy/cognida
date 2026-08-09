@@ -16,9 +16,9 @@ FAILED=0
 
 echo "🏗️  Go 架构合规检查..."
 
-GO_INTERNAL="$PROJECT_ROOT/link-go/internal"
+GO_INTERNAL="$PROJECT_ROOT/services/cognida-go/internal"
 if [ ! -d "$GO_INTERNAL" ]; then
-    echo "⚠️  link-go/internal 目录不存在，跳过"
+    echo "⚠️  services/cognida-go/internal 目录不存在，跳过"
     exit 0
 fi
 

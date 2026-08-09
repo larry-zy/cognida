@@ -135,7 +135,7 @@ Clean Architecture 适合：
 - ❌ 快速迭代（数据结构频繁变化）
 - ❌ 小型团队（维护成本高）
 
-### 4.2 Link 项目的特点
+### 4.2 Cognida 项目的特点
 
 ```
 核心能力：
@@ -214,7 +214,7 @@ Clean Architecture:
 
 ### 7.1 评估结论
 
-**Clean Architecture 对 Link 项目是过度设计**
+**Clean Architecture 对 Cognida 项目是过度设计**
 
 | 评估维度 | 评分 | 说明 |
 |----------|------|------|

@@ -1,8 +1,8 @@
-# Link AI 服务增强规划
+# Cognida AI 服务增强规划
 
 ## 文档说明
 
-本文档聚焦Link AI服务核心能力的增强，暂不涉及数据治理等工程能力。
+本文档聚焦Cognida AI服务核心能力的增强，暂不涉及数据治理等工程能力。
 
 **更新时间**: 2026-05-03
 
@@ -64,7 +64,7 @@
 
 ### 1.2 与业界对比
 
-| 能力维度 | Link | Dify | LlamaIndex | LangChain |
+| 能力维度 | Cognida | Dify | LlamaIndex | LangChain |
 |---------|------|------|------------|----------|
 | 向量检索 | ✅ | ✅ | ✅ | ✅ |
 | 混合检索 | ✅ | ⚠️ | ⚠️ | ⚠️ |
@@ -78,7 +78,7 @@
 ### 1.3 核心差异优势
 
 ```
-Link的独特优势：
+Cognida的独特优势：
 ├─ 混合检索 + Rerank (召回更准)
 ├─ Neo4j深度知识图谱 (理解更深)
 ├─ StateGraph编排 (控制更精)
@@ -1075,7 +1075,7 @@ func (t *AgentTeam) buildConsensus(ctx context.Context, results []*AgentExecutio
 ### 5.1 LLM-as-a-Judge 评测
 
 ```python
-# link_python/services/evaluation/llm_judge.py
+# cognida_python/services/evaluation/llm_judge.py
 
 class LLMJudgeEvaluator:
     """使用LLM作为裁判进行评测"""
@@ -1383,7 +1383,7 @@ func (e *AutoEvaluator) evaluateEndToEnd(ctx context.Context, dataset *Dataset, 
 ### C. Python服务gRPC接口设计
 
 ```protobuf
-// link_python/proto/ai_service.proto
+// cognida_python/proto/ai_service.proto
 syntax = "proto3";
 
 package ai.v1;

@@ -1,18 +1,18 @@
-# Link 本地开发环境搭建完整指南
+# Cognida 本地开发环境搭建完整指南
 
-> 面向「一台新电脑从零把整个 Link 项目跑起来」的完整清单。涵盖硬件建议、系统依赖（运行时 + 中间件）、逐服务安装与配置、启动顺序、验证方法与常见排错。
+> 面向「一台新电脑从零把整个 Cognida 项目跑起来」的完整清单。涵盖硬件建议、系统依赖（运行时 + 中间件）、逐服务安装与配置、启动顺序、验证方法与常见排错。
 >
 > 项目由 4 个可运行部分组成：
-> - **link-go** — Go 主后端（REST / gRPC 网关 / SSE），端口 `8080`
-> - **link-python** — Python 计算/分析服务（gRPC 50051、基础 HTTP 8000、评测 HTTP 18888、MCP 3000）
-> - **link-web** — Vue 3 + Vite 前端，端口 `5173`
+> - **cognida-go** — Go 主后端（REST / gRPC 网关 / SSE），端口 `8080`
+> - **cognida-python** — Python 计算/分析服务（gRPC 50051、基础 HTTP 8000、评测 HTTP 18888、MCP 3000）
+> - **cognida-web** — Vue 3 + Vite 前端，端口 `5173`
 > - **中间件** — MySQL、Redis、Milvus、Neo4j
 
 ---
 
 ## 1. 硬件配置建议
 
-> 下表内存一栏是**实测数据**，不是估算。测量环境：48 GB M4 Pro，link-go + link-python 四服务 + link-web + MySQL/Redis/Milvus/Neo4j 全部同时运行、**空载/轻载**状态下各进程 RSS。
+> 下表内存一栏是**实测数据**，不是估算。测量环境：48 GB M4 Pro，cognida-go + cognida-python 四服务 + cognida-web + MySQL/Redis/Milvus/Neo4j 全部同时运行、**空载/轻载**状态下各进程 RSS。
 
 ### 实测内存占用（空载）
 
@@ -22,9 +22,9 @@
 | Neo4j（Homebrew Community，默认 `-Xmx128m`）| **~58 MB** | 默认堆很小，跑真实图谱要调大 |
 | MySQL 8（空载）| **~17 MB** | 默认 `innodb_buffer_pool_size` 128 MB |
 | Redis 7 | **~3 MB** | `used_memory` 1.8 M |
-| link-go server | **~41 MB** | |
-| link-python 四服务合计 | **~150 MB** | gRPC / HTTP / 评测 / MCP |
-| link-web（vite + node + esbuild）| **~150 MB** | dev server |
+| cognida-go server | **~41 MB** | |
+| cognida-python 四服务合计 | **~150 MB** | gRPC / HTTP / 评测 / MCP |
+| cognida-web（vite + node + esbuild）| **~150 MB** | dev server |
 | **应用 + 中间件进程 RSS 合计** | **≈ 360 MB** | 全栈空载不到 1 GB |
 
 ### 配置建议
@@ -52,10 +52,10 @@
 
 | 工具 | 版本要求 | 本项目实际 | 用途 |
 |------|----------|-----------|------|
-| **Go** | **1.25+**（go.mod 声明 `go 1.25.8`）| 1.26.4 | 编译/运行 link-go |
-| **Python** | **3.11+**（pyproject `requires-python>=3.11`）| 3.11（uv 管理的 venv）| link-python |
+| **Go** | **1.25+**（go.mod 声明 `go 1.25.8`）| 1.26.4 | 编译/运行 cognida-go |
+| **Python** | **3.11+**（pyproject `requires-python>=3.11`）| 3.11（uv 管理的 venv）| cognida-python |
 | **uv** | 最新 | 0.11.x | Python 依赖与虚拟环境管理（推荐）|
-| **Node.js** | 18+，推荐 **20 LTS 或更高** | v26 | link-web 构建/开发 |
+| **Node.js** | 18+，推荐 **20 LTS 或更高** | v26 | cognida-web 构建/开发 |
 | **npm** | 随 Node | 11.x | 前端包管理 |
 | **Docker (+ Compose)** | 最新 | 29.x | 运行 Milvus / 可选中间件 |
 | **Git** | 任意近期版本 | — | 拉取代码 |
@@ -116,7 +116,7 @@ sudo apt install -y docker.io docker-compose-plugin
 # --- MySQL ---
 brew services start mysql
 mysql -uroot -e "CREATE DATABASE IF NOT EXISTS link CHARACTER SET utf8mb4;"
-# 如需密码：mysql_secure_installation，然后把密码写进 link-go/.env 的 DB_PASSWORD
+# 如需密码：mysql_secure_installation，然后把密码写进 cognida-go/.env 的 DB_PASSWORD
 
 # --- Redis ---
 brew services start redis
@@ -181,7 +181,7 @@ docker compose -f deploy/docker-deps.yml up -d
 
 ## 4. 外部 API 凭证（LLM / Embedding / 搜索）
 
-Link 是 AI 应用，多数功能依赖外部大模型服务。这些是 **必须提前拿到 Key** 的部分（本机当前用的是 DeepSeek + 阿里云 DashScope）：
+Cognida 是 AI 应用，多数功能依赖外部大模型服务。这些是 **必须提前拿到 Key** 的部分（本机当前用的是 DeepSeek + 阿里云 DashScope）：
 
 | 能力 | 变量 | 供应商示例 | 是否必需 |
 |------|------|-----------|----------|
@@ -194,10 +194,10 @@ Link 是 AI 应用，多数功能依赖外部大模型服务。这些是 **必�
 
 ```bash
 # JWT 签名密钥：至少 32 字节，占位/过短会 fail-closed 启动失败
-openssl rand -hex 32          # 填入 link-go/.env 的 JWT_SECRET
+openssl rand -hex 32          # 填入 cognida-go/.env 的 JWT_SECRET
 
 # 外部数据源凭证加密密钥（多数据源功能必需）
-openssl rand -base64 32       # 填入 link-go/.env 的 DATASOURCE_SECRET_KEY
+openssl rand -base64 32       # 填入 cognida-go/.env 的 DATASOURCE_SECRET_KEY
 ```
 
 ---
@@ -210,16 +210,16 @@ openssl rand -base64 32       # 填入 link-go/.env 的 DATASOURCE_SECRET_KEY
 git clone <repo-url> link && cd link
 ```
 
-### 5.1 link-go（后端）
+### 5.1 cognida-go（后端）
 
 ```bash
-cd link-go
+cd cognida-go
 
 # 1) 生成 .env（以示例为模板）
 cp .env.example .env
 # 编辑 .env：DB_PASSWORD、NEO4J_PASSWORD、JWT_SECRET、DATASOURCE_SECRET_KEY、
 #            CHAT_*/LLM_*/EMBEDDING_* 各类 Key，MILVUS_HOST=localhost:19530
-# macOS 注意：把 UPLOAD_DIR / PYTHON_ALLOWED_PATHS 从 "D:/link/uploads" 改成本机绝对路径，
+# macOS 注意：把 UPLOAD_DIR / PYTHON_ALLOWED_PATHS 从 "D:/cognida/uploads" 改成本机绝对路径，
 #            例如 /Users/<you>/Downloads/link/uploads
 
 # 2) 拉依赖
@@ -233,14 +233,14 @@ go run ./cmd/seed-ecommerce     # 电商演示库
 go run ./cmd/seed-eval-datasets # 评测数据集
 ```
 
-关键 `.env` 项（link-go）：
+关键 `.env` 项（cognida-go）：
 
 ```ini
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=<你的MySQL密码>
-DB_NAME=link
+DB_NAME=cognida
 
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
@@ -258,10 +258,10 @@ PYTHON_GRPC_TARGET=localhost:50051
 PYTHON_EVALUATION_ENDPOINT=http://localhost:18888
 ```
 
-### 5.2 link-python（计算/分析服务）
+### 5.2 cognida-python（计算/分析服务）
 
 ```bash
-cd link-python
+cd cognida-python
 
 # 1) 用 uv 创建 venv 并装全部功能依赖（含评测/文档处理/向量模型）
 uv venv --python 3.11
@@ -275,10 +275,10 @@ cp .env.example .env
 
 > `.[all]` 里包含 `paddleocr`、`sentence-transformers` 等较大依赖，首次安装耗时较久，且首次运行会联网下载模型权重。若不用 OCR/本地向量模型，可只装 `.[evaluation]`。
 
-### 5.3 link-web（前端）
+### 5.3 cognida-web（前端）
 
 ```bash
-cd link-web
+cd cognida-web
 npm install
 # .env.development 已内置：VITE_API_BASE_URL=http://localhost:8080/api/v1
 # Vite 会把 /api 代理到 127.0.0.1:8080，无需额外改动
@@ -294,15 +294,15 @@ npm install
 # ① 中间件（见 §3，确保 3306 / 6379 / 19530 / 7687 都在监听）
 
 # ② Go 后端（端口 8080）
-cd link-go && make run                 # = go run ./cmd/server/main.go
-#   生产方式：make build && ./bin/link
+cd cognida-go && make run                 # = go run ./cmd/server/main.go
+#   生产方式：make build && ./bin/cognida
 
 # ③ Python 四服务一键并行启动（gRPC 50051 / HTTP 8000 / 评测 18888 / MCP 3000）
-cd link-python && bash scripts/dev-all.sh
-#   Ctrl+C 会优雅终止全部子进程；日志在 link-python/logs/*.log
+cd cognida-python && bash scripts/dev-all.sh
+#   Ctrl+C 会优雅终止全部子进程；日志在 cognida-python/logs/*.log
 
 # ④ 前端（端口 5173）
-cd link-web && npm run dev
+cd cognida-web && npm run dev
 ```
 
 浏览器打开 **http://localhost:5173**。
@@ -311,12 +311,12 @@ cd link-web && npm run dev
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
-| link-go 后端 | 8080 | REST / gRPC 网关 / SSE |
-| link-python gRPC | 50051（+分析 50053）| 主计算服务 |
-| link-python 基础 HTTP | 8000 | FastAPI 基础/调试接口 |
-| link-python 评测 HTTP | 18888 | 独立 FastAPI，Go 经 `PYTHON_EVALUATION_ENDPOINT` 调用 |
-| link-python MCP | 3000 | HTTP 模式下（默认 stdio 不占端口）|
-| link-web 前端 | 5173 | Vite dev server（strictPort）|
+| cognida-go 后端 | 8080 | REST / gRPC 网关 / SSE |
+| cognida-python gRPC | 50051（+分析 50053）| 主计算服务 |
+| cognida-python 基础 HTTP | 8000 | FastAPI 基础/调试接口 |
+| cognida-python 评测 HTTP | 18888 | 独立 FastAPI，Go 经 `PYTHON_EVALUATION_ENDPOINT` 调用 |
+| cognida-python MCP | 3000 | HTTP 模式下（默认 stdio 不占端口）|
+| cognida-web 前端 | 5173 | Vite dev server（strictPort）|
 | MySQL / Redis / Milvus / Neo4j | 3306 / 6379 / 19530 / 7687 | 中间件 |
 
 > ⚠️ 评测服务 :18888 必须启动，否则 Go 调用 graders/compute-metrics 会连接被拒（500）。`dev-all.sh` 已包含它。
@@ -338,9 +338,9 @@ curl -s http://localhost:8000/health             # Python 基础服务
 curl -s http://localhost:18888/health            # Python 评测服务
 
 # 单元测试
-cd link-go && go test ./internal/... -short
-cd link-python && uv run pytest tests/ -v
-cd link-web && npm run test
+cd cognida-go && go test ./internal/... -short
+cd cognida-python && uv run pytest tests/ -v
+cd cognida-web && npm run test
 ```
 
 若某中间件暂时不可用，可临时关闭对应功能位（如 `.env` 里 `PYTHON_GRPC_ENABLED=false`、留空 `MILVUS_HOST`）来先跑通主链路，但检索/图谱/评测等功能会降级。
@@ -354,7 +354,7 @@ cd link-web && npm run test
 | Go 启动即报 JWT 相关 fatal | `JWT_SECRET` 是占位符或不足 32 字节 | `openssl rand -hex 32` 重新生成 |
 | Go 编译报 `go: requires go >= 1.25` | Go 版本过低 | 升级到 Go 1.25+ |
 | `pip install` 报 Python 版本不符 | 用了系统 Python 3.9 | 用 `uv venv --python 3.11` |
-| 上传/文件路径报错找不到目录 | `.env` 里还是 Windows 路径 `D:/link/uploads` | 改成本机绝对路径并 `mkdir -p` |
+| 上传/文件路径报错找不到目录 | `.env` 里还是 Windows 路径 `D:/cognida/uploads` | 改成本机绝对路径并 `mkdir -p` |
 | 前端 502 / `/api` 代理失败 | Go 未起或只监听 IPv6 | 确认 8080 在 `127.0.0.1` 监听（Vite 已固定走 IPv4）|
 | 页面覆盖/按钮失灵 | 5173 端口被两个 vite 占用 | `lsof -i:5173` 排查后 kill 多余进程 |
 | Milvus 反复重启（etcd leader changed）| 内嵌 etcd 配置缺参 | 在 `~/milvus/embedEtcd.yaml` 补 heartbeat/election/snapshot-count |
@@ -376,16 +376,16 @@ docker run -d --name neo4j -p7474:7474 -p7687:7687 -e NEO4J_AUTH=neo4j/pass neo4
 mysql -uroot -e "CREATE DATABASE IF NOT EXISTS link CHARACTER SET utf8mb4;"
 
 # 2. Go
-cd link-go && cp .env.example .env   # 填 Key/密码/路径
+cd cognida-go && cp .env.example .env   # 填 Key/密码/路径
 make deps && set -a && source .env && set +a && go run ./cmd/migrate-db
 make run
 
 # 3. Python
-cd link-python && uv venv --python 3.11 && uv pip install -e ".[all]"
+cd cognida-python && uv venv --python 3.11 && uv pip install -e ".[all]"
 cp .env.example .env                 # 填 LLM Key
 bash scripts/dev-all.sh
 
 # 4. Web
-cd link-web && npm install && npm run dev
+cd cognida-web && npm install && npm run dev
 # → http://localhost:5173
 ```

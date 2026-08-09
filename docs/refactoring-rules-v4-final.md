@@ -1,4 +1,4 @@
-# Link 项目重构规则 V4：务实分层架构
+# Cognida 项目重构规则 V4：务实分层架构
 
 > 解决横切关注点（RAG、Memory）的归属问题
 
@@ -164,7 +164,7 @@
 ### 3.1 完整目录结构
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── handler/                          # HTTP 处理层
 │   ├── agent.go
 │   ├── chat.go

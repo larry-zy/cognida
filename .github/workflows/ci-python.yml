@@ -4,11 +4,11 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - 'link-python/**'
+      - 'services/cognida-python/**'
       - '.github/workflows/ci-python.yml'
   pull_request:
     paths:
-      - 'link-python/**'
+      - 'services/cognida-python/**'
       - '.github/workflows/ci-python.yml'
 
 env:
@@ -16,7 +16,7 @@ env:
 
 defaults:
   run:
-    working-directory: link-python
+    working-directory: services/cognida-python
 
 jobs:
   lint:
@@ -75,7 +75,7 @@ jobs:
       - name: 上传覆盖率
         uses: codecov/codecov-action@v4
         with:
-          file: link-python/coverage.xml
+          file: services/cognida-python/coverage.xml
           fail_ci_if_error: false
 
   security:
@@ -117,14 +117,14 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.REGISTRY_URL }}/link-python
+          images: ${{ secrets.REGISTRY_URL }}/cognida-python
           tags: |
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
       - name: 构建并推送
         uses: docker/build-push-action@v5
         with:
-          context: link-python
+          context: services/cognida-python
           target: production
           push: true
           tags: ${{ steps.meta.outputs.tags }}

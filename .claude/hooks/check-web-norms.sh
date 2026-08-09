@@ -9,14 +9,14 @@ FAILED=0
 
 echo "📖 Web 前端规范检查..."
 
-if [ ! -d "$PROJECT_ROOT/link-web" ]; then
-    echo "⚠️  link-web 目录不存在，跳过"
+if [ ! -d "$PROJECT_ROOT/apps/cognida-web" ]; then
+    echo "⚠️  cognida-web 目录不存在，跳过"
     exit 0
 fi
 
 # 检查是否有 TypeScript 类型定义
 # 注意：用变量捕获匹配结果来判断，避免 `grep | head` 让 if 恒真（管道退出码取自 head，永远为 0）
-any_hits=$(grep -rn 'props: any' "$PROJECT_ROOT/link-web/src/" 2>/dev/null | grep -v 'comment' || true)
+any_hits=$(grep -rn 'props: any' "$PROJECT_ROOT/apps/cognida-web/src/" 2>/dev/null | grep -v 'comment' || true)
 if [ -n "$any_hits" ]; then
     echo "$any_hits" | head -5
     echo "❌ 不应使用 any 类型，应定义具体类型"
@@ -24,7 +24,7 @@ if [ -n "$any_hits" ]; then
 fi
 
 # 检查 useEffect 依赖
-useeffect_hits=$(grep -rn 'useEffect.*\[\]' "$PROJECT_ROOT/link-web/src/" 2>/dev/null | \
+useeffect_hits=$(grep -rn 'useEffect.*\[\]' "$PROJECT_ROOT/apps/cognida-web/src/" 2>/dev/null | \
     grep 'eslint-disable' | grep -v 'comment' || true)
 if [ -n "$useeffect_hits" ]; then
     echo "$useeffect_hits" | head -5
@@ -32,7 +32,7 @@ if [ -n "$useeffect_hits" ]; then
 fi
 
 # 检查 dangerouslySetInnerHTML 使用
-dsih_hits=$(grep -rn 'dangerouslySetInnerHTML' "$PROJECT_ROOT/link-web/src/" 2>/dev/null | \
+dsih_hits=$(grep -rn 'dangerouslySetInnerHTML' "$PROJECT_ROOT/apps/cognida-web/src/" 2>/dev/null | \
     grep -v 'DOMPurify\|sanitize' | grep -v 'comment' || true)
 if [ -n "$dsih_hits" ]; then
     echo "$dsih_hits" | head -5

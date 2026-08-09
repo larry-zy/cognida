@@ -208,7 +208,7 @@ skills.GetCategories() []string
 1. 创建目录：`skills/my-skill/`
 2. 创建 SKILL.md 文件
 3. 编写 frontmatter 和内容
-4. 放入 `D:/link/skills/` 目录
+4. 放入 `D:/cognida/skills/` 目录
 5. 重启服务或调用 `skills.Initialize()`
 
 ### 模板

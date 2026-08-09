@@ -621,5 +621,5 @@ A: 可以，实现 `ReflectionMemory` 接口即可。
 
 ---
 
-**维护者**: Link Team
+**维护者**: Cognida Team
 **最后更新**: 2026-05-04

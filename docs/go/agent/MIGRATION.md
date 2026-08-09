@@ -1,6 +1,6 @@
 # 迁移指南：从原生 Eino 到 Agent 框架
 
-本文档帮助您从原生 Cloudwego Eino 迁移到 LinkGo Agent 框架。
+本文档帮助您从原生 Cloudwego Eino 迁移到 CognidaGo Agent 框架。
 
 ## 为什么迁移？
 

@@ -1,4 +1,4 @@
-# Link 项目重构规则 V3：实用主义架构
+# Cognida 项目重构规则 V3：实用主义架构
 
 > 真正解决"简单功能需要跨很多地方"的问题
 
@@ -125,7 +125,7 @@ Handler → Service.ListAgents() → Repository.FindAll() → MySQL
 ### 3.1 完整目录结构
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── handler/                      # HTTP 处理层（薄层）
 │   ├── agent.go                  # Agent HTTP 处理
 │   ├── chat.go                   # Chat HTTP 处理

@@ -5,7 +5,7 @@
 ### 1.1 确保服务运行
 
 ```bash
-cd D:\link\link-go
+cd D:\link\cognida-go
 go run cmd/server/main.go
 ```
 
@@ -150,7 +150,7 @@ curl -X POST http://localhost:8080/api/v1/chat \
 测试脚本会自动加载 `.env` 配置：
 
 ```bash
-cd D:\link\link-go
+cd D:\link\cognida-go
 bash scripts/test-text2sql.sh
 ```
 
@@ -159,7 +159,7 @@ bash scripts/test-text2sql.sh
 单元测试使用 sqlmock，不需要数据库连接：
 
 ```bash
-cd D:\link\link-go
+cd D:\link\cognida-go
 go test ./internal/application/usecases/agent/tools/... -v
 ```
 

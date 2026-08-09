@@ -491,7 +491,7 @@ const planPromptWithHistory = `你是查询规划专家，支持多轮对话。
 ## 七、目录结构
 
 ```
-link-go/internal/application/agent/text2sql/
+cognida-go/internal/application/agent/text2sql/
 ├── text2sql.go              # 注册函数
 ├── agents.go                # Agent 创建函数
 └── prompts.go               # Prompt 定义（可选）

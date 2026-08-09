@@ -1,4 +1,4 @@
-# CodeReview Hook - Link 项目
+# CodeReview Hook - Cognida 项目
 
 ## 触发时机
 
@@ -33,7 +33,7 @@
 
 ```bash
 #!/bin/bash
-# Link 项目 CodeReview 检查
+# Cognida 项目 CodeReview 检查
 # 触发: pre-commit, pre-push, 或手动执行
 
 set -e
@@ -41,7 +41,7 @@ set -e
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
-echo "🔍 Link 项目 CodeReview"
+echo "🔍 Cognida 项目 CodeReview"
 echo "======================="
 echo ""
 
@@ -84,7 +84,7 @@ run_check "Go 语言规范" "bash '$SCRIPT_DIR/check-go-norms.sh'"
 run_check "Python 语言规范" "bash '$SCRIPT_DIR/check-python-norms.sh'"
 
 # Web 前端规范 (如果有改动)
-if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'link-web/'; then
+if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'apps/cognida-web/'; then
     run_check "Web 前端规范" "bash '$SCRIPT_DIR/check-web-norms.sh'"
 fi
 
@@ -98,7 +98,7 @@ echo "---------------------"
 run_check "Proto 一致性" "bash '$SCRIPT_DIR/check-proto.sh'"
 
 # API Contract 一致性
-if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'link-web/\|link-go/internal/handler/'; then
+if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'apps/cognida-web/\|services/cognida-go/internal/handler/'; then
     run_check "API Contract" "bash '$SCRIPT_DIR/check-api-contract.sh'"
 fi
 
@@ -112,7 +112,7 @@ echo "-------------------"
 run_check "Go 架构规范" "bash '$SCRIPT_DIR/check-go-architecture.sh'"
 
 # Python 架构检查
-if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'link-python/'; then
+if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'services/cognida-python/'; then
     run_check "Python 架构规范" "bash '$SCRIPT_DIR/check-python-architecture.sh'"
 fi
 
@@ -123,18 +123,18 @@ echo "🐛 [4/4] Bug 检测"
 echo "---------------"
 
 # Go 编译和静态检查
-run_check "Go 编译检查" "cd '$PROJECT_ROOT/link-go' && go build ./..."
-run_check "Go vet" "cd '$PROJECT_ROOT/link-go' && go vet ./..."
+run_check "Go 编译检查" "cd '$PROJECT_ROOT/services/cognida-go' && go build ./..."
+run_check "Go vet" "cd '$PROJECT_ROOT/services/cognida-go' && go vet ./..."
 
 # 数据竞争检测
-run_check "数据竞争检测" "cd '$PROJECT_ROOT/link-go' && go test -race ./... -timeout 5m"
+run_check "数据竞争检测" "cd '$PROJECT_ROOT/services/cognida-go' && go test -race ./... -timeout 5m"
 
 # SQL 注入检测
 run_check "SQL 注入风险" "bash '$SCRIPT_DIR/check-sql-injection.sh'"
 
 # Python 类型检查
-if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'link-python/'; then
-    run_check "Python 类型检查" "cd '$PROJECT_ROOT/link-python' && mypy ./"
+if git -C "$PROJECT_ROOT" diff --name-only HEAD | grep -q 'services/cognida-python/'; then
+    run_check "Python 类型检查" "cd '$PROJECT_ROOT/services/cognida-python' && mypy ./"
 fi
 
 # ============================================
@@ -171,24 +171,24 @@ fi
 FAILED=0
 
 # 检查包名
-if grep -r '^package.*_' link-go/internal/ | grep -v '_test.go'; then
+if grep -r '^package.*_' services/cognida-go/internal/ | grep -v '_test.go'; then
     echo "❌ 包名不应包含下划线"
     FAILED=1
 fi
 
 # 检查接口命名 (I 前缀)
-if grep -r 'type I[A-Z]' link-go/internal/; then
+if grep -r 'type I[A-Z]' services/cognida-go/internal/; then
     echo "❌ 接口名不应使用 I 前缀"
     FAILED=1
 fi
 
 # 检查错误处理
-if git -C link-go diff --cached | grep '_, := ' | grep -v '^\s*//'; then
+if git -C cognida-go diff --cached | grep '_, := ' | grep -v '^\s*//'; then
     echo "⚠️  发现忽略的错误 (_ := )"
 fi
 
 # 检查 context 作为第一个参数
-if grep -r 'func.*Context.*context' link-go/internal/ | grep -v 'ctx context.Context'; then
+if grep -r 'func.*Context.*context' services/cognida-go/internal/ | grep -v 'ctx context.Context'; then
     echo "⚠️  context.Context 应该是第一个参数"
 fi
 
@@ -206,7 +206,7 @@ FAILED=0
 # 检查 proto 文件存在
 PROTO_FILES=("docreader" "evaluation" "ml" "annotation")
 for proto in "${PROTO_FILES[@]}"; do
-    if [ ! -f "link-go/api/proto/${proto}.proto" ]; then
+    if [ ! -f "services/cognida-go/api/proto/${proto}.proto" ]; then
         echo "❌ Proto 文件缺失: ${proto}.proto"
         FAILED=1
     fi
@@ -214,7 +214,7 @@ done
 
 # 检查 Python proto 生成
 for proto in "${PROTO_FILES[@]}"; do
-    if [ ! -f "link-python/proto/${proto}_pb2.py" ]; then
+    if [ ! -f "services/cognida-python/proto/${proto}_pb2.py" ]; then
         echo "⚠️  Python proto 未生成: ${proto}, 运行 generate_grpc.py"
     fi
 done
@@ -231,13 +231,13 @@ exit $FAILED
 FAILED=0
 
 # 检查 Go 中的字符串拼接 SQL
-if grep -rn 'fmt.Sprintf.*SELECT\|fmt.Sprintf.*INSERT\|fmt.Sprintf.*UPDATE\|fmt.Sprintf.*DELETE' link-go/internal/ | grep -v '_test.go'; then
+if grep -rn 'fmt.Sprintf.*SELECT\|fmt.Sprintf.*INSERT\|fmt.Sprintf.*UPDATE\|fmt.Sprintf.*DELETE' services/cognida-go/internal/ | grep -v '_test.go'; then
     echo "❌ 发现可能的 SQL 注入: 使用 fmt.Sprintf 拼接 SQL"
     FAILED=1
 fi
 
 # 检查 Python 中的 f-string SQL
-if grep -rn 'f".*SELECT\|f".*INSERT\|f".*UPDATE\|f".*DELETE' link-python/ | grep -v '_test.py'; then
+if grep -rn 'f".*SELECT\|f".*INSERT\|f".*UPDATE\|f".*DELETE' services/cognida-python/ | grep -v '_test.py'; then
     echo "❌ 发现可能的 SQL 注入: 使用 f-string 拼接 SQL"
     FAILED=1
 fi
@@ -254,25 +254,25 @@ exit $FAILED
 FAILED=0
 
 # 检查 handler 不直接依赖 repository
-if grep -r 'link/internal/repository' link-go/internal/handler/ | grep -v '_test.go'; then
+if grep -r 'link/internal/repository' services/cognida-go/internal/handler/ | grep -v '_test.go'; then
     echo "❌ Handler 不应直接依赖 Repository"
     FAILED=1
 fi
 
 # 检查 service 不依赖 infrastructure
-if grep -r 'link/internal/infrastructure' link-go/internal/service/ | grep -v '_test.go'; then
+if grep -r 'link/internal/infrastructure' services/cognida-go/internal/service/ | grep -v '_test.go'; then
     echo "❌ Service 不应直接依赖 Infrastructure"
     FAILED=1
 fi
 
 # 检查 model 无依赖
-if grep -r '^import' link-go/internal/model/ | grep 'link/internal' | grep -v 'model'; then
+if grep -r '^import' services/cognida-go/internal/model/ | grep 'link/internal' | grep -v 'model'; then
     echo "❌ Model 不应依赖其他层"
     FAILED=1
 fi
 
 # 检查循环依赖
-if go list -json ./link-go/... | jq -r 'select(.Deps != null) | .ImportPath' | grep -f - <(go list -json ./link-go/... | jq -r '.ImportPath'); then
+if go list -json ./services/cognida-go/... | jq -r 'select(.Deps != null) | .ImportPath' | grep -f - <(go list -json ./services/cognida-go/... | jq -r '.ImportPath'); then
     echo "⚠️  检查到可能的循环依赖"
 fi
 
@@ -288,10 +288,10 @@ exit $FAILED
 FAILED=0
 
 # 提取 Go 定义的路径
-grep -rh 'POST\|GET\|PUT\|DELETE' link-go/internal/handler/ | grep -o '".*"' | sed 's/"//g' | sort > /tmp/go_paths.txt
+grep -rh 'POST\|GET\|PUT\|DELETE' services/cognida-go/internal/handler/ | grep -o '".*"' | sed 's/"//g' | sort > /tmp/go_paths.txt
 
 # 提取前端调用的路径
-grep -rh 'fetch.*api' link-web/src/ 2>/dev/null | grep -o "'/api/[^']*\"" | sed "s/'//g" | sed 's/"//g' | sort > /tmp/web_paths.txt
+grep -rh 'fetch.*api' apps/cognida-web/src/ 2>/dev/null | grep -o "'/api/[^']*\"" | sed "s/'//g" | sed 's/"//g' | sort > /tmp/web_paths.txt
 
 # 检查是否有差异
 if diff -q /tmp/go_paths.txt /tmp/web_paths.txt; then

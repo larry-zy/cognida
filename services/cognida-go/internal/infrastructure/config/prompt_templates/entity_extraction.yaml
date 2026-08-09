@@ -1,0 +1,85 @@
+# 实体提取提示词模板
+templates:
+  - id: "entity_extraction"
+    name: "实体提取格式"
+    description: "从文档中提取实体（返回Neo4j GraphNode格式）"
+    content: |
+      # 任务说明
+      你是一个专业的知识图谱构建助手。请仔细阅读以下文档内容，从中提取出所有相关实体。
+
+      # 文档内容
+      {{document}}
+
+      # 实体类型定义
+      请重点关注以下类型的实体：
+      - **Person**: 人员、角色、职位、开发者、作者等
+      - **Organization**: 公司名称、机构、组织、团队、社区等
+      - **Product**: 产品名称、服务、软件、工具等
+      - **Technology**: 编程语言、框架、库、算法、协议等
+      - **Concept**: 概念、方法论、原理、理论、模式等
+      - **Document**: 文档、规范、标准、手册等
+      - **Project**: 项目名称、代码库、模块、组件等
+      - **Location**: 地址、位置、目录、路径、URL等
+      - **Event**: 事件、会议、发布、里程碑等
+      - **Time**: 日期、时间段、版本号等
+      - **Other**: 任何其他重要的名词或概念
+
+      # 提取要求
+      1. **完整性**: 尽可能多地识别文档中提到的实体
+      2. **准确性**: 确保提取的实体信息准确无误
+      3. **唯一性**: 对于重复出现的实体，只提取一次
+      4. **原始表述**: 实体名称使用文档中的原始表述
+      5. **类型精确**: 选择最精确的类型，避免使用Other
+
+      # 提取示例
+
+      ## 示例1：技术文档
+      输入："Neo4j是一个图数据库，支持Cypher查询语言。它由Neo Technology公司开发。"
+      输出：{"nodes":[
+        {"id":"1","name":"Neo4j","title":"Neo4j","entity_type":"Product","attributes":["图数据库"],"chunks":[]},
+        {"id":"2","name":"Cypher","title":"Cypher","entity_type":"Technology","attributes":["查询语言"],"chunks":[]},
+        {"id":"3","name":"Neo Technology","title":"Neo Technology","entity_type":"Organization","attributes":["公司","开发商"],"chunks":[]}
+      ]}
+
+      ## 示例2：概念说明
+      输入："深度学习是机器学习的一个子领域，基于神经网络算法。"
+      输出：{"nodes":[
+        {"id":"1","name":"深度学习","title":"深度学习","entity_type":"Concept","attributes":["机器学习","子领域"],"chunks":[]},
+        {"id":"2","name":"机器学习","title":"机器学习","entity_type":"Concept","attributes":["人工智能"],"chunks":[]},
+        {"id":"3","name":"神经网络","title":"神经网络","entity_type":"Technology","attributes":["算法"],"chunks":[]}
+      ]}
+
+      ## 示例3：项目组件
+      输入："cognida-go项目包含三个模块：api、service和repository。"
+      输出：{"nodes":[
+        {"id":"1","name":"cognida-go","title":"cognida-go","entity_type":"Project","attributes":["项目"],"chunks":[]},
+        {"id":"2","name":"api","title":"api","entity_type":"Project","attributes":["模块","接口层"],"chunks":[]},
+        {"id":"3","name":"service","title":"service","entity_type":"Project","attributes":["模块","业务层"],"chunks":[]},
+        {"id":"4","name":"repository","title":"repository","entity_type":"Project","attributes":["模块","数据层"],"chunks":[]}
+      ]}
+
+      # 输出格式要求
+
+      **重要**：
+      1. 只返回JSON格式，不要添加任何其他文字说明
+      2. 不要使用markdown代码块标记（如```json）
+      3. 确保返回的是有效的JSON格式
+      4. 只返回nodes数组，不要返回其他字段
+
+      请严格按照以下JSON格式输出：
+
+      {"nodes":[{"id":"1","name":"实体名称","title":"显示标题","entity_type":"Concept","attributes":["属性1","属性2"],"chunks":[]}]}
+
+      # 字段说明
+      - **id**: 实体的唯一标识符，使用数字ID如 "1", "2" 等
+      - **name**: 实体的名称，使用文档中的原始表述
+      - **title**: 实体的显示标题，通常与name相同
+      - **entity_type**: 实体类型，必须从以下选择：Person、Organization、Product、Technology、Concept、Document、Project、Location、Event、Time、Other
+      - **attributes**: 实体的属性列表，如标签、特征、别名等，如果没有属性返回空数组
+      - **chunks**: 始终返回空数组[]（由系统后续填充）
+
+      # 注意事项
+      - 如果文档中没有明确的实体信息，请返回：{"nodes":[]}
+      - 确保返回的是纯JSON格式，不要有任何前缀或后缀文字
+      - entity_type必须是以下之一：Person、Organization、Product、Technology、Concept、Document、Project、Location、Event、Time、Other
+      - 优先使用具体类型而非Other（如：库→Technology，框架→Technology）

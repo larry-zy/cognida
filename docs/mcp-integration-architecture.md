@@ -1,8 +1,8 @@
-# Link MCP 集成架构文档
+# Cognida MCP 集成架构文档
 
 ## 文档说明
 
-本文档描述 Link 系统中 Go Agent 通过 MCP（Model Context Protocol）调用 Python 服务的架构设计。
+本文档描述 Cognida 系统中 Go Agent 通过 MCP（Model Context Protocol）调用 Python 服务的架构设计。
 
 **架构模式**: MCP + gRPC 混合模式
 
@@ -220,7 +220,7 @@ Go Agent ──▶ Tool Registry (MCP 类型) ──▶ MCP Client ──▶ Pyt
 ### 4.1 目录结构
 
 ```
-link-python/
+cognida-python/
 ├── mcp/                              # MCP 协议层
 │   ├── __init__.py
 │   ├── server.py                     # MCP Server 入口
@@ -273,16 +273,16 @@ link-python/
 ### 4.2 MCP Server 实现
 
 ```python
-# link-python/mcp_service/server.py
+# cognida-python/mcp_service/server.py
 from mcp.server import Server
 from mcp.transport.stdio import stdio_server
-from link_python.mcp.tools.registry import ToolRegistry
+from cognida_python.mcp.tools.registry import ToolRegistry
 
 class MCPServer:
     """MCP Server 主入口"""
 
     def __init__(self):
-        self.app = Server("link-python")
+        self.app = Server("cognida-python")
         self.tool_registry = ToolRegistry()
         self._setup_handlers()
 
@@ -309,9 +309,9 @@ if __name__ == "__main__":
 ### 4.3 MCP Tool 定义示例
 
 ```python
-# link-python/mcp_service/tools/data/analysis.py
+# cognida-python/mcp_service/tools/data/analysis.py
 from mcp.server.models import Tool
-from link_python.services.data.analyzer import analyze_dataframe
+from cognida_python.services.data.analyzer import analyze_dataframe
 
 class DataAnalysisTool:
     """数据分析 MCP Tool"""
@@ -359,7 +359,7 @@ class DataAnalysisTool:
 ### 4.4 复用业务逻辑
 
 ```python
-# link-python/services/data/analyzer.py
+# cognida-python/services/data/analyzer.py
 # 这是被 gRPC 和 MCP 共用的业务逻辑
 
 import pandas as pd
@@ -395,7 +395,7 @@ async def analyze_dataframe(
 ### 4.5 配置管理
 
 ```python
-# link-python/config/mcp_config.py
+# cognida-python/config/mcp_config.py
 from pydantic_settings import BaseSettings
 
 class MCPSettings(BaseSettings):
@@ -428,7 +428,7 @@ class MCPSettings(BaseSettings):
 ### 5.1 目录结构
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── infrastructure/
 │   ├── mcp/                            # MCP 客户端基础设施
 │   │   ├── client.go                  # MCP Client 封装
@@ -458,7 +458,7 @@ link-go/internal/
 ### 5.2 统一 Tool 定义
 
 ```go
-// link-go/internal/application/agent/tools/tool.go
+// cognida-go/internal/application/agent/tools/tool.go
 package tools
 
 // ToolType 定义工具类型
@@ -501,7 +501,7 @@ type LLMFunction struct {
 ### 5.3 统一 Tool Registry
 
 ```go
-// link-go/internal/application/agent/tools/registry.go
+// cognida-go/internal/application/agent/tools/registry.go
 package tools
 
 import (
@@ -635,7 +635,7 @@ func (r *Registry) ToLLMFunctions() []LLMFunction {
 ### 5.4 MCP Client 封装
 
 ```go
-// link-go/internal/infrastructure/mcp/client.go
+// cognida-go/internal/infrastructure/mcp/client.go
 package mcp
 
 import (
@@ -706,7 +706,7 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]i
 ### 5.5 Tool Dispatcher
 
 ```go
-// link-go/internal/application/agent/mcp/dispatcher.go
+// cognida-go/internal/application/agent/mcp/dispatcher.go
 package mcp
 
 import (
@@ -900,7 +900,7 @@ agent:
   mcp_servers:
     - name: python-data
       transport: stdio
-      command: python -m link_python.mcp.server
+      command: python -m cognida_python.mcp.server
       # 或 HTTP 模式:
       # transport: http
       # url: http://python-service:3000/mcp
@@ -929,7 +929,7 @@ agent:
 
 | 传输层 | 适用场景 | 配置 |
 |-------|---------|------|
-| **stdio** | 本地开发、单机部署 | `python -m link_python.mcp.server` |
+| **stdio** | 本地开发、单机部署 | `python -m cognida_python.mcp.server` |
 | **HTTP** | 容器/跨机器 | `http://python-service:3000/mcp` |
 | **SSE** | 需要服务端推送 | `http://python-service:3000/mcp?stream` |
 

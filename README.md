@@ -1,4 +1,4 @@
-# Link
+# Cognida
 
 <div align="center">
 
@@ -16,7 +16,7 @@
 
 ## 项目简介
 
-**Link** 是一个面向企业的 **「数据 + 知识」Agent 平台**，采用 Go + Python 异构多服务架构。
+**Cognida** 是一个面向企业的 **「数据 + 知识」Agent 平台**，采用 Go + Python 异构多服务架构。
 
 它用**一个企业级硬化的 Agent 内核**——口径受治理、操作可管控、过程可审计、质量可评测——统一处理：
 
@@ -27,15 +27,15 @@
 
 ### 系统定位
 
-> Link 不是「又一个能问数据的 bot」。市面上的 ChatBI 只会查结构化数据、RAG 工具只会答文档，且都停在"能不能答"。Link 补的是**答之后那道信任鸿沟**——让企业**敢**把真实数据和真实决策托付给 Agent，并且**能验证它到底好不好**。
+> Cognida 不是「又一个能问数据的 bot」。市面上的 ChatBI 只会查结构化数据、RAG 工具只会答文档，且都停在"能不能答"。Cognida 补的是**答之后那道信任鸿沟**——让企业**敢**把真实数据和真实决策托付给 Agent，并且**能验证它到底好不好**。
 
 一句话记忆点：
 
-> **别人是「能问数据的助手」，Link 是「敢把数据和知识托付给它、还能度量它好不好的企业级数据智能体」。**
+> **别人是「能问数据的助手」，Cognida 是「敢把数据和知识托付给它、还能度量它好不好的企业级数据智能体」。**
 
 ### 核心差异
 
-| | ChatBI | RAG 机器人 | 数据中台 | **Link** |
+| | ChatBI | RAG 机器人 | 数据中台 | **Cognida** |
 |---|--------|-----------|---------|----------|
 | 结构化数据 | ✅ | ✗ | ✅(底座) | ✅ |
 | 非结构化知识 | ✗ | ✅ | 部分 | ✅ |
@@ -51,7 +51,7 @@
 
 ## 能力全景（数据/知识 × 全生命周期）
 
-Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据/知识生命周期**，纵轴是**处理对象**。✅ 已实现 · 🚧 规划中。
+Cognida 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据/知识生命周期**，纵轴是**处理对象**。✅ 已实现 · 🚧 规划中。
 
 | 生命周期 → | ①收集/接入 | ②清洗/达标 | ③沉淀/资产化 | ④分析/决策 | ⑤评测/进化 |
 |-----------|-----------|-----------|-------------|-----------|-----------|
@@ -206,13 +206,13 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 | gRPC | 50055 | 数据收集 / 达标 Service | 🚧 | 自动收集、标注达标 |
 
 - **Proto 单一数据源**：仓库根 `proto/*.proto`（buf 管理，`buf.yaml` / `buf.gen.yaml` 在根目录），Go / Python 各自生成绑定
-- **MCP**：JSON-RPC 2.0 over HTTP/stdio；Go 端 `internal/infrastructure/mcp`（客户端），Python 端 `link-python/mcp_service`（服务端，默认端口 3000，本地占用改用 3100）
+- **MCP**：JSON-RPC 2.0 over HTTP/stdio；Go 端 `internal/infrastructure/mcp`（客户端），Python 端 `services/cognida-python/mcp_service`（服务端，默认端口 3000，本地占用改用 3100）
 
 ---
 
 ## 应用场景
 
-| 场景 | 说明 | Link 能力 |
+| 场景 | 说明 | Cognida 能力 |
 |------|------|----------|
 | **可信智能分析** | 自然语言查数，口径受治理、结果可审计、直接出图 | Data Agent · 语义层 · A2UI ✅ |
 | **深度研究分析** | 复杂问题多步推理，生成结构化报告 | DeepResearch（简化版） ✅ |
@@ -245,17 +245,18 @@ Link 的每一项能力都落在一张网上：横轴是 **Agent 驱动的数据
 ## 项目结构
 
 ```
-link/
-├── link-go/        # Go 主后端（API / 编排 / Agent / RAG / 图谱 / 语义 / 评测编排）
-├── link-python/    # Python 计算服务（文档解析 / 评测 / 质量 / analytics，gRPC + MCP + HTTP）
-├── link-web/       # Vue 3 前端（Vite）
+cognida/
+├── services/
+│   ├── cognida-go/     # Go 主后端（API / 编排 / Agent / RAG / 图谱 / 语义 / 评测编排）
+│   │   └── skills/     # Agent Skill 定义（运行时按 ./skills 加载）
+│   └── cognida-python/ # Python 计算服务（文档解析 / 评测 / 质量 / analytics，gRPC + MCP + HTTP）
+├── apps/
+│   └── cognida-web/    # Vue 3 前端（Vite）
 ├── proto/          # gRPC 契约（buf 管理，单一数据源）
 ├── deploy/         # 部署与日志采集（Loki 等）
-├── config/         # 配置
-├── datasets/       # 演示 / 评测数据集
-├── skills/         # Agent Skill 定义
 ├── openspec/       # OpenSpec 变更提案与规范
-└── docs/           # 文档
+├── docs/           # 文档
+└── var/            # 运行时产物（uploads / run / test-output，gitignore，本地留存）
 ```
 
 ---
@@ -272,7 +273,7 @@ link/
 `dev.sh` 是真实的一键启动脚本，负责启停 Go 后端 + 4 个 Python 服务 + 前端，并对中间件做连通性预检。
 
 ```bash
-git clone https://github.com/your-org/link.git
+git clone https://github.com/your-org/cognida.git
 cd link
 
 # 先确保中间件在跑（示例：Homebrew + docker）
@@ -288,29 +289,29 @@ brew services start mysql@8.0 redis neo4j && docker start milvus-standalone
 
 ```bash
 # 1. Go 后端（:8080）
-cd link-go && go run ./cmd/server
+cd services/cognida-go && go run ./cmd/server
 
 # 2. Python 服务（uv）
-cd link-python
+cd services/cognida-python
 uv run python -m grpc_service.server                                   # gRPC 50051(+Analytics 50053)
 uv run python main.py                                                  # 基础 HTTP :8000
 uv run uvicorn services.evaluation.fastapi_app:app --port 18888        # 评测 :18888
 MCP_MODE=http uv run python -m mcp_service.server                      # MCP :3000（本机 MCP_PORT=3100）
 
 # 3. 前端（:5173）
-cd link-web && npm install && npm run dev
+cd apps/cognida-web && npm install && npm run dev
 ```
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
-| link-go（后端） | 8080 | REST / gRPC / SSE 网关 |
-| link-python gRPC | 50051 / 50053 | Document+Quality / Analytics |
-| link-python 基础 HTTP | 8000 | `main.py` 基础接口 |
-| link-python 评测 | 18888 | FastAPI 评测计算 |
-| link-python MCP | 3000（本机 3100） | HTTP 模式 MCP |
-| link-web（前端） | 5173 | Vite 开发服务器（strictPort，代理 /api→:8080） |
+| cognida-go（后端） | 8080 | REST / gRPC / SSE 网关 |
+| cognida-python gRPC | 50051 / 50053 | Document+Quality / Analytics |
+| cognida-python 基础 HTTP | 8000 | `main.py` 基础接口 |
+| cognida-python 评测 | 18888 | FastAPI 评测计算 |
+| cognida-python MCP | 3000（本机 3100） | HTTP 模式 MCP |
+| cognida-web（前端） | 5173 | Vite 开发服务器（strictPort，代理 /api→:8080） |
 
-> **数据库表结构**：给 GORM model 加字段/建表后，用 `cd link-go && set -a && source .env && set +a && go run ./cmd/migrate-db` 幂等同步业务表，替代手动 `ALTER TABLE`。
+> **数据库表结构**：给 GORM model 加字段/建表后，用 `cd services/cognida-go && set -a && source .env && set +a && go run ./cmd/migrate-db` 幂等同步业务表，替代手动 `ALTER TABLE`。
 
 **调用链路**：浏览器(:5173) → Go 后端(:8080) → gRPC/HTTP/MCP → Python 服务
 
@@ -345,7 +346,7 @@ cd link-web && npm install && npm run dev
 
 ## 开发规范
 
-- [Go 语言规范](link-go/CLAUDE.md) · [Python 语言规范](link-python/CLAUDE.md) · [全局开发规范](CLAUDE.md)
+- [Go 语言规范](services/cognida-go/CLAUDE.md) · [Python 语言规范](services/cognida-python/CLAUDE.md) · [全局开发规范](CLAUDE.md)
 
 ---
 

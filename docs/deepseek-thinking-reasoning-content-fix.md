@@ -2,7 +2,7 @@
 
 > 状态：✅ 已实现并通过 E2E 回归（2026-07-05）
 > 影响：Agent 多轮工具调用 100% 失败 —— 系统两个 Agent 均无法完成完整任务
-> 关联代码：`link-go/internal/infrastructure/llm/chat/openai.go`、`link-go/internal/service/agent/framework/eino_agent.go`
+> 关联代码：`cognida-go/internal/infrastructure/llm/chat/openai.go`、`cognida-go/internal/service/agent/framework/eino_agent.go`
 
 ---
 
@@ -210,7 +210,7 @@ for _, tc := range resp.ToolCalls {
 - [x] `tool_model.go` `WithTools` 透传 `roundTripReasoning`（绑定工具后的实例保留开关）
 - [ ] thinking 开关驱动 `extra_body.thinking` + `reasoning_effort` 下发（V4 默认开启，暂未显式下发，后续增强）
 - [x] 单元测试：`openai_reasoning_test.go`（解析 / V4 回传 / 旧版剔除 / 判定表，4 用例全绿）
-- [x] 两个 Agent 的多轮 E2E：`link-go/scripts/test-agents-e2e.sh`（RAG + Data 各 2 轮，含并行/多轮工具调用，无 400）
+- [x] 两个 Agent 的多轮 E2E：`cognida-go/scripts/test-agents-e2e.sh`（RAG + Data 各 2 轮，含并行/多轮工具调用，无 400）
 - [ ] 顺带排查 RAG 检索返回 0（144 chunks 却 count=0，独立问题——E2E 中 RAG 首次检索仍偶发空结果，见验证记录）
 
 ### 验证记录（E2E, 2026-07-05, deepseek-v4-flash）

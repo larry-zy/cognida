@@ -19,10 +19,10 @@ echo "💉 SQL 注入风险检查..."
 SQL_CLAUSE='(SELECT[[:space:]].*FROM|INSERT[[:space:]]+INTO|UPDATE[[:space:]].*SET|DELETE[[:space:]]+FROM)'
 
 # Go: fmt.Sprintf 拼接 SQL
-if [ -d "$PROJECT_ROOT/link-go/internal" ]; then
+if [ -d "$PROJECT_ROOT/services/cognida-go/internal" ]; then
     go_hits=$(grep -rIniE --include='*.go' \
         "fmt\.Sprintf\(.*${SQL_CLAUSE}" \
-        "$PROJECT_ROOT/link-go/internal/" 2>/dev/null \
+        "$PROJECT_ROOT/services/cognida-go/internal/" 2>/dev/null \
         | grep -v '_test.go' | head -5)
     if [ -n "$go_hits" ]; then
         echo "$go_hits"
@@ -32,13 +32,13 @@ if [ -d "$PROJECT_ROOT/link-go/internal" ]; then
 fi
 
 # Python: f-string 拼接 SQL
-if [ -d "$PROJECT_ROOT/link-python" ]; then
+if [ -d "$PROJECT_ROOT/services/cognida-python" ]; then
     py_hits=$(grep -rIniE --include='*.py' \
         --exclude-dir=examples --exclude-dir=data --exclude-dir=tests \
         --exclude-dir=.venv --exclude-dir=venv --exclude-dir=__pycache__ \
         --exclude-dir=.git --exclude-dir=node_modules \
         "f[\"'][^\"']*${SQL_CLAUSE}" \
-        "$PROJECT_ROOT/link-python/" 2>/dev/null \
+        "$PROJECT_ROOT/services/cognida-python/" 2>/dev/null \
         | grep -v '_test.py' | head -5)
     if [ -n "$py_hits" ]; then
         echo "$py_hits"

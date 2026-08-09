@@ -45,7 +45,7 @@ D:\link\
 │   │   ├── sample_agent/      # Agent 数据集
 │   │   └── sample_rag/        # RAG 数据集
 │   └── schema.sql             # 数据库表结构
-├── link-go/
+├── cognida-go/
 │   ├── api/proto/
 │   │   └── evaluation.proto   # gRPC 接口定义
 │   └── internal/
@@ -60,7 +60,7 @@ D:\link\
 │           └── http/
 │               ├── handler/    # HTTP 处理器
 │               └── router/      # 路由配置
-└── link-python/
+└── cognida-python/
     ├── proto/
     │   └── evaluation.proto   # gRPC 接口定义（同步）
     └── services/
@@ -244,7 +244,7 @@ D:\link\
 ### 4.1 目录结构
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── application/evaluation/
 │   ├── service.go              # 评测服务
 │   ├── python_adapter.go       # Python 适配器

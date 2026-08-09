@@ -1,4 +1,4 @@
-# Link-Go 渐进式简化重构方案
+# Cognida-Go 渐进式简化重构方案
 
 > 从 4 层 Clean Architecture 简化为 3 层实用架构
 

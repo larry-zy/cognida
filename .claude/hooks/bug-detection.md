@@ -49,7 +49,7 @@ func (h *MyHandler) Handle() error {  // 缺少 ctx 参数
 # 类型检查
 check_python_types() {
     echo "🔍 检查 Python 类型..."
-    if ! mypy link-python/; then
+    if ! mypy services/cognida-python/; then
         echo "❌ Python 类型检查失败"
         return 1
     fi
@@ -98,7 +98,7 @@ check_nil_dereference() {
     echo "🔍 检查空指针风险..."
 
     # 检查指针解引用前是否有 nil 检查
-    grep -rn '\.Name' link-go/internal/ | while read line; do
+    grep -rn '\.Name' services/cognida-go/internal/ | while read line; do
         # 检查附近是否有 nil 检查
         if ! echo "$line" | grep -B5 'if.*==.*nil\|if.*!=.*nil'; then
             echo "⚠️  可能的空指针: $line"
@@ -321,8 +321,8 @@ check_sql_injection() {
     echo "💉 检查 SQL 注入风险..."
 
     # 检查字符串拼接 SQL
-    grep -rn 'fmt.Sprintf.*SELECT\|fmt.Sprintf.*INSERT' link-go/internal/
-    grep -rn 'f".*SELECT\|f".*INSERT' link-python/
+    grep -rn 'fmt.Sprintf.*SELECT\|fmt.Sprintf.*INSERT' services/cognida-go/internal/
+    grep -rn 'f".*SELECT\|f".*INSERT' services/cognida-python/
 
     echo "请确认以上 SQL 查询使用参数化"
 }
@@ -354,8 +354,8 @@ check_ignored_errors() {
     echo "⚠️  检查忽略的错误..."
 
     # 检查使用 _ 忽略错误的情况
-    grep -rn ', _ := ' link-go/internal/
-    grep -rn ', _ = ' link-go/internal/
+    grep -rn ', _ := ' services/cognida-go/internal/
+    grep -rn ', _ = ' services/cognida-go/internal/
 }
 ```
 
@@ -520,8 +520,8 @@ check_hardcoded_config() {
     echo "🔑 检查硬编码配置..."
 
     # 检查可能的硬编码密钥
-    grep -rn 'sk-.*"\|password.*"\|secret.*"' link-go/internal/
-    grep -rn 'sk-.*"\|password.*"\|secret.*"' link-python/
+    grep -rn 'sk-.*"\|password.*"\|secret.*"' services/cognida-go/internal/
+    grep -rn 'sk-.*"\|password.*"\|secret.*"' services/cognida-python/
 
     echo "请确认以上敏感信息使用环境变量"
 }

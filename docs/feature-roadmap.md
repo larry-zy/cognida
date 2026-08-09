@@ -1,8 +1,8 @@
-# Link AI-Native 智能Data平台功能规划
+# Cognida AI-Native 智能Data平台功能规划
 
 ## 文档说明
 
-本文档规划 Link 系统作为 AI-Native 智能Data平台的功能路线，聚焦 AI/智能化能力，差异化于传统数据治理平台。
+本文档规划 Cognida 系统作为 AI-Native 智能Data平台的功能路线，聚焦 AI/智能化能力，差异化于传统数据治理平台。
 
 **核心定位**：企业级 AI 数据专家，从"数据助手"进化为"业务伙伴"
 
@@ -28,9 +28,9 @@
 
 ### 1.1 我们是谁
 
-Link 是新一代企业级 **AI 数据专家**，不是简单的"数据助手"。
+Cognida 是新一代企业级 **AI 数据专家**，不是简单的"数据助手"。
 
-| 传统数据工具 | Link AI 数据专家 |
+| 传统数据工具 | Cognida AI 数据专家 |
 |-------------|-----------------|
 | 被动响应指令 | 主动思考拆解任务 |
 | 生成图表报表 | 输出决策建议 |
@@ -159,7 +159,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      Link AI-Native 智能Data平台功能全景                         │
+│                      Cognida AI-Native 智能Data平台功能全景                         │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
@@ -213,7 +213,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 
 ### 2.3 差异化定位
 
-| 维度 | 传统数据工具 | 字节 Data Agent | Link |
+| 维度 | 传统数据工具 | 字节 Data Agent | Cognida |
 |------|-------------|-----------------|------|
 | 定位 | 数据助手 | AI 数据专家 | AI 数据专家 |
 | 输入 | SQL/配置 | 自然语言 | 自然语言 |
@@ -223,7 +223,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 
 ### 2.4 产品矩阵参考
 
-| 字节 Data Agent | Link 对应能力 | 状态 |
+| 字节 Data Agent | Cognida 对应能力 | 状态 |
 |----------------|---------------|------|
 | 智能问数 Agent | RAG 系统 | ✅ |
 | 深度研究 Agent | DeepResearch | ✅ |
@@ -246,7 +246,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 - 混合检索 + 重排序
 - 知识库管理（文档上传、分块、向量化）
 
-**实现位置**：`link-go/internal/application/rag/`
+**实现位置**：`cognida-go/internal/application/rag/`
 
 ### 2.2 多Agent系统
 
@@ -256,7 +256,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 - 工具调用机制
 - Agent 协作
 
-**实现位置**：`link-go/internal/domain/agent/`
+**实现位置**：`cognida-go/internal/domain/agent/`
 
 ### 2.3 知识图谱
 
@@ -266,7 +266,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 - 图谱检索
 - 可视化展示
 
-**实现位置**：`link-go/internal/domain/graph/`
+**实现位置**：`cognida-go/internal/domain/graph/`
 
 ### 2.4 评测系统
 
@@ -276,7 +276,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 - 自定义指标
 - 评测报告
 
-**实现位置**：`link-go/internal/domain/evaluation/`
+**实现位置**：`cognida-go/internal/domain/evaluation/`
 
 ### 2.5 数据结论生成
 
@@ -286,7 +286,7 @@ GenUI 是一种让 LLM 直接输出结构化 UI 的协议，实现 AI 到可视�
 - 趋势判断与异常识别
 - 可行性建议输出
 
-**实现位置**：`link-go/internal/application/agent/`
+**实现位置**：`cognida-go/internal/application/agent/`
 
 **功能说明**：
 Agent 根据查询到的数据，结合领域知识，自动分析数据特征、趋势变化、异常情况，并给出可落地的结论建议。
@@ -1020,7 +1020,7 @@ type TaggingService interface {
 #### Python 打标服务
 
 ```python
-# link-python/services/tagging/tagger.py
+# cognida-python/services/tagging/tagger.py
 
 class DataTagger:
     """非结构化数据打标服务"""
@@ -1367,7 +1367,7 @@ type LearningService interface {
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          Link AI-Native 平台实施路线图                           │
+│                          Cognida AI-Native 平台实施路线图                           │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
 │  2025 Q2-Q3                                                                      │

@@ -1,4 +1,4 @@
-# Link-Go 重构后架构详细说明
+# Cognida-Go 重构后架构详细说明
 
 ## 1. 整体架构图
 
@@ -98,7 +98,7 @@
 ## 2. 目录结构详解
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── handler/                      # HTTP/gRPC 处理层
 │   ├── agent.go                  # Agent 相关 HTTP 处理
 │   ├── chat.go                   # Chat 相关 HTTP 处理

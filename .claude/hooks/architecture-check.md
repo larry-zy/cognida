@@ -4,7 +4,7 @@
 
 ### 架构图
 ```
-link-go/internal/
+services/cognida-go/internal/
 ├── handler/          # Handler 层 - HTTP/gRPC 接口处理
 ├── service/          # Service 层 - 业务逻辑编排
 ├── repository/       # Repository 层 - 数据访问实现
@@ -152,7 +152,7 @@ repository → model
 
 ### 架构图
 ```
-link-python/
+services/cognida-python/
 ├── grpc/           # gRPC 服务层
 │   ├── server.py
 │   └── servicer/
@@ -378,19 +378,19 @@ import (
 # 架构检查脚本
 
 # 检查 handler 不依赖 repository
-if grep -r "link/internal/repository" link-go/internal/handler/; then
+if grep -r "link/internal/repository" services/cognida-go/internal/handler/; then
     echo "❌ 错误: handler 直接依赖 repository"
     exit 1
 fi
 
 # 检查 service 不依赖 infrastructure
-if grep -r "link/internal/infrastructure" link-go/internal/service/ | grep -v "_test.go"; then
+if grep -r "link/internal/infrastructure" services/cognida-go/internal/service/ | grep -v "_test.go"; then
     echo "❌ 错误: service 直接依赖 infrastructure"
     exit 1
 fi
 
 # 检查 model 无依赖
-if grep -r "^import" link-go/internal/model/ | grep "link/internal" | grep -v "model"; then
+if grep -r "^import" services/cognida-go/internal/model/ | grep "link/internal" | grep -v "model"; then
     echo "❌ 错误: model 依赖其他层"
     exit 1
 fi

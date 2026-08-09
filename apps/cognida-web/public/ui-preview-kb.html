@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cognida · 知识库助手（月夜台账 · 暗色）</title>
+<style>
+/* =====================================================================
+   Cognida 月夜台账 —— 知识库助手设计稿
+   设计原则：完全复用 ui-preview.html 的 design token 与背景做法
+   仅展示知识库问答功能，不含 SQL 分析模块
+   ===================================================================== */
+:root {
+  /* 表面：墨色三档 */
+  --ink-0: #0c0f15;                     /* 最深：输入框、代码底 */
+  --ink-1: rgba(15, 18, 26, .92);       /* 面板主体 */
+  --ink-2: #171b25;                     /* 面板内的次级块 */
+  --ink-3: #1e2330;                     /* hover / 选中 */
+
+  /* 文字：暖调灰白（避免蓝白） */
+  --t1: #e8e6df;
+  --t2: #a8a69e;
+  --t3: #6d6c66;
+
+  /* 强调：月光银青（取自壁纸）+ 钢青次级 */
+  --lamp: #9cb4cd;
+  --lamp-dim: rgba(156, 180, 205, .12);
+  --steel: #7f92a8;
+  --steel-dim: rgba(127, 146, 168, .14);
+
+  /* 功能色（低饱和） */
+  --ok: #86ae90;
+  --warn: #c9a86c;
+  --bad: #c08a8a;
+
+  /* 发丝线 */
+  --hair: rgba(232, 230, 223, .09);
+  --hair-2: rgba(232, 230, 223, .05);
+
+  --r: 8px;
+  --r-sm: 5px;
+  --serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
+  --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--t1);
+  background: #0a0d13;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ 背景：壁纸为主角，只做底部压暗 18%→42% ============ */
+.bg { position: fixed; inset: 0; z-index: 0; }
+.bg__img {
+  position: absolute; inset: 0;
+  background: url("img/backgroud.png") center / cover no-repeat;
+}
+.bg__shade {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(10, 13, 19, .18) 0%, rgba(10, 13, 19, .42) 100%);
+}
+
+/* ============ 应用壳 ============ */
+.shell { position: relative; z-index: 1; display: flex; height: 100vh; padding: 12px; gap: 12px; }
+
+/* ---- 导航 Rail（原样照搬，知识库项设为 active）---- */
+.rail {
+  width: 60px; flex: 0 0 60px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 0;
+  background: var(--ink-1);
+  border-radius: var(--r);
+}
+.rail__logo {
+  width: 34px; height: 34px; margin-bottom: 14px;
+  border-radius: var(--r-sm); background: var(--lamp);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-weight: 700; font-size: 17px; color: #101720;
+}
+.rail__item {
+  width: 40px; height: 40px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--t3); cursor: pointer;
+  transition: color .15s ease, background .15s ease;
+}
+.rail__item svg { width: 19px; height: 19px; }
+.rail__item:hover { color: var(--t1); background: var(--ink-3); }
+/* 知识库项 active，无左边条 */
+.rail__item.active { color: var(--lamp); background: var(--lamp-dim); }
+.rail__spacer { flex: 1; }
+.rail__avatar {
+  width: 30px; height: 30px; border-radius: var(--r-sm);
+  background: var(--ink-3); border: 1px solid var(--hair);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: var(--t2);
+}
+
+/* ---- 会话侧栏 ---- */
+.sidebar {
+  width: 256px; flex: 0 0 256px;
+  display: flex; flex-direction: column;
+  background: var(--ink-1);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.sidebar__head { padding: 14px 14px 10px; }
+/* 「新对话」银青实心按钮 */
+.btn-new {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 10px; border: 0; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--lamp); color: #101720; font-size: 13px; font-weight: 600;
+  transition: background .15s ease;
+}
+.btn-new:hover { background: #b3c9de; }
+.btn-new svg { width: 14px; height: 14px; }
+/* 搜索框 */
+.search {
+  margin: 2px 14px 8px; display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border-radius: var(--r-sm);
+  background: var(--ink-0);
+  color: var(--t3); font-size: 12.5px;
+}
+.search svg { width: 13px; height: 13px; }
+/* 分组标签 */
+.sidebar__group {
+  padding: 10px 16px 6px; font-size: 10.5px; color: var(--t3);
+  font-family: var(--mono); letter-spacing: 1.5px;
+}
+/* 知识库选择卡块（静态）*/
+.kb-card {
+  margin: 0 8px 2px; padding: 10px 12px; border-radius: var(--r-sm);
+  background: var(--ink-2);
+}
+.kb-card__name {
+  font-size: 13px; color: var(--lamp); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kb-card__meta {
+  margin-top: 4px; font-size: 10.5px; color: var(--t3); font-family: var(--mono);
+}
+/* 未选中的知识库行 */
+.kb-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; margin: 0 8px 1px; border-radius: var(--r-sm); cursor: pointer;
+  transition: background .15s ease;
+}
+.kb-row:hover { background: var(--ink-2); }
+.kb-row svg { width: 13px; height: 13px; color: var(--t3); flex: 0 0 13px; }
+.kb-row__name { font-size: 12.5px; color: var(--t3); }
+/* 会话列表 */
+.sessions { flex: 1; overflow: auto; padding: 0 8px; }
+.session {
+  display: flex; gap: 10px; align-items: center;
+  padding: 9px 10px; margin-bottom: 2px; border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.session:hover { background: var(--ink-2); }
+.session.active { background: var(--ink-3); }
+.session.active .session__title { color: var(--lamp); }
+.session__icon {
+  width: 30px; height: 30px; flex: 0 0 30px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ink-2); color: var(--t2);
+}
+.session.active .session__icon { background: var(--lamp-dim); color: var(--lamp); }
+.session__icon svg { width: 15px; height: 15px; }
+.session__body { flex: 1; min-width: 0; }
+.session__title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session__meta { display: flex; gap: 7px; align-items: center; margin-top: 3px; font-size: 11px; color: var(--t3); }
+.chip {
+  font-family: var(--mono); font-size: 10px; padding: 0 6px; border-radius: 3px;
+  border: 1px solid var(--hair); color: var(--t3);
+}
+.session.active .chip { border-color: rgba(156, 180, 205, .4); color: var(--lamp); }
+
+/* 侧栏底部统计 */
+.side-stats { margin: 8px 14px 12px; padding-top: 10px; border-top: 1px solid var(--hair-2); }
+.side-stats__row {
+  display: flex; justify-content: space-between;
+  font-size: 11.5px; color: var(--t3); margin-bottom: 6px;
+}
+.side-stats__row b { color: var(--t2); font-family: var(--mono); font-weight: 500; }
+/* 进度条（--steel 色）*/
+.side-stats__bar {
+  height: 3px; border-radius: 2px; background: var(--ink-3); overflow: hidden; margin-top: 2px;
+}
+.side-stats__bar i { display: block; height: 100%; width: 98%; background: var(--steel); }
+.side-stats__cap { margin-top: 7px; font-size: 10.5px; color: var(--t3); }
+
+/* ---- 主区 ---- */
+.main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  background: var(--ink-1);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+/* 顶栏：宋体标题 + 状态点 + 清空按钮，不含 tab */
+.topbar {
+  display: flex; align-items: center; gap: 18px;
+  padding: 0 20px; height: 54px; border-bottom: 1px solid var(--hair-2);
+}
+.topbar__title { font-family: var(--serif); font-size: 16px; font-weight: 700; color: var(--t1); }
+.topbar__right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* 状态呼吸点（仅此一处动画）*/
+.status-dot {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--t3); font-family: var(--mono);
+}
+.status-dot i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+  animation: pulse 3s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+/* 图标按钮 */
+.icon-btn {
+  width: 30px; height: 30px; border-radius: var(--r-sm); border: 0;
+  background: transparent; color: var(--t3); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: color .15s ease, background .15s ease;
+}
+.icon-btn:hover { color: var(--t1); background: var(--ink-3); }
+.icon-btn svg { width: 15px; height: 15px; }
+
+/* ---- 消息流 ---- */
+.messages { flex: 1; overflow: auto; padding: 24px 0; }
+.messages__inner { max-width: 840px; margin: 0 auto; padding: 0 24px; }
+.msg { display: flex; gap: 12px; margin-bottom: 28px; }
+.msg--user { flex-direction: row-reverse; }
+.avatar {
+  width: 30px; height: 30px; flex: 0 0 30px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+}
+.avatar--user { background: var(--lamp); color: #101720; }
+.avatar--ai { background: var(--ink-3); border: 1px solid var(--hair); color: var(--steel); }
+.avatar--ai svg { width: 16px; height: 16px; }
+.msg__col { max-width: 78%; min-width: 0; }
+.msg--user .msg__col { display: flex; flex-direction: column; align-items: flex-end; }
+/* 气泡（照搬参考稿） */
+.bubble { padding: 11px 15px; border-radius: var(--r); font-size: 14px; line-height: 1.75; }
+.bubble--user { background: var(--ink-3); color: var(--t1); border-top-right-radius: 3px; }
+.bubble--ai { background: var(--ink-2); color: var(--t1); border-top-left-radius: 3px; }
+.bubble--ai b { color: var(--lamp); font-weight: 600; }
+.bubble--ai ul { margin: 6px 0 2px; padding-left: 18px; }
+.bubble--ai li { margin: 4px 0; }
+.bubble--ai code {
+  font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius: 4px;
+  background: var(--ink-0); color: var(--steel);
+}
+.bubble--ai p { margin: 4px 0; }
+.msg__time { margin-top: 7px; font-size: 10.5px; color: var(--t3); font-family: var(--mono); }
+
+/* 日期分隔线 */
+.divider {
+  display: flex; align-items: center; gap: 12px; margin: 2px 0 24px;
+  color: var(--t3); font-size: 10.5px; font-family: var(--mono); letter-spacing: 1.5px;
+}
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--hair-2); }
+
+/* ---- 检索时间线（照搬 agent timeline 样式） ---- */
+.timeline { margin-bottom: 10px; border-radius: var(--r); overflow: hidden; background: var(--ink-2); }
+.timeline__head {
+  display: flex; align-items: center; gap: 8px; padding: 9px 13px;
+  font-size: 12.5px; font-weight: 600;
+}
+.timeline__head svg { width: 14px; height: 14px; color: var(--steel); }
+.timeline__count { font-weight: 400; font-size: 11px; color: var(--t3); font-family: var(--mono); }
+.timeline__ok { margin-left: auto; font-size: 11px; color: var(--ok); font-family: var(--mono); }
+.timeline__body { border-top: 1px solid var(--hair-2); padding: 12px 14px 2px; }
+.step { display: flex; gap: 10px; }
+.step__rail {
+  display: flex; flex-direction: column; align-items: center;
+  width: 14px; flex: 0 0 14px; padding-top: 5px;
+}
+.step__dot { width: 7px; height: 7px; border-radius: 2px; background: var(--ok); flex: 0 0 7px; }
+.step__line { flex: 1; width: 1px; background: var(--hair); margin-top: 4px; }
+.step__card { flex: 1; margin-bottom: 12px; display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
+.step__tool { font-family: var(--mono); font-size: 12px; color: var(--t1); }
+.step__desc { color: var(--t3); font-size: 11.5px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step__ms { font-family: var(--mono); font-size: 10.5px; color: var(--t3); }
+
+/* ---- 引用来源（照搬 sources/src 样式）---- */
+.sources { margin-top: 10px; border-radius: var(--r); overflow: hidden; background: var(--ink-2); }
+.sources__title {
+  display: flex; align-items: center; gap: 6px; padding: 9px 13px;
+  font-size: 11px; color: var(--t3); font-family: var(--mono); letter-spacing: 1px;
+  border-bottom: 1px solid var(--hair-2);
+}
+.sources__title svg { width: 12px; height: 12px; }
+.src { display: flex; gap: 11px; align-items: center; padding: 9px 13px; }
+.src + .src { border-top: 1px solid var(--hair-2); }
+.src__icon { color: var(--t3); flex: 0 0 14px; display: flex; }
+.src__icon svg { width: 14px; height: 14px; }
+.src__body { flex: 1; min-width: 0; }
+.src__name { font-size: 12px; font-family: var(--mono); color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src__snip { font-size: 11px; color: var(--t3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src__side { display: flex; align-items: center; gap: 8px; }
+/* 相关度细条 */
+.src__bar { width: 60px; height: 3px; border-radius: 2px; background: var(--ink-3); overflow: hidden; }
+.src__bar i { display: block; height: 100%; background: var(--steel); }
+.src__pct { font-family: var(--mono); font-size: 10.5px; color: var(--t2); width: 30px; text-align: right; }
+
+/* ---- 推荐追问 chips ---- */
+.suggest-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.suggest-chip {
+  display: inline-flex; align-items: center;
+  padding: 5px 12px; border-radius: var(--r-sm); cursor: pointer;
+  border: 1px solid var(--hair); color: var(--t3);
+  font-size: 12px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.suggest-chip:hover { color: var(--t2); border-color: var(--hair); }
+
+/* ---- 输入区（照搬 composer 样式）---- */
+.composer-wrap { padding: 14px 24px 18px; border-top: 1px solid var(--hair-2); }
+.composer {
+  max-width: 840px; margin: 0 auto;
+  border-radius: var(--r); padding: 12px 14px;
+  background: var(--ink-0); border: 1px solid var(--hair-2);
+  transition: border-color .15s ease;
+}
+.composer:focus-within { border-color: rgba(156, 180, 205, .5); }
+.composer textarea {
+  width: 100%; border: 0; outline: 0; resize: none; background: transparent;
+  color: var(--t1); font-size: 14px; line-height: 1.6; font-family: inherit; height: 42px;
+}
+.composer textarea::placeholder { color: var(--t3); }
+.composer__foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--t3); padding: 3px 9px; border-radius: 3px;
+  border: 1px solid var(--hair-2); cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.tool-chip:hover { color: var(--t2); border-color: var(--hair); }
+.tool-chip svg { width: 12px; height: 12px; }
+.composer__count { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--t3); }
+/* 银青发送按钮 */
+.btn-send {
+  width: 34px; height: 34px; border: 0; border-radius: var(--r-sm); cursor: pointer;
+  background: var(--lamp); color: #101720;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s ease;
+}
+.btn-send:hover { background: #b3c9de; }
+.btn-send svg { width: 15px; height: 15px; }
+
+/* 滚动条（照搬）*/
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(232, 230, 223, .14); border-radius: 2px; }
+::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- 背景：壁纸 + 轻压暗，壁纸清晰可见 -->
+<div class="bg">
+  <div class="bg__img"></div>
+  <div class="bg__shade"></div>
+</div>
+
+<div class="shell">
+
+  <!-- 导航 Rail：原样照搬，知识库项设为 active -->
+  <nav class="rail">
+    <div class="rail__logo">L</div>
+
+    <!-- 首页 -->
+    <div class="rail__item" title="首页">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/>
+      </svg>
+    </div>
+
+    <!-- AI 中心 -->
+    <div class="rail__item" title="AI 中心">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>
+      </svg>
+    </div>
+
+    <!-- 知识库 — active -->
+    <div class="rail__item active" title="知识库">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+        <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+      </svg>
+    </div>
+
+    <!-- 数据评测 -->
+    <div class="rail__item" title="数据评测">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M3 3v18h18"/>
+        <path d="M7 15l4-6 3 4 5-8"/>
+      </svg>
+    </div>
+
+    <!-- 平台管理 -->
+    <div class="rail__item" title="平台管理">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+        <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+      </svg>
+    </div>
+
+    <div class="rail__spacer"></div>
+
+    <!-- 设置 -->
+    <div class="rail__item" title="设置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </div>
+
+    <div class="rail__avatar">L</div>
+  </nav>
+
+  <!-- 会话侧栏：知识库专属内容 -->
+  <aside class="sidebar">
+    <div class="sidebar__head">
+      <!-- 「新对话」银青实心按钮 -->
+      <button class="btn-new">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        新对话
+      </button>
+    </div>
+
+    <!-- 搜索框 -->
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="M21 21l-4.3-4.3"/>
+      </svg>
+      搜索对话记录…
+    </div>
+
+    <!-- 知识库 KB 分组 -->
+    <div class="sidebar__group">知识库 KB</div>
+
+    <!-- 当前选中知识库卡（--ink-2 块，静态） -->
+    <div class="kb-card">
+      <div class="kb-card__name">产品技术文档库</div>
+      <div class="kb-card__meta">128 篇 / 246,318 向量</div>
+    </div>
+
+    <!-- 未选中的库行 -->
+    <div class="kb-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+        <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+      </svg>
+      <span class="kb-row__name">研发规范库</span>
+    </div>
+    <div class="kb-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+        <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+      </svg>
+      <span class="kb-row__name">会议纪要库</span>
+    </div>
+
+    <!-- TODAY 分组：知识库会话列表 -->
+    <div class="sidebar__group">TODAY</div>
+
+    <div class="sessions">
+      <!-- active 会话：技术架构问答 -->
+      <div class="session active">
+        <div class="session__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+            <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+          </svg>
+        </div>
+        <div class="session__body">
+          <div class="session__title">项目的技术架构是什么？</div>
+          <div class="session__meta"><span class="chip">知识库</span>14:07</div>
+        </div>
+      </div>
+
+      <!-- 其余三条知识库会话 -->
+      <div class="session">
+        <div class="session__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+            <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+          </svg>
+        </div>
+        <div class="session__body">
+          <div class="session__title">RAG 评测跑一次要多久</div>
+          <div class="session__meta"><span class="chip">知识库</span>11:42</div>
+        </div>
+      </div>
+
+      <div class="session">
+        <div class="session__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+            <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+          </svg>
+        </div>
+        <div class="session__body">
+          <div class="session__title">图谱在检索里起什么作用</div>
+          <div class="session__meta"><span class="chip">知识库</span>昨天</div>
+        </div>
+      </div>
+
+      <div class="session">
+        <div class="session__icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+            <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+          </svg>
+        </div>
+        <div class="session__body">
+          <div class="session__title">知识库如何增量更新文档</div>
+          <div class="session__meta"><span class="chip">知识库</span>6月30日</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 侧栏底部：最近入库 + 索引健康 -->
+    <div class="side-stats">
+      <div class="side-stats__row"><span>最近入库</span><b>3 篇</b></div>
+      <div class="side-stats__row"><span>索引健康</span><b>98%</b></div>
+      <!-- 进度条（--steel 色）-->
+      <div class="side-stats__bar"><i style="width: 98%"></i></div>
+      <div class="side-stats__cap">向量索引正常 · 最近同步 2 分钟前</div>
+    </div>
+  </aside>
+
+  <!-- 主区：知识库问答 -->
+  <main class="main">
+
+    <!-- 顶栏：宋体标题 + 状态点 + 清空按钮，不含 tab -->
+    <div class="topbar">
+      <span class="topbar__title">知识库助手</span>
+      <div class="topbar__right">
+        <!-- 状态点（呼吸动画）-->
+        <span class="status-dot"><i></i>rag · online</span>
+        <!-- 清空图标按钮 -->
+        <button class="icon-btn" title="清空对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 消息流 -->
+    <div class="messages">
+      <div class="messages__inner">
+
+        <!-- 日期分隔线 -->
+        <div class="divider">TODAY · 07-04</div>
+
+        <!-- ============ 第一轮：技术架构追问 ============ -->
+        <!-- 用户消息 -->
+        <div class="msg msg--user">
+          <div class="avatar avatar--user">L</div>
+          <div class="msg__col">
+            <div class="bubble bubble--user">项目的技术架构是什么？前后端怎么分工的？</div>
+            <div class="msg__time">14:07</div>
+          </div>
+        </div>
+
+        <!-- AI 回复 -->
+        <div class="msg">
+          <div class="avatar avatar--ai">
+            <!-- AI 月相图标 -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>
+            </svg>
+          </div>
+          <div class="msg__col" style="max-width: 88%">
+
+            <!-- 检索时间线：3 steps -->
+            <div class="timeline">
+              <div class="timeline__head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="11" cy="11" r="7"/>
+                  <path d="M21 21l-4.3-4.3"/>
+                </svg>
+                检索过程 <span class="timeline__count">3 steps · 730ms</span>
+                <span class="timeline__ok">done</span>
+              </div>
+              <div class="timeline__body">
+                <!-- step 1: kb_search -->
+                <div class="step">
+                  <div class="step__rail">
+                    <div class="step__dot"></div>
+                    <div class="step__line"></div>
+                  </div>
+                  <div class="step__card">
+                    <span class="step__tool">kb_search</span>
+                    <span class="step__desc">向量检索 Top8 相关片段（Milvus · 产品技术文档库）</span>
+                    <span class="step__ms">230ms</span>
+                  </div>
+                </div>
+                <!-- step 2: graph_query -->
+                <div class="step">
+                  <div class="step__rail">
+                    <div class="step__dot"></div>
+                    <div class="step__line"></div>
+                  </div>
+                  <div class="step__card">
+                    <span class="step__tool">graph_query</span>
+                    <span class="step__desc">图谱扩展：架构 → 服务 / 存储关联实体（Neo4j）</span>
+                    <span class="step__ms">410ms</span>
+                  </div>
+                </div>
+                <!-- step 3: rerank（末尾无 line）-->
+                <div class="step">
+                  <div class="step__rail">
+                    <div class="step__dot"></div>
+                  </div>
+                  <div class="step__card">
+                    <span class="step__tool">rerank</span>
+                    <span class="step__desc">重排序取 Top3，过滤低相关片段</span>
+                    <span class="step__ms">90ms</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 回答气泡：ul + code 样式，Go/Python 分工内容 -->
+            <div class="bubble bubble--ai">
+              Cognida 采用 <b>Go + Python 双服务架构</b>，职责严格分离：
+              <ul>
+                <li><code>cognida-go</code> 是主后端，承担 HTTP 接口、任务调度与 UI 契约拼装（<code>handler → service → model ← repository</code>）；</li>
+                <li><code>cognida-python</code> 只做计算与分析：RAG 评测、向量化处理，通过 <code>gRPC</code>（高性能大数据）和 <code>MCP</code>（AI 工具调用）与 Go 通信；</li>
+                <li>存储层分工：<code>MySQL</code> 元数据与配置，<code>Milvus</code> 向量与特征，<code>Neo4j</code> 知识图谱与血缘，<code>Redis</code> 缓存与队列。</li>
+              </ul>
+              <p>设计模式上统一使用 Builder / Factory / Repository / Middleware / Strategy，全链路通过 <code>request_id</code> 串联，写操作强制 <code>idempotency_key</code>。</p>
+            </div>
+
+            <!-- 引用来源：3 条，含相关度细条 -->
+            <div class="sources">
+              <div class="sources__title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/>
+                  <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+                </svg>
+                REFERENCES · 3
+              </div>
+              <!-- 来源 1 -->
+              <div class="src">
+                <div class="src__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                  </svg>
+                </div>
+                <div class="src__body">
+                  <div class="src__name">docs/mcp-integration-architecture.md</div>
+                  <div class="src__snip">服务间通信采用 gRPC（高性能、大数据）与 MCP（AI 工具调用）双通道…</div>
+                </div>
+                <div class="src__side">
+                  <div class="src__bar"><i style="width: 92%"></i></div>
+                  <span class="src__pct">.92</span>
+                </div>
+              </div>
+              <!-- 来源 2 -->
+              <div class="src">
+                <div class="src__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                  </svg>
+                </div>
+                <div class="src__body">
+                  <div class="src__name">CLAUDE.md</div>
+                  <div class="src__snip">依赖方向 handler → service → model ← repository，存储约定 MySQL / Milvus / Neo4j / Redis…</div>
+                </div>
+                <div class="src__side">
+                  <div class="src__bar"><i style="width: 87%"></i></div>
+                  <span class="src__pct">.87</span>
+                </div>
+              </div>
+              <!-- 来源 3 -->
+              <div class="src">
+                <div class="src__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                  </svg>
+                </div>
+                <div class="src__body">
+                  <div class="src__name">docs/feature-roadmap.md</div>
+                  <div class="src__snip">Python 服务仅承担计算 / 分析类任务，UI 契约统一由 Go 端拼装…</div>
+                </div>
+                <div class="src__side">
+                  <div class="src__bar"><i style="width: 81%"></i></div>
+                  <span class="src__pct">.81</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="msg__time">14:08 · 引用 3 篇文档 · 已按相关度重排</div>
+          </div>
+        </div>
+
+        <!-- ============ 第二轮：RAG 评测追问（体现图谱增强）============ -->
+        <!-- 用户消息 -->
+        <div class="msg msg--user">
+          <div class="avatar avatar--user">L</div>
+          <div class="msg__col">
+            <div class="bubble bubble--user">RAG 评测跑一次要多久？指标有哪些？</div>
+            <div class="msg__time">14:22</div>
+          </div>
+        </div>
+
+        <!-- AI 回复 -->
+        <div class="msg">
+          <div class="avatar avatar--ai">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>
+            </svg>
+          </div>
+          <div class="msg__col" style="max-width: 88%">
+
+            <!-- 检索时间线：2 steps（无 graph_query，体现追问精简） -->
+            <div class="timeline">
+              <div class="timeline__head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="11" cy="11" r="7"/>
+                  <path d="M21 21l-4.3-4.3"/>
+                </svg>
+                检索过程 <span class="timeline__count">2 steps · 260ms</span>
+                <span class="timeline__ok">done</span>
+              </div>
+              <div class="timeline__body">
+                <!-- step 1 -->
+                <div class="step">
+                  <div class="step__rail">
+                    <div class="step__dot"></div>
+                    <div class="step__line"></div>
+                  </div>
+                  <div class="step__card">
+                    <span class="step__tool">kb_search</span>
+                    <span class="step__desc">向量检索 Top6 评测相关片段（Milvus）</span>
+                    <span class="step__ms">190ms</span>
+                  </div>
+                </div>
+                <!-- step 2 -->
+                <div class="step">
+                  <div class="step__rail">
+                    <div class="step__dot"></div>
+                  </div>
+                  <div class="step__card">
+                    <span class="step__tool">rerank</span>
+                    <span class="step__desc">重排序取 Top2，命中评测指标文档</span>
+                    <span class="step__ms">70ms</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 回答气泡：指标列表（code 样式） -->
+            <div class="bubble bubble--ai">
+              RAG 评测单次运行时长取决于评测集规模，通常 <b>50–200 条样本约需 2–8 分钟</b>（Python 服务异步跑批，Go 端轮询任务状态）。核心指标体系如下：
+              <ul>
+                <li><code>faithfulness</code>：回答与检索片段的事实一致性，防止 LLM 幻觉；</li>
+                <li><code>answer_relevancy</code>：生成答案与问题的语义相关度；</li>
+                <li><code>context_recall</code>：检索结果对 ground-truth 的覆盖率；</li>
+                <li><code>context_precision</code>：检索结果中相关片段的精确率；</li>
+                <li><code>answer_correctness</code>：对比标准答案的综合正确率（含 F1）。</li>
+              </ul>
+              <p>指标计算在 <code>cognida-python/services/evaluation</code> 中逐任务异步执行，结果聚合后持久化到 MySQL，供 Go 端 API 拉取展示。</p>
+            </div>
+
+            <!-- 引用来源：2 条 -->
+            <div class="sources">
+              <div class="sources__title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/>
+                  <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+                </svg>
+                REFERENCES · 2
+              </div>
+              <!-- 来源 1 -->
+              <div class="src">
+                <div class="src__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                  </svg>
+                </div>
+                <div class="src__body">
+                  <div class="src__name">docs/evaluation.md</div>
+                  <div class="src__snip">评测任务提交后，Python 服务按 batch 逐条计算 faithfulness / answer_relevancy…</div>
+                </div>
+                <div class="src__side">
+                  <div class="src__bar"><i style="width: 94%"></i></div>
+                  <span class="src__pct">.94</span>
+                </div>
+              </div>
+              <!-- 来源 2 -->
+              <div class="src">
+                <div class="src__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                  </svg>
+                </div>
+                <div class="src__body">
+                  <div class="src__name">cognida-python/services/evaluation</div>
+                  <div class="src__snip">compute_metrics() 异步执行，任务级结果聚合后写入 MySQL evaluation_results 表…</div>
+                </div>
+                <div class="src__side">
+                  <div class="src__bar"><i style="width: 85%"></i></div>
+                  <span class="src__pct">.85</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 推荐追问 chips：hairline 边，--t3 字 -->
+            <div class="suggest-row">
+              <span class="suggest-chip">评测指标怎么聚合的？</span>
+              <span class="suggest-chip">知识库如何增量更新？</span>
+              <span class="suggest-chip">图谱在检索里起什么作用？</span>
+            </div>
+
+            <div class="msg__time">14:23 · 引用 2 篇文档 · 已按相关度重排</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 输入区 composer -->
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea placeholder="就当前知识库提问…"></textarea>
+        <div class="composer__foot">
+          <!-- tool-chip：产品技术文档库（书本图标）-->
+          <span class="tool-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/>
+              <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>
+            </svg>
+            产品技术文档库
+          </span>
+          <!-- tool-chip：图谱增强（节点图标）-->
+          <span class="tool-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="6" cy="12" r="2.5"/>
+              <circle cx="18" cy="6" r="2.5"/>
+              <circle cx="18" cy="18" r="2.5"/>
+              <line x1="8.2" y1="11" x2="15.8" y2="7"/>
+              <line x1="8.2" y1="13" x2="15.8" y2="17"/>
+            </svg>
+            图谱增强
+          </span>
+          <!-- 字数计数 + 发送按钮 -->
+          <span class="composer__count">0 / 4000</span>
+          <button class="btn-send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9 9"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

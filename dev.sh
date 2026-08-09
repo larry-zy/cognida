@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Link 全栈一键启停脚本
+# Cognida 全栈一键启停脚本
 #
 #   ./dev.sh start     启动全部应用服务(Go + Python 四服务 + 前端)
 #   ./dev.sh stop      停止全部并清理端口(保证不残留占端口)
@@ -11,13 +11,13 @@
 # 说明:
 #   - 中间件(MySQL/Redis/Milvus/Neo4j)不由本脚本代管启停(它们常驻、跨
 #     brew/docker),仅在 start 时做连通性预检并给出提示。
-#   - PID 与日志落在 dev-run/ (已在 .gitignore 忽略)。
-#   - Go 服务由 godotenv 自动加载 link-go/.env,无需手动 source。
+#   - PID 与日志落在 var/run/ (已在 .gitignore 忽略)。
+#   - Go 服务由 godotenv 自动加载 services/cognida-go/.env,无需手动 source。
 # =============================================================================
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUN_DIR="$ROOT/dev-run"
+RUN_DIR="$ROOT/var/run"
 mkdir -p "$RUN_DIR"
 
 # 前端包管理器(有 pnpm-lock 且装了 pnpm 时可切 pnpm)
@@ -27,12 +27,12 @@ WEB_PM="npm"
 # 注意: 端口列表用于 status 展示与 stop 兜底清理。
 service_defs() {
   cat <<'EOF'
-go|link-go|8080|go run ./cmd/server/main.go
-py-grpc|link-python|50051 50053|uv run python -m grpc_service.server
-py-http|link-python|8000|uv run python main.py
-py-eval|link-python|18888|uv run uvicorn services.evaluation.fastapi_app:app --host 0.0.0.0 --port 18888
-py-mcp|link-python|3100|uv run python -m mcp_service.server
-web|link-web|5173|__WEB_DEV__
+go|services/cognida-go|8080|go run ./cmd/server/main.go
+py-grpc|services/cognida-python|50051 50053|uv run python -m grpc_service.server
+py-http|services/cognida-python|8000|uv run python main.py
+py-eval|services/cognida-python|18888|uv run uvicorn services.evaluation.fastapi_app:app --host 0.0.0.0 --port 18888
+py-mcp|services/cognida-python|3100|uv run python -m mcp_service.server
+web|apps/cognida-web|5173|__WEB_DEV__
 EOF
 }
 
@@ -103,7 +103,7 @@ start_deps() {
       info "启动 $name : $start"
       eval "$start" >>"$RUN_DIR/deps.log" 2>&1 \
         && ok "$name 启动命令已执行" \
-        || warn "$name 启动命令失败(见 dev-run/deps.log)"
+        || warn "$name 启动命令失败(见 var/run/deps.log)"
     fi
   done < <(middleware_defs)
   # 给 DB/Milvus 一点起来的时间
@@ -122,7 +122,7 @@ stop_deps() {
       info "停止 $name : $stop"
       eval "$stop" >>"$RUN_DIR/deps.log" 2>&1 \
         && ok "$name 停止命令已执行" \
-        || warn "$name 停止命令失败(见 dev-run/deps.log)"
+        || warn "$name 停止命令失败(见 var/run/deps.log)"
     else
       ok "$name (:$port) 未在运行,跳过"
     fi
@@ -157,7 +157,7 @@ start_one() {
     fi
   ) >"$log" 2>&1 &
   echo $! >"$pidfile"
-  echo "   PID=$(cat "$pidfile")  端口=$ports  日志: dev-run/$name.log"
+  echo "   PID=$(cat "$pidfile")  端口=$ports  日志: var/run/$name.log"
 }
 
 cmd_start() {

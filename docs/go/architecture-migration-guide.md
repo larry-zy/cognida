@@ -1,4 +1,4 @@
-# Link-Go 架构迁移指南
+# Cognida-Go 架构迁移指南
 
 > 从 Clean Architecture 迁移到 Component-based Architecture
 
@@ -148,7 +148,7 @@ internal/
 #### 0.1 建立新目录结构
 
 ```bash
-cd link-go/internal
+cd cognida-go/internal
 
 # 创建新目录（不影响现有结构）
 mkdir -p pkg/{errors,types,utils}

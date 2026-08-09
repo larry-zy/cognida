@@ -11,7 +11,7 @@
 | 能力 | 现状 | 位置 |
 |------|------|------|
 | **查询** 数据 | ✅ Text2SQL，只读 SQL | `internal/service/agent/presets/text2sql/`，工具 `sql_execute`、`get_schema` |
-| **分析** 数据 | ✅ 5 个 MCP 分析工具（describe/trend/anomaly/correlation/insight），Python 算、Go 路由 | `link-python/tools/analytics/`，Go 侧 `tools/data_analysis.go` |
+| **分析** 数据 | ✅ 5 个 MCP 分析工具（describe/trend/anomaly/correlation/insight），Python 算、Go 路由 | `cognida-python/tools/analytics/`，Go 侧 `tools/data_analysis.go` |
 | **渲染** 数据 | ✅ A2UI 生成式 UI，SQL+分析结果真实融合，7 种组件 | `internal/service/agent/genui/`，前端 `A2UIRenderer.vue` |
 | **操作** 数据 | ❌ 完全没有（无写 SQL、无导出、无确认流） | — |
 
@@ -234,12 +234,12 @@ Phase 9  测试 + Review + 提交
 - 初始化：`internal/service/agent/initializer/init.go`、`cmd/server/main.go`（注册子代理到 CollaborationRegistry）
 - 审计表：新增 GORM model + `cmd/migrate-db` 同步
 
-**前端 link-web**
+**前端 cognida-web**
 - `src/components/agent/A2UINode.vue`（交互组件回调）、`A2UIRenderer.vue`、`a2ui-context.ts`
 - `src/views/ai/AICenterView.vue`（多 UI surface、确认卡片）
 
-**Python link-python**（计算侧不变，按 result_id 契约对接）
-- `link-python/tools/analytics/`、`services/analytics/`
+**Python cognida-python**（计算侧不变，按 result_id 契约对接）
+- `cognida-python/tools/analytics/`、`services/analytics/`
 
 ---
 

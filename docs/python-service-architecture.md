@@ -1,8 +1,8 @@
-# Link-Python 服务架构设计文档
+# Cognida-Python 服务架构设计文档
 
 ## 文档说明
 
-本文档描述 Link 系统中 Python 服务的架构设计。
+本文档描述 Cognida 系统中 Python 服务的架构设计。
 
 **核心理念**：Go 是 Agent 的大脑，Python 是能力增强的工具箱。
 
@@ -388,11 +388,11 @@ service HighPerformanceTools {
 ### 7.1 Python 服务目录结构
 
 ```
-link-python/
+cognida-python/
 ├── proto/                              # gRPC 协议定义
 │   └── high_performance_tools.proto   # 高性能工具协议
 │
-├── link_python/
+├── cognida_python/
 │   ├── __init__.py
 │   │
 │   ├── mcp/                            # MCP 协议层
@@ -450,7 +450,7 @@ link-python/
 ### 7.2 Go 服务集成
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── infrastructure/
 │   ├── mcp/                            # MCP 客户端
 │   │   ├── client.go
@@ -506,10 +506,10 @@ uv sync --all-extras
 cp .env.example .env
 
 # 启动 MCP Server (stdio)
-uv run python -m link_python.mcp.server
+uv run python -m cognida_python.mcp.server
 
 # 启动 gRPC Server (另一个终端)
-uv run python -m link_python.grpc.server
+uv run python -m cognida_python.grpc.server
 ```
 
 ### 9.2 生产部署
@@ -518,18 +518,18 @@ uv run python -m link_python.grpc.server
 # docker-compose.yml
 version: '3.8'
 services:
-  link-go:
-    build: ./link-go
+  cognida-go:
+    build: ./cognida-go
     ports:
       - "8080:8080"
     environment:
-      - PYTHON_MCP_SERVER=link-python:3000
-      - PYTHON_GRPC_SERVER=link-python:50051
+      - PYTHON_MCP_SERVER=cognida-python:3000
+      - PYTHON_GRPC_SERVER=cognida-python:50051
     depends_on:
-      - link-python
+      - cognida-python
 
-  link-python:
-    build: ./link-python
+  cognida-python:
+    build: ./cognida-python
     ports:
       - "3000:3000"   # MCP HTTP
       - "50051:50051" # gRPC
@@ -539,8 +539,8 @@ services:
       - GRPC_PORT=50051
     command: >
       sh -c "
-        uv run python -m link_python.mcp.server --port 3000 &
-        uv run python -m link_python.grpc.server --port 50051
+        uv run python -m cognida_python.mcp.server --port 3000 &
+        uv run python -m cognida_python.grpc.server --port 50051
       "
 ```
 

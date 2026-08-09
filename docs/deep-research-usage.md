@@ -224,7 +224,7 @@ Deep Research 可以使用以下工具：
 
 ```bash
 # 运行集成测试
-cd link-go
+cd cognida-go
 export OPENAI_API_KEY=your-key
 go test -v -tags=integration ./internal/application/usecases/agent/research/
 

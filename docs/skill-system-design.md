@@ -1,8 +1,8 @@
-# Link Skill 系统设计方案
+# Cognida Skill 系统设计方案
 
 ## 文档说明
 
-本文档描述 Skill 系统融入 Link Agent 架构的设计方案。
+本文档描述 Skill 系统融入 Cognida Agent 架构的设计方案。
 
 **设计理念**: Skill 作为 Agent 能力的动态组合单元
 
@@ -402,7 +402,7 @@ type ToolRegistry interface {
 ### 5.1 目录结构
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── domain/
 │   └── agent/
 │       ├── skill.go                    # Skill 领域实体
@@ -1985,7 +1985,7 @@ skills:
   mcp_servers:
     - name: python-data
       transport: stdio
-      command: python -m link_python.mcp.server
+      command: python -m cognida_python.mcp.server
       auto_discover: true
 
     - name: third-party-tools

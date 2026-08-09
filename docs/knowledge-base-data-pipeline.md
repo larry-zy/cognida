@@ -1,8 +1,8 @@
-# Link 知识库数据处理流程文档
+# Cognida 知识库数据处理流程文档
 
 ## 文档概述
 
-本文档详细说明 Link 系统中知识库的数据处理流程，包括数据从上传到可检索的完整转换过程，重点介绍归一化处理、向量化等核心环节。
+本文档详细说明 Cognida 系统中知识库的数据处理流程，包括数据从上传到可检索的完整转换过程，重点介绍归一化处理、向量化等核心环节。
 
 ---
 
@@ -72,7 +72,7 @@
 通过 **Python gRPC 服务** (`docreader`) 进行文档解析：
 
 ```go
-// 文件位置: link-go/internal/application/usecases/knowledge/document_processor.go
+// 文件位置: cognida-go/internal/application/usecases/knowledge/document_processor.go
 
 parseReq := &docreader.ParseDocumentRequest{
     Options: &docreader.ParseOptions{
@@ -179,7 +179,7 @@ type Chunk struct {
 在相似度计算服务中，对文本进行 **Unicode 归一化**：
 
 ```go
-// 文件位置: link-go/internal/domain/services/similarity.go
+// 文件位置: cognida-go/internal/domain/services/similarity.go
 
 // tokenize 对文本进行分词和归一化
 func tokenize(text string) []string {
@@ -562,19 +562,19 @@ Content-Type: multipart/form-data
 
 | 功能 | 文件路径 |
 |------|---------|
-| 文档处理用例 | `link-go/internal/application/usecases/knowledge/document_processor.go` |
-| 向量检索器 | `link-go/internal/infrastructure/persistence/milvus/retriever/repository.go` |
-| RAG 检索 | `link-go/internal/application/rag/retriever.go` |
-| 相似度计算 | `link-go/internal/domain/services/similarity.go` |
-| RRF 重排 | `link-go/internal/application/rag/rerank.go` |
-| 图谱仓储 | `link-go/internal/infrastructure/persistence/neo4j/graph_repo.go` |
-| Python 文档解析 | `link-python/grpc/servicer/docreader_servicer.py` |
+| 文档处理用例 | `cognida-go/internal/application/usecases/knowledge/document_processor.go` |
+| 向量检索器 | `cognida-go/internal/infrastructure/persistence/milvus/retriever/repository.go` |
+| RAG 检索 | `cognida-go/internal/application/rag/retriever.go` |
+| 相似度计算 | `cognida-go/internal/domain/services/similarity.go` |
+| RRF 重排 | `cognida-go/internal/application/rag/rerank.go` |
+| 图谱仓储 | `cognida-go/internal/infrastructure/persistence/neo4j/graph_repo.go` |
+| Python 文档解析 | `cognida-python/grpc/servicer/docreader_servicer.py` |
 
 ---
 
 ## 十二、总结
 
-Link 知识库数据处理流程的核心特点：
+Cognida 知识库数据处理流程的核心特点：
 
 1. **多阶段管道**: 解析 → 分块 → 存储 → 向量化 → 图谱提取
 2. **混合检索**: 稠密向量 + 稀疏向量 + 图谱检索
@@ -588,4 +588,4 @@ Link 知识库数据处理流程的核心特点：
 
 *文档版本: 1.0*
 *创建日期: 2026-05-12*
-*维护者: Link Team*
+*维护者: Cognida Team*

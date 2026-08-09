@@ -2,18 +2,18 @@
 #
 # 组成：
 #   - loki      :3100   日志聚合/查询后端
-#   - promtail          采集器：抓取宿主机 link-go / link-python 的 *.log 文件推给 Loki
+#   - promtail          采集器：抓取宿主机 cognida-go / cognida-python 的 *.log 文件推给 Loki
 #   - grafana   :3300   查询/可视化（已预置 Loki 数据源）
 #
 # 用法：
 #   1) 让服务把日志写到被采集的目录：
-#        Python：scripts/dev-all.sh 已写入 link-python/logs/*.log（开箱即用）
-#        Go    ：go run ./cmd/server 2>&1 | tee link-go/logs/server.log
-#              （或 mkdir -p link-go/logs && ... > link-go/logs/server.log 2>&1）
+#        Python：scripts/dev-all.sh 已写入 cognida-python/logs/*.log（开箱即用）
+#        Go    ：go run ./cmd/server 2>&1 | tee cognida-go/logs/server.log
+#              （或 mkdir -p cognida-go/logs && ... > cognida-go/logs/server.log 2>&1）
 #   2) cd deploy/loki && docker compose up -d
 #   3) 打开 http://localhost:3300 （匿名登录，已是 Admin），Explore → Loki
 #        LogQL 示例（按 request_id 追踪全链路）：
-#          {job="link"} |= "rid-from-go"
+#          {job="cognida"} |= "rid-from-go"
 #          {service="eval"} |= "request_id="
 #
 # request_id 说明：request_id 属高基数字段，故不作为 Loki label（否则 stream 爆炸），
@@ -22,7 +22,7 @@
 services:
   loki:
     image: grafana/loki:2.9.8
-    container_name: link-loki
+    container_name: cognida-loki
     command: -config.file=/etc/loki/loki-config.yml
     ports:
       - "3100:3100"
@@ -33,13 +33,13 @@ services:
 
   promtail:
     image: grafana/promtail:2.9.8
-    container_name: link-promtail
+    container_name: cognida-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
       - ./promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       # 宿主机日志目录（相对本 compose 文件：deploy/loki → 仓库根）
-      - ../../link-python/logs:/var/log/link/python:ro
-      - ../../link-go/logs:/var/log/link/go:ro
+      - ../../cognida-python/logs:/var/log/cognida/python:ro
+      - ../../cognida-go/logs:/var/log/cognida/go:ro
       - promtail-positions:/tmp/promtail
     depends_on:
       - loki
@@ -47,7 +47,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.1.0
-    container_name: link-grafana
+    container_name: cognida-grafana
     ports:
       - "3300:3000"
     environment:

@@ -1,29 +1,30 @@
 # buf 代码生成配置（架构加固 Phase 4，任务 4.3）
 #
 # 两组输出、回生成到既有路径，消费方 import 零改动：
-#   Go     → out=link-go + opt=module=link：protoc-gen-go 用各文件 go_package
-#            （link/api/proto/<svc>）去掉 module 前缀 link 计算落点，得
-#            link-go/api/proto/<svc>/<svc>.pb.go，import 路径 link/api/proto/<svc> 不变。
-#   Python → out=link-python：因 module root 在仓库根，文件寻址为 proto/<svc>.proto，
-#            落点 link-python/proto/<svc>_pb2.py，内部 import `from proto import <svc>_pb2` 不变。
+#   Go     → out=cognida-go + opt=module=cognida：protoc-gen-go 用各文件 go_package
+#            （cognida/api/proto/<svc>）去掉 module 前缀 cognida 计算落点，得
+#            services/cognida-go/api/proto/<svc>/<svc>.pb.go；go_package 与 go.mod 模块名
+#            （cognida）一致，import 路径 cognida/api/proto/<svc> 与物理落点自洽。
+#   Python → out=cognida-python：因 module root 在仓库根，文件寻址为 proto/<svc>.proto，
+#            落点 services/cognida-python/proto/<svc>_pb2.py，内部 import `from proto import <svc>_pb2` 不变。
 #
 # 插件版本 pin 到现有产物同版本：Python gencode 5.27.2（protoc v27.2）已知与运行时
 # protobuf 6.33.6 兼容；grpc/python v1.66.1 ≤ 运行时 grpcio 1.81.1。避免 latest 漂移
 # 导致 gencode 版本高于运行时而 import 失败，同时保证一致性门（4.8）可复现。
 version: v2
 managed:
-  # 不启用 managed 模式：保留各 .proto 显式声明的 go_package，交由 module=link 计算落点。
+  # 不启用 managed 模式：保留各 .proto 显式声明的 go_package，交由 module=cognida 计算落点。
   enabled: false
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.11
-    out: link-go
+    out: services/cognida-go
     opt:
-      - module=link
+      - module=cognida
   - remote: buf.build/grpc/go:v1.6.1
-    out: link-go
+    out: services/cognida-go
     opt:
-      - module=link
+      - module=cognida
   - remote: buf.build/protocolbuffers/python:v27.2
-    out: link-python
+    out: services/cognida-python
   - remote: buf.build/grpc/python:v1.66.1
-    out: link-python
+    out: services/cognida-python

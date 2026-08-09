@@ -1,6 +1,6 @@
 # 3-Layer 架构迁移指南
 
-> 本文档描述 Link-Go 项目从 4-Layer Clean Architecture 到 3-Layer Service Architecture 的迁移过程
+> 本文档描述 Cognida-Go 项目从 4-Layer Clean Architecture 到 3-Layer Service Architecture 的迁移过程
 
 ## 概述
 
@@ -281,4 +281,4 @@ A: 不同存储（MySQL、Milvus、Neo4j）在 repository/ 下有独立实现，
 ## 参考
 
 - 主架构文档：`docs/go/CLEAN_ARCHITECTURE.md`
-- CLAUDE.md：`link-go/CLAUDE.md`
+- CLAUDE.md：`cognida-go/CLAUDE.md`

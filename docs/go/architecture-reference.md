@@ -1,4 +1,4 @@
-# Link-Go 架构参考设计
+# Cognida-Go 架构参考设计
 
 > 基于 Eino (字节跳动) 和 Grafana 的架构模式，结合项目实际情况设计
 

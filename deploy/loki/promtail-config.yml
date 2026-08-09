@@ -1,7 +1,7 @@
-# Promtail 采集配置：抓取宿主机挂入的 link-go / link-python 日志文件，推送到 Loki。
+# Promtail 采集配置：抓取宿主机挂入的 cognida-go / cognida-python 日志文件，推送到 Loki。
 #
 # 标签策略（低基数）：
-#   job=link           固定，便于 {job="link"} 全量检索
+#   job=cognida           固定，便于 {job="cognida"} 全量检索
 #   stack=go|python    区分服务栈
 #   service=<文件名>    如 eval/grpc/http/mcp/server（由文件路径正则提取）
 # request_id 不做 label（高基数），保留在日志行内，用 LogQL 行过滤检索。
@@ -18,13 +18,13 @@ clients:
 
 scrape_configs:
   # Python 四服务：logs/{grpc,http,eval,mcp}.log
-  - job_name: link-python
+  - job_name: cognida-python
     static_configs:
       - targets: [localhost]
         labels:
-          job: link
+          job: cognida
           stack: python
-          __path__: /var/log/link/python/*.log
+          __path__: /var/log/cognida/python/*.log
     pipeline_stages:
       # 从文件路径提取文件名作为 service 标签（去掉 .log 后缀）
       - match:
@@ -37,13 +37,13 @@ scrape_configs:
                 service:
 
   # Go 服务：logs/*.log（stdout 重定向）
-  - job_name: link-go
+  - job_name: cognida-go
     static_configs:
       - targets: [localhost]
         labels:
-          job: link
+          job: cognida
           stack: go
-          __path__: /var/log/link/go/*.log
+          __path__: /var/log/cognida/go/*.log
     pipeline_stages:
       - match:
           selector: '{stack="go"}'

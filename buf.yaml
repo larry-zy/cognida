@@ -5,15 +5,15 @@
 # stub 内部 import 保持 `from proto import <svc>_pb2`、序列化描述符文件名保持
 # `proto/<svc>.proto`，消费方零改动。
 #
-# excludes：link-go/api/proto 与 link-python/proto 是待删的手抄双份（任务 4.7 打 tag 后删），
-# 与顶层 proto/ 同包名，若不排除会与单一源冲突。link-web 无 .proto，一并排除以缩小扫描面。
+# excludes：services/cognida-go/api/proto 与 services/cognida-python/proto 是待删的手抄双份（任务 4.7 打 tag 后删），
+# 与顶层 proto/ 同包名，若不排除会与单一源冲突。cognida-web 无 .proto，一并排除以缩小扫描面。
 version: v2
 modules:
   - path: .
     excludes:
-      - link-go
-      - link-python
-      - link-web
+      - services/cognida-go
+      - services/cognida-python
+      - apps/cognida-web
 lint:
   # 存量契约沿用扁平布局与无版本后缀命名（package analytics 而非 analytics.v1、
   # 枚举值 COUNT 而非 METRIC_TYPE_COUNT）。此处只收编真正有价值的结构规则，

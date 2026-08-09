@@ -661,5 +661,5 @@ func main() {
 
 ---
 
-**维护者**: Link Team
+**维护者**: Cognida Team
 **最后更新**: 2026-05-04

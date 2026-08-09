@@ -31,7 +31,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_password
-DB_NAME=link_go
+DB_NAME=cognida_go
 
 # Redis (Optional - tests skip if not configured)
 REDIS_ADDR=localhost:6379

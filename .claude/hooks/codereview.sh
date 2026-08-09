@@ -1,5 +1,5 @@
 #!/bin/bash
-# Link 项目 CodeReview 主检查脚本
+# Cognida 项目 CodeReview 主检查脚本
 # 触发: pre-commit, pre-push, 或手动执行
 
 set -e
@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 
-echo "🔍 Link 项目 CodeReview"
+echo "🔍 Cognida 项目 CodeReview"
 echo "======================="
 echo ""
 
@@ -60,7 +60,7 @@ echo -e "${BLUE}📖 [1/4] 语言规范检查${NC}"
 echo "-------------------"
 
 # Go 语言规范
-if echo "$CHANGED_FILES" | grep -q 'link-go/'; then
+if echo "$CHANGED_FILES" | grep -q 'services/cognida-go/'; then
     run_check "Go 语言规范" "bash '$SCRIPT_DIR/check-go-norms.sh'" true
 else
     echo "⏭️  Go 文件未改动，跳过 Go 规范检查"
@@ -68,7 +68,7 @@ else
 fi
 
 # Python 语言规范
-if echo "$CHANGED_FILES" | grep -q 'link-python/'; then
+if echo "$CHANGED_FILES" | grep -q 'services/cognida-python/'; then
     run_check "Python 语言规范" "bash '$SCRIPT_DIR/check-python-norms.sh'" true
 else
     echo "⏭️  Python 文件未改动，跳过 Python 规范检查"
@@ -76,7 +76,7 @@ else
 fi
 
 # Web 前端规范
-if echo "$CHANGED_FILES" | grep -q 'link-web/'; then
+if echo "$CHANGED_FILES" | grep -q 'apps/cognida-web/'; then
     run_check "Web 前端规范" "bash '$SCRIPT_DIR/check-web-norms.sh'" false
 else
     echo "⏭️  Web 文件未改动，跳过 Web 规范检查"
@@ -98,7 +98,7 @@ else
 fi
 
 # API Contract 一致性 (仅当同时改动 Go handler 和 Web)
-if echo "$CHANGED_FILES" | grep -q 'link-web/'; then
+if echo "$CHANGED_FILES" | grep -q 'apps/cognida-web/'; then
     run_check "API Contract" "bash '$SCRIPT_DIR/check-api-contract.sh'" false
 else
     echo "⏭️  Web API 未改动，跳过 Contract 检查"
@@ -112,7 +112,7 @@ echo -e "${BLUE}🏗️  [3/4] 架构合规检查${NC}"
 echo "-------------------"
 
 # Go 架构检查
-if echo "$CHANGED_FILES" | grep -q 'link-go/internal/'; then
+if echo "$CHANGED_FILES" | grep -q 'services/cognida-go/internal/'; then
     run_check "Go 架构规范" "bash '$SCRIPT_DIR/check-go-architecture.sh'" true
 else
     echo "⏭️  Go 架构未改动，跳过架构检查"
@@ -120,7 +120,7 @@ else
 fi
 
 # Python 架构检查
-if echo "$CHANGED_FILES" | grep -q 'link-python/'; then
+if echo "$CHANGED_FILES" | grep -q 'services/cognida-python/'; then
     run_check "Python 架构规范" "bash '$SCRIPT_DIR/check-python-architecture.sh'" true
 else
     echo "⏭️  Python 架构未改动，跳过架构检查"
@@ -134,24 +134,24 @@ echo -e "${BLUE}🐛 [4/4] Bug 检测${NC}"
 echo "---------------"
 
 # Go 编译检查
-if [ -d "$PROJECT_ROOT/link-go" ] && echo "$CHANGED_FILES" | grep -q 'link-go/'; then
-    run_check "Go 编译" "cd '$PROJECT_ROOT/link-go' && go build ./..." true
+if [ -d "$PROJECT_ROOT/services/cognida-go" ] && echo "$CHANGED_FILES" | grep -q 'services/cognida-go/'; then
+    run_check "Go 编译" "cd '$PROJECT_ROOT/services/cognida-go' && go build ./..." true
 else
     echo "⏭️  Go 文件未改动，跳过编译检查"
     echo ""
 fi
 
 # Go vet
-if [ -d "$PROJECT_ROOT/link-go" ] && echo "$CHANGED_FILES" | grep -q 'link-go/'; then
-    run_check "Go vet" "cd '$PROJECT_ROOT/link-go' && go vet ./..." true
+if [ -d "$PROJECT_ROOT/services/cognida-go" ] && echo "$CHANGED_FILES" | grep -q 'services/cognida-go/'; then
+    run_check "Go vet" "cd '$PROJECT_ROOT/services/cognida-go' && go vet ./..." true
 else
     echo "⏭️  跳过 Go vet"
     echo ""
 fi
 
 # 数据竞争检测
-if [ -d "$PROJECT_ROOT/link-go" ] && echo "$CHANGED_FILES" | grep -q 'link-go/'; then
-    run_check "数据竞争检测" "cd '$PROJECT_ROOT/link-go' && timeout 180 go test -race ./... -timeout 120s 2>/dev/null || true" false
+if [ -d "$PROJECT_ROOT/services/cognida-go" ] && echo "$CHANGED_FILES" | grep -q 'services/cognida-go/'; then
+    run_check "数据竞争检测" "cd '$PROJECT_ROOT/services/cognida-go' && timeout 180 go test -race ./... -timeout 120s 2>/dev/null || true" false
 else
     echo "⏭️  跳过数据竞争检测"
     echo ""
@@ -161,8 +161,8 @@ fi
 run_check "SQL 注入风险" "bash '$SCRIPT_DIR/check-sql-injection.sh'" true
 
 # Python 类型检查
-if [ -d "$PROJECT_ROOT/link-python" ] && echo "$CHANGED_FILES" | grep -q 'link-python/'; then
-    run_check "Python 类型检查" "cd '$PROJECT_ROOT/link-python' && mypy ./ 2>/dev/null || true" false
+if [ -d "$PROJECT_ROOT/services/cognida-python" ] && echo "$CHANGED_FILES" | grep -q 'services/cognida-python/'; then
+    run_check "Python 类型检查" "cd '$PROJECT_ROOT/services/cognida-python' && mypy ./ 2>/dev/null || true" false
 else
     echo "⏭️  Python 文件未改动，跳过类型检查"
     echo ""

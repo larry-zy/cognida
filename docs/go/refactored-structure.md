@@ -1,9 +1,9 @@
-# Link-Go 重构后完整文件结构
+# Cognida-Go 重构后完整文件结构
 
 ## 完整目录树
 
 ```
-link-go/
+cognida-go/
 ├── api/
 │   ├── http/
 │   │   ├── router/

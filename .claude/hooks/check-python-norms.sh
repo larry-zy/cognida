@@ -10,13 +10,13 @@ FAILED=0
 echo "📖 Python 语言规范检查..."
 
 # 检查是否有 Python 目录
-if [ ! -d "$PROJECT_ROOT/link-python" ]; then
-    echo "⚠️  link-python 目录不存在，跳过"
+if [ ! -d "$PROJECT_ROOT/services/cognida-python" ]; then
+    echo "⚠️  cognida-python 目录不存在，跳过"
     exit 0
 fi
 
 # 检查类型注解（仅限 .py，排除 .venv/.git/_test；`-- '->'` 避免 -> 被当作 grep 选项）
-missing_rt=$(grep -rn --include='*.py' 'def .*[)]:' "$PROJECT_ROOT/link-python/services/" "$PROJECT_ROOT/link-python/grpc/" 2>/dev/null | \
+missing_rt=$(grep -rn --include='*.py' 'def .*[)]:' "$PROJECT_ROOT/services/cognida-python/services/" "$PROJECT_ROOT/services/cognida-python/grpc/" 2>/dev/null | \
     grep -v '_test.py' | grep -v '/.venv/' | grep -v '/.git/' | grep -v -- '->' || true)
 if [ -n "$missing_rt" ]; then
     echo "$missing_rt" | while read -r line; do
@@ -27,7 +27,7 @@ if [ -n "$missing_rt" ]; then
 fi
 
 # 检查是否有裸 except（排除第三方 .venv 与测试）
-bare_except=$(grep -rn --include='*.py' 'except:' "$PROJECT_ROOT/link-python/" 2>/dev/null | \
+bare_except=$(grep -rn --include='*.py' 'except:' "$PROJECT_ROOT/services/cognida-python/" 2>/dev/null | \
     grep -v '_test.py' | grep -v '/.venv/' | grep -v '/.git/' || true)
 if [ -n "$bare_except" ]; then
     echo "$bare_except"
@@ -36,7 +36,7 @@ if [ -n "$bare_except" ]; then
 fi
 
 # 检查 print vs logger（仅限 .py，排除 .venv/.git/_test）
-print_hits=$(grep -rn --include='*.py' 'print(' "$PROJECT_ROOT/link-python/services/" "$PROJECT_ROOT/link-python/grpc/" 2>/dev/null | \
+print_hits=$(grep -rn --include='*.py' 'print(' "$PROJECT_ROOT/services/cognida-python/services/" "$PROJECT_ROOT/services/cognida-python/grpc/" 2>/dev/null | \
     grep -v '_test.py' | grep -v '/.venv/' | grep -v '/.git/' || true)
 if [ -n "$print_hits" ]; then
     echo "$print_hits"

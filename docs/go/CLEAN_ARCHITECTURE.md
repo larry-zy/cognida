@@ -1,6 +1,6 @@
-# Link-Go 架构文档
+# Cognida-Go 架构文档
 
-> 本文档记录 Link-Go 项目的 3-Layer Service Architecture 架构设计和实现状态
+> 本文档记录 Cognida-Go 项目的 3-Layer Service Architecture 架构设计和实现状态
 
 ## 更新记录
 

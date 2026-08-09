@@ -1,4 +1,4 @@
-# Link 项目功能清单
+# Cognida 项目功能清单
 
 > **文档版本**: v1.1
 > **更新日期**: 2026-05-05
@@ -785,5 +785,5 @@ POST   /api/v1/guardrail/recommendation       # 获取处理建议
 
 ---
 
-**文档维护**: Link Team
+**文档维护**: Cognida Team
 **最后更新**: 2026-02-20

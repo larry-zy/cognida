@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package quality;
 
-option go_package = "link/api/proto/quality";
+option go_package = "cognida/api/proto/quality";
 
 // 质量服务
 service QualityService {

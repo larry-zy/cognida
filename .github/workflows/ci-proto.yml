@@ -1,0 +1,60 @@
+name: CI - Proto 契约门
+
+# proto 契约治理门（〔X-9 / INF-13〕）。单一源在仓库根 proto/，buf.yaml / buf.gen.yaml
+# 亦在仓库根，故本 workflow 不设 working-directory，全部在根执行。
+#   1) lint     —— buf lint（buf.yaml 已收编 MINIMAL 规则集）作阻断门禁；
+#   2) drift    —— buf generate 后 git diff 必须为空，杜绝"改了 .proto 忘了回生成 stub"的漂移；
+#   3) breaking —— buf breaking 对已提交基线镜像 proto/buf-baseline.binpb 比对，拦截意外破坏性契约变更。
+# buf CLI 版本固定为 1.71.0（生成 stub 时所用版本）；生成插件版本已在 buf.gen.yaml 内 pin，
+# 保证 drift 门可复现。
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'buf.gen.yaml'
+      - 'services/cognida-go/api/proto/**'
+      - 'services/cognida-python/proto/**'
+      - '.github/workflows/ci-proto.yml'
+  pull_request:
+    paths:
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'buf.gen.yaml'
+      - 'services/cognida-go/api/proto/**'
+      - 'services/cognida-python/proto/**'
+      - '.github/workflows/ci-proto.yml'
+
+jobs:
+  contract:
+    name: 契约门 (lint + 漂移 + 破坏)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: '1.71.0'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: buf lint
+        run: buf lint
+
+      - name: buf generate（回生成全部 stub）
+        run: buf generate
+
+      - name: 校验生成产物零漂移
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::生成的 proto stub 与 .proto 源不一致。请本地执行 'buf generate' 并提交产物。"
+            exit 1
+          fi
+
+      - name: 对基线镜像检查破坏性变更
+        # 基线镜像 proto/buf-baseline.binpb 是"已审批契约"的快照，仅在有意变更契约时用
+        # `buf build -o proto/buf-baseline.binpb` 主动刷新并提交。任何未同步刷新基线的破坏性
+        # 变更（删字段/改字段号/改类型/改 go_package/删文件）都会在此拦截。
+        run: buf breaking --against proto/buf-baseline.binpb

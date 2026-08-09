@@ -1,4 +1,4 @@
-# Link 项目重构规则优化版 (2026)
+# Cognida 项目重构规则优化版 (2026)
 
 > 结合项目现状、联网搜索最佳实践和 AI 系统特性优化后的重构指南
 
@@ -218,7 +218,7 @@ internal/                                 internal/
 ### 3.2 新目录结构
 
 ```
-link-go/internal/
+cognida-go/internal/
 ├── handler/                      # HTTP/gRPC 处理层
 │   ├── agent/
 │   │   └── agent_handler.go
@@ -836,6 +836,6 @@ Sprint 7-8: 评估、优化、文档更新
 **文档版本**: v2.0
 **更新时间**: 2026-05-30
 **参考资料**:
-- Link 项目重构文档
+- Cognida 项目重构文档
 - 2026 年 Go + AI 架构最佳实践
 - Clean Architecture vs Go Idioms 行业讨论

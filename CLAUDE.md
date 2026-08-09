@@ -1,4 +1,4 @@
-# Link 开发规范
+# Cognida 开发规范
 
 ---
 
@@ -29,8 +29,18 @@
 ### 分支策略
 目前单人开发，直接在 `main` 主分支上开发提交，不新建 feature 分支。
 
-### 数据库表结构同步
-业务表主流程无 SQL 迁移文件。给 model 加字段/建表后，用 `cd link-go && set -a && source .env && set +a && go run ./cmd/migrate-db` 从 GORM model 同步全部业务表结构（幂等），替代手动 `ALTER TABLE`。图谱表（`graph_*`）由 `graphMetaRepository.ensureSchema` 用内部 model 懒加载建表，不在此工具范围内。
+### 数据库表结构同步（版本化迁移，golang-migrate〔INF-4〕）
+业务表结构的唯一真源是 `services/cognida-go/migrations/`（成对的 `NNNNNN_*.up.sql` / `.down.sql`），由 `cmd/migrate-db` 驱动执行；**运行时与生产库不做任何自动建表/改表**（已弃用 GORM AutoMigrate）。改 schema 时新增一对迁移文件并同步更新对应 model，二者保持一致。
+
+```bash
+cd services/cognida-go && set -a && source .env && set +a
+go run ./cmd/migrate-db up          # 应用全部未执行迁移（默认动作）
+go run ./cmd/migrate-db version     # 查看当前版本 / dirty
+go run ./cmd/migrate-db down [N]    # 回滚 N 步（省略=全部，谨慎）
+go run ./cmd/migrate-db force <V>   # 存量库接入：force 1 标记基线已应用
+```
+
+新增变更、存量库接入、dirty 处理详见 `services/cognida-go/migrations/README.md`。图谱表（`graph_*`）以 Neo4j 为唯一真源（见〔GO-3〕），不在本迁移范围。
 
 ---
 
@@ -85,15 +95,18 @@
 
 ### 目录结构
 ```
-link/
-├── link-go/           # Go 服务
-│   └── internal/
-│       ├── handler/    # HTTP handlers
-│       ├── service/    # 业务逻辑
-│       ├── model/      # 实体和接口定义
-│       └── repository/ # 数据访问实现
-└── link-python/        # Python 服务
-    └── services/       # 业务逻辑
+cognida/
+├── services/
+│   ├── cognida-go/       # Go 服务
+│   │   └── internal/
+│   │       ├── handler/    # HTTP handlers
+│   │       ├── service/    # 业务逻辑
+│   │       ├── model/      # 实体和接口定义
+│   │       └── repository/ # 数据访问实现
+│   └── cognida-python/   # Python 服务
+│       └── services/     # 业务逻辑
+└── apps/
+    └── cognida-web/      # Vue 3 前端（Vite）
 ```
 
 **依赖方向**：`handler → service → model ← repository`
@@ -136,17 +149,17 @@ link/
 
 ```bash
 # Go 测试
-cd link-go && go test ./internal/... -v
-cd link-go && go test -tags=integration ./internal/... -v
+cd services/cognida-go && go test ./internal/... -v
+cd services/cognida-go && go test -tags=integration ./internal/... -v
 
 # Python 测试
-cd link-python && pytest tests/ -v
-cd link-python && pytest -m integration tests/ -v
+cd services/cognida-python && pytest tests/ -v
+cd services/cognida-python && pytest -m integration tests/ -v
 
 # 环境配置
 DEV_MODE=true
 LOG_LEVEL=debug
-MYSQL_DSN=root:password@tcp(localhost:3306)/link
+MYSQL_DSN=root:password@tcp(localhost:3306)/cognida
 MILVUS_ADDRESS=localhost:19530
 NEO4J_URI=bolt://localhost:7687
 ```

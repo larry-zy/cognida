@@ -1,6 +1,6 @@
 # Agent Framework
 
-LinkGo Agent框架是基于[Cloudwego Eino](https://github.com/cloudwego/eino)构建的统一AI Agent开发框架，提供简洁的API和强大的编排能力。
+CognidaGo Agent框架是基于[Cloudwego Eino](https://github.com/cloudwego/eino)构建的统一AI Agent开发框架，提供简洁的API和强大的编排能力。
 
 ## 特性
 

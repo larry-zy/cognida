@@ -1,7 +1,7 @@
 # 死代码审计报告
 
 > 生成日期：2026-08-08
-> 范围：`link-go`（~117k LOC）、`link-python`（~36k LOC）、`link-web`（122 源文件）
+> 范围：`cognida-go`（~117k LOC）、`cognida-python`（~36k LOC）、`cognida-web`（122 源文件）
 > 方法：静态工具（Go `deadcode`/`staticcheck`、Python `vulture`/`ruff`、前端 `knip`）+ grep 逐项交叉验证，已剔除框架反射 / DI 注册 / gRPC 分发 / Pydantic 字段 / Vue 模板 / 动态导入 等误报。
 > 状态：**仅审计，未修改任何代码。**
 
@@ -17,7 +17,7 @@
 
 ---
 
-## 一、Go（link-go）
+## 一、Go（cognida-go）
 
 ### 方法与可靠性
 - `go build ./...` 干净；`deadcode -test ./...`（从全部 `main` 包做 RTA 全程序可达性分析，含测试二进制）为权威依据。
@@ -104,7 +104,7 @@
 
 ---
 
-## 二、Python（link-python）
+## 二、Python（cognida-python）
 
 ### 入口
 `main.py`→`core.app.create_app`；`services/evaluation/fastapi_app.py`（评测 :18888）；`grpc_service/server.py`→`serve_grpc`（DocumentReader + Quality，Analytics 经 `servicer.py:425` 懒加载）；`mcp_service/server.py`。
@@ -127,7 +127,7 @@
 | `services/evaluation/metrics/tokenizer.py:160/167` | `COMMON_CHINESE_WORDS`/`COMMON_ENGLISH_WORDS` | 模块常量 0 引用 |
 
 ### ruff 一键可清（63 处）
-`cd link-python && uv run ruff check . --fix --select F401,F811,F841`
+`cd cognida-python && uv run ruff check . --fix --select F401,F811,F841`
 - F401 无用 import ×56（集中在 `grpc_service/analytics_servicer.py`、`services/quality/*`、`services/evaluation/*`）
 - F811 重复定义 ×1、F841 无用局部 ×4（`analytics/statistics.py:339`、`evaluation/strategies/data_driven.py:135`、`quality/evaluator.py:149`、`quality/rules/builtins.py:473`）
 
@@ -141,7 +141,7 @@ Pydantic 模型/settings 字段、`@field_validator`/`@model_validator`、`@regi
 
 ---
 
-## 三、前端（link-web）
+## 三、前端（cognida-web）
 
 工具 `knip`（自动识别 Vite/Vue），逐项 grep 复核。包管理器为 **pnpm**（另有一份陈旧 `package-lock.json` 并存，建议删除）。
 

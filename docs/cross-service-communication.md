@@ -1,11 +1,11 @@
 # 跨服务通信规则（Go ↔ Python）
 
-> 本文规定 link-go 与 link-python 之间的通信选型与职责边界，是「Python 只做计算、Go 承主后端」
+> 本文规定 cognida-go 与 cognida-python 之间的通信选型与职责边界，是「Python 只做计算、Go 承主后端」
 > 这一物理边界的落地约束。新增跨服务调用前，先对照本文选择通道。
 
 ## 一、职责边界（编排 vs 计算）
 
-| 维度 | Go（link-go） | Python（link-python） |
+| 维度 | Go（cognida-go） | Python（cognida-python） |
 |------|---------------|------------------------|
 | 角色 | 主后端 · **权威编排** | **无状态计算/工具** 增强 |
 | 持有 | 流程、状态、进度、事务、落库 | 无状态：入参进、结果出，不留状态 |
@@ -28,7 +28,7 @@
 
 1. **默认走 gRPC**：高性能、大数据量、需强类型契约的计算（文档解析、OCR、数据分析）。
 2. **HTTP :18888 仅用于评测的无状态 compute 与健康检查**——它是 Go worker 编排评测流程时的算分后端，
-   不承载任何编排/进度/流式状态。契约见 `link-python/services/evaluation/fastapi_app.py`。
+   不承载任何编排/进度/流式状态。契约见 `cognida-python/services/evaluation/fastapi_app.py`。
 3. **不使用流式 RPC 承载编排进度**。进度是编排产物，属于 Go；Python 不推进度。
    （历史上的 `EvaluationService.ExecuteEvaluation` 流式编排已废弃删除。）
 
@@ -46,8 +46,8 @@ Go worker (编排)                         Python (:18888 无状态算分)
   └─ 落库
 ```
 
-- Go 端客户端：`link-go/internal/service/evaluation/python_client.go`（HTTP-only）。
-- Python 端：`link-python/services/evaluation/fastapi_app.py`（无状态 compute 薄壳）。
+- Go 端客户端：`cognida-go/internal/service/evaluation/python_client.go`（HTTP-only）。
+- Python 端：`cognida-python/services/evaluation/fastapi_app.py`（无状态 compute 薄壳）。
 
 ## 四、链路追踪
 

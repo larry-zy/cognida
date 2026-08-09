@@ -5,7 +5,7 @@
 ### Go ↔ Python Proto 同步检查
 
 **检查点**：
-- Proto 文件定义在 Go 端 (`link-go/api/proto/`)
+- Proto 文件定义在 Go 端 (`services/cognida-go/api/proto/`)
 - Python 通过 `scripts/generate_grpc.py` 同步生成代码
 - 必须确保两端 proto 定义完全一致
 
@@ -15,9 +15,9 @@ check_proto_consistency() {
     local proto_name=$1
 
     # Go 端 proto 文件
-    local go_proto="link-go/api/proto/${proto_name}.proto"
+    local go_proto="services/cognida-go/api/proto/${proto_name}.proto"
     # Python 端生成的代码
-    local python_proto="link-python/proto/${proto_name}_pb2.py"
+    local python_proto="services/cognida-python/proto/${proto_name}_pb2.py"
 
     if [ ! -f "$go_proto" ]; then
         echo "❌ Proto 文件缺失: $go_proto"
@@ -40,7 +40,7 @@ check_proto_consistency() {
 syntax = "proto3";
 package docreader;
 option go_package = "link/api/proto/docreader;docreader";
-option python_out = "link-python/proto";
+option python_out = "services/cognida-python/proto";
 
 // ❌ 错误 - 缺少版本信息
 syntax = "proto3";
@@ -53,10 +53,10 @@ package docreader;
 # 检查消息字段是否匹配
 check_message_consistency() {
     # Go 结构体字段
-    go_fields=$(grep -A 20 "message ParseRequest" link-go/api/proto/*.proto | grep "type" | wc -l)
+    go_fields=$(grep -A 20 "message ParseRequest" services/cognida-go/api/proto/*.proto | grep "type" | wc -l)
 
     # Python 生成的字段
-    python_fields=$(grep -A 20 "class ParseRequest" link-python/proto/*_pb2.py | grep -c "descriptor.FieldDescriptor")
+    python_fields=$(grep -A 20 "class ParseRequest" services/cognida-python/proto/*_pb2.py | grep -c "descriptor.FieldDescriptor")
 
     if [ "$go_fields" -ne "$python_fields" ]; then
         echo "❌ 消息字段数量不一致"
@@ -73,10 +73,10 @@ check_message_consistency() {
 # 检查 Go handler 路径与前端 API 调用是否一致
 check_api_path_consistency() {
     # Go 端定义的路径
-    grep -r 'POST.*"/api/agents"' link-go/internal/handler/
+    grep -r 'POST.*"/api/agents"' services/cognida-go/internal/handler/
 
     # 前端调用的路径
-    grep -r 'fetch.*api/agents' link-web/src/
+    grep -r 'fetch.*api/agents' apps/cognida-web/src/
 
     # 检查是否匹配
     echo "检查 API 路径是否一致..."
@@ -301,26 +301,26 @@ done
 # 2. API 路径检查
 echo "🌐 [2/6] API 路径一致性"
 # 检查 handler 路由定义
-grep -rh 'POST\|GET\|PUT\|DELETE' link-go/internal/handler/ | grep -o '".*"' | sort > /tmp/go_routes.txt
+grep -rh 'POST\|GET\|PUT\|DELETE' services/cognida-go/internal/handler/ | grep -o '".*"' | sort > /tmp/go_routes.txt
 # 检查前端 API 调用
-grep -rh 'fetch.*api' link-web/src/ | grep -o "'/api/[^']*'" | sort > /tmp/web_apis.txt
+grep -rh 'fetch.*api' apps/cognida-web/src/ | grep -o "'/api/[^']*'" | sort > /tmp/web_apis.txt
 
 # 3. 状态码检查
 echo "📊 [3/6] HTTP 状态码一致性"
 # 检查 handler 中是否使用非标准状态码
-if grep -r 'c.JSON(200.*error' link-go/internal/handler/; then
+if grep -r 'c.JSON(200.*error' services/cognida-go/internal/handler/; then
     echo "❌ 错误: 200 状态码返回错误信息"
 fi
 
 # 4. 枚举值检查
 echo "🏷️  [4/6] 枚举值一致性"
 # 检查 Go 枚举定义
-grep -rh 'const.*=.*"' link-go/internal/model/ | grep -E '(AgentType|TaskStatus)' | sort
+grep -rh 'const.*=.*"' services/cognida-go/internal/model/ | grep -E '(AgentType|TaskStatus)' | sort
 
 # 5. 时间格式检查
 echo "⏰ [5/6] 时间格式一致性"
 # 检查 JSON 时间格式
-if grep -r 'time.Time.*`json:"' link-go/internal/ | grep -v 'rfc3339'; then
+if grep -r 'time.Time.*`json:"' services/cognida-go/internal/ | grep -v 'rfc3339'; then
     echo "⚠️  发现非 RFC3339 时间格式"
 fi
 
@@ -386,9 +386,9 @@ graph LR
 
 ```bash
 # 同步步骤
-1. 修改 link-go/api/proto/*.proto
+1. 修改 services/cognida-go/api/proto/*.proto
 2. 更新 Go 实现代码
-3. 运行: cd link-python && python scripts/generate_grpc.py
+3. 运行: cd cognida-python && python scripts/generate_grpc.py
 4. 更新前端 TypeScript 类型
 5. 运行测试验证一致性
 ```

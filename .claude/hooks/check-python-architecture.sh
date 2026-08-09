@@ -9,8 +9,8 @@ FAILED=0
 
 echo "🏗️  Python 架构合规检查..."
 
-if [ ! -d "$PROJECT_ROOT/link-python" ]; then
-    echo "⚠️  link-python 目录不存在，跳过"
+if [ ! -d "$PROJECT_ROOT/services/cognida-python" ]; then
+    echo "⚠️  cognida-python 目录不存在，跳过"
     exit 0
 fi
 
@@ -19,7 +19,7 @@ fi
 
 # 检查 core 不依赖其他层
 # 注意：用变量捕获结果判断，避免 `grep | head` 让 if 恒真（管道退出码取自 head）
-core_dep=$(grep -rn 'from link.python.services\|from link.python.grpc' "$PROJECT_ROOT/link-python/core/" 2>/dev/null | \
+core_dep=$(grep -rn 'from link.python.services\|from link.python.grpc' "$PROJECT_ROOT/services/cognida-python/core/" 2>/dev/null | \
     grep -v '_test.py' | grep -v '/.git/' | grep -v 'comment' || true)
 if [ -n "$core_dep" ]; then
     echo "$core_dep" | head -5
@@ -28,7 +28,7 @@ if [ -n "$core_dep" ]; then
 fi
 
 # 检查 services 不依赖 grpc
-services_dep=$(grep -rn 'from link.python.grpc' "$PROJECT_ROOT/link-python/services/" 2>/dev/null | \
+services_dep=$(grep -rn 'from link.python.grpc' "$PROJECT_ROOT/services/cognida-python/services/" 2>/dev/null | \
     grep -v '_test.py' | grep -v '/.git/' | grep -v 'comment' || true)
 if [ -n "$services_dep" ]; then
     echo "$services_dep" | head -5

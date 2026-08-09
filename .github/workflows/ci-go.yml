@@ -1,25 +1,25 @@
 name: CI - Go
 
 # monorepo 说明: 本仓库为单一 git 仓库, GitHub Actions 只读仓库根的
-# .github/workflows/。原先放在 link-go/.github/ 下的 workflow 永不触发,
+# .github/workflows/。原先放在 services/cognida-go/.github/ 下的 workflow 永不触发,
 # 故统一上移至根级, 用 paths 过滤 + working-directory 定位子服务。
 
 on:
   push:
     branches: [main, develop]
     paths:
-      - 'link-go/**'
+      - 'services/cognida-go/**'
       - '.github/workflows/ci-go.yml'
       - '.claude/hooks/check-go-architecture.sh'
   pull_request:
     paths:
-      - 'link-go/**'
+      - 'services/cognida-go/**'
       - '.github/workflows/ci-go.yml'
       - '.claude/hooks/check-go-architecture.sh'
 
 defaults:
   run:
-    working-directory: link-go
+    working-directory: services/cognida-go
 
 jobs:
   build-test:
@@ -31,9 +31,9 @@ jobs:
       - name: 设置 Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: link-go/go.mod
+          go-version-file: services/cognida-go/go.mod
           cache: true
-          cache-dependency-path: link-go/go.sum
+          cache-dependency-path: services/cognida-go/go.sum
 
       - name: 下载依赖
         run: go mod download
@@ -42,7 +42,7 @@ jobs:
         run: go vet ./...
 
       - name: 构建
-        run: go build -o bin/link ./cmd/server
+        run: go build -o bin/cognida ./cmd/server
 
       - name: 单元测试 (-short -race)
         run: go test -short -race -coverprofile=coverage.out -covermode=atomic ./...
@@ -58,15 +58,39 @@ jobs:
       - name: 设置 Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: link-go/go.mod
+          go-version-file: services/cognida-go/go.mod
           cache: true
-          cache-dependency-path: link-go/go.sum
+          cache-dependency-path: services/cognida-go/go.sum
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          working-directory: link-go
+          working-directory: services/cognida-go
+
+  vuln:
+    name: 漏洞扫描 (govulncheck)
+    runs-on: ubuntu-latest
+    # 棕地存量: 当前依赖树存在 6 个可达漏洞(excelize / etcd / quic-go / 标准库 crypto-tls 等),
+    # 先作非阻断反馈; 待依赖升级(独立任务, 需完整回归)清零后转门禁,
+    # 与本仓库 golangci-lint / ruff / mypy / safety / bandit 的"存量先反馈、清零后转门禁"一致。
+    # 注: govulncheck 只报告"可达"漏洞(调用链真正触及), 误报极低, 存量清零后应优先转阻断。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/cognida-go/go.mod
+          cache: true
+          cache-dependency-path: services/cognida-go/go.sum
+
+      - name: 安装 govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: govulncheck
+        run: govulncheck ./...
 
   architecture:
     name: 架构合规检查

@@ -17,14 +17,14 @@ file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.n
 # 按路径/扩展名选择相关检查, 避免每次编辑都跑全部 8 个脚本
 checks=()
 case "$file_path" in
-  *link-go/*.go)
+  *services/cognida-go/*.go)
     checks+=("check-go-norms.sh" "check-sql-injection.sh")
-    case "$file_path" in *link-go/internal/*) checks+=("check-go-architecture.sh") ;; esac
+    case "$file_path" in *services/cognida-go/internal/*) checks+=("check-go-architecture.sh") ;; esac
     ;;
-  *link-python/*.py)
+  *services/cognida-python/*.py)
     checks+=("check-python-norms.sh" "check-python-architecture.sh" "check-sql-injection.sh")
     ;;
-  *link-web/*.ts | *link-web/*.tsx | *link-web/*.vue | *link-web/*.js)
+  *apps/cognida-web/*.ts | *apps/cognida-web/*.tsx | *apps/cognida-web/*.vue | *apps/cognida-web/*.js)
     checks+=("check-web-norms.sh")
     ;;
   *.proto)

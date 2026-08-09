@@ -1,8 +1,8 @@
-# Link 智能知识图谱对话系统 - 项目详细说明文档
+# Cognida 智能知识图谱对话系统 - 项目详细说明文档
 
 ## 一、项目概述
 
-**Link** 是一个基于 **Go + Vue3** 构建的**企业级智能知识图谱对话系统**，采用多租户架构，集成了向量检索、图数据库和大模型Agent能力，旨在提供专业的知识管理和智能问答解决方案。
+**Cognida** 是一个基于 **Go + Vue3** 构建的**企业级智能知识图谱对话系统**，采用多租户架构，集成了向量检索、图数据库和大模型Agent能力，旨在提供专业的知识管理和智能问答解决方案。
 
 ### 1.1 核心定位
 - **智能知识管理平台**：支持文档上传、自动分块、向量化存储
@@ -658,7 +658,7 @@ CREATE TABLE sessions (
 ### 5.3 数据库迁移文件
 ```
 migrations/
-├── link_go.sql              # 主数据库结构
+├── cognida_go.sql              # 主数据库结构
 ├── kb_settings.sql          # 知识库设置迁移
 ├── retrieval_settings.sql   # 检索设置迁移
 ├── evaluation.sql           # 评估相关表
@@ -805,7 +805,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=***
-DB_NAME=link_go
+DB_NAME=cognida_go
 
 # Milvus
 MILVUS_HOST=***
@@ -847,7 +847,7 @@ GIN_MODE=debug
 cp .env.example .env
 
 # 2. 初始化数据库
-mysql -u root -p < migrations/link_go.sql
+mysql -u root -p < migrations/cognida_go.sql
 
 # 3. 启动服务
 go run cmd/server/main.go
@@ -881,7 +881,7 @@ npm run dev
 
 ## 十、总结
 
-**Link** 是一个功能完整、架构清晰的企业级智能知识管理系统，特别在以下方面有突出表现：
+**Cognida** 是一个功能完整、架构清晰的企业级智能知识管理系统，特别在以下方面有突出表现：
 
 1. **多Agent协作**：基于Eino框架的成熟多代理系统
 2. **多模态检索**：向量、关键词、图谱三重检索能力

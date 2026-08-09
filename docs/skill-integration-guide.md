@@ -146,7 +146,7 @@ func RegisterSkillRoutes(r *gin.Engine, handler *SkillHandler) {
 ### Skill 存储目录
 
 ```
-D:/link/skills/
+D:/cognida/skills/
 ├── code-review/
 │   └── SKILL.md
 ├── rag-search/
@@ -162,7 +162,7 @@ D:/link/skills/
 ### 代码结构
 
 ```
-link-go/
+cognida-go/
 ├── internal/service/agent/skills/
 │   ├── types.go
 │   ├── loader.go
@@ -265,7 +265,7 @@ middleware := skills.NewAutoSkillMiddleware(
 ```go
 func TestSkillLoading(t *testing.T) {
     // 初始化
-    err := skills.Initialize("D:/link/skills")
+    err := skills.Initialize("D:/cognida/skills")
     assert.NoError(t, err)
 
     // 验证加载
@@ -315,7 +315,7 @@ func TestSkillMatching(t *testing.T) {
 
 ### Q: 如何创建新 Skill？
 
-1. 在 `D:/link/skills/` 下创建目录
+1. 在 `D:/cognida/skills/` 下创建目录
 2. 创建 SKILL.md 文件
 3. 编写 frontmatter 和内容
 4. 重启服务

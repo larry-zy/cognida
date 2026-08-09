@@ -113,7 +113,7 @@ def get_user(user_id: str) -> User:
 
 ### Python 服务架构
 ```
-link-python/
+services/cognida-python/
 ├── grpc/           # gRPC 服务层
 ├── services/       # 业务逻辑层
 ├── core/           # 核心模块
@@ -223,7 +223,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # ❌ 错误 - 硬编码
-DATABASE_URL = "mysql://localhost:3306/link"
+DATABASE_URL = "mysql://localhost:3306/cognida"
 API_KEY = "sk-xxxxx"
 ```
 
@@ -319,12 +319,12 @@ from link.python.services import document
 ### 必须通过
 ```bash
 # 类型检查
-mypy link-python/
+mypy services/cognida-python/
 
 # Lint
-flake8 link-python/
-black --check link-python/
+flake8 services/cognida-python/
+black --check services/cognida-python/
 
 # 测试
-pytest link-python/tests/
+pytest services/cognida-python/tests/
 ```

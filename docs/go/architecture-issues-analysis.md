@@ -1,10 +1,10 @@
-# Link-Go 架构问题深度分析报告
+# Cognida-Go 架构问题深度分析报告
 
 > 基于代码全面扫描的架构问题识别与分析
 
 ## 执行摘要
 
-经过对 `link-go` 项目的全面代码审查，发现了**47 处架构违规**，主要集中在 **Application 层依赖 Infrastructure 层**，这违反了 Clean Architecture 的核心原则。
+经过对 `cognida-go` 项目的全面代码审查，发现了**47 处架构违规**，主要集中在 **Application 层依赖 Infrastructure 层**，这违反了 Clean Architecture 的核心原则。
 
 **关键发现**：
 - ❌ **47 处** Application 层直接导入 Infrastructure 层（严重违规）
@@ -45,7 +45,7 @@ Interface → Application → Domain ← Infrastructure
 #### 案例 1：Application 层直接使用 Infrastructure 层类型
 
 ```go
-// link-go/internal/application/usecases/llm/agent_adapter.go
+// cognida-go/internal/application/usecases/llm/agent_adapter.go
 
 import (
     infraagent "link/internal/infrastructure/agent"  // ❌ 违规
@@ -62,7 +62,7 @@ type AgentExecutableAdapter struct {
 #### 案例 2：UseCase 直接依赖 Infrastructure 组件
 
 ```go
-// link-go/internal/application/usecases/knowledge/knowledge_base_usecase.go
+// cognida-go/internal/application/usecases/knowledge/knowledge_base_usecase.go
 
 import (
     "link/internal/infrastructure/persistence/milvus/retriever"  // ❌ 违规
@@ -78,7 +78,7 @@ type knowledgeBaseUseCase struct {
 #### 案例 3：Initializer 直接创建 Infrastructure 组件
 
 ```go
-// link-go/internal/application/initializer/agent/init.go
+// cognida-go/internal/application/initializer/agent/init.go
 
 import (
     infraagent "link/internal/infrastructure/agent"  // ❌ 违规
@@ -98,7 +98,7 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 #### 案例 4：Services 直接依赖 Infrastructure 实现
 
 ```go
-// link-go/internal/application/services/rag/retrieval_optimizer.go
+// cognida-go/internal/application/services/rag/retrieval_optimizer.go
 
 import (
     "link/internal/infrastructure/rag"  // ❌ 违规
@@ -114,7 +114,7 @@ type RetrievalOptimizerService struct {
 #### 案例 5：Cache UseCase 直接使用 Infrastructure Store
 
 ```go
-// link-go/internal/application/usecases/cache/semantic_cache.go
+// cognida-go/internal/application/usecases/cache/semantic_cache.go
 
 import (
     milvuscache "link/internal/infrastructure/persistence/milvus"  // ❌ 违规
@@ -152,7 +152,7 @@ type SemanticCache struct {
 
 ```go
 // Domain 层定义
-// link-go/internal/domain/knowledge/repository.go
+// cognida-go/internal/domain/knowledge/repository.go
 type ChunkRepository interface {
     Save(ctx context.Context, chunk *Chunk) error
     FindByID(ctx context.Context, id string) (*Chunk, error)
@@ -160,7 +160,7 @@ type ChunkRepository interface {
 }
 
 // Application 层重复定义
-// link-go/internal/application/services/graph/graph.go
+// cognida-go/internal/application/services/graph/graph.go
 type ChunkRepository interface {
     GetChunk(ctx context.Context, chunkID string) (*GraphChunk, error)
     GetChunks(ctx context.Context, chunkIDs []string) ([]*GraphChunk, error)
@@ -211,7 +211,7 @@ type KnowledgeBaseRepository interface {
 #### AgentExecutableAdapter
 
 ```go
-// link-go/internal/application/usecases/llm/agent_adapter.go
+// cognida-go/internal/application/usecases/llm/agent_adapter.go
 
 // AgentExecutableAdapter adapts Application layer Agent to Domain layer AgentExecutable interface
 type AgentExecutableAdapter struct {
@@ -265,7 +265,7 @@ Domain 实体主要是数据容器，缺乏业务行为，变成 Anemic Domain M
 #### Agent 实体
 
 ```go
-// link-go/internal/domain/agent/entity.go
+// cognida-go/internal/domain/agent/entity.go
 
 type Agent struct {
     ID          string
@@ -301,7 +301,7 @@ func (a *Agent) Complete() {
 #### Document 实体
 
 ```go
-// link-go/internal/domain/rag/entity.go
+// cognida-go/internal/domain/rag/entity.go
 
 type Document struct {
     ChunkID      string
@@ -388,7 +388,7 @@ type RetrievalOptimizerService struct {
 
 ```bash
 # 统计 Repository 接口数量
-$ grep -r "type.*Repository interface" link-go/internal/domain/ | wc -l
+$ grep -r "type.*Repository interface" cognida-go/internal/domain/ | wc -l
 47
 ```
 

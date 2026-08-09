@@ -1,11 +1,11 @@
-# Link-Go 迁移后目录结构
+# Cognida-Go 迁移后目录结构
 
 > Component-based Architecture 完整目录树
 
 ## 完整目录结构
 
 ```
-link-go/
+cognida-go/
 ├── api/                           # API 定义
 │   ├── http/                      # HTTP API
 │   │   └── v1/                    # v1 版本

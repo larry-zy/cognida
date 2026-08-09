@@ -1,6 +1,6 @@
 # ============================================================
-# Link monorepo 根级 .gitignore
-# 各子服务(link-go / link-python / link-web)另有各自的 .gitignore,
+# Cognida monorepo 根级 .gitignore
+# 各子服务(cognida-go / cognida-python / cognida-web)另有各自的 .gitignore,
 # 此处覆盖跨服务通用的产物、IDE、OS 与工具缓存。
 # ============================================================
 
@@ -20,22 +20,19 @@ Thumbs.db
 server.log
 frontend.log
 
-# ---- 上传 / 运行时数据 (保留占位) ----
-uploads/
-!uploads/.gitkeep
+# ---- 运行时产物：统一收进仓库根 var/（上传文件 uploads、dev.sh 的 pid/日志 run、
+#      agent-eval 产物 test-output 等，本地留存不入库）----
+/var/
 
 # ---- 工具产物 ----
 .codegraph/
 *.db
 
-# ---- 评测/测试产物（agent-eval 等，日志与指标本地留存不入库）----
-test-output/
-
 # ---- Go 产物 ----
-link-go/bin/
-link-go/dist/
-link-go/tmp/
-link-go/server.log
+services/cognida-go/bin/
+services/cognida-go/dist/
+services/cognida-go/tmp/
+services/cognida-go/server.log
 
 # ---- Python 产物 ----
 __pycache__/
@@ -46,12 +43,12 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
-link-python/data/*.parquet
+services/cognida-python/data/*.parquet
 
 # ---- Web 产物 ----
-link-web/node_modules/
-link-web/dist/
-link-web/frontend.log
+apps/cognida-web/node_modules/
+apps/cognida-web/dist/
+apps/cognida-web/frontend.log
 
 # ---- 环境变量（含变体与备份，避免凭证入库）----
 .env
@@ -65,10 +62,13 @@ link-web/frontend.log
 *.orig
 
 # ---- Python 大数据集（仅保留代码，不纳入原始数据）----
-link-python/data/
+services/cognida-python/data/
 
 # compiled server binary (build artifact)
-/link-go/server
-
-# 本地一键启停脚本的 PID/日志
-dev-run/
+/services/cognida-go/server
+# compiled milvus-export binary (build artifact of cmd/milvus-export)
+/services/cognida-go/milvus-export
+# 本地编译的一次性数据播种可执行文件（cmd/seed-eval-datasets 的构建产物）
+/services/cognida-go/seed-eval-datasets
+# 测评/联调一次性脚手架产物（非源码）
+/services/cognida-go/test-output/
