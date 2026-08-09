@@ -81,8 +81,8 @@ jobs:
           ( while true; do printf '[MEM] %s ' "$(date +%T)"; free -m | awk '/Mem:/{printf "used=%sMB avail=%sMB\n",$3,$7}'; sleep 10; done ) &
           MON=$!
           set +e
-          timeout --signal=KILL --kill-after=20s 24m \
-            "$(go env GOPATH)/bin/golangci-lint" run --verbose --timeout=20m ./...
+          timeout --signal=KILL --kill-after=20s 12m \
+            "$(go env GOPATH)/bin/golangci-lint" run --verbose --timeout=10m ./...
           RC=$?
           set -e
           kill "$MON" 2>/dev/null || true
