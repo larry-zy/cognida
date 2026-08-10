@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"sync"
 
+	"cognida/internal/model/common"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
-	"cognida/internal/model/common"
 )
 
 // embeddedConfigYAML 内嵌的非密配置真源（与本文件同目录的 config.yaml）。
@@ -187,61 +187,6 @@ func loadFileConfig() *FileConfig {
 	return fileConfigCache
 }
 
-// ========================================
-// 默认值常量
-// ========================================
-
-// DefaultTenantID 默认租户ID（用于开发环境）
-const DefaultTenantID = int64(1)
-
-// DefaultUserID 默认用户ID（用于开发环境）
-const DefaultUserID = int64(1)
-
-// DefaultPageSize 默认分页大小
-const DefaultPageSize = 20
-
-// MaxPageSize 最大分页大小
-const MaxPageSize = 100
-
-// ========================================
-// Helper Functions
-// ========================================
-
-// GetTenantIDWithDefault 获取租户ID，如果为0则返回默认值
-func GetTenantIDWithDefault(tenantID int64) int64 {
-	if tenantID == 0 {
-		return DefaultTenantID
-	}
-	return tenantID
-}
-
-// GetUserIDWithDefault 获取用户ID，如果为0则返回默认值
-func GetUserIDWithDefault(userID int64) int64 {
-	if userID == 0 {
-		return DefaultUserID
-	}
-	return userID
-}
-
-// NormalizePageSize 规范化分页大小
-func NormalizePageSize(pageSize int) int {
-	if pageSize <= 0 {
-		return DefaultPageSize
-	}
-	if pageSize > MaxPageSize {
-		return MaxPageSize
-	}
-	return pageSize
-}
-
-// NormalizePage 规范化页码
-func NormalizePage(page int) int {
-	if page <= 0 {
-		return 1
-	}
-	return page
-}
-
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
 	Host     string
@@ -379,20 +324,20 @@ type UploadConfig struct {
 
 // Config 总配置
 type Config struct {
-	Database      *DatabaseConfig
-	Milvus        *MilvusConfig
-	Neo4j         *Neo4jConfig
-	JWT           *JWTConfig
-	Tenant        *TenantConfig
-	Chat          *ChatConfig
-	Search        *SearchConfig
-	Embedding     *EmbeddingConfig
-	Server        *ServerConfig
-	PythonGrpc    *PythonGrpcConfig
-	Redis         *RedisConfig
-	Evaluation    *EvaluationConfig // 评测系统配置
-	Skill         *SkillConfig      // Skill 系统配置
-	Upload        *UploadConfig     // 文件上传配置
+	Database   *DatabaseConfig
+	Milvus     *MilvusConfig
+	Neo4j      *Neo4jConfig
+	JWT        *JWTConfig
+	Tenant     *TenantConfig
+	Chat       *ChatConfig
+	Search     *SearchConfig
+	Embedding  *EmbeddingConfig
+	Server     *ServerConfig
+	PythonGrpc *PythonGrpcConfig
+	Redis      *RedisConfig
+	Evaluation *EvaluationConfig // 评测系统配置
+	Skill      *SkillConfig      // Skill 系统配置
+	Upload     *UploadConfig     // 文件上传配置
 }
 
 // LoadDatabaseConfig 从环境变量加载数据库配置
@@ -625,20 +570,20 @@ func LoadUploadConfig() *UploadConfig {
 // LoadConfig 加载完整配置
 func LoadConfig() *Config {
 	return &Config{
-		Database:      LoadDatabaseConfig(),
-		Milvus:        LoadMilvusConfig(),
-		Neo4j:         LoadNeo4jConfig(),
-		JWT:           LoadJWTConfig(),
-		Tenant:        LoadTenantConfig(),
-		Chat:          LoadChatConfig(),
-		Search:        LoadSearchConfig(),
-		Embedding:     LoadEmbeddingConfig(),
-		Server:        LoadServerConfig(),
-		PythonGrpc:    LoadPythonGrpcConfig(),
-		Redis:         LoadRedisConfig(),
-		Evaluation:    LoadEvaluationConfig(),
-		Skill:         LoadSkillConfig(),
-		Upload:        LoadUploadConfig(),
+		Database:   LoadDatabaseConfig(),
+		Milvus:     LoadMilvusConfig(),
+		Neo4j:      LoadNeo4jConfig(),
+		JWT:        LoadJWTConfig(),
+		Tenant:     LoadTenantConfig(),
+		Chat:       LoadChatConfig(),
+		Search:     LoadSearchConfig(),
+		Embedding:  LoadEmbeddingConfig(),
+		Server:     LoadServerConfig(),
+		PythonGrpc: LoadPythonGrpcConfig(),
+		Redis:      LoadRedisConfig(),
+		Evaluation: LoadEvaluationConfig(),
+		Skill:      LoadSkillConfig(),
+		Upload:     LoadUploadConfig(),
 	}
 }
 
@@ -686,46 +631,4 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
-}
-
-// PromptTemplate 提示词模板
-type PromptTemplate struct {
-	Templates []struct {
-		ID      string `yaml:"id"`
-		Content string `yaml:"content"`
-	} `yaml:"templates"`
-}
-
-// LoadPromptTemplate 加载提示词模板
-func LoadPromptTemplate(templateName string) (string, error) {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	// 按优先级尝试多个路径
-	paths := []string{
-		// 相对于工作目录的路径
-		filepath.Join(workingDir, "internal", "config", "prompt_templates", templateName+".yaml"),
-		// 如果在仓库根运行（服务位于 services/cognida-go 下）
-		filepath.Join(workingDir, "services", "cognida-go", "internal", "config", "prompt_templates", templateName+".yaml"),
-	}
-
-	var lastErr error
-	for _, templatePath := range paths {
-		content, err := os.ReadFile(templatePath)
-		if err == nil {
-			var pt PromptTemplate
-			if err := yaml.Unmarshal(content, &pt); err != nil {
-				return "", fmt.Errorf("failed to parse template YAML: %w", err)
-			}
-			if len(pt.Templates) == 0 {
-				return "", fmt.Errorf("no templates found in %s", templatePath)
-			}
-			return pt.Templates[0].Content, nil
-		}
-		lastErr = err
-	}
-
-	return "", fmt.Errorf("failed to read template file %s (tried %d paths): %w", templateName, len(paths), lastErr)
 }

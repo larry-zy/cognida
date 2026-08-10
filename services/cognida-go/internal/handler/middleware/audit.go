@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"cognida/internal/config"
 	auditmodel "cognida/internal/model/audit"
+	"cognida/internal/pkg/httputil"
 	auditsvc "cognida/internal/service/audit"
 )
 
@@ -65,8 +65,8 @@ func buildAuditLog(c *gin.Context, path string, durationMs int) *auditmodel.Audi
 
 	// 用与查询侧一致的归一化租户/用户（GetTenantID/GetUserID，dev 缺省为 1）。
 	// 否则写入原始 tenant_id=0、查询按默认 1 过滤，会导致查不到自己刚写入的审计。
-	tid := config.GetTenantIDWithDefault(c.GetInt64("tenant_id"))
-	uid := config.GetUserIDWithDefault(c.GetInt64("user_id"))
+	tid := httputil.GetTenantIDWithDefault(c.GetInt64("tenant_id"))
+	uid := httputil.GetUserIDWithDefault(c.GetInt64("user_id"))
 
 	entry := auditmodel.NewAuditLog(&tid, &uid, module, action)
 

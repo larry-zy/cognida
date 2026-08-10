@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"cognida/internal/config"
 	agentctx "cognida/internal/model/agent"
+	"cognida/internal/pkg/httputil"
 )
 
 // ========================================
@@ -171,12 +171,12 @@ func BindURI(c *gin.Context, obj interface{}) bool {
 
 // GetUserID 获取用户 ID（使用默认值）
 func GetUserID(c *gin.Context) int64 {
-	return config.GetUserIDWithDefault(c.GetInt64("user_id"))
+	return httputil.GetUserIDWithDefault(c.GetInt64("user_id"))
 }
 
 // GetTenantID 获取租户 ID（使用默认值）
 func GetTenantID(c *gin.Context) int64 {
-	return config.GetTenantIDWithDefault(c.GetInt64("tenant_id"))
+	return httputil.GetTenantIDWithDefault(c.GetInt64("tenant_id"))
 }
 
 // GetPageParams 获取分页参数
@@ -187,8 +187,8 @@ func GetPageParams(c *gin.Context) (page, pageSize int) {
 	pageRaw, _ := strconv.Atoi(pageStr)
 	pageSizeRaw, _ := strconv.Atoi(pageSizeStr)
 
-	page = config.NormalizePage(pageRaw)
-	pageSize = config.NormalizePageSize(pageSizeRaw)
+	page = httputil.NormalizePage(pageRaw)
+	pageSize = httputil.NormalizePageSize(pageSizeRaw)
 
 	return page, pageSize
 }

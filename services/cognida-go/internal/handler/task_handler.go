@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"cognida/internal/config"
+	"cognida/internal/pkg/httputil"
 	appEvaluation "cognida/internal/service/evaluation"
 )
 
@@ -135,8 +135,8 @@ func (h *TaskHandler) ListTasks(c *gin.Context) {
 	}
 
 	// 使用配置的默认值
-	req.Page = config.NormalizePage(req.Page)
-	req.Size = config.NormalizePageSize(req.Size)
+	req.Page = httputil.NormalizePage(req.Page)
+	req.Size = httputil.NormalizePageSize(req.Size)
 
 	// 查询任务列表
 	tasks, total, err := h.taskService.ListTasks(
@@ -165,7 +165,7 @@ func (h *TaskHandler) ListTasksByType(c *gin.Context) {
 	taskType := c.Param("type")
 	status := c.Query("status")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	limit = config.NormalizePageSize(limit)
+	limit = httputil.NormalizePageSize(limit)
 
 	tasks, err := h.taskService.ListTasksByType(
 		c.Request.Context(),

@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"cognida/internal/config"
 	domain_knowledge "cognida/internal/model/knowledge"
 	domainrag "cognida/internal/model/rag"
+	"cognida/internal/prompt"
 )
 
 // ========================================
@@ -45,7 +45,7 @@ func (e *LLMExtractor) ExtractEntities(
 		templateName = "entity_extraction"
 	}
 
-	promptTemplate, err := config.LoadPromptTemplate(templateName)
+	promptTemplate, err := prompt.LoadExtractionTemplate(templateName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load entity extraction template: %w", err)
 	}
@@ -116,7 +116,7 @@ func (e *LLMExtractor) ExtractRelations(
 		templateName = "relation_extraction"
 	}
 
-	promptTemplate, err := config.LoadPromptTemplate(templateName)
+	promptTemplate, err := prompt.LoadExtractionTemplate(templateName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load relation extraction template: %w", err)
 	}
@@ -203,7 +203,7 @@ func (e *LLMExtractor) ExtractGraphJoint(
 	chunkID, document string,
 	existingContext *domain_knowledge.ExtractionContext,
 ) ([]*domain_knowledge.GraphNode, []*domain_knowledge.GraphRelation, error) {
-	promptTemplate, err := config.LoadPromptTemplate("graph_extraction")
+	promptTemplate, err := prompt.LoadExtractionTemplate("graph_extraction")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load graph extraction template: %w", err)
 	}
@@ -311,7 +311,7 @@ func (e *LLMExtractor) ExtractGraphIncremental(
 		return e.ExtractGraphJoint(ctx, chunkID, document, nil)
 	}
 
-	promptTemplate, err := config.LoadPromptTemplate("graph_incremental")
+	promptTemplate, err := prompt.LoadExtractionTemplate("graph_incremental")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load graph incremental template: %w", err)
 	}
