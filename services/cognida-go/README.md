@@ -75,13 +75,14 @@ Cognida 智能数据系统的 Go 服务端，提供 API、编排、实时处理�
 
 ```
 cognida-go/
-├── cmd/                    # 应用程序入口
+├── cmd/                    # 应用程序入口（可执行 main）
 │   ├── server/            # HTTP 服务器
-│   ├── wire/              # Wire 依赖注入配置
-│   ├── migrate-db/        # 从 GORM model 同步业务表结构
-│   ├── seed-ecommerce/    # 电商演示数据种子
-│   ├── seed-semantic/     # 语义层模型种子
-│   └── seed-graph-terms/  # 图谱术语种子
+│   ├── migrate-db/        # 业务表结构版本化迁移（golang-migrate）
+│   └── seed/              # 演示/冷启动灌数命令
+│       ├── ecommerce/    # 电商演示数据种子
+│       ├── semantic/     # 语义层模型种子
+│       ├── graph-terms/  # 图谱术语种子
+│       └── eval-datasets/ # 评测 golden 数据种子
 ├── internal/
 │   ├── handler/            # 接口层（HTTP handlers + router）
 │   ├── service/            # 应用/领域服务（业务逻辑编排）
@@ -91,7 +92,8 @@ cognida-go/
 │   │   └── semantic/       # 语义层建模写入服务
 │   ├── model/              # 领域层（实体、接口定义）
 │   ├── repository/         # 数据访问实现（mysql / milvus / neo4j / redis）
-│   └── infrastructure/     # 基础设施（LLM 客户端及弹性层、外部依赖）
+│   ├── infrastructure/     # 基础设施（LLM 客户端及弹性层、外部依赖）
+│   └── wire/               # 依赖注入装配（google/wire 组合根）
 ├── api/                    # API 定义
 │   ├── proto/             # gRPC Proto 文件
 │   └── http/              # HTTP API 规范
@@ -244,7 +246,7 @@ Agent ──► semantic_models（模型目录）
 
 - **模型数据源绑定**：`bundleDatabaseID` 从各逻辑表 `DatabaseID` 派生——全部一致取该 id、全空则回落、冲突则不猜（返回空）；`semantic_query` 回传 `database_id` 并指示 LLM 原样传给 `sql_execute`，使受治理 SQL 命中正确数据源。
 - **可观测性**：每次 `semantic_query` 尽力写一条覆盖日志（`agent_semantic_coverage_logs`，按 `request_id` 关联审计/Loki）；`GET /semantic-coverage` 按模型聚合命中率。
-- **写入路径**：建模经 REST（`/semantic-models` CRUD + publish/deprecate）与种子命令（`cmd/seed-semantic`、`cmd/seed-graph-terms`）；前端建模 UI 尚未提供。
+- **写入路径**：建模经 REST（`/semantic-models` CRUD + publish/deprecate）与种子命令（`cmd/seed/semantic`、`cmd/seed/graph-terms`）；前端建模 UI 尚未提供。
 - **「治理主路」含义**：引擎与实体此前已存在但恒返回 `covered=false`（空壳），因缺三个缝隙——建模写入口、覆盖可观测性、图谱接地数据。补齐三缝隙 + 数据源路由加固后，治理路径可被真实命中、可观测、可接地。
 
 ### 7. Agent 评测（轨迹级测评）
@@ -472,6 +474,206 @@ factory := llm.NewModelFactory(llm.WithResilience(cfg))
 factory := llm.NewModelFactory(llm.WithoutResilience())
 ```
 
+## Agent 开发指南（新建 · 配置 · 使用）
+
+本节回答三个问题：**这个项目里的 Agent 是怎么组织的、如何从零新建一个、以及如何配置和调用它。**
+
+### 核心前提：Agent 是「代码声明式」的，没有 per-agent 外部配置文件
+
+本项目**不存在**「一个 Agent 一份 YAML/JSON」的配置文件。每个 Agent 都是在代码里通过 `AgentSpec` 声明、用链式 `Builder` 装配出来的。`config.yaml` 与环境变量配置的是**共享依赖**（模型、工具后端、Skill 端点）和**特性开关**，而不是某个 Agent 的行为。改 Agent 行为 = 改代码，不是改配置文件。
+
+### 三层结构
+
+| 层 | 位置 | 职责 |
+|----|------|------|
+| **Builder** | `service/agent/framework/eino_builder.go` | 链式装配**单个**可运行 Agent（模型 / 工具 / prompt / hook / 预算 / 压缩 / 护栏…） |
+| **AgentSpec** | `service/agent/framework/agent_spec.go` | Agent 的**声明**：`ID/Name/Description/Type/ToolNames/Aliases/Metadata` + `Build` 闭包（真正装配逻辑） |
+| **Initializer** | `service/agent/initializer/init.go` | 集中**注册**内置 Agent（default / rag / chat / data），把共享依赖注入各 `Build` 闭包 |
+| **SpecRegistry** | `service/agent/framework/spec_registry.go` | 注册表：`RegisterSpec` 时**立即** `Build` 出实例入表；`GetInstance(id)` 只查表不重建 |
+| **Orchestrator** | `service/agent/framework/registry_orchestrator.go` | 运行时以 `registry.GetInstance` 为 `AgentGetter`，按 ID 路由到实例并调用 |
+
+> `Build` 用闭包而非直接持有 Agent，是为了打破包依赖环：`tools` 包 import `framework`，若 `framework` 反向 import `tools` 会成环，所以「按名取工具再装配」的逻辑必须留在 initializer/preset 层。
+
+### 装配链路（从进程启动到可被调用）
+
+```
+config.yaml (//go:embed) + .env
+        │
+        ▼  cmd/server/main.go 组合根
+  ├─ toolModel  = llmchat.NewToolCallingChatModel(app.ChatConfig)      # 模型
+  ├─ reg        = tools.NewToolRegistry(ToolDeps{...})                 # 工具（按能力组注册）
+  └─ initializer= agentinit.NewInitializer(AgentRegistry, reg, msgRepo)
+                    .WithEmbedder(...).WithExperienceRecall(...)...     # 链式注入可选能力
+        │
+        ▼  initializer.Initialize(ctx, toolModel)
+  registerDefaultAgent / registerRAGAgent / registerChatAgent / registerDataAgent
+        │  每个 = 声明 AgentSpec → 在 Build 闭包里用 Builder 装配
+        ▼
+  registry.RegisterSpec(ctx, spec)  ──►  立即 spec.Build(ctx) 得到实例，按 ID + Aliases 入表
+        │
+        ▼  运行时
+  Orchestrator / evaluation ──► registry.GetInstance(agentID) ──► Agent.Chat / Stream
+```
+
+### 一、从零新建一个 Agent
+
+假设要新增内置 Agent `agent-foo`。**二选一**：
+
+#### 方式 A：简单 Agent（内联声明，仿 `registerDefaultAgent`）
+
+在 `internal/service/agent/initializer/init.go` 加一个方法：
+
+```go
+func (init *Initializer) registerFooAgent(ctx context.Context, chatModel any) error {
+    toolModel, ok := chatModel.(model.ToolCallingChatModel)
+    if !ok {
+        return fmt.Errorf("foo agent 需要 ToolCallingChatModel")
+    }
+
+    spec := infraagent.AgentSpec{
+        ID:          "agent-foo",
+        Name:        "foo_assistant",
+        Description: "示例 Agent",
+        Type:        agent.AgentTypeNormal, // normal / agentic_rag / deep_research / multi_agent
+        Metadata:    map[string]string{"builtin": "true", "version": "1.0.0"},
+        Build: func(ctx context.Context) (infraagent.Agent, error) {
+            // 1) 按名 / 按能力组从注入的 ToolRegistry 取工具
+            var tools []tool.BaseTool
+            if t, ok := init.tools.Get("sql_execute"); ok {
+                tools = append(tools, t)
+            }
+            tools = append(tools, init.tools.GetByGroup("skill")...)
+
+            // 2) 用 Builder 装配
+            builder := infraagent.New(nil).
+                Name("foo_assistant").
+                Prompt(skills.AugmentPromptWithCatalog(`你是示例助手……`)).
+                WithToolModel(toolModel).
+                Before(skills.AutoInjectHook(skills.FallbackInjectThreshold)).
+                WithMaxIterations(6)
+            if len(tools) > 0 {
+                builder = builder.Tools(tools...)
+            }
+
+            // 3) 护栏装配（默认恒等，未接线时不改变行为）
+            builder = init.guardrail.Apply(builder)
+            return builder.Build(ctx)
+        },
+    }
+    return init.registry.RegisterSpec(ctx, spec)
+}
+```
+
+然后在 `Initialize(...)` 里挂上调用（与 `registerDefaultAgent` 等并列一行）：
+
+```go
+if err := init.registerFooAgent(ctx, chatModel); err != nil {
+    return err
+}
+```
+
+#### 方式 B：复杂 Agent（独立预设包，仿 `presets/data_agent`）
+
+当 Agent 需要子代理委托、意图路由、多 hook、三级上下文压缩、软/硬缓存时，抽成独立包 `internal/service/agent/presets/foo/`，对外只导出一个 `Spec(...) infraagent.AgentSpec` 工厂 + 内部 `buildFooAgent(...)`。initializer 里只需一行：
+
+```go
+if err := init.registry.RegisterSpec(ctx, foo.Spec(toolModel, init.messageRepo, init.tools, /* …可选能力… */)); err != nil {
+    return err
+}
+```
+
+`data_agent` 即此范式：`Spec()` 返回声明，`buildDataAgent()` 里建协作注册表 + 注册子代理（`RegisterDataSubAgents`）+ 按能力组收集工具（`collectCapabilityTools` 用 `registry.GetByGroup`）+ 挂多个 `Before` hook + `WithCollaboration(reg, EnableDelegate())` + 缓存装饰。
+
+#### 需要改哪些文件、按什么顺序
+
+| 步骤 | 文件 | 说明 |
+|------|------|------|
+| 1（可选）新增工具 | `tools/*.go` + `tools/init.go` + `tools/registry.go` + `tools/deps.go` | 实现 eino `tool.BaseTool` → 在某 `registerXxxTools` 里 `r.Register("<group>", tool)` → 新分组要登记进 `registry.go` 的 registrars 列表 → 新依赖加进 `ToolDeps` 并在 `main.go` 装配处填入。已有工具够用则跳过 |
+| 2 声明并注册 Spec | `initializer/init.go`（简单）**或** `presets/foo/`（复杂） | 见方式 A / B |
+| 3 挂上调用 | `initializer/init.go` 的 `Initialize` | 加 `init.registerFooAgent(...)` 或 `RegisterSpec(foo.Spec(...))` |
+| 4（可选）新增注入依赖 | `initializer/init.go` + `cmd/server/main.go` | `Initializer` 加字段 + `WithXxx` 链式方法（仿 `WithEmbedder`），组合根 `.WithXxx(...)` 注入 |
+| — 无需改动 | `framework/spec_registry.go`、`agent_spec.go`、`registry_orchestrator.go`、`eino_agent.go`、`eino_builder.go` | 稳定基建。`GetInstance` 自动能取到新 Agent；要兼容历史 ID 就在 Spec 填 `Aliases`，无需改编排器 |
+
+### 二、Builder 装配项一览
+
+一个 Agent 能做什么，取决于 `Builder` 链上挂了哪些方法（`eino_builder.go`）：
+
+| 分组 | 方法 | 作用 |
+|------|------|------|
+| 基础 | `New(model)` `Name` `Description` `Prompt` `WithToolModel` `Tools` / `ToolsFromRegistry` / `ToolsAutoSelect` `WithMaxIterations` | 模型、系统提示、工具集、ReAct 最大迭代 |
+| 预算护栏 | `WithTokenBudget` `WithWallClock` `WithToolTimeout` | token / 挂钟 / 单工具超时兜底 |
+| 上下文压缩 | `WithContextCompaction(trigger,target)` `WithMaxMessageTokens` `WithReasoningEviction` `WithTokenCounter` `WithContextSummarizer` | 三级压缩：单条截断 / 推理淘汰 / 整体摘要 |
+| 记忆 | `WithContextBuilder` | 接入会话历史回放（需 `messageRepo`） |
+| Hook | `Before` `After` `Observe` `Middleware` | 请求前/后钩子、观测、中间件 |
+| 协作 | `WithCollaboration(reg, EnableDelegate()/EnableAsk()/EnableHandoff())` | 多 Agent 委托 / 询问 / 交接 |
+| 高级能力 | `WithReflection` `WithConclusion` `WithClarification` `WithAutoCompress` `WithInputGuardrail` `WithOutputGuardrail` `WithToolOutputGuardrail` | 反思、结论生成、意图澄清、输入/输出/工具输出护栏 |
+
+> 便捷工厂：`NewSimpleAgent` / `NewToolAgent` / `NewAgentFromRegistry` / `NewAgentFromConfig`（用领域层 `AgentConfig` 结构体声明式建 Agent，见下）。
+
+### 三、配置从哪来（三类）
+
+**① Agent 本体** —— 在代码里（`initializer/init.go` 或 `presets/`），无外部配置文件。
+
+**② 共享依赖（config.yaml + 环境变量）** —— 模型、DB、Skill 端点等，见下方 [§配置](#配置)。优先级：`代码默认 < config.yaml < 环境变量`；**密钥只走环境变量**。
+
+**③ 声明式配置结构体（可选路径）** —— `internal/model/agent/config.go` 的 `AgentConfig`（`MaxIterations` / `DefaultTopK` / `HookConfig` / `MemoryConfig` / `ReflectionConfig` 等），配合 `Builder.NewAgentFromConfig` 使用；`DefaultAgentConfig()` 给出默认值、`Validate()` 校验。当前四个内置 Agent 走的是直接链式装配，未走此路径。
+
+**④ 高级能力的特性开关（环境变量，默认全关＝零回归）** —— 在 `cmd/server/main.go` 组合根按环境变量装配：
+
+| 能力 | 关键环境变量 | 默认 |
+|------|-------------|------|
+| Data Agent 工具超时兜底 | `DATA_AGENT_TOOL_TIMEOUT_SECONDS`（0/负=关） | 90s |
+| 经验蒸馏（写侧） | `EXPERIENCE_DISTILL_ENABLED` / `EXPERIENCE_PREGATE_ENABLED` / `EXPERIENCE_SKILL_SINK_ENABLED` / `EXPERIENCE_MIN_CONFIDENCE`… | 蒸馏关，前置门开 |
+| 经验召回（读侧） | `EXPERIENCE_RECALL_ENABLED`（需图谱可用） | 关 |
+| 语义缓存 / few-shot | `SEMANTIC_CACHE_ENABLED` / `RAG_HARD_CACHE_ENABLED` / `DATA_SOFT_CACHE_ENABLED`（+ `*_THRESHOLD` / `*_TTL` / `*_TOP_K`） | 关 |
+| 技能目录 | `COGNIDA_SKILL_DIRS` | `./skills,../skills,../../skills` |
+| 调用链追踪 | `AGENT_TRACING_ENABLED` | 关 |
+
+> 反思（`WithReflection`）与护栏（`WithGuardrail`）**已实现但默认未接线**：组合根未调用对应装配缝，故当前对四个内置 Agent 无效果，属「能力就绪、待接线」。
+
+### 四、如何调用运行中的 Agent
+
+Agent 在 `RegisterSpec` 时已被构建好，运行时按 ID 取实例即可：
+
+```go
+// 编排器 / 评测适配器持有 registry.GetInstance 作为 AgentGetter
+ag, ok := registry.GetInstance("agent-foo") // agentID 为空回退 "default"
+if !ok {
+    return fmt.Errorf("agent 未注册")
+}
+
+// 一次性完整响应（含工具调用轨迹）
+resp, err := ag.Chat(ctx, "查询销售额最高的前 10 个产品")
+// resp.Content / resp.ToolCalls / resp.Metadata
+
+// 流式响应
+ch, err := ag.Stream(ctx, "……")
+for chunk := range ch { // chunk.Content / chunk.Done
+    _ = chunk
+}
+```
+
+`Agent` 接口（`framework/eino_agent.go`）只有三个方法：`Chat(ctx, msg) (*Response, error)`、`Stream(ctx, msg) (<-chan *Chunk, error)`、`Name() string`。内置 Agent 的 ID 见 [§核心功能 → 内置 Agent](#1-agent-系统) 表。
+
+### 五、开发流程
+
+遵循仓库根 `CLAUDE.md` 的强制流程：`准备 → 评估 → 开发 → 测试 → Review → 提交`。
+
+```bash
+# 装配 / 运行
+go run cmd/server/main.go                              # 开发模式启动
+go generate ./cmd/wire                                 # 改了依赖注入后重新生成 wire
+
+# 测试
+go test ./internal/service/agent/... -v                # Agent 单元测试
+go test -tags=integration ./internal/... -v            # 集成测试（真实 DB / 评测服务）
+
+# 若新增/修改了业务表（加了 model 字段等），配套写迁移并应用
+set -a && source .env && set +a && go run ./cmd/migrate-db up
+```
+
+> 提交前必过 code-review；任务完成后终止启动的服务进程（`CLAUDE.md` 强制规则）。
+
 ## 配置
 
 ### 环境变量
@@ -529,30 +731,50 @@ SKILL_CACHE_TTL=60
 
 ### 配置文件
 
-支持 YAML 配置文件（优先级低于环境变量）：
+非密配置的唯一真源是 `internal/config/config.yaml`，由 `//go:embed` 在**编译期**打包进二进制，运行时无需关心工作目录、也不依赖磁盘副本。
+
+- **加载优先级（从低到高）**：`代码内兜底默认  <  config.yaml  <  环境变量（覆盖）`
+- **只放非密配置**：Host/Port、开关、超时、阈值、池大小、端点、模型名、目录、TTL、分页等。
+- **严禁出现任何密钥**（`DB_PASSWORD` / `MILVUS_TOKEN` / `NEO4J_PASSWORD` / `JWT_SECRET` / `CHAT_API_KEY` / `METASO_API_KEY` / `EMBEDDING_API_KEY` / `REDIS_PASSWORD` / `DATASOURCE_SECRET_KEY`）——密钥类字段没有对应 yaml key，只能来自环境变量（见 `.env` / `.env.example`）。
+- **免重编覆盖**：设置环境变量 `CONFIG_FILE` 指向外部 yaml，即可叠加在内嵌真源之上（缺失/解析失败静默跳过）。
+
+真实结构摘录（完整见 `internal/config/config.yaml`）：
 
 ```yaml
-server:
-  host: "0.0.0.0"
-  port: 8080
-
+# 数据库（MySQL）—— 密码走 DB_PASSWORD 环境变量
 database:
-  mysql:
-    dsn: "root:password@tcp(localhost:3306)/cognida"
+  host: localhost
+  port: "3306"
+  user: root
+  database: cognida
 
-llm:
-  api_key: "sk-xxx"
-  base_url: "https://api.openai.com/v1"
-  model: "gpt-4"
+# 聊天模型 —— APIKey 走 CHAT_API_KEY 环境变量
+chat:
+  source: remote                       # local / remote
+  base_url: https://api.deepseek.com/v1
+  model_name: deepseek-chat
+  provider: deepseek
 
-text2sql:
-  enabled: true
-  max_rows: 1000
-  timeout: 30
+# Embedding —— APIKey 走 EMBEDDING_API_KEY 环境变量
+embedding:
+  provider: dashscope
+  model: text-embedding-v3
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings
 
+# HTTP 服务
+server:
+  port: "8080"
+  mode: debug                          # debug / release
+  host: 0.0.0.0
+
+# 评测系统（独立评测 FastAPI :18888）
+evaluation:
+  agent_timeout: 180                   # Agent 单条评测超时（秒）
+
+# Skill / MCP 工具端点（指向 Python MCP 服务 :3100）
 skill:
-  enabled: true
-  endpoint: "http://localhost:8080/mcp"
+  enabled: false
+  endpoint: http://localhost:3100/mcp
   timeout: 30
   cache_ttl: 60
 ```
@@ -566,15 +788,19 @@ skill:
 go generate ./cmd/wire
 ```
 
-## 数据库表结构同步
+## 数据库表结构同步（版本化迁移，golang-migrate）
 
-业务表主流程无 SQL 迁移文件；给 model 加字段/建表后，从 GORM model 幂等同步全部业务表结构：
+业务表结构的唯一真源是 `migrations/`（成对的 `NNNNNN_*.up.sql` / `.down.sql`），由 `cmd/migrate-db` 驱动执行；**运行时与生产库不做任何自动建表/改表**（已弃用 GORM AutoMigrate）。改 schema 时新增一对迁移文件并同步更新对应 model，二者保持一致。
 
 ```bash
-cd cognida-go && set -a && source .env && set +a && go run ./cmd/migrate-db
+cd cognida-go && set -a && source .env && set +a
+go run ./cmd/migrate-db up          # 应用全部未执行迁移（默认动作）
+go run ./cmd/migrate-db version     # 查看当前版本 / dirty
+go run ./cmd/migrate-db down [N]    # 回滚 N 步（省略=全部，谨慎）
+go run ./cmd/migrate-db force <V>   # 存量库接入：force 1 标记基线已应用
 ```
 
-> 图谱表（`graph_*`）由 `graphMetaRepository.ensureSchema` 懒加载建表；评测表主流程无 AutoMigrate，加字段后同样用 `cmd/migrate-db` 同步；外部数据源为只读外部资源，不参与迁移。
+> 新增变更、存量库接入、dirty 处理详见 `migrations/README.md`。图谱表（`graph_*`）以 Neo4j 为唯一真源，不在本迁移范围；外部数据源为只读外部资源，不参与迁移。
 
 ## 开发
 
