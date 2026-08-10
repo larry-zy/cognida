@@ -24,6 +24,7 @@ import (
 	"cognida/internal/infrastructure/llm/chat"
 	"cognida/internal/model/common"
 	domainllm "cognida/internal/model/llm"
+	"cognida/internal/pkg/safego"
 )
 
 // einoLLMClient 将 eino model.ToolCallingChatModel 适配为 domainllm.LLMClient。
@@ -121,6 +122,7 @@ func (c *einoLLMClient) ChatStream(ctx context.Context, req *domainllm.ChatReque
 
 	resultChan := make(chan *domainllm.ChatChunk, 16)
 	go func() {
+		defer safego.Recover("eino-client-stream")
 		defer close(resultChan)
 		defer reader.Close()
 

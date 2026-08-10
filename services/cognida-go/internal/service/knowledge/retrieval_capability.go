@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // errRetrieverNotWired 底层检索器未注入时的哨兵错误。
@@ -116,6 +117,7 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 	for i, kbID := range kbIDs {
 		wg.Add(1)
 		go func(i int, kbID string) {
+			defer safego.Recover("kb-retrieval")
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()

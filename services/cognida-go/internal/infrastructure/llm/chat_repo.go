@@ -15,6 +15,7 @@ import (
 	"time"
 
 	domainllm "cognida/internal/model/llm"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -146,6 +147,7 @@ func (r *openaiChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequ
 	resultChan := make(chan *domainllm.ChatChunk, 10)
 
 	go func() {
+		defer safego.Recover("chat-repo-stream")
 		defer close(resultChan)
 		defer resp.Body.Close()
 
@@ -388,7 +390,7 @@ func NewOllamaChatRepo(config *domainllm.ModelConfig) (domainllm.LLMClient, erro
 	return &ollamaChatRepo{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		model:   config.ModelName,
-		client:  &http.Client{
+		client: &http.Client{
 			Timeout: 120 * time.Second,
 		},
 	}, nil
@@ -448,6 +450,7 @@ func (r *ollamaChatRepo) ChatStream(ctx context.Context, req *domainllm.ChatRequ
 	resultChan := make(chan *domainllm.ChatChunk, 10)
 
 	go func() {
+		defer safego.Recover("chat-repo-stream")
 		defer close(resultChan)
 		defer resp.Body.Close()
 

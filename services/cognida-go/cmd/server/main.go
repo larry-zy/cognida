@@ -23,6 +23,7 @@ import (
 	"cognida/internal/infrastructure/mcp"
 	obstel "cognida/internal/infrastructure/observability"
 	domaincache "cognida/internal/model/cache"
+	"cognida/internal/pkg/safego"
 	"cognida/internal/repository/milvus"
 	milvusretriever "cognida/internal/repository/milvus/retriever"
 	"cognida/internal/repository/mysql"
@@ -455,6 +456,7 @@ func main() {
 	if app.EvaluationConfig != nil && app.EvaluationConfig.WorkerEnabled && app.EvaluationWorker != nil {
 		log.Println("🔧 启动评测 Worker...")
 		go func() {
+			defer safego.Recover("server-bg")
 			if err := app.EvaluationWorker.Run(); err != nil {
 				log.Printf("❌ 评测 Worker 错误: %v", err)
 			}
@@ -484,6 +486,7 @@ func main() {
 		}
 		log.Printf("🔧 启动数据源健康检查（间隔 %s）...", interval)
 		go func() {
+			defer safego.Recover("server-bg")
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			runCheck := func() {
@@ -516,6 +519,7 @@ func main() {
 	log.Printf("🚀 服务器启动中... 监听地址: %s", addr)
 	serverErr := make(chan error, 1)
 	go func() {
+		defer safego.Recover("server-bg")
 		if err := app.Router.Run(addr); err != nil {
 			serverErr <- err
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"cognida/internal/pkg/safego"
 	infraagent "cognida/internal/service/agent/framework"
 )
 
@@ -28,9 +29,9 @@ type parallelAgent struct {
 
 func (p *parallelAgent) Chat(ctx context.Context, message string) (*infraagent.Response, error) {
 	type result struct {
-		index   int
+		index    int
 		response *infraagent.Response
-		err     error
+		err      error
 	}
 
 	results := make(chan result, len(p.agents))
@@ -40,6 +41,7 @@ func (p *parallelAgent) Chat(ctx context.Context, message string) (*infraagent.R
 	for i, a := range p.agents {
 		wg.Add(1)
 		go func(index int, a infraagent.Agent) {
+			defer safego.Recover("parallel-agent")
 			defer wg.Done()
 			resp, err := a.Chat(ctx, message)
 			results <- result{index: index, response: resp, err: err}
@@ -48,6 +50,7 @@ func (p *parallelAgent) Chat(ctx context.Context, message string) (*infraagent.R
 
 	// Wait for all to complete
 	go func() {
+		defer safego.Recover("parallel-collect")
 		wg.Wait()
 		close(results)
 	}()
@@ -66,7 +69,7 @@ func (p *parallelAgent) Chat(ctx context.Context, message string) (*infraagent.R
 
 	// Build aggregated response
 	aggregated := &infraagent.Response{
-		Content:  p.aggregateContent(responses),
+		Content: p.aggregateContent(responses),
 		Metadata: map[string]interface{}{
 			"responses": len(responses),
 			"errors":    len(errors),
@@ -100,6 +103,7 @@ func (p *parallelAgent) Stream(ctx context.Context, message string) (<-chan *inf
 	for i, a := range p.agents {
 		wg.Add(1)
 		go func(index int, a infraagent.Agent) {
+			defer safego.Recover("parallel-agent")
 			defer wg.Done()
 
 			ch, err := a.Stream(ctx, message)
@@ -130,6 +134,7 @@ func (p *parallelAgent) Stream(ctx context.Context, message string) (<-chan *inf
 
 	// Close channel when all agents complete
 	go func() {
+		defer safego.Recover("parallel-collect")
 		wg.Wait()
 		close(out)
 	}()

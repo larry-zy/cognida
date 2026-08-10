@@ -7,6 +7,8 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"cognida/internal/pkg/safego"
 )
 
 // dsmlNormalizingModel 是一层「透明装饰器」，包裹任意 model.ToolCallingChatModel。
@@ -46,6 +48,7 @@ func (m *dsmlNormalizingModel) Stream(ctx context.Context, messages []*schema.Me
 	reader, writer := schema.Pipe[*schema.Message](10)
 
 	go func() {
+		defer safego.Recover("dsml-stream")
 		defer writer.Close()
 		defer inner.Close()
 

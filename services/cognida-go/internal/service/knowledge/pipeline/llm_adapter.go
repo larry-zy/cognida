@@ -8,6 +8,7 @@ import (
 
 	"cognida/internal/model/llm"
 	domainrag "cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -123,6 +124,7 @@ func (a *LLMChatAdapter) ChatStream(ctx context.Context, messages []domainrag.LL
 	resultChan := make(chan *domainrag.LLMStreamEvent, 10)
 
 	go func() {
+		defer safego.Recover("llm-adapter-stream")
 		defer close(resultChan)
 		for chunk := range streamChan {
 			select {
@@ -216,6 +218,7 @@ func (a *LLMChatAdapter) fallbackChatStream(ctx context.Context, messages []doma
 	resultChan := make(chan *domainrag.LLMStreamEvent, 5)
 
 	go func() {
+		defer safego.Recover("llm-adapter-stream")
 		defer close(resultChan)
 
 		// 获取降级响应

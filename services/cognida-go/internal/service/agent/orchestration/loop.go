@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"cognida/internal/pkg/safego"
 	infraagent "cognida/internal/service/agent/framework"
 )
 
@@ -57,6 +58,7 @@ func (l *loopAgent) Stream(ctx context.Context, message string) (<-chan *infraag
 	out := make(chan *infraagent.Chunk, 1)
 
 	go func() {
+		defer safego.Recover("loop-stream")
 		defer close(out)
 
 		current := message
@@ -169,6 +171,7 @@ func (r *repeatAgent) Stream(ctx context.Context, message string) (<-chan *infra
 	out := make(chan *infraagent.Chunk, 10)
 
 	go func() {
+		defer safego.Recover("loop-stream")
 		defer close(out)
 
 		for i := 0; i < r.count; i++ {
@@ -223,15 +226,15 @@ func (r *repeatAgent) aggregateResponses(responses []*infraagent.Response) *infr
 // Retry executes an agent until it succeeds or max retries is reached.
 func Retry(agent infraagent.Agent, maxRetries int, shouldRetry func(error) bool) infraagent.Agent {
 	return &retryAgent{
-		agent:      agent,
-		maxRetries: maxRetries,
+		agent:       agent,
+		maxRetries:  maxRetries,
 		shouldRetry: shouldRetry,
 	}
 }
 
 type retryAgent struct {
-	agent      infraagent.Agent
-	maxRetries int
+	agent       infraagent.Agent
+	maxRetries  int
 	shouldRetry func(error) bool
 }
 
@@ -263,6 +266,7 @@ func (r *retryAgent) Stream(ctx context.Context, message string) (<-chan *infraa
 	out := make(chan *infraagent.Chunk, 1)
 
 	go func() {
+		defer safego.Recover("loop-stream")
 		defer close(out)
 
 		for i := 0; i <= r.maxRetries; i++ {

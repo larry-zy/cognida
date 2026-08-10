@@ -11,8 +11,9 @@ import (
 
 	"github.com/cloudwego/eino/components/embedding"
 
-	domainrag "cognida/internal/model/rag"
 	"cognida/internal/model/knowledge"
+	domainrag "cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -21,13 +22,13 @@ import (
 
 // RetrieverImpl 检索器实现
 type RetrieverImpl struct {
-	kbSettingRepo       knowledge.KnowledgeBaseSettingRepository
-	chunkRepo           knowledge.ChunkRepository
-	embedder            embedding.Embedder
-	milvusRetriever     MilvusRetriever
-	neo4jRepo           domainrag.GraphRepository
-	graphQueryRepo      domainrag.GraphQueryRepository
-	reranker            domainrag.Reranker
+	kbSettingRepo   knowledge.KnowledgeBaseSettingRepository
+	chunkRepo       knowledge.ChunkRepository
+	embedder        embedding.Embedder
+	milvusRetriever MilvusRetriever
+	neo4jRepo       domainrag.GraphRepository
+	graphQueryRepo  domainrag.GraphQueryRepository
+	reranker        domainrag.Reranker
 }
 
 // MilvusRetriever Milvus 检索器接口
@@ -299,6 +300,7 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 	// 向量检索
 	wg.Add(1)
 	go func() {
+		defer safego.Recover("retriever-stream")
 		defer wg.Done()
 		vectorResp, err := r.VectorRetrieve(ctx, tenantID, kbID, query, &domainrag.RetrieveOptions{
 			TopK: opts.TopK * 2,
@@ -318,6 +320,7 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 	// BM25 检索
 	wg.Add(1)
 	go func() {
+		defer safego.Recover("retriever-stream")
 		defer wg.Done()
 		bm25Resp, err := r.BM25Retrieve(ctx, tenantID, kbID, query, &domainrag.RetrieveOptions{
 			TopK:          opts.TopK * 2,

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"cognida/internal/model/agent"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -25,11 +26,11 @@ type AgentGetter func(agentID string) (Agent, bool)
 
 // registryAgentOrchestrator 使用 Agent 注册中心路由请求到对应的 Agent 实例
 type registryAgentOrchestrator struct {
-	mu           sync.RWMutex
-	agents       map[string]Agent // agentID -> Agent 实例
-	status       map[string]agent.AgentStatus
-	agentGetter  AgentGetter      // 从外部获取 Agent 的函数
-	lastError    error
+	mu          sync.RWMutex
+	agents      map[string]Agent // agentID -> Agent 实例
+	status      map[string]agent.AgentStatus
+	agentGetter AgentGetter // 从外部获取 Agent 的函数
+	lastError   error
 }
 
 // NewRegistryAgentOrchestrator 创建基于注册中心的编排器
@@ -123,6 +124,7 @@ func (o *registryAgentOrchestrator) ExecuteStream(ctx context.Context, agentID s
 	eventChan := make(chan *agent.StreamEvent, 16)
 
 	go func() {
+		defer safego.Recover("registry-orchestrator")
 		defer close(eventChan)
 		defer func() {
 			o.mu.Lock()

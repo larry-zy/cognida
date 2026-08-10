@@ -7,6 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"cognida/internal/model/cache"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -45,6 +46,7 @@ func (p *pubSub) Subscribe(ctx context.Context, channels ...string) (<-chan *cac
 
 	// 启动 goroutine 转发消息
 	go func() {
+		defer safego.Recover("pubsub-receive")
 		defer close(msgChan)
 		for {
 			select {
@@ -91,6 +93,7 @@ func (p *pubSub) PSubscribe(ctx context.Context, patterns ...string) (<-chan *ca
 	msgChan := make(chan *cache.Message, 100)
 
 	go func() {
+		defer safego.Recover("pubsub-receive")
 		defer close(msgChan)
 		for {
 			select {

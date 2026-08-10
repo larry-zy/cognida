@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"cognida/internal/pkg/safego"
 	infraagent "cognida/internal/service/agent/framework"
 )
 
@@ -95,6 +96,7 @@ func (s *sequentialAgent) Stream(ctx context.Context, message string) (<-chan *i
 	out := make(chan *infraagent.Chunk, 1)
 
 	go func() {
+		defer safego.Recover("sequential-stream")
 		defer close(out)
 
 		current := message

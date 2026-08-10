@@ -1,15 +1,17 @@
 package chat
 
 import (
+	"cognida/internal/model/common"
 	"context"
 	"fmt"
 	"io"
-	"cognida/internal/model/common"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"cognida/internal/pkg/safego"
 )
 
 // Chat 定义了聊天接口
@@ -131,6 +133,7 @@ func recvStream(ctx context.Context, reader *schema.StreamReader[*schema.Message
 	respChan := make(chan StreamResponse, 10)
 
 	go func() {
+		defer safego.Recover("chat-stream")
 		defer close(respChan)
 		defer func() {
 			if reader != nil {

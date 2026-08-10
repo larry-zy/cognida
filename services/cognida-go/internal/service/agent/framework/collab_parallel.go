@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	domainagent "cognida/internal/model/agent"
+	"cognida/internal/pkg/safego"
 )
 
 // defaultDelegateConcurrency 并行委派默认并发上限（资源护栏，防子代理树暴涨）。
@@ -87,6 +88,7 @@ func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON
 	for i := range args.Delegations {
 		wg.Add(1)
 		go func(idx int) {
+			defer safego.Recover("collab-parallel")
 			defer wg.Done()
 			sem <- struct{}{} // 并发上限护栏
 			defer func() { <-sem }()

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cognida/internal/model/agent"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -58,7 +59,7 @@ func (s *ResearchService) Execute(ctx context.Context, req *DeepResearchRequest)
 	return &DeepResearchResponse{
 		Query:            req.Query,
 		ExecutiveSummary: extractSummary(answer),
-		DetailedAnalysis:  answer,
+		DetailedAnalysis: answer,
 		KeyFindings:      extractFindings(answer),
 		Sources:          []ReportSourceDTO{}, // 简化版本
 		Metadata: ReportMetadataDTO{
@@ -76,6 +77,7 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 	progressChan := make(chan *ResearchProgressDTO, 50)
 
 	go func() {
+		defer safego.Recover("agent-research")
 		defer close(progressChan)
 
 		startTime := time.Now()
@@ -115,12 +117,12 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 
 		// Send complete event
 		sendProgress(progressChan, &ResearchProgressDTO{
-			Stage:         "complete",
-			Progress:      1.0,
-			Detail:        "研究完成",
-			ElapsedTime:   time.Since(startTime).Milliseconds(),
-			Timestamp:     time.Now().Unix(),
-			ResultsCount:  1,
+			Stage:        "complete",
+			Progress:     1.0,
+			Detail:       "研究完成",
+			ElapsedTime:  time.Since(startTime).Milliseconds(),
+			Timestamp:    time.Now().Unix(),
+			ResultsCount: 1,
 		})
 	}()
 

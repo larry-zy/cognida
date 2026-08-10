@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cognida/internal/model/memory"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -32,9 +33,9 @@ type AutoCompressHook struct {
 	threshold          float64 // 压缩阈值（0-1），相对于 maxTokens
 	maxTokens          int     // 最大 token 数量
 	mu                 sync.Mutex
-	compressingMap     map[string]bool // 正在压缩的会话
-	asyncMode          bool // 是否异步执行压缩
-	compressInterval   time.Duration // 最小压缩间隔
+	compressingMap     map[string]bool      // 正在压缩的会话
+	asyncMode          bool                 // 是否异步执行压缩
+	compressInterval   time.Duration        // 最小压缩间隔
 	lastCompressTime   map[string]time.Time // 每个会话上次压缩时间
 }
 
@@ -43,10 +44,10 @@ func NewAutoCompressHook(service CompressionService) *AutoCompressHook {
 	return &AutoCompressHook{
 		BaseHook:           NewBaseHook("auto_compress", nil), // 不需要 LLM
 		compressionService: service,
-		threshold:          0.8, // 默认 80% 触发压缩
+		threshold:          0.8,  // 默认 80% 触发压缩
 		maxTokens:          4000, // 默认最大 token 数
 		compressingMap:     make(map[string]bool),
-		asyncMode:          true, // 默认异步模式
+		asyncMode:          true,             // 默认异步模式
 		compressInterval:   30 * time.Second, // 默认最小间隔 30 秒
 		lastCompressTime:   make(map[string]time.Time),
 	}
@@ -154,6 +155,7 @@ func (h *AutoCompressHook) After(ctx context.Context, resp interface{}) error {
 	if h.asyncMode {
 		// 异步模式：不阻塞响应
 		go func() {
+			defer safego.Recover("compress-hook")
 			_ = h.executeCompress(context.Background(), sessionID) // 异步压缩失败保持静默，不影响主流程
 		}()
 		return nil

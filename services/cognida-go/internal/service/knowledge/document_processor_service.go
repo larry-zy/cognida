@@ -12,10 +12,11 @@ import (
 
 	"github.com/cloudwego/eino/components/embedding"
 
-	domain_knowledge "cognida/internal/model/knowledge"
-	domain_llm "cognida/internal/model/llm"
 	"cognida/internal/infrastructure/id"
 	docreader "cognida/internal/model/docreader"
+	domain_knowledge "cognida/internal/model/knowledge"
+	domain_llm "cognida/internal/model/llm"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -24,15 +25,15 @@ import (
 
 // documentProcessorService 文档处理服务实现
 type documentProcessorService struct {
-	kbRepo       domain_knowledge.KnowledgeBaseRepository
+	kbRepo        domain_knowledge.KnowledgeBaseRepository
 	knowledgeRepo domain_knowledge.KnowledgeRepository
-	chunkRepo    domain_knowledge.ChunkRepository
-	graphRepo    domain_knowledge.GraphRepository
-	vectorRepo   domain_knowledge.VectorRepository
-	grpcClient   docreader.DocumentReader
-	embedder     embedding.Embedder         // Embedding 生成器
-	llmClient    domain_llm.LLMClient       // LLM 客户端（用于图谱提取）
-	idGenerator  id.IDGenerator
+	chunkRepo     domain_knowledge.ChunkRepository
+	graphRepo     domain_knowledge.GraphRepository
+	vectorRepo    domain_knowledge.VectorRepository
+	grpcClient    docreader.DocumentReader
+	embedder      embedding.Embedder   // Embedding 生成器
+	llmClient     domain_llm.LLMClient // LLM 客户端（用于图谱提取）
+	idGenerator   id.IDGenerator
 }
 
 // NewDocumentProcessorService 创建文档处理服务
@@ -159,6 +160,7 @@ func (s *documentProcessorService) ProcessDocument(
 	if s.vectorRepo != nil && s.embedder != nil {
 		wg.Add(1)
 		go func() {
+			defer safego.Recover("doc-processor")
 			defer wg.Done()
 			log.Printf("[DocumentProcessor] Starting vectorization goroutine for %d chunks", len(chunkEntities))
 			vectorErr = s.vectorizeChunks(ctx, tenantID, kb.ID, chunkEntities)
@@ -177,6 +179,7 @@ func (s *documentProcessorService) ProcessDocument(
 	if graphEnabled && s.graphRepo != nil {
 		wg.Add(1)
 		go func() {
+			defer safego.Recover("doc-processor")
 			defer wg.Done()
 			_, _, graphErr = s.extractGraph(ctx, tenantID, req.KnowledgeBaseID, knowledgeID, chunkEntities)
 			if graphErr == nil {
@@ -428,18 +431,18 @@ func (s *documentProcessorService) createChunkEntities(
 		}
 
 		entities[i] = &domain_knowledge.Chunk{
-			ID:          id,
-			TenantID:    tenantID,
-		 KnowledgeBaseID:        kbID,
-			KnowledgeID: knowledgeID,
-			Content:     chunk.Text,
-			ChunkIndex:  chunk.Index,
-			IsEnabled:   true,
-			ChunkType:   domain_knowledge.ChunkTypeText,
-			StartAt:     chunk.StartPos,
-			EndAt:       chunk.EndPos,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:              id,
+			TenantID:        tenantID,
+			KnowledgeBaseID: kbID,
+			KnowledgeID:     knowledgeID,
+			Content:         chunk.Text,
+			ChunkIndex:      chunk.Index,
+			IsEnabled:       true,
+			ChunkType:       domain_knowledge.ChunkTypeText,
+			StartAt:         chunk.StartPos,
+			EndAt:           chunk.EndPos,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 
 		if len(metadataJSON) > 0 {
@@ -566,9 +569,9 @@ func (s *documentProcessorService) extractGraph(
 
 	// 构建命名空间
 	namespace := domain_knowledge.NameSpace{
-		TenantID:  fmt.Sprintf("%d", tenantID),
-	 KnowledgeBaseID:      kbID,
-		Knowledge: knowledgeID,
+		TenantID:        fmt.Sprintf("%d", tenantID),
+		KnowledgeBaseID: kbID,
+		Knowledge:       knowledgeID,
 	}
 
 	// 收集所有分块内容进行批量提取
@@ -752,10 +755,10 @@ func (s *documentProcessorService) parseGraphExtraction(content string) (*domain
 
 	// 解析 JSON
 	var result struct {
-		Nodes     []struct {
-			Name       string              `json:"name"`
-			EntityType string              `json:"entity_type"`
-			Properties map[string]string   `json:"properties"`
+		Nodes []struct {
+			Name       string            `json:"name"`
+			EntityType string            `json:"entity_type"`
+			Properties map[string]string `json:"properties"`
 		} `json:"nodes"`
 		Relations []struct {
 			Source      string  `json:"source"`

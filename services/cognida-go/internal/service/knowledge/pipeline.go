@@ -9,6 +9,7 @@ import (
 	"time"
 
 	domainrag "cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -117,8 +118,8 @@ func (p *Pipeline) Chat(ctx context.Context, tenantID int64, req *ChatRequest) (
 
 	// 5. Build response
 	metadata := &ChatMetadata{
-		ProcessingTime:  time.Since(startTime).Milliseconds(),
-		RetrievalCount:  len(retrieveResp.Results),
+		ProcessingTime: time.Since(startTime).Milliseconds(),
+		RetrievalCount: len(retrieveResp.Results),
 	}
 
 	if retrieveResp.SearchTrace != nil {
@@ -136,11 +137,11 @@ func (p *Pipeline) Chat(ctx context.Context, tenantID int64, req *ChatRequest) (
 	}
 
 	return &ChatResponse{
-		Answer:     llmResp.Content,
-		Documents:  convertDocuments(retrieveResp.Results),
-		SessionID:  req.SessionID,
-		MessageID:  llmResp.MessageID,
-		Metadata:   metadata,
+		Answer:    llmResp.Content,
+		Documents: convertDocuments(retrieveResp.Results),
+		SessionID: req.SessionID,
+		MessageID: llmResp.MessageID,
+		Metadata:  metadata,
 	}, nil
 }
 
@@ -149,6 +150,7 @@ func (p *Pipeline) ChatStream(ctx context.Context, tenantID int64, req *ChatRequ
 	eventChan := make(chan *StreamEvent, 10)
 
 	go func() {
+		defer safego.Recover("knowledge-pipeline")
 		defer close(eventChan)
 
 		startTime := time.Now()

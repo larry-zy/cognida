@@ -15,6 +15,7 @@ import (
 
 	"cognida/internal/config"
 	agenttools "cognida/internal/model/agent/tools"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -482,6 +483,7 @@ func searchMulti(ctx context.Context, req *SearchMultiRequest, client *MetasoCli
 
 	for _, query := range req.Queries {
 		go func(q string) {
+			defer safego.Recover("web-search-query")
 			req := &agenttools.WebSearchRequest{
 				Query: q,
 				Limit: req.Limit,

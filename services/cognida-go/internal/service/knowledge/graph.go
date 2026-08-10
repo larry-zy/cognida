@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	domain_knowledge "cognida/internal/model/knowledge"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -15,11 +16,11 @@ import (
 
 // GraphService 图谱应用服务（纯编排层）
 type GraphService struct {
-	graphRepo      domain_knowledge.GraphRepository        // 图谱仓储
-	graphQueryRepo domain_knowledge.GraphQueryRepository   // 图谱查询仓储
-	chunkRepo      ChunkRepository                          // Chunk 仓储
-	domainService  *domain_knowledge.GraphService           // 领域服务
-	llmExtractor   domain_knowledge.GraphExtractor          // 图谱抽取器（经接口注入）
+	graphRepo      domain_knowledge.GraphRepository      // 图谱仓储
+	graphQueryRepo domain_knowledge.GraphQueryRepository // 图谱查询仓储
+	chunkRepo      ChunkRepository                       // Chunk 仓储
+	domainService  *domain_knowledge.GraphService        // 领域服务
+	llmExtractor   domain_knowledge.GraphExtractor       // 图谱抽取器（经接口注入）
 }
 
 // ChunkRepository Chunk 仓储接口（用于图谱关联查询）
@@ -158,9 +159,9 @@ func (s *GraphService) ExtractGraphJoint(
 		// ChunkExtractionInput 只有 KnowledgeBaseID，没有 TenantID 和 KnowledgeID
 		// 使用默认 TenantID，Knowledge 为空
 		namespace := domain_knowledge.NameSpace{
-			TenantID: "default", // 可以从其他地方获取
-		 KnowledgeBaseID:     inputs[0].KnowledgeBaseID,
-			Knowledge: "",
+			TenantID:        "default", // 可以从其他地方获取
+			KnowledgeBaseID: inputs[0].KnowledgeBaseID,
+			Knowledge:       "",
 		}
 		ctx, err := s.graphRepo.GetEntityContext(ctx, namespace)
 		if err == nil && ctx != nil {
@@ -211,9 +212,9 @@ func (s *GraphService) ExtractGraphIncremental(
 	var namespace domain_knowledge.NameSpace
 	if len(inputs) > 0 && inputs[0] != nil {
 		namespace = domain_knowledge.NameSpace{
-			TenantID: "default", // 可以从其他地方获取
-		 KnowledgeBaseID:     inputs[0].KnowledgeBaseID,
-			Knowledge: "",
+			TenantID:        "default", // 可以从其他地方获取
+			KnowledgeBaseID: inputs[0].KnowledgeBaseID,
+			Knowledge:       "",
 		}
 	}
 
@@ -273,6 +274,7 @@ func (s *GraphService) concurrentExtractJoint(
 	for i, input := range inputs {
 		wg.Add(1)
 		go func(idx int, inp *domain_knowledge.ChunkExtractionInput) {
+			defer safego.Recover("graph-extract")
 			defer wg.Done()
 
 			semaphore <- struct{}{}
@@ -320,6 +322,7 @@ func (s *GraphService) concurrentExtractIncremental(
 	for i, input := range inputs {
 		wg.Add(1)
 		go func(idx int, inp *domain_knowledge.ChunkExtractionInput) {
+			defer safego.Recover("graph-extract")
 			defer wg.Done()
 
 			semaphore <- struct{}{}
@@ -368,6 +371,7 @@ func (s *GraphService) concurrentExtract(
 	for i, input := range inputs {
 		wg.Add(1)
 		go func(idx int, inp *domain_knowledge.ChunkExtractionInput) {
+			defer safego.Recover("graph-extract")
 			defer wg.Done()
 
 			// 获取信号量
@@ -743,11 +747,11 @@ func (s *GraphService) CalculateRelationStatistics(relations []*domain_knowledge
 
 // RelationStatistics 关系统计信息
 type RelationStatistics struct {
-	TotalRelations       int             // 总关系数
-	AverageStrength      float64         // 平均强度
-	AverageWeight        float64         // 平均权重
-	AverageChunkCount    float64         // 平均每关系关联的文档块数
-	StrengthDistribution map[int]int     // 强度分布 (1-10 各有多少关系)
+	TotalRelations       int         // 总关系数
+	AverageStrength      float64     // 平均强度
+	AverageWeight        float64     // 平均权重
+	AverageChunkCount    float64     // 平均每关系关联的文档块数
+	StrengthDistribution map[int]int // 强度分布 (1-10 各有多少关系)
 }
 
 // FindCommonChunks 查找两个实体共同出现的文档块

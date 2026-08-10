@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"cognida/internal/infrastructure/llm/httpx"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -173,6 +174,7 @@ func (c *ollamaClient) Stream(ctx context.Context, messages []*schema.Message, o
 	reader, writer := schema.Pipe[*schema.Message](10)
 
 	go func() {
+		defer safego.Recover("ollama-stream")
 		defer writer.Close()
 		defer resp.Body.Close()
 

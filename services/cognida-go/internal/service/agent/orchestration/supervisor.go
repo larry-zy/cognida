@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cognida/internal/pkg/safego"
 	infraagent "cognida/internal/service/agent/framework"
 )
 
@@ -58,6 +59,7 @@ func (s *supervisorAgent) Stream(ctx context.Context, message string) (<-chan *i
 	out := make(chan *infraagent.Chunk, 1)
 
 	go func() {
+		defer safego.Recover("supervisor-stream")
 		defer close(out)
 
 		// Get coordinator decision via Chat (simplified)
@@ -177,6 +179,7 @@ func (s *NamedSupervisor) Stream(ctx context.Context, message string) (<-chan *i
 	out := make(chan *infraagent.Chunk, 1)
 
 	go func() {
+		defer safego.Recover("supervisor-stream")
 		defer close(out)
 
 		coordResp, err := s.coordinator.Chat(ctx, fmt.Sprintf(

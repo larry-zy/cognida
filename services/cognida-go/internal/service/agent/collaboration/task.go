@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
+	"cognida/internal/pkg/safego"
 	prompts "cognida/internal/prompt"
 	infraagent "cognida/internal/service/agent/framework"
 )
@@ -21,16 +22,16 @@ import (
 
 // SubTask represents a decomposed sub-task.
 type SubTask struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Query       string                 `json:"query"`       // The actual query for the agent
-	RequiredSkills []string            `json:"required_skills"` // Required agent capabilities
-	Dependencies []string              `json:"dependencies"` // IDs of tasks this depends on
-	Priority    int                    `json:"priority"`
-	Status      TaskStatus             `json:"status"`
-	Result      *SubTaskResult         `json:"result,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	Query          string         `json:"query"`           // The actual query for the agent
+	RequiredSkills []string       `json:"required_skills"` // Required agent capabilities
+	Dependencies   []string       `json:"dependencies"`    // IDs of tasks this depends on
+	Priority       int            `json:"priority"`
+	Status         TaskStatus     `json:"status"`
+	Result         *SubTaskResult `json:"result,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 // TaskStatus represents the status of a sub-task.
@@ -47,23 +48,23 @@ const (
 
 // SubTaskResult represents the result of a sub-task.
 type SubTaskResult struct {
-	Content   string                 `json:"content"`
-	ToolCalls []*infraagent.ToolCall      `json:"tool_calls,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Duration  time.Duration          `json:"duration"`
-	CompletedAt time.Time            `json:"completed_at"`
+	Content     string                 `json:"content"`
+	ToolCalls   []*infraagent.ToolCall `json:"tool_calls,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+	Duration    time.Duration          `json:"duration"`
+	CompletedAt time.Time              `json:"completed_at"`
 }
 
 // TaskPlan represents a decomposed task plan.
 type TaskPlan struct {
-	ID          string                 `json:"id"`
-	OriginalQuery string               `json:"original_query"`
-	SubTasks    []*SubTask             `json:"sub_tasks"`
-	Complexity  int                    `json:"complexity"`     // 1-10
-	EstimatedDuration time.Duration    `json:"estimated_duration"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	CreatedAt   time.Time              `json:"created_at"`
+	ID                string                 `json:"id"`
+	OriginalQuery     string                 `json:"original_query"`
+	SubTasks          []*SubTask             `json:"sub_tasks"`
+	Complexity        int                    `json:"complexity"` // 1-10
+	EstimatedDuration time.Duration          `json:"estimated_duration"`
+	Metadata          map[string]interface{} `json:"metadata"`
+	CreatedAt         time.Time              `json:"created_at"`
 }
 
 // TaskDecomposer decomposes complex queries into sub-tasks.
@@ -113,42 +114,42 @@ func (d *TaskDecomposer) parsePlan(content, originalQuery string) (*TaskPlan, er
 	// TODO: Implement proper JSON parsing with error recovery
 
 	return &TaskPlan{
-		ID:           fmt.Sprintf("plan_%d", time.Now().Unix()),
+		ID:            fmt.Sprintf("plan_%d", time.Now().Unix()),
 		OriginalQuery: originalQuery,
 		SubTasks: []*SubTask{
 			{
-				ID:          "task_1",
-				Name:        "Handle Query",
-				Description: "Process the user's query",
-				Query:       originalQuery,
+				ID:             "task_1",
+				Name:           "Handle Query",
+				Description:    "Process the user's query",
+				Query:          originalQuery,
 				RequiredSkills: []string{"rag_search"},
-				Priority:    1,
-				Status:      TaskStatusPending,
+				Priority:       1,
+				Status:         TaskStatusPending,
 			},
 		},
-		Complexity:  1,
-		CreatedAt:   time.Now(),
+		Complexity: 1,
+		CreatedAt:  time.Now(),
 	}, nil
 }
 
 // createFallbackPlan creates a simple fallback plan.
 func (d *TaskDecomposer) createFallbackPlan(query string) *TaskPlan {
 	return &TaskPlan{
-		ID:           fmt.Sprintf("plan_fallback_%d", time.Now().Unix()),
+		ID:            fmt.Sprintf("plan_fallback_%d", time.Now().Unix()),
 		OriginalQuery: query,
 		SubTasks: []*SubTask{
 			{
-				ID:          "task_1",
-				Name:        "Process Query",
-				Description: "Handle the user's request",
-				Query:       query,
+				ID:             "task_1",
+				Name:           "Process Query",
+				Description:    "Handle the user's request",
+				Query:          query,
 				RequiredSkills: []string{"rag_search"},
-				Priority:    1,
-				Status:      TaskStatusPending,
+				Priority:       1,
+				Status:         TaskStatusPending,
 			},
 		},
-		Complexity:  1,
-		CreatedAt:   time.Now(),
+		Complexity: 1,
+		CreatedAt:  time.Now(),
 	}
 }
 
@@ -165,16 +166,16 @@ type AgentCapability struct {
 
 // AgentInfo represents information about an infraagent.
 type AgentInfo struct {
-	Name         string             `json:"name"`
-	Description  string             `json:"description"`
-	Capabilities []AgentCapability  `json:"capabilities"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	Capabilities []AgentCapability `json:"capabilities"`
 }
 
 // AgentEntry represents a registered infraagent.
 type AgentEntry struct {
-	Agent       infraagent.Agent
+	Agent        infraagent.Agent
 	Capabilities []AgentCapability
-	Description string
+	Description  string
 }
 
 // AgentRegistry manages available agents and their capabilities.
@@ -318,8 +319,8 @@ func (r *AgentRegistry) ListWithDescriptions() []AgentInfo {
 
 // TaskDispatcher assigns and executes sub-tasks to agents.
 type TaskDispatcher struct {
-	registry  *AgentRegistry
-	parallel  int // Maximum parallel tasks
+	registry *AgentRegistry
+	parallel int // Maximum parallel tasks
 }
 
 // NewTaskDispatcher creates a new task dispatcher.
@@ -438,6 +439,7 @@ func (d *TaskDispatcher) executeBatch(ctx context.Context, batch []*SubTask, res
 	for _, task := range batch {
 		wg.Add(1)
 		go func(t *SubTask) {
+			defer safego.Recover("collab-subtask")
 			defer wg.Done()
 
 			// Acquire semaphore
@@ -537,14 +539,14 @@ func (d *TaskDispatcher) hasCriticalFailures(results map[string]*SubTaskResult) 
 
 // ExecutionResult represents the result of a collaborative execution.
 type ExecutionResult struct {
-	PlanID      string                 `json:"plan_id"`
-	Status      string                 `json:"status"` // completed, failed, partial
+	PlanID      string                    `json:"plan_id"`
+	Status      string                    `json:"status"` // completed, failed, partial
 	SubTasks    map[string]*SubTaskResult `json:"sub_tasks"`
-	TotalTasks  int                    `json:"total_tasks"`
-	FailedTasks int                    `json:"failed_tasks"`
-	StartedAt   time.Time              `json:"started_at"`
-	FinishedAt  time.Time              `json:"finished_at"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	TotalTasks  int                       `json:"total_tasks"`
+	FailedTasks int                       `json:"failed_tasks"`
+	StartedAt   time.Time                 `json:"started_at"`
+	FinishedAt  time.Time                 `json:"finished_at"`
+	Metadata    map[string]interface{}    `json:"metadata"`
 }
 
 // GetSucceededResults returns all succeeded task results.

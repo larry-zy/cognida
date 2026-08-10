@@ -9,6 +9,7 @@ import (
 
 	domain_experience "cognida/internal/model/agent/experience"
 	domain_conversation "cognida/internal/model/conversation"
+	"cognida/internal/pkg/safego"
 )
 
 // Config 会话经验沉淀 Worker 配置（由环境变量装配）。
@@ -173,6 +174,7 @@ func (w *Worker) scanOnce() {
 		}
 		w.wg.Add(1)
 		go func(s *domain_experience.IdleSession) {
+			defer safego.Recover("experience-distill")
 			defer w.wg.Done()
 			defer w.release(s.SessionID)
 			// 获取并发槽；Stop 期间（stopCh 关闭）直接放弃，避免阻塞关停。

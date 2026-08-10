@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	domaincache "cognida/internal/model/cache"
+	"cognida/internal/pkg/safego"
 	milvuscache "cognida/internal/repository/milvus"
 	rediscache "cognida/internal/repository/redis"
 )
@@ -23,10 +24,10 @@ import (
 
 // SemanticCacheService 语义缓存服务
 type SemanticCacheService struct {
-	vectorRepo domaincache.CacheVectorRepository
+	vectorRepo  domaincache.CacheVectorRepository
 	contentRepo domaincache.CacheContentRepository
-	strategy   *domaincache.AgentCacheStrategy
-	embedder   embedding.Embedder
+	strategy    *domaincache.AgentCacheStrategy
+	embedder    embedding.Embedder
 }
 
 // NewSemanticCacheService 创建语义缓存服务
@@ -122,11 +123,11 @@ func (s *SemanticCacheService) Get(ctx context.Context, req *domaincache.CacheRe
 			log.Printf("[Cache] Hit: cache_id=%s, similarity=%.4f", entry.CacheID, searchResult.Similarity)
 
 			return &domaincache.CacheResponse{
-				Response:    entry.Response,
-				CacheID:     entry.CacheID,
-				Similarity:  searchResult.Similarity,
-				FromCache:   true,
-				CreatedAt:   time.Unix(entry.CreatedAt, 0),
+				Response:   entry.Response,
+				CacheID:    entry.CacheID,
+				Similarity: searchResult.Similarity,
+				FromCache:  true,
+				CreatedAt:  time.Unix(entry.CreatedAt, 0),
 			}, nil
 		}
 	}
@@ -222,6 +223,7 @@ func (s *SemanticCacheService) Set(ctx context.Context, req *domaincache.CacheRe
 
 	// 异步写入，不阻塞响应
 	go func() {
+		defer safego.Recover("semantic-cache-write")
 		writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 

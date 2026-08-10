@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"cognida/internal/infrastructure/llm/httpx"
+	"cognida/internal/pkg/safego"
 )
 
 // HTTPStatusError 表示上游返回了非 2xx HTTP 状态。它保留状态码与原始 Retry-After 头，
@@ -182,6 +183,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 	reader, writer := schema.Pipe[*schema.Message](10)
 
 	go func() {
+		defer safego.Recover("openai-stream")
 		defer writer.Close()
 		defer resp.Body.Close()
 
@@ -190,7 +192,7 @@ func (c *openaiClient) Stream(ctx context.Context, messages []*schema.Message, o
 		// 抬高到 1MB，避免 ErrTooLong 让流被下面的循环静默截断。
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		hasSentData := false
-		var streamUsage *openaiUsage // 流末 usage chunk 携带的 token 用量（若服务端上报）
+		var streamUsage *openaiUsage  // 流末 usage chunk 携带的 token 用量（若服务端上报）
 		var streamFinishReason string // 本轮结束原因（length=截断/tool_calls/stop），透出供上层判截断
 		toolCallCount := 0
 		pendingToolCalls := make(map[int]*schema.ToolCall)

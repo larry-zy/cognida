@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"cognida/internal/pkg/safego"
 	infraagent "cognida/internal/service/agent/framework"
 )
 
@@ -46,6 +47,7 @@ func (f *funcAgent) Stream(ctx context.Context, message string) (<-chan *infraag
 	// Fallback: implement streaming using Chat
 	ch := make(chan *infraagent.Chunk, 1)
 	go func() {
+		defer safego.Recover("func-stream")
 		defer close(ch)
 
 		resp, err := f.Chat(ctx, message)
@@ -61,8 +63,8 @@ func (f *funcAgent) Stream(ctx context.Context, message string) (<-chan *infraag
 		}
 
 		ch <- &infraagent.Chunk{
-			Content: resp.Content,
-			Done:    true,
+			Content:  resp.Content,
+			Done:     true,
 			Metadata: resp.Metadata,
 		}
 	}()
@@ -138,6 +140,7 @@ func (m *memoizeAgent) Stream(ctx context.Context, message string) (<-chan *infr
 		resp := m.cache[message]
 		ch := make(chan *infraagent.Chunk, 1)
 		go func() {
+			defer safego.Recover("func-stream")
 			defer close(ch)
 			ch <- &infraagent.Chunk{
 				Content:  resp.Content,
@@ -205,6 +208,7 @@ func Race(agents ...infraagent.Agent) infraagent.Agent {
 		ch := make(chan result, len(agents))
 		for _, a := range agents {
 			go func(agent infraagent.Agent) {
+				defer safego.Recover("func-agent")
 				resp, err := agent.Chat(ctx, message)
 				ch <- result{resp, err}
 			}(a)

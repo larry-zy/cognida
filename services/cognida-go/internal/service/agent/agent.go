@@ -7,6 +7,7 @@ import (
 
 	"cognida/internal/model/agent"
 	domainservices "cognida/internal/model/services"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -83,6 +84,7 @@ func (s *ExecuteService) ExecuteStream(ctx context.Context, req *AgenticRAGReque
 	// 供 handler 按 SSE step 契约下发前端渲染时间线。
 	resultChan := make(chan *ChatChunkDTO, 10)
 	go func() {
+		defer safego.Recover("agent-run")
 		defer close(resultChan)
 		// send 遵守 ctx 取消，避免下游提前退出时 goroutine 阻塞泄漏
 		send := func(dto *ChatChunkDTO) bool {

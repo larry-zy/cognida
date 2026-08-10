@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 
+	"cognida/internal/pkg/safego"
+
 	domain_conversation "cognida/internal/model/conversation"
 )
 
@@ -115,6 +117,7 @@ func (a *ChatServiceAdapter) ChatStream(ctx context.Context, messages []*domain_
 	// 转换响应通道
 	resultChan := make(chan *domain_conversation.ChatStreamChunk, 10)
 	go func() {
+		defer safego.Recover("chat-adapter-stream")
 		defer close(resultChan)
 		for resp := range respChan {
 			toolCalls := make([]domain_conversation.ToolCall, len(resp.ToolCalls))

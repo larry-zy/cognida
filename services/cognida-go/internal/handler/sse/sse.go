@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -78,8 +80,8 @@ func SendDone(w http.ResponseWriter) {
 
 // HeartbeatConfig 心跳配置
 type HeartbeatConfig struct {
-	Interval    time.Duration // 心跳间隔
-	Comment     string        // 心跳注释内容
+	Interval time.Duration // 心跳间隔
+	Comment  string        // 心跳注释内容
 }
 
 // DefaultHeartbeatConfig 默认心跳配置（30秒）
@@ -99,6 +101,7 @@ func StartHeartbeat(ctx context.Context, w http.ResponseWriter, config *Heartbea
 	ticker := time.NewTicker(config.Interval)
 
 	go func() {
+		defer safego.Recover("sse-forward")
 		defer ticker.Stop()
 		for {
 			select {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	obs "cognida/internal/infrastructure/observability"
+	"cognida/internal/pkg/safego"
 	"cognida/internal/service/agent/framework"
 )
 
@@ -114,6 +115,7 @@ func (t *TelemetryMiddleware) Stream(ctx context.Context, message string) (<-cha
 	// Wrap the channel with telemetry
 	resultChan := make(chan *framework.Chunk, 1)
 	go func() {
+		defer safego.Recover("telemetry-stream")
 		defer close(resultChan)
 		defer span.End()
 		if t.metrics != nil {

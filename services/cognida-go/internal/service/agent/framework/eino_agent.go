@@ -20,6 +20,7 @@ import (
 	obs "cognida/internal/infrastructure/observability"
 	domainagent "cognida/internal/model/agent"
 	"cognida/internal/model/memory"
+	"cognida/internal/pkg/safego"
 	ctxeng "cognida/internal/service/agent/context"
 )
 
@@ -1436,6 +1437,7 @@ func (a *agentImpl) runToolWithTimeout(ctx context.Context, selectedTool tool.Ba
 	}
 	done := make(chan toolOutcome, 1) // 缓冲 1：超时遗弃后 goroutine 仍能无阻塞写入并退出，不泄漏
 	go func() {
+		defer safego.Recover("eino-agent-stream")
 		out, err := a.runSelectedTool(toolCtx, selectedTool, toolCall)
 		done <- toolOutcome{out: out, err: err}
 	}()

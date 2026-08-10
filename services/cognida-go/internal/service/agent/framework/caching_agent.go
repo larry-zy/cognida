@@ -7,6 +7,7 @@ import (
 
 	domainagent "cognida/internal/model/agent"
 	domaincache "cognida/internal/model/cache"
+	"cognida/internal/pkg/safego"
 )
 
 // ResponseCache 是硬语义缓存对 Agent 装饰器暴露的窄接口（由 infrastructure/cache.SemanticCacheService 实现）。
@@ -150,6 +151,7 @@ func (a *cachingAgent) Stream(ctx context.Context, message string) (<-chan *Chun
 
 	out := make(chan *Chunk)
 	go func() {
+		defer safego.Recover("caching-agent-stream")
 		defer close(out)
 		var full strings.Builder
 		for chunk := range innerCh {

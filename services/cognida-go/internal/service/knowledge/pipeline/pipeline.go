@@ -7,6 +7,7 @@ import (
 	"time"
 
 	domainrag "cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -122,10 +123,10 @@ func (p *PipelineImpl) Execute(ctx context.Context, req *domainrag.PipelineReque
 
 	// 5. 构建响应
 	return &domainrag.PipelineResponse{
-		Answer:         llmResp.Content,
-		Documents:      retrieveResp.Results,
-		Context:        ragContext,
-		Metadata:       map[string]interface{}{
+		Answer:    llmResp.Content,
+		Documents: retrieveResp.Results,
+		Context:   ragContext,
+		Metadata: map[string]interface{}{
 			"message_id": llmResp.MessageID,
 		},
 		ProcessingTime: time.Since(startTime).Milliseconds(),
@@ -137,6 +138,7 @@ func (p *PipelineImpl) ExecuteStream(ctx context.Context, req *domainrag.Pipelin
 	eventChan := make(chan *domainrag.PipelineEvent, 10)
 
 	go func() {
+		defer safego.Recover("rag-pipeline")
 		defer close(eventChan)
 
 		startTime := time.Now()

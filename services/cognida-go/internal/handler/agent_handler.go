@@ -13,6 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"cognida/internal/pkg/safego"
+
+	"cognida/internal/handler/sse"
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/model/agent/operations"
 	knowledgemodel "cognida/internal/model/knowledge"
@@ -24,7 +27,6 @@ import (
 	"cognida/internal/service/agent/resultstore"
 	ragtool "cognida/internal/service/agent/tools"
 	"cognida/internal/service/agent/uibinding"
-	"cognida/internal/handler/sse"
 )
 
 // resolveRequestID 复用 TraceMiddleware 注入的 request_id，实现端到端链路一致：
@@ -74,11 +76,11 @@ type agentToolGateway interface {
 
 // AgentHandler Agent 处理器
 type AgentHandler struct {
-	executeUseCase       *agentuc.ExecuteService
-	researchUseCase      *agentuc.ResearchService
-	configUseCase         *agentuc.ConfigService
-	progressUseCase       *agentuc.ProgressService
-	persistenceService   *agentuc.AgentPersistenceService
+	executeUseCase     *agentuc.ExecuteService
+	researchUseCase    *agentuc.ResearchService
+	configUseCase      *agentuc.ConfigService
+	progressUseCase    *agentuc.ProgressService
+	persistenceService *agentuc.AgentPersistenceService
 	// retrievalRepo 会话级检索参数仓储：KnowledgeStream 据 session_id 加载用户持久化的
 	// TopK/阈值/重排/Alpha，注入 ctx 供检索适配器覆盖 LLM 即兴取值（会话级参数治理下沉）。
 	// 可为 nil（未接线时跳过覆盖，回退工具参数/系统默认）。
@@ -405,7 +407,7 @@ func (h *AgentHandler) DeepResearchStream(c *gin.Context) {
 // GetConfig 获取 Agent 配置
 func (h *AgentHandler) GetConfig(c *gin.Context) {
 	OK(c, gin.H{
-		"agentic_rag":    h.configUseCase.GetAgenticRAGConfig(),
+		"agentic_rag":   h.configUseCase.GetAgenticRAGConfig(),
 		"deep_research": h.configUseCase.GetDeepResearchConfig(),
 	})
 }
@@ -413,7 +415,7 @@ func (h *AgentHandler) GetConfig(c *gin.Context) {
 // UpdateConfig 更新 Agent 配置
 func (h *AgentHandler) UpdateConfig(c *gin.Context) {
 	var req struct {
-		AgenticRAG    map[string]interface{} `json:"agentic_rag,omitempty"`
+		AgenticRAG   map[string]interface{} `json:"agentic_rag,omitempty"`
 		DeepResearch map[string]interface{} `json:"deep_research,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -578,6 +580,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 		steps := result.Steps
 		uiSurfaces := result.UISurfaces
 		go func() {
+			defer safego.Recover("text2sql-persist")
 			// 使用新的 context，避免请求 context 被取消
 			ctx := context.Background()
 			agentSteps := map[string]interface{}{
@@ -964,6 +967,7 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 		steps := result.Steps
 		uiSurfaces := result.UISurfaces
 		go func() {
+			defer safego.Recover("knowledge-stream-persist")
 			// 使用独立 context，避免 SSE 响应结束后请求 context 被取消导致落库失败
 			ctx := context.Background()
 			agentSteps := map[string]interface{}{

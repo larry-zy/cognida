@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	domainrag "cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -228,10 +229,10 @@ func (s *WeightedFusionStrategy) Rerank(ctx context.Context, results []*domainra
 
 // WeightedRRFStrategy 加权 RRF 策略
 type WeightedRRFStrategy struct {
-	K             int     // RRF 常数
-	VectorAlpha   float64 // 向量权重
-	BM25Alpha     float64 // BM25 权重
-	GraphAlpha    float64 // 图谱权重
+	K           int     // RRF 常数
+	VectorAlpha float64 // 向量权重
+	BM25Alpha   float64 // BM25 权重
+	GraphAlpha  float64 // 图谱权重
 }
 
 // Rerank 执行加权 RRF 重排
@@ -518,6 +519,7 @@ func (r *ParallelReranker) Rerank(ctx context.Context, results []*domainrag.Docu
 	for _, strategy := range r.strategies {
 		wg.Add(1)
 		go func(s domainrag.RerankerStrategy) {
+			defer safego.Recover("reranker-strategy")
 			defer wg.Done()
 			reranked, err := s.Rerank(ctx, results, query)
 			resultChan <- rerankResult{results: reranked, err: err}
@@ -559,7 +561,7 @@ func (r *ParallelReranker) fuseResults(allResults [][]*domainrag.Document) []*do
 				docMap[key] = doc
 			}
 			// Borda 分数：倒数排名
-			scoreMap[key] += float64(len(results)-i)
+			scoreMap[key] += float64(len(results) - i)
 		}
 	}
 
