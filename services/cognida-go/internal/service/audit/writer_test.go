@@ -27,6 +27,9 @@ func (r *fakeRepo) FindByID(ctx context.Context, id int64) (*auditmodel.AuditLog
 func (r *fakeRepo) Query(ctx context.Context, q *auditmodel.Query) ([]*auditmodel.AuditLog, int64, error) {
 	return nil, 0, nil
 }
+func (r *fakeRepo) QueryByCursor(ctx context.Context, q *auditmodel.Query) ([]*auditmodel.AuditLog, string, error) {
+	return nil, "", nil
+}
 func (r *fakeRepo) GetStats(ctx context.Context, tenantID *int64, days int) (*auditmodel.Stats, error) {
 	return nil, nil
 }

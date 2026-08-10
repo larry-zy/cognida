@@ -98,6 +98,10 @@ type Query struct {
 
 	Page     int
 	PageSize int
+
+	// Cursor 不透明 keyset 游标〔M5〕：非空时走游标翻页（按 created_at,id 倒序），
+	// 忽略 Page/offset；为空则维持既有 offset 分页。空串即首页。
+	Cursor string
 }
 
 // Validate 验证查询参数

@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"cognida/internal/model/audit"
+	"cognida/internal/pkg/pagination"
 )
 
 // auditRepository 审计日志仓储
@@ -50,56 +51,7 @@ func (r *auditRepository) Query(ctx context.Context, q *audit.Query) ([]*audit.A
 	var models []*AuditLogModel
 	var total int64
 
-	db := r.WithContext(ctx).Model(&AuditLogModel{})
-
-	// 租户过滤
-	if q.TenantID != nil {
-		db = db.Where("tenant_id = ?", *q.TenantID)
-	}
-
-	// 用户过滤
-	if q.UserID != nil {
-		db = db.Where("user_id = ?", *q.UserID)
-	}
-
-	// 模块过滤
-	if q.Module != "" {
-		db = db.Where("module = ?", q.Module)
-	}
-
-	// 操作过滤
-	if q.Action != "" {
-		db = db.Where("action = ?", q.Action)
-	}
-
-	// 资源类型过滤
-	if q.ResourceType != "" {
-		db = db.Where("resource_type = ?", q.ResourceType)
-	}
-
-	// 状态过滤
-	if q.Status != "" {
-		db = db.Where("status = ?", q.Status)
-	}
-
-	// 请求ID过滤
-	if q.RequestID != nil {
-		db = db.Where("request_id = ?", *q.RequestID)
-	}
-
-	// 关键词搜索
-	if q.Keywords != nil {
-		keyword := "%" + *q.Keywords + "%"
-		db = db.Where("resource_name LIKE ? OR error_message LIKE ?", keyword, keyword)
-	}
-
-	// 时间范围
-	if q.StartTime != nil {
-		db = db.Where("created_at >= ?", *q.StartTime)
-	}
-	if q.EndTime != nil {
-		db = db.Where("created_at <= ?", *q.EndTime)
-	}
+	db := r.applyFilters(r.WithContext(ctx).Model(&AuditLogModel{}), q)
 
 	// 统计
 	if err := db.Count(&total).Error; err != nil {
@@ -124,6 +76,82 @@ func (r *auditRepository) Query(ctx context.Context, q *audit.Query) ([]*audit.A
 	}
 
 	return ToDomainList(models), total, nil
+}
+
+// applyFilters 将 Query 中的各过滤条件套到 db 上（Query 与 QueryByCursor 共用，避免漂移）。
+func (r *auditRepository) applyFilters(db *gorm.DB, q *audit.Query) *gorm.DB {
+	if q.TenantID != nil {
+		db = db.Where("tenant_id = ?", *q.TenantID)
+	}
+	if q.UserID != nil {
+		db = db.Where("user_id = ?", *q.UserID)
+	}
+	if q.Module != "" {
+		db = db.Where("module = ?", q.Module)
+	}
+	if q.Action != "" {
+		db = db.Where("action = ?", q.Action)
+	}
+	if q.ResourceType != "" {
+		db = db.Where("resource_type = ?", q.ResourceType)
+	}
+	if q.Status != "" {
+		db = db.Where("status = ?", q.Status)
+	}
+	if q.RequestID != nil {
+		db = db.Where("request_id = ?", *q.RequestID)
+	}
+	if q.Keywords != nil {
+		keyword := "%" + *q.Keywords + "%"
+		db = db.Where("resource_name LIKE ? OR error_message LIKE ?", keyword, keyword)
+	}
+	if q.StartTime != nil {
+		db = db.Where("created_at >= ?", *q.StartTime)
+	}
+	if q.EndTime != nil {
+		db = db.Where("created_at <= ?", *q.EndTime)
+	}
+	return db
+}
+
+// QueryByCursor 游标（keyset）分页〔M5〕：按 (created_at, id) 倒序，以 q.Cursor 为锚点
+// 取下一页。多取一条判断是否还有下一页，据此产出 nextCursor（空=末页）。
+func (r *auditRepository) QueryByCursor(ctx context.Context, q *audit.Query) ([]*audit.AuditLog, string, error) {
+	limit := pagination.NormalizeLimit(q.PageSize)
+
+	db := r.applyFilters(r.WithContext(ctx).Model(&AuditLogModel{}), q)
+
+	// 锚点：非首页时叠加 keyset 谓词（created_at,id 复合键，倒序取更旧一侧）。
+	cur, err := pagination.Decode(q.Cursor)
+	if err != nil {
+		return nil, "", fmt.Errorf("无效游标: %w", err)
+	}
+	if !cur.IsZero() {
+		anchorTime, perr := time.Parse(time.RFC3339Nano, cur.Sort)
+		if perr != nil {
+			return nil, "", fmt.Errorf("无效游标(时间): %w", perr)
+		}
+		clause, args := pagination.KeysetPredicate("created_at", "id", anchorTime, cur.ID, pagination.Desc)
+		db = db.Where(clause, args...)
+	}
+
+	// 多取一条以判断是否有下一页。
+	var models []*AuditLogModel
+	if err := db.Order("created_at DESC").Order("id DESC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("查询失败: %w", err)
+	}
+
+	nextCursor := ""
+	if len(models) > limit {
+		last := models[limit-1] // 本页末行即下一页锚点
+		nextCursor = pagination.Cursor{
+			Sort: last.CreatedAt.UTC().Format(time.RFC3339Nano),
+			ID:   last.ID,
+		}.Encode()
+		models = models[:limit]
+	}
+
+	return ToDomainList(models), nextCursor, nil
 }
 
 // GetStats 获取统计数据

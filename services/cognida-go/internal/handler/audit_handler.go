@@ -62,6 +62,24 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 
 	_ = q.Validate()
 
+	// 游标（keyset）分页〔M5〕：携带 cursor 参数即走 keyset，返回 next_cursor（空=末页）；
+	// 未携带则维持既有 offset 分页（返回 total/page），保持前端契约向后兼容。
+	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
+		q.Cursor = c.Query("cursor")
+		logs, nextCursor, err := h.repo.QueryByCursor(c.Request.Context(), q)
+		if err != nil {
+			RespondError(c, err)
+			return
+		}
+		OK(c, gin.H{
+			"list":        logs,
+			"next_cursor": nextCursor,
+			"has_more":    nextCursor != "",
+			"page_size":   q.PageSize,
+		})
+		return
+	}
+
 	logs, total, err := h.repo.Query(c.Request.Context(), q)
 	if err != nil {
 		InternalError(c, err.Error())
