@@ -91,3 +91,40 @@ func TestDocumentFormatAliasTargetsAreCanonical(t *testing.T) {
 		}
 	}
 }
+
+// TestDetectDocumentTypeEndToEnd 端到端锁定 detectDocumentType 的组合映射〔M13-P4〕。
+//
+// NormalizeFormat 的别名归一与 switch 的分派是两段独立代码，单独锁定二者
+// 不能保证其「组合」结果稳定。此表驱动测试直接钉死 format→内部文档类型 的
+// 端到端映射，覆盖全部 canonical + 4 别名 + csv + 未知/大小写/带点，
+// 防止日后调整别名或某个 case 导致端到端映射静默回归。
+func TestDetectDocumentTypeEndToEnd(t *testing.T) {
+	svc := &documentProcessorService{}
+	cases := map[string]string{
+		// canonical
+		"pdf":  "pdf",
+		"docx": "word",
+		"xlsx": "excel",
+		"pptx": "ppt",
+		"md":   "markdown",
+		"txt":  "text",
+		"html": "html",
+		// 别名归一后落同一分支
+		"doc":      "word",
+		"xls":      "excel",
+		"ppt":      "ppt",
+		"markdown": "markdown",
+		// canonical 但无内部类型 / 非 canonical → unknown（保留既有行为）
+		"csv": "unknown",
+		"":    "unknown",
+		// 精确匹配：大小写/带点扩展名不归一 → unknown
+		"PDF":  "unknown",
+		".pdf": "unknown",
+	}
+	for format, want := range cases {
+		got := svc.detectDocumentType(map[string]string{"format": format})
+		if got != want {
+			t.Errorf("detectDocumentType(format=%q) = %q, want %q", format, got, want)
+		}
+	}
+}

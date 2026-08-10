@@ -14,6 +14,7 @@ from ..models import (
     QualityReport,
     UnstructuredQualityReport,
 )
+from ..dimension_names import Dimension
 from ..registry import CleanerRegistry, EvaluatorRegistry
 from .hooks import HookManager, PipelineContext
 
@@ -248,10 +249,16 @@ class QualityPipeline:
         Returns:
             质量报告
         """
-        # 要执行的维度列表
+        # 要执行的维度列表（引用单一真源；沿用历史默认集——不含 relevance）
         dimension_names = config.get(
             "dimensions",
-            ["readability", "information_density", "language_quality", "duplication", "pii_detector"],
+            [
+                Dimension.READABILITY.value,
+                Dimension.INFORMATION_DENSITY.value,
+                Dimension.LANGUAGE_QUALITY.value,
+                Dimension.DUPLICATION.value,
+                Dimension.PII_DETECTOR.value,
+            ],
         )
 
         dimensions = []

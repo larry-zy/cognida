@@ -23,6 +23,8 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from ..dimension_names import Dimension
+
 from ..models import (
     DimensionScore,
     FieldRule,
@@ -251,7 +253,7 @@ class RuleEvaluationEngine:
         total_records = len(data)
 
         # completeness：全表缺失单元格 / 总单元格，与规则命中解耦
-        if dimension == "completeness":
+        if dimension == Dimension.COMPLETENESS:
             total_cells = len(data) * len(data.columns)
             if total_cells == 0:
                 return 0.0
@@ -264,7 +266,7 @@ class RuleEvaluationEngine:
         scored = sum(r.count for r in results if r.counts_toward_score)
         raw = 100.0 * (1 - scored / total_records)
         # uniqueness 沿用旧口径不截断；其余维度截断到 [0, 100]
-        if dimension == "uniqueness":
+        if dimension == Dimension.UNIQUENESS:
             return raw
         return max(0.0, raw)
 
