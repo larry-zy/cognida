@@ -96,6 +96,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		ProvideUserRepository,
 		ProvideRefreshTokenRepository,
 		ProvideTenantRepository,
+		ProvideTransactionManager, // 事务管理器：注册流程三写原子提交（〔H13〕），补登记以消除 wire_gen 漂移（〔H3〕）
 		ProvideEvaluationTaskRepository,
 		ProvideEvaluationResultRepository,
 		ProvideDatasetRepository,
