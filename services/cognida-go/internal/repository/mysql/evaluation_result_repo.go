@@ -116,7 +116,9 @@ func (r *EvaluationResultRepository) FindByTaskIDByCursor(ctx context.Context, t
 
 	cur, err := pagination.Decode(cursor)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: 无效游标: %v", evaluation.ErrRepository, err)
+		// 畸形游标属客户端错误：保留 ErrInvalidCursor 链（handler 据此回 400），
+		// 不套 ErrRepository（否则会被误判为服务器内部错误 500）。
+		return nil, "", fmt.Errorf("解析游标失败: %w", err)
 	}
 	if !cur.IsZero() {
 		// 升序按主键 id 翻页：取锚点之后（id 更大）的一侧。

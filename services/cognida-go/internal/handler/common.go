@@ -13,6 +13,7 @@ import (
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/pkg/httputil"
+	"cognida/internal/pkg/pagination"
 )
 
 // ========================================
@@ -156,6 +157,7 @@ func Conflict(c *gin.Context, message string, data interface{}) {
 // 识别以下通用语义（领域包各自的 sentinel 可通过 errors.Is 在此登记扩展）：
 //   - context 取消/超时 → 499/504
 //   - gorm.ErrRecordNotFound → 404
+//   - pagination.ErrInvalidCursor → 400（客户端回传的畸形游标属请求错误）
 //   - 其余 → 500（message 用通用文案，不回显 err.Error()）
 func RespondError(c *gin.Context, err error) {
 	if err == nil {
@@ -167,6 +169,8 @@ func RespondError(c *gin.Context, err error) {
 		respond(c, 499, Fail(499, "请求已取消"))
 	case errors.Is(err, context.DeadlineExceeded):
 		respond(c, http.StatusGatewayTimeout, Fail(http.StatusGatewayTimeout, "请求超时"))
+	case errors.Is(err, pagination.ErrInvalidCursor):
+		BadRequest(c, "无效的游标参数")
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		NotFound(c, "资源不存在")
 	default:

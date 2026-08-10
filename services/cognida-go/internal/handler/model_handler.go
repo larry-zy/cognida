@@ -137,7 +137,8 @@ func (h *ModelHandler) ListModels(c *gin.Context) {
 	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
 		cursorResult, err := h.modelService.ListModelsByCursor(c.Request.Context(), tenantID, &req, c.Query("cursor"))
 		if err != nil {
-			InternalError(c, err.Error())
+			// 畸形 cursor → 400，其余 → 500（RespondError 统一映射，不回显内部细节）。
+			RespondError(c, err)
 			return
 		}
 		OK(c, cursorResult)

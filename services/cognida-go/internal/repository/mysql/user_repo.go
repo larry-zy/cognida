@@ -409,7 +409,8 @@ func (r *tenantRepository) FindAllByCursor(ctx context.Context, cursor string, l
 	if !cur.IsZero() {
 		anchor, perr := time.Parse(time.RFC3339Nano, cur.Sort)
 		if perr != nil {
-			return nil, "", fmt.Errorf("无效游标锚点: %w", perr)
+			// 锚点损坏同属畸形游标：挂 ErrInvalidCursor 链使 handler 回 400。
+			return nil, "", fmt.Errorf("%w: 时间锚点解析失败: %v", pagination.ErrInvalidCursor, perr)
 		}
 		pred, args := pagination.KeysetPredicate("created_at", "id", anchor, cur.ID, pagination.Desc)
 		db = db.Where(pred, args...)

@@ -225,7 +225,8 @@ func (r *modelRepo) ListByCursor(ctx context.Context, tenantID int64, modelType 
 	if !cur.IsZero() {
 		anchor, perr := strconv.ParseInt(cur.Sort, 10, 64)
 		if perr != nil {
-			return nil, "", fmt.Errorf("invalid cursor sort: %w", perr)
+			// 锚点损坏同属畸形游标：挂 ErrInvalidCursor 链使 handler 回 400。
+			return nil, "", fmt.Errorf("%w: 排序锚点解析失败: %v", pagination.ErrInvalidCursor, perr)
 		}
 		pred, args := pagination.KeysetPredicate("created_at", "id", anchor, cur.ID, pagination.Desc)
 		db = db.Where(pred, args...)

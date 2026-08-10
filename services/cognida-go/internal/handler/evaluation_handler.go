@@ -11,6 +11,7 @@ import (
 
 	domagent "cognida/internal/model/agent"
 	domeval "cognida/internal/model/evaluation"
+	"cognida/internal/pkg/pagination"
 	"cognida/internal/service/evaluation"
 )
 
@@ -476,6 +477,9 @@ func (h *EvaluationHandler) handleError(c *gin.Context, err error) {
 		// 数据集类型与评测类型不匹配属于请求侧配置错误（如给 agent 评测选了 llm 数据集），
 		// 应返回 400 让前端给出可读提示，而非 500 掩盖成服务器错误。
 		BadRequest(c, err.Error())
+	case errors.Is(err, pagination.ErrInvalidCursor):
+		// 客户端回传的畸形游标属请求错误，回 400（不回显内部细节）。
+		BadRequest(c, "无效的游标参数")
 	default:
 		InternalError(c, err.Error())
 	}

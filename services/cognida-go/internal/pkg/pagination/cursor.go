@@ -18,7 +18,15 @@ package pagination
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 )
+
+// ErrInvalidCursor 标记「客户端提供的游标串无法解码/解析」。游标是客户端回传的
+// 不透明输入，畸形游标属请求错误——调用方应 errors.Is(err, ErrInvalidCursor) 识别
+// 并回 400，而非当作服务器内部错误（500）。Decode 及各仓储的锚点解析失败均以
+// %w 挂接本 sentinel。
+var ErrInvalidCursor = errors.New("无效游标")
 
 // 每页条数边界：非正值回落 DefaultLimit，超上限截断到 MaxLimit。
 const (
@@ -58,19 +66,20 @@ func (c Cursor) Encode() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// Decode 解析游标串。空串返回零游标 + nil（首页）；非法串返回 error，
-// 调用方据此回 400，切勿把错误游标当首页静默处理（否则客户端翻页会莫名回到首页）。
+// Decode 解析游标串。空串返回零游标 + nil（首页）；非法串返回包裹
+// ErrInvalidCursor 的 error（可经 errors.Is 识别并回 400），切勿把错误游标当首页
+// 静默处理（否则客户端翻页会莫名回到首页）。
 func Decode(s string) (Cursor, error) {
 	if s == "" {
 		return Cursor{}, nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
-		return Cursor{}, err
+		return Cursor{}, fmt.Errorf("%w: base64 解码失败: %v", ErrInvalidCursor, err)
 	}
 	var c Cursor
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return Cursor{}, err
+		return Cursor{}, fmt.Errorf("%w: JSON 解析失败: %v", ErrInvalidCursor, err)
 	}
 	return c, nil
 }

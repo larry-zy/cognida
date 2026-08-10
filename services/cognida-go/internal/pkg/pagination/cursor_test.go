@@ -1,6 +1,7 @@
 package pagination
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -52,10 +53,15 @@ func TestCursor_DecodeTamperedErrors(t *testing.T) {
 		"eyJub3QiOiJjdXJzb3Ii",   // 合法 base64 但非 Cursor JSON 结构片段
 	}
 	for _, s := range cases {
-		if _, err := Decode(s); err == nil {
+		_, err := Decode(s)
+		if err == nil {
 			// 允许「合法 base64 且恰好是合法 JSON 对象」解出零值，但不能 panic；
 			// 这里的样本均为非法编码或截断 JSON，必须报错。
 			t.Fatalf("非法游标串应报错：%q", s)
+		}
+		// 畸形游标须挂 ErrInvalidCursor 链，供 handler 经 errors.Is 映射为 400。
+		if !errors.Is(err, ErrInvalidCursor) {
+			t.Fatalf("畸形游标 %q 的错误应包裹 ErrInvalidCursor，得：%v", s, err)
 		}
 	}
 }

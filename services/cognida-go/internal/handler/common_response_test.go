@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+
+	"cognida/internal/pkg/pagination"
 )
 
 func init() { gin.SetMode(gin.TestMode) }
@@ -80,6 +83,9 @@ func TestRespondError_Mapping(t *testing.T) {
 		{"timeout", context.DeadlineExceeded, http.StatusGatewayTimeout},
 		{"notfound", gorm.ErrRecordNotFound, http.StatusNotFound},
 		{"wrapped-notfound", errors.New("wrap: " + gorm.ErrRecordNotFound.Error()), http.StatusInternalServerError}, // 非 errors.Is 包裹 → 归 500
+		{"invalid-cursor", pagination.ErrInvalidCursor, http.StatusBadRequest},
+		// 仓储层的实际包裹形态（%w 挂链）也应被 errors.Is 识别为 400，而非 500。
+		{"wrapped-invalid-cursor", fmt.Errorf("解析游标失败: %w", pagination.ErrInvalidCursor), http.StatusBadRequest},
 		{"unknown", errors.New("内部数据库连接字符串 root:secret@..."), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
