@@ -292,12 +292,9 @@ func main() {
 		}
 	}
 
-	// 关闭数据库
+	// 关闭数据库（注入实例的底层连接；不再有全局态双关，见〔H1〕）
 	if err := sqlDB.Close(); err != nil {
 		log.Printf("❌ 数据库关闭失败: %v", err)
-	}
-	if err := mysql.CloseDatabase(); err != nil {
-		log.Printf("❌ GORM 数据库关闭失败: %v", err)
 	}
 
 	log.Println("✅ 应用已安全关闭")

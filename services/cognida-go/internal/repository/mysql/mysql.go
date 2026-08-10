@@ -17,11 +17,6 @@ import (
 	"cognida/internal/config"
 )
 
-var (
-	// DB 数据库连接（全局单例）
-	DB *gorm.DB
-)
-
 // ========================================
 // GORM 租户 Scope
 // ========================================
@@ -195,24 +190,7 @@ func InitGORMDatabase(cfg *config.DatabaseConfig, logLevel string) (*gorm.DB, er
 		return nil, fmt.Errorf("GORM 数据库 ping 失败: %w", err)
 	}
 
-	DB = db
 	log.Printf("✅ 数据库连接成功 (GORM): %s@%s:%s/%s\n", cfg.User, cfg.Host, cfg.Port, cfg.Database)
 
 	return db, nil
-}
-
-// CloseDatabase 关闭数据库连接
-func CloseDatabase() error {
-	if DB != nil {
-		sqlDB, err := DB.DB()
-		if err == nil {
-			return sqlDB.Close()
-		}
-	}
-	return nil
-}
-
-// GetDB 获取 GORM 数据库连接
-func GetDB() *gorm.DB {
-	return DB
 }
