@@ -26,6 +26,7 @@ func NewAccountService(
 	refreshTokenRepo user.RefreshTokenRepository,
 	jwtConfig *config.JWTConfig,
 	tenantRepo tenant.TenantRepository,
+	txManager TransactionManager,
 ) *AccountService {
 	// Create tenant service
 	svc := NewTenantService(tenantRepo)
@@ -34,7 +35,7 @@ func NewAccountService(
 	tenantAdapter := NewTenantServiceAdapter(tenantRepo)
 
 	// Create user services
-	authService := NewAuthService(userRepo, refreshTokenRepo, jwtConfig, tenantAdapter)
+	authService := NewAuthService(userRepo, refreshTokenRepo, jwtConfig, tenantAdapter, txManager)
 	profileService := NewProfileService(userRepo)
 
 	return &AccountService{

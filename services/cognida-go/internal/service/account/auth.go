@@ -31,6 +31,17 @@ type TenantInfo struct {
 }
 
 // ========================================
+// TransactionManager 事务管理器接口
+// ========================================
+
+// TransactionManager 在单个数据库事务内执行 fn。fn 收到的 ctx 携带事务句柄，
+// 经此 ctx 调用的仓储会自动复用同一事务，实现跨仓储写入的原子性。
+// 此处按结构声明本地接口，避免 account 域反向依赖 knowledge 域。
+type TransactionManager interface {
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// ========================================
 // AuthService Implementation
 // ========================================
 
@@ -40,6 +51,7 @@ type authService struct {
 	refreshTokenRepo user.RefreshTokenRepository
 	jwtConfig        *config.JWTConfig
 	tenantService    TenantServiceAdapter
+	txManager        TransactionManager
 }
 
 // NewAuthService creates a new auth service
@@ -48,91 +60,115 @@ func NewAuthService(
 	refreshTokenRepo user.RefreshTokenRepository,
 	jwtConfig *config.JWTConfig,
 	tenantService TenantServiceAdapter,
+	txManager TransactionManager,
 ) AuthService {
 	return &authService{
 		userRepo:         userRepo,
 		refreshTokenRepo: refreshTokenRepo,
 		jwtConfig:        jwtConfig,
 		tenantService:    tenantService,
+		txManager:        txManager,
 	}
 }
 
+// withTx 在事务内执行 fn；若未注入事务管理器（如单元测试直接构造），则退化为直接执行，
+// 保证行为可回退、不强制依赖 DB。
+func (s *authService) withTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	if s.txManager == nil {
+		return fn(ctx)
+	}
+	return s.txManager.WithTransaction(ctx, fn)
+}
+
 // Register registers a new user
+//
+// 租户创建、用户落库、刷新令牌落库三步写入包裹在同一事务中：任一环节失败则整体回滚，
+// 避免出现「建了租户却没建用户」「建了用户却没存令牌」等半写脏状态。
 func (s *authService) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
-	var tenantID int64
-	var err error
+	var resp *AuthResponse
 
-	// 获取或创建租户
-	if req.TenantID == 0 {
-		// 自动创建默认租户
-		tenantID, err = s.createDefaultTenant(ctx, req.Username)
-		if err != nil {
-			return nil, fmt.Errorf("创建默认租户失败: %w", err)
+	err := s.withTx(ctx, func(ctx context.Context) error {
+		var tenantID int64
+		var err error
+
+		// 获取或创建租户
+		if req.TenantID == 0 {
+			// 自动创建默认租户
+			tenantID, err = s.createDefaultTenant(ctx, req.Username)
+			if err != nil {
+				return fmt.Errorf("创建默认租户失败: %w", err)
+			}
+		} else {
+			tenantID = req.TenantID
 		}
-	} else {
-		tenantID = req.TenantID
-	}
 
-	// 检查邮箱是否已存在（在租户内）
-	existingUser, err := s.userRepo.FindByEmail(ctx, tenantID, req.Email)
-	if err == nil && existingUser != nil {
-		return nil, errors.New("邮箱已被注册")
-	}
+		// 检查邮箱是否已存在（在租户内）
+		existingUser, err := s.userRepo.FindByEmail(ctx, tenantID, req.Email)
+		if err == nil && existingUser != nil {
+			return errors.New("邮箱已被注册")
+		}
 
-	// 检查用户名是否已存在（在租户内）
-	existingUser, err = s.userRepo.FindByUsername(ctx, tenantID, req.Username)
-	if err == nil && existingUser != nil {
-		return nil, errors.New("用户名已被使用")
-	}
+		// 检查用户名是否已存在（在租户内）
+		existingUser, err = s.userRepo.FindByUsername(ctx, tenantID, req.Username)
+		if err == nil && existingUser != nil {
+			return errors.New("用户名已被使用")
+		}
 
-	// 加密密码
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		// 加密密码
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("密码加密失败: %w", err)
+		}
+
+		// 创建用户（包含租户ID）
+		newUser := &user.User{
+			TenantID:     tenantID,
+			Username:     req.Username,
+			Email:        req.Email,
+			PasswordHash: string(hashedPassword),
+			Avatar:       "",
+			Status:       1, // 默认启用
+		}
+
+		err = s.userRepo.Create(ctx, newUser)
+		if err != nil {
+			return fmt.Errorf("创建用户失败 (tenantID=%d, username=%s): %w", tenantID, req.Username, err)
+		}
+
+		// 生成Token（包含租户ID）
+		accessToken, refreshToken, expiresAt, err := s.generateTokens(newUser)
+		if err != nil {
+			return fmt.Errorf("生成Token失败: %w", err)
+		}
+
+		// 存储刷新Token
+		err = s.saveRefreshToken(ctx, newUser.ID, refreshToken)
+		if err != nil {
+			return fmt.Errorf("保存刷新Token失败: %w", err)
+		}
+
+		resp = &AuthResponse{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			ExpiresAt:    expiresAt,
+			TenantID:     newUser.TenantID,
+			User: user.UserInfo{
+				ID:        newUser.ID,
+				Username:  newUser.Username,
+				Email:     newUser.Email,
+				Avatar:    newUser.Avatar,
+				Status:    newUser.Status,
+				CreatedAt: newUser.CreatedAt,
+				TenantID:  newUser.TenantID,
+			},
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("密码加密失败: %w", err)
+		return nil, err
 	}
 
-	// 创建用户（包含租户ID）
-	newUser := &user.User{
-		TenantID:     tenantID,
-		Username:     req.Username,
-		Email:        req.Email,
-		PasswordHash: string(hashedPassword),
-		Avatar:       "",
-		Status:       1, // 默认启用
-	}
-
-	err = s.userRepo.Create(ctx, newUser)
-	if err != nil {
-		return nil, fmt.Errorf("创建用户失败 (tenantID=%d, username=%s): %w", tenantID, req.Username, err)
-	}
-
-	// 生成Token（包含租户ID）
-	accessToken, refreshToken, expiresAt, err := s.generateTokens(newUser)
-	if err != nil {
-		return nil, fmt.Errorf("生成Token失败: %w", err)
-	}
-
-	// 存储刷新Token
-	err = s.saveRefreshToken(ctx, newUser.ID, refreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("保存刷新Token失败: %w", err)
-	}
-
-	return &AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresAt:    expiresAt,
-		TenantID:     newUser.TenantID,
-		User: user.UserInfo{
-			ID:        newUser.ID,
-			Username:  newUser.Username,
-			Email:     newUser.Email,
-			Avatar:    newUser.Avatar,
-			Status:    newUser.Status,
-			CreatedAt: newUser.CreatedAt,
-			TenantID:  newUser.TenantID,
-		},
-	}, nil
+	return resp, nil
 }
 
 // createDefaultTenant 创建默认租户

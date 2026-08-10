@@ -72,7 +72,8 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	refreshTokenRepository := ProvideRefreshTokenRepository(db)
 	jwtConfig := ProvideJWTConfig(cfg)
 	tenantRepository := ProvideTenantRepository(db)
-	accountService := ProvideAccountService(userRepository, refreshTokenRepository, jwtConfig, tenantRepository)
+	transactionManager := ProvideTransactionManager(db)
+	accountService := ProvideAccountService(userRepository, refreshTokenRepository, jwtConfig, tenantRepository, transactionManager)
 	authHandler := ProvideAuthHandler(accountService)
 	knowledgeBaseRepository := ProvideKnowledgeBaseRepository(db)
 	knowledgeBaseSettingRepository := ProvideKnowledgeBaseSettingRepository(db)
@@ -317,8 +318,9 @@ func ProvideAccountService(
 	refreshRepo user.RefreshTokenRepository,
 	jwtConfig *config.JWTConfig,
 	tenantRepo tenant.TenantRepository,
+	txManager knowledge.TransactionManager,
 ) *account.AccountService {
-	return account.NewAccountService(userRepo, refreshRepo, jwtConfig, tenantRepo)
+	return account.NewAccountService(userRepo, refreshRepo, jwtConfig, tenantRepo, txManager)
 }
 
 func ProvideKnowledgeBaseService(

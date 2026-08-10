@@ -371,8 +371,9 @@ func ProvideAccountService(
 	refreshRepo domain_user.RefreshTokenRepository,
 	jwtConfig *config.JWTConfig,
 	tenantRepo domain_tenant.TenantRepository,
+	txManager domain_knowledge.TransactionManager,
 ) *appAccount.AccountService {
-	return appAccount.NewAccountService(userRepo, refreshRepo, jwtConfig, tenantRepo)
+	return appAccount.NewAccountService(userRepo, refreshRepo, jwtConfig, tenantRepo, txManager)
 }
 
 func ProvideKnowledgeBaseService(

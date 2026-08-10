@@ -25,17 +25,23 @@ func NewUserRepository(db *gorm.DB) user.UserRepository {
 	return &userRepository{db: db}
 }
 
+// dbCtx 返回本次操作应使用的 *gorm.DB：优先复用 ctx 中携带的事务句柄，
+// 否则回退到 r.db。仓储必须经此访问 DB，才能参与上层 WithTransaction 开启的事务。
+func (r *userRepository) dbCtx(ctx context.Context) *gorm.DB {
+	return DBFromContext(ctx, r.db)
+}
+
 // Create 创建用户
 func (r *userRepository) Create(ctx context.Context, u *user.User) error {
 	var model UserModel
 	model.FromDomain(u)
-	return r.db.WithContext(ctx).Create(&model).Error
+	return r.dbCtx(ctx).Create(&model).Error
 }
 
 // FindByID 根据ID查找用户
 func (r *userRepository) FindByID(ctx context.Context, id int64) (*user.User, error) {
 	var model UserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("id = ?", id).
 		First(&model).Error
 
@@ -52,7 +58,7 @@ func (r *userRepository) FindByID(ctx context.Context, id int64) (*user.User, er
 // FindByEmail 根据邮箱查找用户
 func (r *userRepository) FindByEmail(ctx context.Context, tenantID int64, email string) (*user.User, error) {
 	var model UserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("tenant_id = ? AND email = ?", tenantID, email).
 		First(&model).Error
 
@@ -69,7 +75,7 @@ func (r *userRepository) FindByEmail(ctx context.Context, tenantID int64, email 
 // FindByEmailOnly 根据邮箱查找用户（跨所有租户）
 func (r *userRepository) FindByEmailOnly(ctx context.Context, email string) (*user.User, error) {
 	var model UserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("email = ?", email).
 		First(&model).Error
 
@@ -86,7 +92,7 @@ func (r *userRepository) FindByEmailOnly(ctx context.Context, email string) (*us
 // FindByUsername 根据用户名查找用户
 func (r *userRepository) FindByUsername(ctx context.Context, tenantID int64, username string) (*user.User, error) {
 	var model UserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("tenant_id = ? AND username = ?", tenantID, username).
 		First(&model).Error
 
@@ -105,7 +111,7 @@ func (r *userRepository) FindByTenantID(ctx context.Context, tenantID int64, pag
 	var models []*UserModel
 	var total int64
 
-	db := r.db.WithContext(ctx).Model(&UserModel{}).Where("tenant_id = ?", tenantID)
+	db := r.dbCtx(ctx).Model(&UserModel{}).Where("tenant_id = ?", tenantID)
 
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("统计用户数量失败: %w", err)
@@ -133,46 +139,46 @@ func (r *userRepository) FindByTenantID(ctx context.Context, tenantID int64, pag
 func (r *userRepository) Update(ctx context.Context, u *user.User) error {
 	var model UserModel
 	model.FromDomain(u)
-	return r.db.WithContext(ctx).Save(&model).Error
+	return r.dbCtx(ctx).Save(&model).Error
 }
 
 // UpdatePassword 更新密码
 func (r *userRepository) UpdatePassword(ctx context.Context, userID int64, passwordHash string) error {
-	return r.db.WithContext(ctx).Model(&UserModel{}).
+	return r.dbCtx(ctx).Model(&UserModel{}).
 		Where("id = ?", userID).
 		Update("password_hash", passwordHash).Error
 }
 
 // UpdateAvatar 更新头像
 func (r *userRepository) UpdateAvatar(ctx context.Context, userID int64, avatar string) error {
-	return r.db.WithContext(ctx).Model(&UserModel{}).
+	return r.dbCtx(ctx).Model(&UserModel{}).
 		Where("id = ?", userID).
 		Update("avatar", avatar).Error
 }
 
 // UpdateLastLogin 更新最后登录时间
 func (r *userRepository) UpdateLastLogin(ctx context.Context, userID int64) error {
-	return r.db.WithContext(ctx).Model(&UserModel{}).
+	return r.dbCtx(ctx).Model(&UserModel{}).
 		Where("id = ?", userID).
 		Update("last_login_at", gorm.Expr("NOW()")).Error
 }
 
 // UpdateStatus 更新用户状态
 func (r *userRepository) UpdateStatus(ctx context.Context, userID int64, status int8) error {
-	return r.db.WithContext(ctx).Model(&UserModel{}).
+	return r.dbCtx(ctx).Model(&UserModel{}).
 		Where("id = ?", userID).
 		Update("status", status).Error
 }
 
 // Delete 删除用户（软删除）
 func (r *userRepository) Delete(ctx context.Context, userID int64) error {
-	return r.db.WithContext(ctx).Where("id = ?", userID).Delete(&UserModel{}).Error
+	return r.dbCtx(ctx).Where("id = ?", userID).Delete(&UserModel{}).Error
 }
 
 // Exists 检查用户是否存在
 func (r *userRepository) Exists(ctx context.Context, userID int64) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&UserModel{}).
 		Where("id = ?", userID).
 		Count(&count).Error
@@ -183,7 +189,7 @@ func (r *userRepository) Exists(ctx context.Context, userID int64) (bool, error)
 // ExistsByEmail 检查邮箱是否已存在
 func (r *userRepository) ExistsByEmail(ctx context.Context, tenantID int64, email string) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&UserModel{}).
 		Where("tenant_id = ? AND email = ?", tenantID, email).
 		Count(&count).Error
@@ -194,7 +200,7 @@ func (r *userRepository) ExistsByEmail(ctx context.Context, tenantID int64, emai
 // ExistsByUsername 检查用户名是否已存在
 func (r *userRepository) ExistsByUsername(ctx context.Context, tenantID int64, username string) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&UserModel{}).
 		Where("tenant_id = ? AND username = ?", tenantID, username).
 		Count(&count).Error
@@ -205,7 +211,7 @@ func (r *userRepository) ExistsByUsername(ctx context.Context, tenantID int64, u
 // CountByTenantID 统计租户的用户数量
 func (r *userRepository) CountByTenantID(ctx context.Context, tenantID int64) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&UserModel{}).
 		Where("tenant_id = ?", tenantID).
 		Count(&count).Error
@@ -227,17 +233,22 @@ func NewRefreshTokenRepository(db *gorm.DB) user.RefreshTokenRepository {
 	return &refreshTokenRepository{db: db}
 }
 
+// dbCtx 返回本次操作应使用的 *gorm.DB：优先复用 ctx 中携带的事务句柄，否则回退到 r.db。
+func (r *refreshTokenRepository) dbCtx(ctx context.Context) *gorm.DB {
+	return DBFromContext(ctx, r.db)
+}
+
 // Create 创建刷新令牌
 func (r *refreshTokenRepository) Create(ctx context.Context, token *user.RefreshToken) error {
 	var model RefreshTokenModel
 	model.FromDomain(token)
-	return r.db.WithContext(ctx).Create(&model).Error
+	return r.dbCtx(ctx).Create(&model).Error
 }
 
 // FindByHash 根据哈希查找令牌
 func (r *refreshTokenRepository) FindByHash(ctx context.Context, tokenHash string) (*user.RefreshToken, error) {
 	var model RefreshTokenModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("token_hash = ?", tokenHash).
 		First(&model).Error
 
@@ -254,7 +265,7 @@ func (r *refreshTokenRepository) FindByHash(ctx context.Context, tokenHash strin
 // FindByUserID 根据用户ID查找令牌列表
 func (r *refreshTokenRepository) FindByUserID(ctx context.Context, userID int64) ([]*user.RefreshToken, error) {
 	var models []*RefreshTokenModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Find(&models).Error
@@ -273,17 +284,17 @@ func (r *refreshTokenRepository) FindByUserID(ctx context.Context, userID int64)
 
 // Delete 删除令牌
 func (r *refreshTokenRepository) Delete(ctx context.Context, id int64) error {
-	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&RefreshTokenModel{}).Error
+	return r.dbCtx(ctx).Where("id = ?", id).Delete(&RefreshTokenModel{}).Error
 }
 
 // DeleteByUserID 删除用户的所有令牌
 func (r *refreshTokenRepository) DeleteByUserID(ctx context.Context, userID int64) error {
-	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&RefreshTokenModel{}).Error
+	return r.dbCtx(ctx).Where("user_id = ?", userID).Delete(&RefreshTokenModel{}).Error
 }
 
 // DeleteExpired 删除过期令牌
 func (r *refreshTokenRepository) DeleteExpired(ctx context.Context) error {
-	return r.db.WithContext(ctx).
+	return r.dbCtx(ctx).
 		Where("expires_at < NOW()").
 		Delete(&RefreshTokenModel{}).Error
 }
@@ -307,17 +318,22 @@ func NewTenantRepository(db *gorm.DB) tenant.TenantRepository {
 	return &tenantRepository{db: db}
 }
 
+// dbCtx 返回本次操作应使用的 *gorm.DB：优先复用 ctx 中携带的事务句柄，否则回退到 r.db。
+func (r *tenantRepository) dbCtx(ctx context.Context) *gorm.DB {
+	return DBFromContext(ctx, r.db)
+}
+
 // Create 创建租户
 func (r *tenantRepository) Create(ctx context.Context, t *tenant.Tenant) error {
 	var model TenantModel
 	model.FromDomainForCreate(t)
-	return r.db.WithContext(ctx).Create(&model).Error
+	return r.dbCtx(ctx).Create(&model).Error
 }
 
 // FindByID 根据ID查找租户
 func (r *tenantRepository) FindByID(ctx context.Context, id int64) (*tenant.Tenant, error) {
 	var model TenantModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("id = ?", id).
 		First(&model).Error
 
@@ -334,7 +350,7 @@ func (r *tenantRepository) FindByID(ctx context.Context, id int64) (*tenant.Tena
 // FindByAPIKey 根据API密钥查找租户
 func (r *tenantRepository) FindByAPIKey(ctx context.Context, apiKey string) (*tenant.Tenant, error) {
 	var model TenantModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("api_key = ?", apiKey).
 		First(&model).Error
 
@@ -353,7 +369,7 @@ func (r *tenantRepository) FindAll(ctx context.Context, page, pageSize int) ([]*
 	var models []*TenantModel
 	var total int64
 
-	db := r.db.WithContext(ctx).Model(&TenantModel{})
+	db := r.dbCtx(ctx).Model(&TenantModel{})
 
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("统计租户数量失败: %w", err)
@@ -382,7 +398,7 @@ func (r *tenantRepository) FindByStatus(ctx context.Context, status string, page
 	var models []*TenantModel
 	var total int64
 
-	db := r.db.WithContext(ctx).Model(&TenantModel{}).Where("status = ?", status)
+	db := r.dbCtx(ctx).Model(&TenantModel{}).Where("status = ?", status)
 
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("统计租户数量失败: %w", err)
@@ -410,58 +426,58 @@ func (r *tenantRepository) FindByStatus(ctx context.Context, status string, page
 func (r *tenantRepository) Update(ctx context.Context, t *tenant.Tenant) error {
 	var model TenantModel
 	model.FromDomain(t)
-	return r.db.WithContext(ctx).Save(&model).Error
+	return r.dbCtx(ctx).Save(&model).Error
 }
 
 // UpdateName 更新租户名称
 func (r *tenantRepository) UpdateName(ctx context.Context, id int64, name string) error {
-	return r.db.WithContext(ctx).Model(&TenantModel{}).
+	return r.dbCtx(ctx).Model(&TenantModel{}).
 		Where("id = ?", id).
 		Update("name", name).Error
 }
 
 // UpdateDescription 更新租户描述
 func (r *tenantRepository) UpdateDescription(ctx context.Context, id int64, description string) error {
-	return r.db.WithContext(ctx).Model(&TenantModel{}).
+	return r.dbCtx(ctx).Model(&TenantModel{}).
 		Where("id = ?", id).
 		Update("description", description).Error
 }
 
 // UpdateStatus 更新租户状态
 func (r *tenantRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return r.db.WithContext(ctx).Model(&TenantModel{}).
+	return r.dbCtx(ctx).Model(&TenantModel{}).
 		Where("id = ?", id).
 		Update("status", status).Error
 }
 
 // UpdateStorage 更新存储使用量
 func (r *tenantRepository) UpdateStorage(ctx context.Context, id int64, storageUsed int64) error {
-	return r.db.WithContext(ctx).Model(&TenantModel{}).
+	return r.dbCtx(ctx).Model(&TenantModel{}).
 		Where("id = ?", id).
 		Update("storage_used", storageUsed).Error
 }
 
 // UpdateAPIKey 更新API密钥
 func (r *tenantRepository) UpdateAPIKey(ctx context.Context, id int64, apiKey string) error {
-	return r.db.WithContext(ctx).Model(&TenantModel{}).
+	return r.dbCtx(ctx).Model(&TenantModel{}).
 		Where("id = ?", id).
 		Update("api_key", apiKey).Error
 }
 
 // Delete 删除租户（软删除）
 func (r *tenantRepository) Delete(ctx context.Context, id int64) error {
-	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&TenantModel{}).Error
+	return r.dbCtx(ctx).Where("id = ?", id).Delete(&TenantModel{}).Error
 }
 
 // HardDelete 硬删除租户
 func (r *tenantRepository) HardDelete(ctx context.Context, id int64) error {
-	return r.db.WithContext(ctx).Unscoped().Where("id = ?", id).Delete(&TenantModel{}).Error
+	return r.dbCtx(ctx).Unscoped().Where("id = ?", id).Delete(&TenantModel{}).Error
 }
 
 // Exists 检查租户是否存在
 func (r *tenantRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&TenantModel{}).
 		Where("id = ?", id).
 		Count(&count).Error
@@ -472,7 +488,7 @@ func (r *tenantRepository) Exists(ctx context.Context, id int64) (bool, error) {
 // ExistsByName 检查租户名称是否已存在
 func (r *tenantRepository) ExistsByName(ctx context.Context, name string) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&TenantModel{}).
 		Where("name = ?", name).
 		Count(&count).Error
@@ -483,14 +499,14 @@ func (r *tenantRepository) ExistsByName(ctx context.Context, name string) (bool,
 // Count 统计租户总数
 func (r *tenantRepository) Count(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&TenantModel{}).Count(&count).Error
+	err := r.dbCtx(ctx).Model(&TenantModel{}).Count(&count).Error
 	return count, err
 }
 
 // CountByStatus 统计指定状态的租户数量
 func (r *tenantRepository) CountByStatus(ctx context.Context, status string) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&TenantModel{}).
 		Where("status = ?", status).
 		Count(&count).Error
@@ -500,7 +516,7 @@ func (r *tenantRepository) CountByStatus(ctx context.Context, status string) (in
 // GetStorageStats 获取存储统计
 func (r *tenantRepository) GetStorageStats(ctx context.Context, tenantID int64) (*tenant.StorageStats, error) {
 	stats := &tenant.StorageStats{}
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&TenantModel{}).
 		Where("id = ?", tenantID).
 		Select("storage_used as total_size, 0 as kb_count").
@@ -527,17 +543,22 @@ func NewTenantUserRepository(db *gorm.DB) tenant.TenantUserRepository {
 	return &tenantUserRepository{db: db}
 }
 
+// dbCtx 返回本次操作应使用的 *gorm.DB：优先复用 ctx 中携带的事务句柄，否则回退到 r.db。
+func (r *tenantUserRepository) dbCtx(ctx context.Context) *gorm.DB {
+	return DBFromContext(ctx, r.db)
+}
+
 // Create 创建租户用户关联
 func (r *tenantUserRepository) Create(ctx context.Context, tenantUser *tenant.TenantUser) error {
 	var model TenantUserModel
 	model.FromDomain(tenantUser)
-	return r.db.WithContext(ctx).Create(&model).Error
+	return r.dbCtx(ctx).Create(&model).Error
 }
 
 // FindByTenantID 根据租户ID查找用户列表
 func (r *tenantUserRepository) FindByTenantID(ctx context.Context, tenantID int64) ([]*tenant.TenantUser, error) {
 	var models []*TenantUserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("tenant_id = ?", tenantID).
 		Find(&models).Error
 
@@ -556,7 +577,7 @@ func (r *tenantUserRepository) FindByTenantID(ctx context.Context, tenantID int6
 // FindByUserID 根据用户ID查找租户列表
 func (r *tenantUserRepository) FindByUserID(ctx context.Context, userID int64) ([]*tenant.TenantUser, error) {
 	var models []*TenantUserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("user_id = ?", userID).
 		Find(&models).Error
 
@@ -575,7 +596,7 @@ func (r *tenantUserRepository) FindByUserID(ctx context.Context, userID int64) (
 // Find 查找特定的租户用户关联
 func (r *tenantUserRepository) Find(ctx context.Context, tenantID, userID int64) (*tenant.TenantUser, error) {
 	var model TenantUserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
 		First(&model).Error
 
@@ -593,12 +614,12 @@ func (r *tenantUserRepository) Find(ctx context.Context, tenantID, userID int64)
 func (r *tenantUserRepository) Update(ctx context.Context, tenantUser *tenant.TenantUser) error {
 	var model TenantUserModel
 	model.FromDomain(tenantUser)
-	return r.db.WithContext(ctx).Save(&model).Error
+	return r.dbCtx(ctx).Save(&model).Error
 }
 
 // UpdateRole 更新用户角色
 func (r *tenantUserRepository) UpdateRole(ctx context.Context, tenantID, userID int64, role string) error {
-	return r.db.WithContext(ctx).
+	return r.dbCtx(ctx).
 		Model(&TenantUserModel{}).
 		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
 		Update("role", role).Error
@@ -606,7 +627,7 @@ func (r *tenantUserRepository) UpdateRole(ctx context.Context, tenantID, userID 
 
 // UpdateStatus 更新用户状态
 func (r *tenantUserRepository) UpdateStatus(ctx context.Context, tenantID, userID int64, status string) error {
-	return r.db.WithContext(ctx).
+	return r.dbCtx(ctx).
 		Model(&TenantUserModel{}).
 		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
 		Update("status", status).Error
@@ -614,21 +635,21 @@ func (r *tenantUserRepository) UpdateStatus(ctx context.Context, tenantID, userI
 
 // Delete 删除租户用户关联
 func (r *tenantUserRepository) Delete(ctx context.Context, tenantID, userID int64) error {
-	return r.db.WithContext(ctx).
+	return r.dbCtx(ctx).
 		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
 		Delete(&TenantUserModel{}).Error
 }
 
 // DeleteByTenantID 删除租户的所有用户关联
 func (r *tenantUserRepository) DeleteByTenantID(ctx context.Context, tenantID int64) error {
-	return r.db.WithContext(ctx).
+	return r.dbCtx(ctx).
 		Where("tenant_id = ?", tenantID).
 		Delete(&TenantUserModel{}).Error
 }
 
 // DeleteByUserID 删除用户的所有租户关联
 func (r *tenantUserRepository) DeleteByUserID(ctx context.Context, userID int64) error {
-	return r.db.WithContext(ctx).
+	return r.dbCtx(ctx).
 		Where("user_id = ?", userID).
 		Delete(&TenantUserModel{}).Error
 }
@@ -636,7 +657,7 @@ func (r *tenantUserRepository) DeleteByUserID(ctx context.Context, userID int64)
 // Exists 检查租户用户关联是否存在
 func (r *tenantUserRepository) Exists(ctx context.Context, tenantID, userID int64) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&TenantUserModel{}).
 		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
 		Count(&count).Error
@@ -646,7 +667,7 @@ func (r *tenantUserRepository) Exists(ctx context.Context, tenantID, userID int6
 // CountByTenantID 统计租户的用户数量
 func (r *tenantUserRepository) CountByTenantID(ctx context.Context, tenantID int64) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Model(&TenantUserModel{}).
 		Where("tenant_id = ?", tenantID).
 		Count(&count).Error
@@ -656,7 +677,7 @@ func (r *tenantUserRepository) CountByTenantID(ctx context.Context, tenantID int
 // GetOwners 获取租户的所有者
 func (r *tenantUserRepository) GetOwners(ctx context.Context, tenantID int64) ([]*tenant.TenantUser, error) {
 	var models []*TenantUserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("tenant_id = ? AND role = ?", tenantID, "owner").
 		Find(&models).Error
 
@@ -675,7 +696,7 @@ func (r *tenantUserRepository) GetOwners(ctx context.Context, tenantID int64) ([
 // GetAdmins 获取租户的管理员
 func (r *tenantUserRepository) GetAdmins(ctx context.Context, tenantID int64) ([]*tenant.TenantUser, error) {
 	var models []*TenantUserModel
-	err := r.db.WithContext(ctx).
+	err := r.dbCtx(ctx).
 		Where("tenant_id = ? AND role = ?", tenantID, "admin").
 		Find(&models).Error
 
