@@ -77,6 +77,21 @@ func (ff *FeatureFlag) SetAgent(agentType string, enabled bool) {
 	ff.updatedAt = time.Now()
 }
 
+// ReplaceAll 原子替换全局开关与 Agent 开关全集（热重载用）。
+// 在 ff 自身锁内完成，避免外层旁路直接改写内部 map 与读者（IsEnabled/GetAll/GetMetrics）
+// 竞态（concurrent map read+write）。传入的 map 会被复制，调用方保留所有权。
+func (ff *FeatureFlag) ReplaceAll(globalEnabled bool, agentFlags map[string]bool) {
+	ff.mu.Lock()
+	defer ff.mu.Unlock()
+	ff.globalEnabled = globalEnabled
+	next := make(map[string]bool, len(agentFlags))
+	for k, v := range agentFlags {
+		next[k] = v
+	}
+	ff.agentFlags = next
+	ff.updatedAt = time.Now()
+}
+
 // GetGlobal 获取全局开关状态
 func (ff *FeatureFlag) GetGlobal() bool {
 	ff.mu.RLock()
@@ -336,15 +351,13 @@ func (hr *HotReloader) ReloadFromStrategy(strategy *domaincache.AgentCacheStrate
 	defer hr.mu.Unlock()
 
 	hr.strategy = strategy
-	hr.ff.globalEnabled = strategy.Global.Enabled
-	hr.ff.agentFlags = make(map[string]bool)
 
+	flags := make(map[string]bool, len(strategy.Agents))
 	for agentType, config := range strategy.Agents {
-		hr.ff.agentFlags[agentType] = config.Enabled
+		flags[agentType] = config.Enabled
 	}
-
-	// 更新时间
-	hr.ff.updatedAt = time.Now()
+	// 经 ff 自身锁原子替换，勿旁路直写内部字段（与读者竞态）
+	hr.ff.ReplaceAll(strategy.Global.Enabled, flags)
 }
 
 // ToggleGlobal 切换全局开关
@@ -352,8 +365,7 @@ func (hr *HotReloader) ToggleGlobal(enabled bool) error {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
 
-	hr.ff.globalEnabled = enabled
-	hr.ff.updatedAt = time.Now()
+	hr.ff.SetGlobal(enabled) // 经 ff 自身锁
 	hr.strategy.Global.Enabled = enabled
 
 	return nil
@@ -364,8 +376,7 @@ func (hr *HotReloader) ToggleAgent(agentType string, enabled bool) error {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
 
-	hr.ff.agentFlags[agentType] = enabled
-	hr.ff.updatedAt = time.Now()
+	hr.ff.SetAgent(agentType, enabled) // 经 ff 自身锁
 
 	// 更新策略中的配置
 	if config, ok := hr.strategy.Agents[agentType]; ok {
