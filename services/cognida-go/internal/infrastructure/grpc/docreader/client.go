@@ -185,27 +185,37 @@ func (c *Client) OCRImage(ctx context.Context, req *OCRImageRequest) (*OCRImageR
 		return nil, fmt.Errorf("ocr image failed: %w", err)
 	}
 
-	blocks := make([]*OCRBlock, len(resp.Blocks))
-	for i, b := range resp.Blocks {
-		blocks[i] = &OCRBlock{
-			Text:       b.Text,
-			Confidence: b.Confidence,
-			Box: &Rect{
-				X:      int(b.Box.X),
-				Y:      int(b.Box.Y),
-				Width:  int(b.Box.Width),
-				Height: int(b.Box.Height),
-			},
-		}
-	}
-
 	return &OCRImageResponse{
 		Success:    resp.Success,
 		Text:       resp.Text,
 		Confidence: resp.Confidence,
 		Error:      resp.Error,
-		Blocks:     blocks,
+		Blocks:     convertBlocks(resp.Blocks),
 	}, nil
+}
+
+// convertBlocks 将 proto OCR blocks 转为领域类型。
+// 关键：对 b.Box 做 nil 保护——proto 的 Box 为可选指针，上游未填充时 int(b.Box.X)
+// 会空指针 panic；该转换在 OCRBatch 的 goroutine 内也会用到，一旦 panic 无 recover
+// 将拖垮整个进程。缺失 Box 时保留其余字段、Box 置空。
+func convertBlocks(pb []*docreaderpb.OCRBlock) []*OCRBlock {
+	blocks := make([]*OCRBlock, len(pb))
+	for i, b := range pb {
+		ob := &OCRBlock{
+			Text:       b.Text,
+			Confidence: b.Confidence,
+		}
+		if b.Box != nil {
+			ob.Box = &Rect{
+				X:      int(b.Box.X),
+				Y:      int(b.Box.Y),
+				Width:  int(b.Box.Width),
+				Height: int(b.Box.Height),
+			}
+		}
+		blocks[i] = ob
+	}
+	return blocks
 }
 
 // OCRBatch 批量 OCR 识别（流式）
@@ -251,6 +261,13 @@ func (c *Client) OCRBatch(ctx context.Context, requests []*OCRImageRequest) (<-c
 
 	go func() {
 		defer close(respChan)
+		// 兜底 recover：流处理在独立 goroutine 内，任何未预期 panic 若不拦截会直接
+		// 终止整个进程；这里转成一条错误响应，隔离故障。
+		defer func() {
+			if r := recover(); r != nil {
+				respChan <- &OCRBatchResponse{Error: fmt.Sprintf("ocr batch stream panic: %v", r)}
+			}
+		}()
 		for {
 			resp, err := stream.Recv()
 			if err == io.EOF {
@@ -267,18 +284,9 @@ func (c *Client) OCRBatch(ctx context.Context, requests []*OCRImageRequest) (<-c
 				return
 			}
 
-			blocks := make([]*OCRBlock, len(resp.Response.Blocks))
-			for i, b := range resp.Response.Blocks {
-				blocks[i] = &OCRBlock{
-					Text:       b.Text,
-					Confidence: b.Confidence,
-					Box: &Rect{
-						X:      int(b.Box.X),
-						Y:      int(b.Box.Y),
-						Width:  int(b.Box.Width),
-						Height: int(b.Box.Height),
-					},
-				}
+			// 上游可能回一条不含 Response 的分片：跳过而非解引用 nil。
+			if resp.Response == nil {
+				continue
 			}
 
 			respChan <- &OCRBatchResponse{
@@ -288,7 +296,7 @@ func (c *Client) OCRBatch(ctx context.Context, requests []*OCRImageRequest) (<-c
 					Text:       resp.Response.Text,
 					Confidence: resp.Response.Confidence,
 					Error:      resp.Response.Error,
-					Blocks:     blocks,
+					Blocks:     convertBlocks(resp.Response.Blocks),
 				},
 			}
 		}
