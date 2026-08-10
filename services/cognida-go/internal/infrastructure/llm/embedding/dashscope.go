@@ -67,7 +67,6 @@ func (e *DashScopeEmbedder) EmbedStrings(ctx context.Context, texts []string, op
 	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("[DashScope Embedding] API Error (status %d): %s\n", resp.StatusCode, string(body))
 		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -120,10 +119,6 @@ func (e *DashScopeEmbedder) sendRequest(ctx context.Context, reqBody dashScopeRe
 		return nil, fmt.Errorf("marshal request failed: %w", err)
 	}
 
-	// 调试：打印请求信息
-	fmt.Printf("[DashScope Embedding] API Key: %s..., Model: %s, Texts count: %d, URL: %s\n",
-		maskKey(e.apiKey), e.model, len(reqBody.Input), e.baseURL)
-
 	req, err := http.NewRequestWithContext(ctx, "POST", e.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)
@@ -133,14 +128,6 @@ func (e *DashScopeEmbedder) sendRequest(ctx context.Context, reqBody dashScopeRe
 	req.Header.Set("Authorization", "Bearer "+e.apiKey)
 
 	return e.client.Do(req)
-}
-
-// maskKey 掩盖 API Key 用于日志
-func maskKey(key string) string {
-	if len(key) <= 8 {
-		return key
-	}
-	return key[:4] + "****" + key[len(key)-4:]
 }
 
 // ========================================
