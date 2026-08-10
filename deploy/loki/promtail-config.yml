@@ -1,10 +1,11 @@
-# Promtail 采集配置：抓取宿主机挂入的 cognida-go / cognida-python 日志文件，推送到 Loki。
+# Promtail 采集配置：抓取宿主机挂入的 var/run/*.log（dev.sh 全栈统一落点），推送到 Loki。
 #
 # 标签策略（低基数）：
 #   job=cognida           固定，便于 {job="cognida"} 全量检索
-#   stack=go|python    区分服务栈
-#   service=<文件名>    如 eval/grpc/http/mcp/server（由文件路径正则提取）
+#   stack=go|python    区分服务栈（按文件名区分：go.log vs py-*.log）
+#   service=<文件名>    如 go / grpc / http / eval / mcp（由文件路径正则提取，py- 前缀已剥离）
 # request_id 不做 label（高基数），保留在日志行内，用 LogQL 行过滤检索。
+# 注：web.log / deps.log（前端、中间件启停）不参与全链路追踪，故不采集。
 
 server:
   http_listen_port: 9080
@@ -17,33 +18,33 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
-  # Python 四服务：logs/{grpc,http,eval,mcp}.log
+  # Python 四服务：var/run/py-{grpc,http,eval,mcp}.log
   - job_name: cognida-python
     static_configs:
       - targets: [localhost]
         labels:
           job: cognida
           stack: python
-          __path__: /var/log/cognida/python/*.log
+          __path__: /var/log/cognida/run/py-*.log
     pipeline_stages:
-      # 从文件路径提取文件名作为 service 标签（去掉 .log 后缀）
+      # 从文件名提取 service 标签，并剥离 py- 前缀（py-grpc.log → grpc）
       - match:
           selector: '{stack="python"}'
           stages:
             - regex:
                 source: filename
-                expression: '/(?P<service>[^/]+)\.log$'
+                expression: '/py-(?P<service>[^/]+)\.log$'
             - labels:
                 service:
 
-  # Go 服务：logs/*.log（stdout 重定向）
+  # Go 服务：var/run/go.log（dev.sh 已 stdout+stderr 重定向）
   - job_name: cognida-go
     static_configs:
       - targets: [localhost]
         labels:
           job: cognida
           stack: go
-          __path__: /var/log/cognida/go/*.log
+          __path__: /var/log/cognida/run/go.log
     pipeline_stages:
       - match:
           selector: '{stack="go"}'

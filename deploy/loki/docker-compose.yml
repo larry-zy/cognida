@@ -2,14 +2,12 @@
 #
 # 组成：
 #   - loki      :3100   日志聚合/查询后端
-#   - promtail          采集器：抓取宿主机 cognida-go / cognida-python 的 *.log 文件推给 Loki
+#   - promtail          采集器：抓取宿主机 var/run/*.log 文件推给 Loki
 #   - grafana   :3300   查询/可视化（已预置 Loki 数据源）
 #
 # 用法：
-#   1) 让服务把日志写到被采集的目录：
-#        Python：scripts/dev-all.sh 已写入 cognida-python/logs/*.log（开箱即用）
-#        Go    ：go run ./cmd/server 2>&1 | tee cognida-go/logs/server.log
-#              （或 mkdir -p cognida-go/logs && ... > cognida-go/logs/server.log 2>&1）
+#   1) 用仓库根 ./dev.sh start 启动全栈——所有服务日志统一落到 var/run/
+#      （go.log / py-*.log 等），promtail 直接采集，开箱即用；无需手动重定向。
 #   2) cd deploy/loki && docker compose up -d
 #   3) 打开 http://localhost:3300 （匿名登录，已是 Admin），Explore → Loki
 #        LogQL 示例（按 request_id 追踪全链路）：
@@ -37,9 +35,9 @@ services:
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
       - ./promtail-config.yml:/etc/promtail/promtail-config.yml:ro
-      # 宿主机日志目录（相对本 compose 文件：deploy/loki → 仓库根）
-      - ../../cognida-python/logs:/var/log/cognida/python:ro
-      - ../../cognida-go/logs:/var/log/cognida/go:ro
+      # 宿主机日志目录（相对本 compose 文件：deploy/loki → 仓库根）：
+      # dev.sh 把全栈日志统一写到 var/run/，此处只挂这一个目录。
+      - ../../var/run:/var/log/cognida/run:ro
       - promtail-positions:/tmp/promtail
     depends_on:
       - loki

@@ -10,19 +10,21 @@
 | 组件 | 端口 | 作用 |
 |------|------|------|
 | loki | 3100 | 日志聚合/查询后端（filesystem 存储，保留 7 天）|
-| promtail | — | 采集器：抓取宿主机 `cognida-go/logs` 与 `cognida-python/logs` 下的 `*.log` |
+| promtail | — | 采集器：抓取宿主机 `var/run/*.log`（`go.log` / `py-*.log`）|
 | grafana | 3300 | 查询/可视化，已预置 Loki 数据源（匿名 Admin，免登录）|
 
 ## 前置：让服务把日志落到被采集目录
 
-- **Python**：`cognida-python/scripts/dev-all.sh` 已把四服务日志写到
-  `cognida-python/logs/{grpc,http,eval,mcp}.log`，开箱即用。
-- **Go**：stdout 需重定向到 `cognida-go/logs/`：
-  ```bash
-  cd cognida-go
-  go run ./cmd/server 2>&1 | tee logs/server.log
-  # 或后台： go run ./cmd/server > logs/server.log 2>&1 &
-  ```
+用仓库根的一键脚本启动全栈即可，无需任何手动重定向：
+
+```bash
+./dev.sh start
+```
+
+`dev.sh` 把 Go / Python / 前端各服务的 stdout+stderr 统一写到 `var/run/`
+（`go.log`、`py-grpc.log`、`py-http.log`、`py-eval.log`、`py-mcp.log`、`web.log`），
+promtail 直接采集其中的 `go.log` 与 `py-*.log`。`web.log` / `deps.log` 不参与
+全链路追踪，不采集。
 
 ## 启动
 
