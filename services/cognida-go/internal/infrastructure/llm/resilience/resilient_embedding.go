@@ -33,14 +33,14 @@ func newResilientEmbeddingWith(reg *breakerRegistry, cfg domainllm.ResilienceCon
 }
 
 func (r *resilientEmbedding) Embed(ctx context.Context, req *domainllm.EmbeddingRequest) (*domainllm.EmbeddingResponse, error) {
-	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "embed",
+	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "embed", true,
 		func(ctx context.Context, c domainllm.EmbeddingRepository) (*domainllm.EmbeddingResponse, error) {
 			return c.Embed(ctx, req)
 		})
 }
 
 func (r *resilientEmbedding) EmbedBatch(ctx context.Context, req *domainllm.EmbeddingRequest) (*domainllm.EmbeddingResponse, error) {
-	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "embed_batch",
+	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "embed_batch", true,
 		func(ctx context.Context, c domainllm.EmbeddingRepository) (*domainllm.EmbeddingResponse, error) {
 			return c.EmbedBatch(ctx, req)
 		})

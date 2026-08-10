@@ -2,9 +2,11 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +47,9 @@ type Router struct {
 	tenantMiddleware     *middleware.TenantMiddleware
 	auditMiddleware      *middleware.AuditMiddleware
 	rateLimiter          *middleware.RateLimiter
+
+	mu  sync.Mutex   // 保护 srv 在 Run/Shutdown 间的并发访问
+	srv *http.Server // 由 Run 构造并持有，供 Shutdown 优雅关闭
 }
 
 // NewRouter 创建路由器
@@ -580,7 +585,27 @@ func (r *Router) Run(addr string) error {
 		IdleTimeout:       time.Duration(envIntDefault("HTTP_IDLE_TIMEOUT_SEC", 120)) * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	return srv.ListenAndServe()
+	r.mu.Lock()
+	r.srv = srv
+	r.mu.Unlock()
+
+	// ListenAndServe 在 Shutdown 后返回 ErrServerClosed，属正常收尾，向上层折叠为 nil。
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+// Shutdown 优雅关闭 HTTP 服务器：停止接收新连接并等待在途请求在 ctx 截止前完成。
+// 在 Run 尚未构造 srv（服务器还没起来）时为空操作。
+func (r *Router) Shutdown(ctx context.Context) error {
+	r.mu.Lock()
+	srv := r.srv
+	r.mu.Unlock()
+	if srv == nil {
+		return nil
+	}
+	return srv.Shutdown(ctx)
 }
 
 // envIntDefault 读取正整型环境变量，缺省/非法时回退默认值。

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -543,29 +544,48 @@ func (r *VectorRetriever) buildFilterExpression(filter map[string]string) string
 
 	expr := ""
 	for k, v := range filter {
-		if expr != "" {
-			expr += " && "
-		}
-
+		clause := ""
 		// 根据字段类型构建表达式
 		switch k {
 		case "tenant_id":
-			expr += fmt.Sprintf("%s == %s", k, v)
-		case "kb_id", "knowledge_id", "chunk_id":
-			expr += fmt.Sprintf("%s == '%s'", k, v)
+			// 数值字段：必须为合法整数，否则跳过该条件，杜绝表达式注入
+			id, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				log.Printf("[Milvus] 跳过非法 tenant_id 过滤值: %q", v)
+				continue
+			}
+			clause = fmt.Sprintf("tenant_id == %d", id)
 		case "is_enabled":
 			if v == "true" {
-				expr += "is_enabled == true"
+				clause = "is_enabled == true"
 			} else {
-				expr += "is_enabled == false"
+				clause = "is_enabled == false"
 			}
+		case "kb_id", "knowledge_id", "chunk_id":
+			clause = fmt.Sprintf("%s == '%s'", k, escapeMilvusStringLiteral(v))
 		default:
-			// 默认字符串相等
-			expr += fmt.Sprintf("%s == '%s'", k, v)
+			// 默认字符串相等，值需转义防止越过引号边界
+			clause = fmt.Sprintf("%s == '%s'", k, escapeMilvusStringLiteral(v))
 		}
+
+		if clause == "" {
+			continue
+		}
+		if expr != "" {
+			expr += " && "
+		}
+		expr += clause
 	}
 
 	return expr
+}
+
+// escapeMilvusStringLiteral 转义单引号字符串字面量中的特殊字符，
+// 防止过滤值携带引号/反斜杠越出字面量边界导致表达式注入。
+func escapeMilvusStringLiteral(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `'`, `\'`)
+	return s
 }
 
 // ========================================

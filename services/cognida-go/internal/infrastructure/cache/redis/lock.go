@@ -4,6 +4,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -15,14 +16,44 @@ import (
 // Distributed Lock Implementation
 // ========================================
 
-// distributedLock 实现 Lock 接口
+// distributedLock 实现 Lock 接口。
+// Lock 接口的 Unlock/Extend 只接受 key，持有者令牌无法由调用方传入，
+// 因此这里用 mu 保护的 values 表按 lockKey 记录本进程持有的令牌，
+// 供 Unlock/Extend 做 Lua CAS——只释放/续期自己持有的锁。
 type distributedLock struct {
 	client *redis.Client
+	mu     sync.Mutex
+	values map[string]string // lockKey -> owner token
 }
 
 // NewLock 创建分布式锁实例
 func NewLock(client *redis.Client) cache.Lock {
-	return &distributedLock{client: client}
+	return &distributedLock{
+		client: client,
+		values: make(map[string]string),
+	}
+}
+
+// storeValue 记录本进程对 lockKey 的持有令牌
+func (l *distributedLock) storeValue(lockKey, val string) {
+	l.mu.Lock()
+	l.values[lockKey] = val
+	l.mu.Unlock()
+}
+
+// loadValue 读取本进程对 lockKey 的持有令牌
+func (l *distributedLock) loadValue(lockKey string) (string, bool) {
+	l.mu.Lock()
+	val, ok := l.values[lockKey]
+	l.mu.Unlock()
+	return val, ok
+}
+
+// clearValue 清除本进程对 lockKey 的持有记录
+func (l *distributedLock) clearValue(lockKey string) {
+	l.mu.Lock()
+	delete(l.values, lockKey)
+	l.mu.Unlock()
 }
 
 // TryLock 尝试获取锁
@@ -42,6 +73,10 @@ func (l *distributedLock) TryLock(ctx context.Context, key string, expiration ti
 	acquired, err := setNX(ctx, l.client, lockKey, lockVal, expiration)
 	if err != nil {
 		return false, fmt.Errorf("%w: %w", cache.ErrLockAcquisitionFailed, err)
+	}
+
+	if acquired {
+		l.storeValue(lockKey, lockVal)
 	}
 
 	return acquired, nil
@@ -72,6 +107,7 @@ func (l *distributedLock) Lock(ctx context.Context, key string, expiration time.
 				return fmt.Errorf("%w: %w", cache.ErrLockAcquisitionFailed, err)
 			}
 			if acquired {
+				l.storeValue(lockKey, lockVal)
 				return nil
 			}
 		}
@@ -86,14 +122,30 @@ func (l *distributedLock) Unlock(ctx context.Context, key string) error {
 
 	lockKey := withLockPrefix(key)
 
-	// 简化处理：直接删除锁
-	// 生产环境建议使用 Lua 脚本验证锁持有者
-	result, err := l.client.Del(ctx, lockKey).Result()
+	lockVal, ok := l.loadValue(lockKey)
+	if !ok {
+		// 本进程没有持有记录——不是自己加的锁，拒绝释放。
+		return cache.ErrLockNotHeld
+	}
+
+	// Lua CAS：仅当值匹配才删除，避免误删他人（或本进程已过期后被他人重获）的锁。
+	script := `
+		if redis.call("get", KEYS[1]) == ARGV[1] then
+			return redis.call("del", KEYS[1])
+		else
+			return 0
+		end
+	`
+
+	result, err := l.client.Eval(ctx, script, []string{lockKey}, lockVal).Result()
 	if err != nil {
 		return err
 	}
 
-	if result == 0 {
+	// 无论 Redis 侧是否仍持有，都清掉本地记录：令牌已失效，不应再用于后续 CAS。
+	l.clearValue(lockKey)
+
+	if n, _ := result.(int64); n == 0 {
 		return cache.ErrLockNotHeld
 	}
 
@@ -112,22 +164,29 @@ func (l *distributedLock) Extend(ctx context.Context, key string, expiration tim
 
 	lockKey := withLockPrefix(key)
 
-	// 使用 Lua 脚本确保只延长自己持有的锁
+	lockVal, ok := l.loadValue(lockKey)
+	if !ok {
+		// 本进程没有持有记录，无从续期。
+		return false, nil
+	}
+
+	// Lua CAS：仅当值匹配（确系本进程持有）才续期。
 	script := `
-		if redis.call("exists", KEYS[1]) == 1 then
-			return redis.call("expire", KEYS[1], ARGV[1])
+		if redis.call("get", KEYS[1]) == ARGV[1] then
+			return redis.call("expire", KEYS[1], ARGV[2])
 		else
 			return 0
 		end
 	`
 
-	result, err := l.client.Eval(ctx, script, []string{lockKey}, int(expiration.Seconds())).Result()
+	result, err := l.client.Eval(ctx, script, []string{lockKey}, lockVal, int(expiration.Seconds())).Result()
 	if err != nil {
 		return false, err
 	}
 
-	// 返回 1 表示成功，0 表示锁不存在
-	return result.(int64) == 1, nil
+	// 返回 1 表示成功续期，0 表示锁已不由本进程持有
+	n, _ := result.(int64)
+	return n == 1, nil
 }
 
 // ========================================

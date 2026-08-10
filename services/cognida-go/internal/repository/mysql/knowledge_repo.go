@@ -773,23 +773,6 @@ func (r *retrievalSettingRepository) Create(ctx context.Context, setting *domain
 	return r.db.WithContext(ctx).Create(&model).Error
 }
 
-// FindByKnowledgeBaseID 根据知识库ID查找检索设置
-func (r *retrievalSettingRepository) FindByKnowledgeBaseID(ctx context.Context, knowledgeBaseID string) (*domain_knowledge.RetrievalSetting, error) {
-	var model RetrievalSettingModel
-	err := r.db.WithContext(ctx).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		First(&model).Error
-
-	if err == gorm.ErrRecordNotFound {
-		return nil, fmt.Errorf("检索设置不存在")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("查询检索设置失败: %w", err)
-	}
-
-	return model.ToDomain(), nil
-}
-
 // FindByID 根据ID查找检索设置
 func (r *retrievalSettingRepository) FindByID(ctx context.Context, id int64) (*domain_knowledge.RetrievalSetting, error) {
 	var model RetrievalSettingModel
@@ -832,11 +815,6 @@ func (r *retrievalSettingRepository) Update(ctx context.Context, setting *domain
 	return r.db.WithContext(ctx).Save(&model).Error
 }
 
-// Delete 删除检索设置
-func (r *retrievalSettingRepository) Delete(ctx context.Context, knowledgeBaseID string) error {
-	return r.db.WithContext(ctx).Where("knowledge_base_id = ?", knowledgeBaseID).Delete(&RetrievalSettingModel{}).Error
-}
-
 // UpsertBySessionID 根据会话ID创建或更新检索设置
 func (r *retrievalSettingRepository) UpsertBySessionID(ctx context.Context, sessionID string, tenantID int64, ragConfig interface{}) error {
 	// 使用 GORM 的 Clauses 实现 upsert
@@ -848,87 +826,6 @@ func (r *retrievalSettingRepository) UpsertBySessionID(ctx context.Context, sess
 			SessionID: &sessionID,
 			TenantID:  tenantID,
 		}).Error
-}
-
-// UpdateVectorConfig 更新向量检索配置
-func (r *retrievalSettingRepository) UpdateVectorConfig(ctx context.Context, knowledgeBaseID string, topK int, threshold float64, modelID string) error {
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Updates(map[string]interface{}{
-			"vector_top_k":      topK,
-			"vector_threshold": threshold,
-			"vector_model_id":   modelID,
-		}).Error
-}
-
-// UpdateBM25Config 更新BM25检索配置
-func (r *retrievalSettingRepository) UpdateBM25Config(ctx context.Context, knowledgeBaseID string, topK int) error {
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Updates(map[string]interface{}{
-			"bm25_enable": true,
-			"bm25_top_k":  topK,
-		}).Error
-}
-
-// UpdateGraphConfig 更新图谱检索配置
-func (r *retrievalSettingRepository) UpdateGraphConfig(ctx context.Context, knowledgeBaseID string, enabled bool, topK int, minStrength float64) error {
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Updates(map[string]interface{}{
-			"graph_enabled":     enabled,
-			"graph_top_k":        topK,
-			"graph_min_strength": minStrength,
-		}).Error
-}
-
-// UpdateHybridConfig 更新混合检索配置
-func (r *retrievalSettingRepository) UpdateHybridConfig(ctx context.Context, knowledgeBaseID string, alpha float64, rerankEnabled bool) error {
-	alphaVal := domain_knowledge.Number(alpha)
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Updates(map[string]interface{}{
-			"hybrid_alpha":         &alphaVal,
-			"hybrid_rerank_enabled": rerankEnabled,
-		}).Error
-}
-
-// UpdateWebConfig 更新网络搜索配置
-func (r *retrievalSettingRepository) UpdateWebConfig(ctx context.Context, knowledgeBaseID string, enabled bool, topK int, engine, apiKey string, searchDepth int) error {
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Updates(map[string]interface{}{
-			"web_enabled":     enabled,
-			"web_search_depth": searchDepth,
-		}).Error
-}
-
-// UpdateRerankConfig 更新重排序配置
-func (r *retrievalSettingRepository) UpdateRerankConfig(ctx context.Context, knowledgeBaseID string, enabled bool, modelID string) error {
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Updates(map[string]interface{}{
-			"rerank_enabled": enabled,
-		}).Error
-}
-
-// UpdateDefaultMode 更新默认检索模式
-func (r *retrievalSettingRepository) UpdateDefaultMode(ctx context.Context, knowledgeBaseID string, mode string, availableModes []string) error {
-	// 这里可以更新到 settings_json 字段
-	return r.db.WithContext(ctx).Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Update("advanced_config", fmt.Sprintf(`{"default_mode":"%s","available_modes":["%s"]}`, mode, mode)).Error
-}
-
-// Exists 检查设置是否存在
-func (r *retrievalSettingRepository) Exists(ctx context.Context, knowledgeBaseID string) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&RetrievalSettingModel{}).
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Count(&count).Error
-
-	return count > 0, err
 }
 
 // ========================================

@@ -509,52 +509,63 @@ func main() {
 	// 使 handler 层不直接依赖 infrastructure/cache/redis（Clean Architecture 依赖方向）。
 	app.Router.Setup(middleware.NewRateLimiter(rediscache.Client))
 
-	// 优雅关闭
-	go func() {
-		sigint := make(chan os.Signal, 1)
-		signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
-		<-sigint
-
-		log.Println("🛑 收到关闭信号...")
-
-		// 关闭服务器
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := app.Shutdown(ctx); err != nil {
-			log.Printf("❌ 应用关闭失败: %v", err)
-		}
-
-		// 停止经验沉淀 Worker（等待在途蒸馏完成）
-		if experienceWorker != nil {
-			experienceWorker.Stop()
-		}
-
-		// 关闭追踪：flush 批量队列里未导出的 span，避免退出丢尾。
-		if traceShutdown != nil {
-			if err := traceShutdown(ctx); err != nil {
-				log.Printf("❌ 调用链追踪关闭失败: %v", err)
-			}
-		}
-
-		// 关闭数据库
-		if err := sqlDB.Close(); err != nil {
-			log.Printf("❌ 数据库关闭失败: %v", err)
-		}
-		if err := mysql.CloseDatabase(); err != nil {
-			log.Printf("❌ GORM 数据库关闭失败: %v", err)
-		}
-
-		log.Println("✅ 应用已安全关闭")
-		os.Exit(0)
-	}()
-
-	// 启动服务器
+	// 启动 HTTP 服务器（后台 goroutine），主 goroutine 负责等待信号并驱动优雅关闭。
+	// 关键：关闭走正常 return 而非 os.Exit(0)，以便 main 中已注册的 Milvus / Neo4j
+	// defer 清理得到执行（旧实现在关闭 goroutine 里 os.Exit(0)，会跳过全部 defer）。
 	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("🚀 服务器启动中... 监听地址: %s", addr)
-	if err := app.Router.Run(addr); err != nil {
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := app.Router.Run(addr); err != nil {
+			serverErr <- err
+		}
+	}()
+
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		// 监听失败（如端口占用）属启动阶段异常，直接终止。
 		log.Fatalf("❌ 服务器启动失败: %v", err)
+	case <-sigint:
+		log.Println("🛑 收到关闭信号...")
 	}
+
+	// 优雅关闭序列
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 先停止接收新连接并 drain 在途 HTTP 请求。
+	if err := app.Router.Shutdown(ctx); err != nil {
+		log.Printf("❌ HTTP 服务器优雅关闭失败: %v", err)
+	}
+
+	if err := app.Shutdown(ctx); err != nil {
+		log.Printf("❌ 应用关闭失败: %v", err)
+	}
+
+	// 停止经验沉淀 Worker（等待在途蒸馏完成）
+	if experienceWorker != nil {
+		experienceWorker.Stop()
+	}
+
+	// 关闭追踪：flush 批量队列里未导出的 span，避免退出丢尾。
+	if traceShutdown != nil {
+		if err := traceShutdown(ctx); err != nil {
+			log.Printf("❌ 调用链追踪关闭失败: %v", err)
+		}
+	}
+
+	// 关闭数据库
+	if err := sqlDB.Close(); err != nil {
+		log.Printf("❌ 数据库关闭失败: %v", err)
+	}
+	if err := mysql.CloseDatabase(); err != nil {
+		log.Printf("❌ GORM 数据库关闭失败: %v", err)
+	}
+
+	log.Println("✅ 应用已安全关闭")
 }
 
 // ==================== 语义缓存装配（组合根，默认全关 → 零回归）====================

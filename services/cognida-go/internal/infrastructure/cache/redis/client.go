@@ -3,6 +3,8 @@ package redis
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"time"
@@ -95,7 +97,14 @@ func withLockPrefix(key string) string {
 	return "lock:" + key
 }
 
-// generateLockValue 生成锁的唯一值
+// generateLockValue 生成锁的唯一持有者标识。
+// 用 16 字节加密随机数保证跨进程唯一且不可预测——作为 Unlock/Extend 的 CAS 令牌，
+// 旧实现 UnixNano-"lock" 既可能纳秒碰撞又可被猜中，会削弱持有者校验。
 func generateLockValue() string {
-	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), "lock")
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 极罕见：回退到时间戳，仍附随机后缀降低碰撞面。
+		return fmt.Sprintf("%d-fallback", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }

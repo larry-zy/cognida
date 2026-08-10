@@ -37,7 +37,7 @@ func newResilientClientWith(reg *breakerRegistry, cfg domainllm.ResilienceConfig
 }
 
 func (r *resilientClient) Chat(ctx context.Context, req *domainllm.ChatRequest) (*domainllm.ChatResponse, error) {
-	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "chat",
+	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "chat", true,
 		func(ctx context.Context, c domainllm.LLMClient) (*domainllm.ChatResponse, error) {
 			return c.Chat(ctx, req)
 		})
@@ -46,7 +46,7 @@ func (r *resilientClient) Chat(ctx context.Context, req *domainllm.ChatRequest) 
 // ChatStream 仅在建流阶段（返回 channel 之前）做重试与降级。
 // 一旦拿到 channel，首 chunk 及其后的失败经 channel 关闭透传，MUST NOT 重放。
 func (r *resilientClient) ChatStream(ctx context.Context, req *domainllm.ChatRequest) (<-chan *domainllm.ChatChunk, error) {
-	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "chat_stream",
+	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "chat_stream", false,
 		func(ctx context.Context, c domainllm.LLMClient) (<-chan *domainllm.ChatChunk, error) {
 			return c.ChatStream(ctx, req)
 		})

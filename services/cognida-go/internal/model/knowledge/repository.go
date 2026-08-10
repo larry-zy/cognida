@@ -226,9 +226,6 @@ type RetrievalSettingRepository interface {
 	// Create create retrieval setting
 	Create(ctx context.Context, setting *RetrievalSetting) error
 
-	// FindByKnowledgeBaseID find by knowledge base ID
-	FindByKnowledgeBaseID(ctx context.Context, knowledgeBaseID string) (*RetrievalSetting, error)
-
 	// FindByID find by ID
 	FindByID(ctx context.Context, id int64) (*RetrievalSetting, error)
 
@@ -238,35 +235,8 @@ type RetrievalSettingRepository interface {
 	// Update update retrieval setting
 	Update(ctx context.Context, setting *RetrievalSetting) error
 
-	// Delete delete retrieval setting
-	Delete(ctx context.Context, knowledgeBaseID string) error
-
 	// UpsertBySessionID create or update by session ID
 	UpsertBySessionID(ctx context.Context, sessionID string, tenantID int64, ragConfig interface{}) error
-
-	// UpdateVectorConfig update vector retrieval config
-	UpdateVectorConfig(ctx context.Context, kbID string, topK int, threshold float64, modelID string) error
-
-	// UpdateBM25Config update BM25 retrieval config
-	UpdateBM25Config(ctx context.Context, kbID string, topK int) error
-
-	// UpdateGraphConfig update graph retrieval config
-	UpdateGraphConfig(ctx context.Context, kbID string, enabled bool, topK int, minStrength float64) error
-
-	// UpdateHybridConfig update hybrid retrieval config
-	UpdateHybridConfig(ctx context.Context, kbID string, alpha float64, rerankEnabled bool) error
-
-	// UpdateWebConfig update web search config
-	UpdateWebConfig(ctx context.Context, kbID string, enabled bool, topK int, engine, apiKey string, searchDepth int) error
-
-	// UpdateRerankConfig update rerank config
-	UpdateRerankConfig(ctx context.Context, kbID string, enabled bool, modelID string) error
-
-	// UpdateDefaultMode update default retrieval mode
-	UpdateDefaultMode(ctx context.Context, kbID string, mode string, availableModes []string) error
-
-	// Exists check if setting exists
-	Exists(ctx context.Context, knowledgeBaseID string) (bool, error)
 }
 
 // ========================================

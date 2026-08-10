@@ -170,7 +170,7 @@ func TestAttemptTarget_CancelAfterAllowReleasesProbe(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Allow 之后、invoke 之前取消
 
-	_, err, class := attemptTarget[*scriptedClient, string](ctx, &tgt, cfg, NoopObserver{}, "chat", invoke)
+	_, err, class := attemptTarget[*scriptedClient, string](ctx, &tgt, cfg, NoopObserver{}, "chat", false, invoke)
 	if class != domainllm.ClassCanceled || err == nil {
 		t.Fatalf("expected canceled, got class=%s err=%v", class, err)
 	}

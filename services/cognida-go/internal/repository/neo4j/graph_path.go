@@ -57,14 +57,15 @@ func (r *Neo4jRepository) SearchPath(ctx context.Context, namespace knowledge.Na
 			}
 		}
 
-		// 构建关系
-		relations := make([]*knowledge.GraphRelation, len(relTypes)-1)
-		for i := 0; i < len(relTypes)-1; i++ {
-			relations[i] = &knowledge.GraphRelation{
+		// 构建关系：N 个节点对应 N-1 条关系，relTypes[i] 连接 nodeNames[i]→nodeNames[i+1]。
+		// start==end 时路径只有单节点、relTypes 为空，此处自然得到空关系切片，不再越界 panic。
+		relations := make([]*knowledge.GraphRelation, 0, len(relTypes))
+		for i := 0; i < len(relTypes) && i+1 < len(nodeNames); i++ {
+			relations = append(relations, &knowledge.GraphRelation{
 				Source: nodeNames[i],
 				Target: nodeNames[i+1],
 				Type:   relTypes[i],
-			}
+			})
 		}
 
 		paths = append(paths, &knowledge.GraphData{

@@ -33,7 +33,7 @@ func newResilientRerankWith(reg *breakerRegistry, cfg domainllm.ResilienceConfig
 }
 
 func (r *resilientRerank) Rerank(ctx context.Context, req *domainllm.RerankRequest) (*domainllm.RerankResponse, error) {
-	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "rerank",
+	return executeChain(ctx, r.targets, r.cfg, r.obs, requestID(ctx), "rerank", true,
 		func(ctx context.Context, c domainllm.RerankRepository) (*domainllm.RerankResponse, error) {
 			return c.Rerank(ctx, req)
 		})

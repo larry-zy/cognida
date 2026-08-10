@@ -21,6 +21,11 @@ type ResilienceConfig struct {
 	Cooldown time.Duration
 	// HalfOpenProbes half-open 状态放行的探测请求数。
 	HalfOpenProbes int
+	// PerCallTimeout 单次一元底层调用（单个 attempt）的超时上限。
+	// 仅作用于一元调用（Chat/Embed/Rerank）——为每个 attempt 派生带 deadline 的子 ctx，
+	// 防止上游 accept 后不回包导致请求永久挂起（SharedTransport 只保连接阶段超时）。
+	// 流式调用（ChatStream）的 channel 生命周期长于单次 invoke，不适用此超时。
+	PerCallTimeout time.Duration
 }
 
 // DefaultResilienceConfig 返回带安全默认值的弹性配置。
@@ -34,6 +39,7 @@ func DefaultResilienceConfig() ResilienceConfig {
 		FailThreshold:  5,
 		Cooldown:       30 * time.Second,
 		HalfOpenProbes: 1,
+		PerCallTimeout: 120 * time.Second,
 	}
 }
 
@@ -61,6 +67,9 @@ func (c ResilienceConfig) WithDefaults() ResilienceConfig {
 	}
 	if c.HalfOpenProbes <= 0 {
 		c.HalfOpenProbes = d.HalfOpenProbes
+	}
+	if c.PerCallTimeout <= 0 {
+		c.PerCallTimeout = d.PerCallTimeout
 	}
 	return c
 }

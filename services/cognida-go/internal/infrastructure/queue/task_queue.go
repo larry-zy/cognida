@@ -117,39 +117,45 @@ func (q *RedisTaskQueue) Fail(ctx context.Context, taskID string, errMsg string)
 // 辅助方法
 // ========================================
 
-// GetDelayedTasks 获取到期的延迟任务
-func (q *RedisTaskQueue) GetDelayedTasks(ctx context.Context, limit int) ([]*domaintask.Task, error) {
-	now := float64(time.Now().Unix())
+// claimDelayedScript 原子领取到期延迟任务：
+// 在一次 Lua 调用内 ZRANGEBYSCORE 取出 score ≤ now 的成员并逐个 ZREM，返回被本次成功移除的原始成员。
+// 这样保证——① 每个成员只会被一个 worker 领取（读取与移除原子，杜绝多 worker 双执行）；
+// ② 移除用的是 ZSet 中的原始 JSON 字节，而非重新 Marshal 的结果（旧实现重新 Marshal 可能因字段序/空白不一致导致 ZRem 失配、任务残留被反复执行）。
+const claimDelayedScript = `
+local due = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, ARGV[2])
+for i = 1, #due do
+	redis.call('ZREM', KEYS[1], due[i])
+end
+return due
+`
 
-	// 获取已到期的任务
-	// ZRangeArgs{ByScore:true} 替代已弃用的 ZRangeByScore（Redis 6.2+）：取到期任务（score ≤ now）。
-	results, err := q.client.ZRangeArgs(ctx, redis.ZRangeArgs{
-		Key:     "task:delayed",
-		ByScore: true,
-		Start:   "0",
-		Stop:    fmt.Sprintf("%f", now),
-		Offset:  0,
-		Count:   int64(limit),
-	}).Result()
+// GetDelayedTasks 获取并领取到期的延迟任务（原子：取出即从队列移除）
+func (q *RedisTaskQueue) GetDelayedTasks(ctx context.Context, limit int) ([]*domaintask.Task, error) {
+	now := time.Now().Unix()
+
+	raw, err := q.client.Eval(ctx, claimDelayedScript, []string{"task:delayed"},
+		fmt.Sprintf("%d", now), limit).Result()
 	if err != nil {
 		return nil, err
 	}
 
-	tasks := make([]*domaintask.Task, 0, len(results))
-	for _, data := range results {
+	members, ok := raw.([]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	tasks := make([]*domaintask.Task, 0, len(members))
+	for _, m := range members {
+		data, ok := m.(string)
+		if !ok {
+			continue
+		}
 		var task domaintask.Task
 		if err := json.Unmarshal([]byte(data), &task); err != nil {
+			// 成员已被原子领取移除；反序列化失败则只能丢弃，无法回补。
 			continue
 		}
 		tasks = append(tasks, &task)
-	}
-
-	// 从延迟队列中移除
-	if len(tasks) > 0 {
-		for _, task := range tasks {
-			data, _ := json.Marshal(task)
-			q.client.ZRem(ctx, "task:delayed", data)
-		}
 	}
 
 	return tasks, nil

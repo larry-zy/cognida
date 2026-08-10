@@ -65,6 +65,8 @@ func newTarget[C any](reg *breakerRegistry, cfg domainllm.ResilienceConfig, prov
 //   - invoke 对给定目标的底层客户端执行一次实际调用。
 //   - 返回首个成功结果；全链耗尽返回聚合终态错。
 //   - 调用方 ctx 取消立即返回 canceled，MUST NOT 继续降级。
+//   - applyCallTimeout 为 true 时，对每个 attempt 施加 cfg.PerCallTimeout 派生的子 ctx；
+//     仅一元调用可用——流式调用的结果生命周期长于 invoke，MUST 传 false。
 func executeChain[C, R any](
 	ctx context.Context,
 	targets []target[C],
@@ -72,6 +74,7 @@ func executeChain[C, R any](
 	obs Observer,
 	requestID string,
 	op string,
+	applyCallTimeout bool,
 	invoke func(context.Context, C) (R, error),
 ) (R, error) {
 	var zero R
@@ -93,7 +96,7 @@ func executeChain[C, R any](
 			continue
 		}
 
-		res, err, class := attemptTarget(ctx, t, cfg, obs, op, invoke)
+		res, err, class := attemptTarget(ctx, t, cfg, obs, op, applyCallTimeout, invoke)
 		if err == nil {
 			return res, nil
 		}
@@ -114,12 +117,14 @@ func executeChain[C, R any](
 }
 
 // attemptTarget 在单个目标上按退避重试；返回结果、最终错误与其分级。
+// applyCallTimeout 为 true 时，每个 attempt 在 cfg.PerCallTimeout 派生的子 ctx 上执行（一元调用专用）。
 func attemptTarget[C, R any](
 	ctx context.Context,
 	t *target[C],
 	cfg domainllm.ResilienceConfig,
 	obs Observer,
 	op string,
+	applyCallTimeout bool,
 	invoke func(context.Context, C) (R, error),
 ) (R, error, domainllm.ErrorClass) {
 	var zero R
@@ -134,7 +139,14 @@ func attemptTarget[C, R any](
 			return zero, canceledError(t.provider, t.model, err), domainllm.ClassCanceled
 		}
 
-		res, err := invoke(ctx, t.client)
+		// 重试间隙熔断器可能已打开（前几次 attempt 计入失败）：再次征询 Allow()，
+		// 不再向刚被熔断保护的目标发请求，避免 per-target 重试击穿熔断器。首个 attempt
+		// 的放行名额已由 executeChain 的 Allow() 占用，此处仅约束后续重试。
+		if attempt > 0 && !t.breaker.Allow() {
+			break
+		}
+
+		res, err := invokeWithTimeout(ctx, t.client, cfg, applyCallTimeout, invoke)
 		if err == nil {
 			t.breaker.OnResult(true, true)
 			obs.OnAttempt(t.key, op, attempt, true)
@@ -162,6 +174,23 @@ func attemptTarget[C, R any](
 	}
 
 	return zero, lastErr, lastClass
+}
+
+// invokeWithTimeout 按需为单次一元 invoke 派生带 deadline 的子 ctx，并在返回后立即 cancel。
+// 仅当 applyCallTimeout 且 PerCallTimeout>0 时生效；否则直接透传调用方 ctx（流式路径必走此分支）。
+func invokeWithTimeout[C, R any](
+	ctx context.Context,
+	client C,
+	cfg domainllm.ResilienceConfig,
+	applyCallTimeout bool,
+	invoke func(context.Context, C) (R, error),
+) (R, error) {
+	if !applyCallTimeout || cfg.PerCallTimeout <= 0 {
+		return invoke(ctx, client)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, cfg.PerCallTimeout)
+	defer cancel()
+	return invoke(callCtx, client)
 }
 
 // ========================================
