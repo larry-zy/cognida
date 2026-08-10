@@ -8,11 +8,12 @@ from bs4 import BeautifulSoup
 
 # Playwright 是可选依赖
 try:
-    from playwright.async_api import async_playwright, Browser
+    from playwright.async_api import async_playwright, Browser, Playwright
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     Browser = None
+    Playwright = None
 
 
 @dataclass
@@ -38,21 +39,26 @@ class URLFetcher:
     def __init__(self) -> None:
         self._logger = get_logger(__name__)
         self._browser: Browser | None = None
+        self._playwright: Playwright | None = None
 
     async def _get_browser(self) -> Browser:
         """获取浏览器实例。"""
         if not PLAYWRIGHT_AVAILABLE:
             raise RuntimeError("Playwright is not installed. Install it with: pip install playwright")
         if self._browser is None:
-            playwright = await async_playwright().start()
-            self._browser = await playwright.chromium.launch()
+            # 持有 playwright 句柄，close() 时需 stop() 释放 node 驱动子进程，否则泄漏
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch()
         return self._browser
 
     async def close(self) -> None:
-        """关闭浏览器。"""
+        """关闭浏览器并释放 Playwright 驱动子进程。"""
         if self._browser:
             await self._browser.close()
             self._browser = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
 
     async def fetch(
         self,

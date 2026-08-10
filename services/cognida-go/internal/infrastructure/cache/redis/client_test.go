@@ -448,57 +448,6 @@ func TestRedisClient_Integration_Lock(t *testing.T) {
 	})
 }
 
-func TestRedisClient_Integration_Transaction(t *testing.T) {
-	client, rawClient := setupIntegrationTestClient(t)
-	defer client.Close()
-
-	ctx := context.Background()
-	transaction := NewTransaction(rawClient)
-	stringCache := NewStringCache(rawClient)
-
-	testKey1 := "test:txn:1"
-	testKey2 := "test:txn:2"
-
-	// 清理
-	defer rawClient.Del(ctx, testKey1, testKey2)
-
-	t.Run("事务操作", func(t *testing.T) {
-		// 设置初始值
-		err := stringCache.Set(ctx, testKey1, "100", 0)
-		require.NoError(t, err)
-
-		// 开启事务
-		err = transaction.Multi(ctx)
-		require.NoError(t, err)
-
-		// 在事务中执行命令
-		pipe := transaction.Pipeline(ctx)
-		pipe.Add(func() error {
-			return rawClient.Incr(ctx, testKey1).Err()
-		})
-		pipe.Add(func() error {
-			return rawClient.Set(ctx, testKey2, "200", 0).Err()
-		})
-
-		// 执行管道
-		err = pipe.Execute(ctx)
-		require.NoError(t, err)
-
-		// 执行事务
-		err = transaction.Exec(ctx)
-		assert.NoError(t, err)
-
-		// 验证结果
-		val, err := stringCache.Get(ctx, testKey1)
-		assert.NoError(t, err)
-		assert.Equal(t, "101", val)
-
-		val, err = stringCache.Get(ctx, testKey2)
-		assert.NoError(t, err)
-		assert.Equal(t, "200", val)
-	})
-}
-
 func TestRedisClient_ConcurrentOperations(t *testing.T) {
 	client, rawClient := setupIntegrationTestClient(t)
 	defer client.Close()

@@ -274,40 +274,6 @@ type Message struct {
 }
 
 // ========================================
-// Transaction 事务接口
-// ========================================
-
-// Transaction 事务仓储接口
-type Transaction interface {
-	// Watch 监视键
-	Watch(ctx context.Context, keys ...string) error
-
-	// Unwatch 取消监视
-	Unwatch(ctx context.Context, keys ...string) error
-
-	// Multi 开启事务
-	Multi(ctx context.Context) error
-
-	// Exec 执行事务
-	Exec(ctx context.Context) error
-
-	// Discard 取消事务
-	Discard(ctx context.Context) error
-
-	// Pipeline 获取管道
-	Pipeline(ctx context.Context) Pipeline
-}
-
-// Pipeline 管道接口
-type Pipeline interface {
-	// Add 添加命令到管道
-	Add(fn func() error)
-
-	// Execute 执行管道命令
-	Execute(ctx context.Context) error
-}
-
-// ========================================
 // Lock 分布式锁接口
 // ========================================
 

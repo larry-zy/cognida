@@ -167,3 +167,40 @@ func TestJWTValidate_ValidSecret(t *testing.T) {
 		t.Errorf("合法密钥应校验通过: %v", err)
 	}
 }
+
+// TestGetEnvAsInt_RejectsPartialParse 验证〔M8〕：非法/半数值环境变量整体回退默认值，
+// 不再像旧 fmt.Sscanf 那样把 "12abc" 静默截断为 12。
+func TestGetEnvAsInt_RejectsPartialParse(t *testing.T) {
+	const key = "COGNIDA_TEST_INT"
+	cases := []struct {
+		val  string
+		want int
+	}{
+		{"42", 42},    // 合法整串
+		{"-7", -7},    // 合法负数
+		{"12abc", 99}, // 半数值 → 回退
+		{"abc", 99},   // 非数值 → 回退
+		{"3.14", 99},  // 浮点 → 回退
+		{" 5", 99},    // 前导空格 → 回退
+		{"", 99},      // 空 → 回退（等同未设置）
+	}
+	for _, tc := range cases {
+		t.Setenv(key, tc.val)
+		if got := getEnvAsInt(key, 99); got != tc.want {
+			t.Errorf("getEnvAsInt(%q) = %d, want %d", tc.val, got, tc.want)
+		}
+	}
+}
+
+// TestGetEnvAsInt64_RejectsPartialParse 同上，覆盖 int64 变体。
+func TestGetEnvAsInt64_RejectsPartialParse(t *testing.T) {
+	const key = "COGNIDA_TEST_INT64"
+	t.Setenv(key, "9000000000") // 超 int32，验证 64 位解析
+	if got := getEnvAsInt64(key, 1); got != 9000000000 {
+		t.Errorf("getEnvAsInt64 合法值 = %d, want 9000000000", got)
+	}
+	t.Setenv(key, "900x")
+	if got := getEnvAsInt64(key, 1); got != 1 {
+		t.Errorf("getEnvAsInt64 半数值应回退默认值 1, got %d", got)
+	}
+}

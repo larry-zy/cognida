@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"cognida/internal/model/common"
@@ -592,8 +593,8 @@ func LoadConfig() *Config {
 
 func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
-		var intValue int
-		if _, err := fmt.Sscanf(value, "%d", &intValue); err == nil {
+		// strconv.Atoi 要求整串为合法整数，"12abc" 之类部分解析会报错回退默认值
+		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
 		}
 	}
@@ -602,8 +603,7 @@ func getEnvAsInt(key string, defaultValue int) int {
 
 func getEnvAsInt64(key string, defaultValue int64) int64 {
 	if value := os.Getenv(key); value != "" {
-		var intValue int64
-		if _, err := fmt.Sscanf(value, "%d", &intValue); err == nil {
+		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return intValue
 		}
 	}
