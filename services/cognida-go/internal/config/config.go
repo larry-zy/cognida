@@ -706,9 +706,9 @@ func LoadPromptTemplate(templateName string) (string, error) {
 	// 按优先级尝试多个路径
 	paths := []string{
 		// 相对于工作目录的路径
-		filepath.Join(workingDir, "internal", "infrastructure", "config", "prompt_templates", templateName+".yaml"),
+		filepath.Join(workingDir, "internal", "config", "prompt_templates", templateName+".yaml"),
 		// 如果在仓库根运行（服务位于 services/cognida-go 下）
-		filepath.Join(workingDir, "services", "cognida-go", "internal", "infrastructure", "config", "prompt_templates", templateName+".yaml"),
+		filepath.Join(workingDir, "services", "cognida-go", "internal", "config", "prompt_templates", templateName+".yaml"),
 	}
 
 	var lastErr error

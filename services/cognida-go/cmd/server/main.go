@@ -15,10 +15,10 @@ import (
 
 	"cognida/internal/wire"
 
+	"cognida/internal/config"
 	"cognida/internal/handler/middleware"
 	cachesvc "cognida/internal/infrastructure/cache"
 	rediscache "cognida/internal/infrastructure/cache/redis"
-	"cognida/internal/infrastructure/config"
 	llmchat "cognida/internal/infrastructure/llm/chat"
 	"cognida/internal/infrastructure/mcp"
 	obstel "cognida/internal/infrastructure/observability"
@@ -148,7 +148,7 @@ func main() {
 
 	// 使用 Wire 初始化应用
 	log.Println("🔧 初始化应用程序...")
-	app, err := wire.InitializeApp(db)
+	app, err := wire.InitializeApp(db, cfg)
 	if err != nil {
 		log.Fatalf("❌ 应用初始化失败: %v", err)
 	}
@@ -294,7 +294,7 @@ func main() {
 				// 知识库列表工具（kb_list）仓储；nil 时工具报告未接线
 				KnowledgeBaseRepo: app.KnowledgeBaseRepository,
 				// Metaso 搜索客户端（web_search / search_multi）；API Key 缺失时调用报错
-				MetasoClient: ragtool.NewMetasoClient(config.LoadSearchConfig()),
+				MetasoClient: ragtool.NewMetasoClient(cfg.Search),
 				// 操作工具（sql_mutate / etl_run / data_export）：审计仓储走 MySQL
 				Operation: ragtool.OperationConfig{
 					DB:      db,
@@ -333,7 +333,7 @@ func main() {
 			}
 
 			// 数据分析工具：注入 MCP 调用器（与 skill 同源端点）；失败时不注入（调用返回非致命错误）
-			skillCfg := config.LoadSkillConfig()
+			skillCfg := cfg.Skill
 			mcpClient, mcpErr := mcp.NewMCPClient(&mcp.Config{
 				Endpoint: skillCfg.Endpoint,
 				Timeout:  time.Duration(skillCfg.Timeout) * time.Second,

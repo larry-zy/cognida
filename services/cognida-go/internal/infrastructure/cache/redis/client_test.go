@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"cognida/internal/config"
 	"cognida/internal/model/cache"
-	"cognida/internal/infrastructure/config"
 )
 
 // getRedisTestConfig 返回测试用 Redis 配置

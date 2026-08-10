@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	agentctx "cognida/internal/model/agent"
 )
 

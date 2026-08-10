@@ -17,7 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	domain_knowledge "cognida/internal/model/knowledge"
 	app_kb "cognida/internal/service/knowledge"
 )
@@ -39,12 +39,13 @@ func NewKnowledgeBaseHandler(
 	knowledgeBaseService app_kb.KnowledgeBaseService,
 	documentProcessor app_kb.DocumentProcessorService,
 	retrieval *app_kb.RetrievalCapability,
+	uploadConfig *config.UploadConfig,
 ) *KnowledgeBaseHandler {
 	return &KnowledgeBaseHandler{
 		knowledgeBaseService: knowledgeBaseService,
 		documentProcessor:    documentProcessor,
 		retrieval:            retrieval,
-		uploadConfig:         config.LoadUploadConfig(),
+		uploadConfig:         uploadConfig,
 	}
 }
 

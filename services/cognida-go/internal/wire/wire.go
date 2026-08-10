@@ -1,7 +1,7 @@
 //go:build wireinject
 // +build wireinject
 
-// Package main 提供依赖注入
+// Package wire 提供依赖注入
 package wire
 
 import (
@@ -32,13 +32,13 @@ import (
 	raguc "cognida/internal/service/knowledge"
 	ragpipeline "cognida/internal/service/knowledge/pipeline"
 
+	"cognida/internal/config"
 	"cognida/internal/handler"
 	"cognida/internal/handler/middleware"
 	"cognida/internal/handler/router"
 	"cognida/internal/handler/web"
 	evaluationcache "cognida/internal/infrastructure/cache/evaluation"
 	rediscache "cognida/internal/infrastructure/cache/redis"
-	"cognida/internal/infrastructure/config"
 	infragraph "cognida/internal/infrastructure/graph"
 	docreader "cognida/internal/infrastructure/grpc/docreader"
 	qualitygrpc "cognida/internal/infrastructure/grpc/quality"
@@ -72,15 +72,17 @@ import (
 // ========================================
 
 //go:generate wire
-func InitializeApp(db *gorm.DB) (*App, error) {
+func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	wire.Build(
-		// 配置
+		// 配置：*config.Config 由 InitializeApp 入参提供（启动时 LoadConfig 一次），
+		// 各 Provide*Config 只从其上取子字段，不再各自 Load（避免重复读 env/文件）。
 		ProvideJWTConfig,
 		ProvideChatConfig,
 		ProvideEvaluationConfig,
 		ProvideRedisConfig,
 		ProvideEmbeddingConfig,
 		ProvideNeo4jConfig,
+		ProvideUploadConfig,
 
 		// 仓储
 		ProvideKnowledgeBaseRepository,
@@ -208,6 +210,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		ProvideDataSourceRepository,
 		ProvideDataSourceService,
 		ProvideDataSourceHandler,
+		// *datasourcesvc.Service 满足 ConnectionProvider 接口（评测 Worker 只读执行外部数据源 SQL 需要）
+		wire.Bind(new(datasourcemodel.ConnectionProvider), new(*datasourcesvc.Service)),
 
 		// 指标语义层建模（受治理查询进料线）+ 覆盖率埋点读侧
 		ProvideSemanticRepository,
@@ -232,28 +236,32 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 // Config Providers
 // ========================================
 
-func ProvideJWTConfig() *config.JWTConfig {
-	return config.LoadJWTConfig()
+func ProvideJWTConfig(cfg *config.Config) *config.JWTConfig {
+	return cfg.JWT
 }
 
-func ProvideChatConfig() *config.ChatConfig {
-	return config.LoadChatConfig()
+func ProvideChatConfig(cfg *config.Config) *config.ChatConfig {
+	return cfg.Chat
 }
 
-func ProvideEvaluationConfig() *config.EvaluationConfig {
-	return config.LoadEvaluationConfig()
+func ProvideEvaluationConfig(cfg *config.Config) *config.EvaluationConfig {
+	return cfg.Evaluation
 }
 
-func ProvideRedisConfig() *config.RedisConfig {
-	return config.LoadRedisConfig()
+func ProvideRedisConfig(cfg *config.Config) *config.RedisConfig {
+	return cfg.Redis
 }
 
-func ProvideEmbeddingConfig() *config.EmbeddingConfig {
-	return config.LoadEmbeddingConfig()
+func ProvideEmbeddingConfig(cfg *config.Config) *config.EmbeddingConfig {
+	return cfg.Embedding
 }
 
-func ProvideNeo4jConfig() *config.Neo4jConfig {
-	return config.LoadNeo4jConfig()
+func ProvideNeo4jConfig(cfg *config.Config) *config.Neo4jConfig {
+	return cfg.Neo4j
+}
+
+func ProvideUploadConfig(cfg *config.Config) *config.UploadConfig {
+	return cfg.Upload
 }
 
 // ========================================
@@ -532,8 +540,8 @@ func ProvideDatasetService(loader *app_evaluation.DatasetLoader) app_evaluation.
 // ProvideDocReaderClient 提供文档读取客户端。
 // 地址复用统一的 Python gRPC 目标（PYTHON_GRPC_TARGET，与 quality 网关同源），
 // 不再硬编码 localhost:50051（〔X-5〕）。底层基础客户端默认启用重试+熔断（〔X-4〕）。
-func ProvideDocReaderClient() (*docreader.Client, error) {
-	return docreader.NewClient(config.LoadPythonGrpcConfig().Target)
+func ProvideDocReaderClient(pyCfg *config.PythonGrpcConfig) (*docreader.Client, error) {
+	return docreader.NewClient(pyCfg.Target)
 }
 
 // ProvideIDGenerator 提供唯一 ID 生成器
@@ -783,8 +791,9 @@ func ProvideKnowledgeBaseHandler(
 	kbService app_kb.KnowledgeBaseService,
 	documentProcessor app_kb.DocumentProcessorService,
 	retrieval *app_kb.RetrievalCapability,
+	uploadConfig *config.UploadConfig,
 ) *handler.KnowledgeBaseHandler {
-	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval)
+	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval, uploadConfig)
 }
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
@@ -1056,8 +1065,8 @@ func ProvideRouter(
 // ========================================
 
 // ProvidePythonGrpcConfig 提供 Python gRPC 配置。
-func ProvidePythonGrpcConfig() *config.PythonGrpcConfig {
-	return config.LoadPythonGrpcConfig()
+func ProvidePythonGrpcConfig(cfg *config.Config) *config.PythonGrpcConfig {
+	return cfg.PythonGrpc
 }
 
 // ProvideQualityGateway 提供数据质量 gRPC 网关（Python 服务适配器）。

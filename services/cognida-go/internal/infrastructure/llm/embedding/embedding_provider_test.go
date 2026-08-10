@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 )
 
 func TestOpenAIEmbedder_EmbedStrings(t *testing.T) {

@@ -7,13 +7,13 @@
 package wire
 
 import (
+	"cognida/internal/config"
 	"cognida/internal/handler"
 	"cognida/internal/handler/middleware"
 	"cognida/internal/handler/router"
 	"cognida/internal/handler/web"
 	"cognida/internal/infrastructure/cache/evaluation"
 	redis2 "cognida/internal/infrastructure/cache/redis"
-	"cognida/internal/infrastructure/config"
 	"cognida/internal/infrastructure/graph"
 	"cognida/internal/infrastructure/grpc/docreader"
 	quality2 "cognida/internal/infrastructure/grpc/quality"
@@ -35,7 +35,7 @@ import (
 	"cognida/internal/model/semantic"
 	"cognida/internal/model/task"
 	"cognida/internal/model/tenant"
-	domaintrace "cognida/internal/model/trace"
+	"cognida/internal/model/trace"
 	"cognida/internal/model/user"
 	"cognida/internal/repository/milvus/retriever"
 	"cognida/internal/repository/mysql"
@@ -67,10 +67,10 @@ import (
 // Injectors from wire.go:
 
 //go:generate wire
-func InitializeApp(db *gorm.DB) (*App, error) {
+func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	userRepository := ProvideUserRepository(db)
 	refreshTokenRepository := ProvideRefreshTokenRepository(db)
-	jwtConfig := ProvideJWTConfig()
+	jwtConfig := ProvideJWTConfig(cfg)
 	tenantRepository := ProvideTenantRepository(db)
 	accountService := ProvideAccountService(userRepository, refreshTokenRepository, jwtConfig, tenantRepository)
 	authHandler := ProvideAuthHandler(accountService)
@@ -79,7 +79,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	knowledgeRepository := ProvideKnowledgeRepository(db)
 	chunkRepository := ProvideChunkRepository(db)
 	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
-	embeddingConfig := ProvideEmbeddingConfig()
+	embeddingConfig := ProvideEmbeddingConfig(cfg)
 	embedder, err := ProvideEmbedder(embeddingConfig)
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		return nil, err
 	}
 	vectorRepository := ProvideVectorRepository(vectorRetriever)
-	neo4jConfig := ProvideNeo4jConfig()
+	neo4jConfig := ProvideNeo4jConfig(cfg)
 	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
 	if err != nil {
 		return nil, err
@@ -99,11 +99,12 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 		return nil, err
 	}
 	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
-	client, err := ProvideDocReaderClient()
+	pythonGrpcConfig := ProvidePythonGrpcConfig(cfg)
+	client, err := ProvideDocReaderClient(pythonGrpcConfig)
 	if err != nil {
 		return nil, err
 	}
-	chatConfig := ProvideChatConfig()
+	chatConfig := ProvideChatConfig(cfg)
 	llmClient := ProvideLLMClient(chatConfig)
 	idGenerator := ProvideIDGenerator()
 	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, llmClient, idGenerator)
@@ -112,7 +113,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	graphQueryRepository := ProvideGraphQueryRepository(db)
 	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, ragGraphRepository, graphQueryRepository)
 	retrievalCapability := ProvideRetrievalCapability(retriever)
-	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability)
+	uploadConfig := ProvideUploadConfig(cfg)
+	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability, uploadConfig)
 	sessionRepository := ProvideSessionRepository(db)
 	messageRepository := ProvideMessageRepository(db)
 	retrievalSettingRepository := ProvideRetrievalSettingRepository(db)
@@ -140,7 +142,7 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	modelService := ProvideModelService(modelRepository, modelFactory)
 	modelHandler := ProvideModelHandler(modelService, chatService)
 	taskRepository := ProvideTaskRepository(db)
-	redisConfig := ProvideRedisConfig()
+	redisConfig := ProvideRedisConfig(cfg)
 	redisClient, err := ProvideRedisClient(redisConfig)
 	if err != nil {
 		return nil, err
@@ -148,9 +150,9 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	taskQueue := ProvideTaskQueue(redisClient)
 	taskService := ProvideTaskService(taskRepository, taskQueue)
 	taskHandler := ProvideTaskHandler(taskService)
-	chatModel := ProvideChatModel(chatConfig)
-	ragOptimizerHandler := ProvideRAGOptimizerHandler(chatModel, retriever)
-	guardrailHandler := ProvideGuardrailHandler(chatModel)
+	baseChatModel := ProvideChatModel(chatConfig)
+	ragOptimizerHandler := ProvideRAGOptimizerHandler(baseChatModel, retriever)
+	guardrailHandler := ProvideGuardrailHandler(baseChatModel)
 	datasetRepository := ProvideDatasetRepository(db)
 	datasetLoader := ProvideDatasetLoader(db, datasetRepository)
 	datasetService := ProvideDatasetService(datasetLoader)
@@ -158,11 +160,10 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	evaluationResultRepository := ProvideEvaluationResultRepository(db)
 	progressCache := ProvideEvaluationProgressCache(redisClient)
 	evaluationQueue := ProvideEvaluationQueue(redisClient)
-	evaluationConfig := ProvideEvaluationConfig()
+	evaluationConfig := ProvideEvaluationConfig(cfg)
 	service := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, evaluationQueue, evaluationConfig)
 	datasetManager := ProvideDatasetUseCase(datasetRepository, datasetLoader)
 	evaluationHandler := ProvideEvaluationHandler(service, datasetManager, progressCache, specRegistry)
-	pythonGrpcConfig := ProvidePythonGrpcConfig()
 	gateway := ProvideQualityGateway(pythonGrpcConfig)
 	checkRecordRepository := ProvideQualityCheckRecordRepository(db)
 	repository := ProvideDataSourceRepository(db)
@@ -172,8 +173,8 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 	dataSourceHandler := ProvideDataSourceHandler(datasourceService)
 	semanticRepository := ProvideSemanticRepository(db)
 	coverageReporter := ProvideSemanticCoverageReporter(db)
-	semanticProfileReader := ProvideSemanticProfileReader(db)
-	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter, semanticProfileReader)
+	profileReader := ProvideSemanticProfileReader(db)
+	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter, profileReader)
 	semanticHandler := ProvideSemanticHandler(semanticService)
 	auditRepository := ProvideAuditRepository(db)
 	auditHandler := ProvideAuditHandler(auditRepository)
@@ -197,28 +198,32 @@ func InitializeApp(db *gorm.DB) (*App, error) {
 
 // wire.go:
 
-func ProvideJWTConfig() *config.JWTConfig {
-	return config.LoadJWTConfig()
+func ProvideJWTConfig(cfg *config.Config) *config.JWTConfig {
+	return cfg.JWT
 }
 
-func ProvideChatConfig() *config.ChatConfig {
-	return config.LoadChatConfig()
+func ProvideChatConfig(cfg *config.Config) *config.ChatConfig {
+	return cfg.Chat
 }
 
-func ProvideEvaluationConfig() *config.EvaluationConfig {
-	return config.LoadEvaluationConfig()
+func ProvideEvaluationConfig(cfg *config.Config) *config.EvaluationConfig {
+	return cfg.Evaluation
 }
 
-func ProvideRedisConfig() *config.RedisConfig {
-	return config.LoadRedisConfig()
+func ProvideRedisConfig(cfg *config.Config) *config.RedisConfig {
+	return cfg.Redis
 }
 
-func ProvideEmbeddingConfig() *config.EmbeddingConfig {
-	return config.LoadEmbeddingConfig()
+func ProvideEmbeddingConfig(cfg *config.Config) *config.EmbeddingConfig {
+	return cfg.Embedding
 }
 
-func ProvideNeo4jConfig() *config.Neo4jConfig {
-	return config.LoadNeo4jConfig()
+func ProvideNeo4jConfig(cfg *config.Config) *config.Neo4jConfig {
+	return cfg.Neo4j
+}
+
+func ProvideUploadConfig(cfg *config.Config) *config.UploadConfig {
+	return cfg.Upload
 }
 
 func ProvideKnowledgeBaseRepository(db *gorm.DB) knowledge.KnowledgeBaseRepository {
@@ -268,9 +273,6 @@ func ProvideTenantRepository(db *gorm.DB) tenant.TenantRepository {
 func ProvideTenantUserRepository(db *gorm.DB) tenant.TenantUserRepository {
 	return mysql.NewTenantUserRepository(db)
 }
-
-// 〔GO-3〕图谱统一以 Neo4j 为唯一真源：原 MySQL 并行 GraphRepository 实现连同
-// ProvideGraphRepository / ProvideGraphRepositoryWithFallback 两个未接线 provider 已删除。
 
 func ProvideGraphQueryRepository(db *gorm.DB) knowledge.GraphQueryRepository {
 	return mysql.NewGraphQueryRepository(db, true)
@@ -482,9 +484,8 @@ func ProvideDatasetService(loader *evaluation.DatasetLoader) evaluation.DatasetS
 // ProvideDocReaderClient 提供文档读取客户端。
 // 地址复用统一的 Python gRPC 目标（PYTHON_GRPC_TARGET，与 quality 网关同源），
 // 不再硬编码 localhost:50051（〔X-5〕）。底层基础客户端默认启用重试+熔断（〔X-4〕）。
-func ProvideDocReaderClient() (*docreader.Client, error) {
-
-	return docreader.NewClient(config.LoadPythonGrpcConfig().Target)
+func ProvideDocReaderClient(pyCfg *config.PythonGrpcConfig) (*docreader.Client, error) {
+	return docreader.NewClient(pyCfg.Target)
 }
 
 // ProvideIDGenerator 提供唯一 ID 生成器
@@ -574,8 +575,8 @@ func ProvideEvaluationQueue(redisClient *redis.Client) *cache.EvaluationQueue {
 func ProvideEvaluationWorker(
 	evalQueue *cache.EvaluationQueue,
 	progressCache *cache.ProgressCache,
-	llmChat rag.LLMChat,
-	retriever rag.Retriever,
+	llmChat rag.LLMChat, retriever2 rag.Retriever,
+
 	agentRegistry *framework.SpecRegistry,
 	taskRepo evaluation2.EvaluationTaskRepository,
 	resultRepo evaluation2.EvaluationResultRepository,
@@ -589,12 +590,11 @@ func ProvideEvaluationWorker(
 	if err := registry.Register(executor.NewQAExecutor(llmChat)); err != nil {
 		log.Printf("[Worker] 注册 QA 执行器失败: %v", err)
 	}
-	if err := registry.Register(executor.NewRAGExecutor(retriever, llmChat)); err != nil {
+	if err := registry.Register(executor.NewRAGExecutor(retriever2, llmChat)); err != nil {
 		log.Printf("[Worker] 注册 RAG 执行器失败: %v", err)
 	}
 	agentService := evaluation.NewAgentServiceAdapter(agentRegistry)
-	// Agent 单条评测超时来自配置（EVALUATION_AGENT_TIMEOUT，默认 180s）：一问含多轮工具调用，
-	// 旧的硬编码 60s 会误杀对比/图表等复杂题（latency≈60000、llm_calls=0、空答案）。
+
 	agentTimeout := 180 * time.Second
 	if evalConfig != nil && evalConfig.AgentTimeout > 0 {
 		agentTimeout = time.Duration(evalConfig.AgentTimeout) * time.Second
@@ -602,8 +602,7 @@ func ProvideEvaluationWorker(
 	if err := registry.Register(executor.NewAgentExecutor(agentService, agentTimeout)); err != nil {
 		log.Printf("[Worker] 注册 Agent 执行器失败: %v", err)
 	}
-	// Text2SQL 执行器：复用 Agent 适配器生成 SQL，另注入只读 SQLRunner（业务库 + 外部数据源），
-	// 只读执行金标准/生成 SQL 供 Python 算执行准确率。与 Agent 共用单条超时。
+
 	sqlRunner := evaluation.NewSQLRunner(db, datasourceProvider)
 	if err := registry.Register(executor.NewText2SQLExecutor(agentService, sqlRunner, agentTimeout)); err != nil {
 		log.Printf("[Worker] 注册 Text2SQL 执行器失败: %v", err)
@@ -692,11 +691,11 @@ func ProvideAuditHandler(repo audit2.Repository) *handler.AuditHandler {
 	return handler.NewAuditHandler(repo)
 }
 
-func ProvideTraceRepository(db *gorm.DB) domaintrace.Repository {
+func ProvideTraceRepository(db *gorm.DB) trace.Repository {
 	return mysql.NewTraceRepository(db)
 }
 
-func ProvideTraceHandler(repo domaintrace.Repository) *handler.TraceHandler {
+func ProvideTraceHandler(repo trace.Repository) *handler.TraceHandler {
 	return handler.NewTraceHandler(repo)
 }
 
@@ -708,14 +707,15 @@ func ProvideKnowledgeBaseHandler(
 	kbService knowledge2.KnowledgeBaseService,
 	documentProcessor knowledge2.DocumentProcessorService,
 	retrieval *knowledge2.RetrievalCapability,
+	uploadConfig *config.UploadConfig,
 ) *handler.KnowledgeBaseHandler {
-	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval)
+	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval, uploadConfig)
 }
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
 // 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
-func ProvideRetrievalCapability(retriever rag.Retriever) *knowledge2.RetrievalCapability {
-	return knowledge2.NewRetrievalCapability(retriever, rag2.NewReranker())
+func ProvideRetrievalCapability(retriever2 rag.Retriever) *knowledge2.RetrievalCapability {
+	return knowledge2.NewRetrievalCapability(retriever2, rag2.NewReranker())
 }
 
 func ProvideSessionHandler(
@@ -963,8 +963,8 @@ func ProvideRouter(
 }
 
 // ProvidePythonGrpcConfig 提供 Python gRPC 配置。
-func ProvidePythonGrpcConfig() *config.PythonGrpcConfig {
-	return config.LoadPythonGrpcConfig()
+func ProvidePythonGrpcConfig(cfg *config.Config) *config.PythonGrpcConfig {
+	return cfg.PythonGrpc
 }
 
 // ProvideQualityGateway 提供数据质量 gRPC 网关（Python 服务适配器）。
@@ -1062,8 +1062,7 @@ func ProvideMiddlewares(
 	auth *middleware.AuthMiddleware, tenant2 *middleware.TenantMiddleware,
 	cors *middleware.CORSMiddleware,
 	recovery *middleware.RecoveryMiddleware,
-	logger *middleware.LoggerMiddleware,
-	trace *middleware.TraceMiddleware,
+	logger *middleware.LoggerMiddleware, trace2 *middleware.TraceMiddleware,
 ) *Middlewares {
 	return &Middlewares{
 		Auth:     auth,
@@ -1071,7 +1070,7 @@ func ProvideMiddlewares(
 		CORS:     cors,
 		Recovery: recovery,
 		Logger:   logger,
-		Trace:    trace,
+		Trace:    trace2,
 	}
 }
 

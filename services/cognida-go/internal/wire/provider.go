@@ -1,4 +1,4 @@
-// Package main 提供依赖注入的提供者函数
+// Package wire 提供依赖注入的提供者函数
 package wire
 
 import (

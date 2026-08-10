@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	domainrag "cognida/internal/model/rag"
+	"cognida/internal/config"
 	domain_knowledge "cognida/internal/model/knowledge"
-	"cognida/internal/infrastructure/config"
+	domainrag "cognida/internal/model/rag"
 )
 
 // ========================================
@@ -246,7 +246,7 @@ func (e *LLMExtractor) ExtractGraphJoint(
 
 	// 解析联合提取结果
 	var result struct {
-		Nodes     []*domain_knowledge.GraphNode    `json:"nodes"`
+		Nodes     []*domain_knowledge.GraphNode     `json:"nodes"`
 		Relations []*domain_knowledge.GraphRelation `json:"relations"`
 	}
 	if err := json.Unmarshal([]byte(cleanedContent), &result); err != nil {
@@ -351,9 +351,9 @@ func (e *LLMExtractor) ExtractGraphIncremental(
 
 	// 解析增量提取结果
 	var result struct {
-		NewNodes      []*domain_knowledge.GraphNode    `json:"new_nodes"`
-		UpdatedNodes  []*domain_knowledge.GraphNode    `json:"updated_nodes"`
-		NewRelations  []*domain_knowledge.GraphRelation `json:"new_relations"`
+		NewNodes     []*domain_knowledge.GraphNode     `json:"new_nodes"`
+		UpdatedNodes []*domain_knowledge.GraphNode     `json:"updated_nodes"`
+		NewRelations []*domain_knowledge.GraphRelation `json:"new_relations"`
 	}
 	if err := json.Unmarshal([]byte(cleanedContent), &result); err != nil {
 		return nil, nil, fmt.Errorf("failed to parse incremental extraction response: %w, content: %s", err, cleanedContent)

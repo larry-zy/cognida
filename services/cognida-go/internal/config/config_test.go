@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// repoConfigYAMLPath 入库 config.yaml 现与本测试包同目录（internal/infrastructure/config），
+// repoConfigYAMLPath 入库 config.yaml 现与本测试包同目录（internal/config），
 // go test 的 CWD 即包目录，故直接引用文件名。
 const repoConfigYAMLPath = "config.yaml"
 

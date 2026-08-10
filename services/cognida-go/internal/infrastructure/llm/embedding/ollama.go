@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/components/embedding"
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	"cognida/internal/infrastructure/llm/httpx"
+	"github.com/cloudwego/eino/components/embedding"
 )
 
 // OllamaEmbedder Ollama 本地向量化实现

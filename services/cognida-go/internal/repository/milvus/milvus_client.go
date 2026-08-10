@@ -8,7 +8,7 @@ import (
 
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 )
 
 var (

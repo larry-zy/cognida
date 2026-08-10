@@ -4,9 +4,9 @@ package account
 import (
 	"context"
 
+	"cognida/internal/config"
 	"cognida/internal/model/tenant"
 	"cognida/internal/model/user"
-	"cognida/internal/infrastructure/config"
 )
 
 // ========================================
@@ -180,4 +180,3 @@ func (a *tenantServiceAdapterImpl) CreateTenant(ctx context.Context, req interfa
 	}
 	return &TenantInfo{ID: resp.ID}, nil
 }
-

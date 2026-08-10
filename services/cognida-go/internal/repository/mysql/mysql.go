@@ -14,7 +14,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 )
 
 var (

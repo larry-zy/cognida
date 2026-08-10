@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cloudwego/eino/components/embedding"
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	"cognida/internal/infrastructure/llm/httpx"
+	"github.com/cloudwego/eino/components/embedding"
 )
 
 // DashScopeEmbedder DashScope 向量化实现

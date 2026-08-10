@@ -12,7 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	"cognida/internal/model/user"
 )
 
@@ -36,10 +36,10 @@ type TenantInfo struct {
 
 // authService implements AuthService
 type authService struct {
-	userRepo        user.UserRepository
+	userRepo         user.UserRepository
 	refreshTokenRepo user.RefreshTokenRepository
-	jwtConfig       *config.JWTConfig
-	tenantService   TenantServiceAdapter
+	jwtConfig        *config.JWTConfig
+	tenantService    TenantServiceAdapter
 }
 
 // NewAuthService creates a new auth service
@@ -50,10 +50,10 @@ func NewAuthService(
 	tenantService TenantServiceAdapter,
 ) AuthService {
 	return &authService{
-		userRepo:        userRepo,
+		userRepo:         userRepo,
 		refreshTokenRepo: refreshTokenRepo,
-		jwtConfig:       jwtConfig,
-		tenantService:   tenantService,
+		jwtConfig:        jwtConfig,
+		tenantService:    tenantService,
 	}
 }
 

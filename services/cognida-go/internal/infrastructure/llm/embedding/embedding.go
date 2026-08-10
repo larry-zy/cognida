@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"cognida/internal/config"
 	"github.com/cloudwego/eino/components/embedding"
-	"cognida/internal/infrastructure/config"
 )
 
 // NewDashScopeEmbedderWrapper 创建 DashScope Embedder（实现 Eino 接口）

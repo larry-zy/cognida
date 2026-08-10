@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"cognida/internal/config"
 	appEvaluation "cognida/internal/service/evaluation"
-"cognida/internal/infrastructure/config"
 )
 
 // ========================================
@@ -32,12 +32,12 @@ func NewTaskHandler(taskService *appEvaluation.TaskService) *TaskHandler {
 
 // CreateTaskRequest 创建任务请求
 type CreateTaskRequest struct {
-	Type     string                 `json:"type" binding:"required"`     // 任务类型
-	TargetID string                 `json:"target_id"`                  // 目标资源ID
-	Payload  map[string]interface{} `json:"payload"`                    // 任务参数
-	MaxRetries int                  `json:"max_retries"`                // 最大重试次数
-	TimeoutSeconds int              `json:"timeout_seconds"`            // 超时时间（秒）
-	ParentID string                 `json:"parent_id"`                  // 父任务ID
+	Type           string                 `json:"type" binding:"required"` // 任务类型
+	TargetID       string                 `json:"target_id"`               // 目标资源ID
+	Payload        map[string]interface{} `json:"payload"`                 // 任务参数
+	MaxRetries     int                    `json:"max_retries"`             // 最大重试次数
+	TimeoutSeconds int                    `json:"timeout_seconds"`         // 超时时间（秒）
+	ParentID       string                 `json:"parent_id"`               // 父任务ID
 }
 
 // ListTasksRequest 列出任务请求参数

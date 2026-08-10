@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	auditmodel "cognida/internal/model/audit"
 	auditsvc "cognida/internal/service/audit"
 )

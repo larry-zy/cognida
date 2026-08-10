@@ -9,8 +9,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"cognida/internal/config"
 	"cognida/internal/model/cache"
-	"cognida/internal/infrastructure/config"
 )
 
 var (

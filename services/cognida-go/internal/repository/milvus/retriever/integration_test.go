@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 // Package retriever 提供 Milvus 集成测试
@@ -16,7 +17,7 @@ import (
 	"github.com/milvus-io/milvus/client/v2/entity"
 	"github.com/milvus-io/milvus/client/v2/milvusclient"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	linkembedding "cognida/internal/infrastructure/llm/embedding"
 	"cognida/internal/repository/milvus"
 )

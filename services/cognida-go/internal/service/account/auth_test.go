@@ -6,7 +6,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 )
 
 // testSecret 32 字节非占位密钥，满足 JWTConfig 校验下限。

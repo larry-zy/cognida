@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"cognida/internal/infrastructure/config"
+	"cognida/internal/config"
 	agenttools "cognida/internal/model/agent/tools"
 )
 
@@ -162,7 +162,7 @@ func NewWebSearchTool(client *MetasoClient) *TypedBaseTool[agenttools.WebSearchR
 - time_range: 时间范围（可选，day/week/month/year/all）
 - domain: 限制域名（可选，如 github.com）
 - search_depth: 搜索深度（可选，basic/advanced）`,
-	handler,
+		handler,
 	)
 }
 
@@ -221,12 +221,12 @@ func webSearch(ctx context.Context, req *agenttools.WebSearchRequest, metasoClie
 	summary := generateSearchSummary(req.Query, items, isFallback)
 
 	return &agenttools.WebSearchResult{
-		Query:     req.Query,
-		Items:     items,
-		Count:     len(items),
-		LatencyMs: time.Since(startTime).Milliseconds(),
-		HasAnswer: len(items) > 0,
-		Summary:   summary,
+		Query:      req.Query,
+		Items:      items,
+		Count:      len(items),
+		LatencyMs:  time.Since(startTime).Milliseconds(),
+		HasAnswer:  len(items) > 0,
+		Summary:    summary,
 		IsFallback: isFallback,
 	}, nil
 }
@@ -413,9 +413,9 @@ type SearchMultiResult struct {
 
 // WebQueryResult 单个查询的结果
 type WebQueryResult struct {
-	Query string             `json:"query"`
+	Query string                  `json:"query"`
 	Items []agenttools.SearchItem `json:"items"`
-	Count int                `json:"count"`
+	Count int                     `json:"count"`
 }
 
 // NewSearchMultiTool 创建多源搜索工具；client 搜索客户端（可为 nil）经参数注入。
