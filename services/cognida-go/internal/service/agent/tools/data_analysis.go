@@ -22,21 +22,8 @@ import (
 // data_analysis 工具 - 量化数据分析
 // ========================================
 
-// analysisTypeToMCPTool 将 analysis_type 映射到 Python 侧 MCP 工具名。
-//
-// Phase 3.5（openspec: data-agent-evolution D9）把 data_analysis 分化为命名能力：
-// 趋势（trend）、对比（comparison）、归因/根因（attribution）、报告解读（report，
-// 复用综合洞察引擎）；describe/anomaly/correlation/insight 为底层原子分析保留。
-var analysisTypeToMCPTool = map[string]string{
-	"describe":    "data_describe",
-	"trend":       "data_trend",
-	"anomaly":     "data_anomaly",
-	"correlation": "data_correlation",
-	"insight":     "data_insight",
-	"comparison":  "data_comparison",
-	"attribution": "data_attribution",
-	"report":      "data_insight",
-}
+// analysis_type→MCP 工具名映射、schema Enum 与白名单均由 contract.go 的单一真源
+// analysisTypeMappings 派生（见 analysisTypeToMCPTool / analysisTypeEnum），此处不再重复字面量。
 
 // MCPInvoker 抽象 MCP 调用能力，便于注入真实客户端或单测 mock。
 //
@@ -96,7 +83,7 @@ analysis_type 取值（命名能力）：
 				Type:     schema.String,
 				Desc:     "分析类型：trend / comparison / attribution / report / describe / anomaly / correlation / insight",
 				Required: true,
-				Enum:     []string{"trend", "comparison", "attribution", "report", "describe", "anomaly", "correlation", "insight"},
+				Enum:     analysisTypeEnum, // 由 contract.go 单一真源 analysisTypeMappings 派生
 			},
 			"result_id": {
 				Type:     schema.String,
@@ -210,7 +197,7 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	// 通过既有 MCP 通道调用 Python analytics 工具
-	result, err := t.invoker.Invoke(ctx, mcpTool, params)
+	result, err := t.invoker.Invoke(ctx, string(mcpTool), params)
 	if err != nil {
 		return failResult(analysisType, fmt.Sprintf("分析调用失败: %v", err)), nil
 	}
@@ -228,7 +215,7 @@ func (t *dataAnalysisTool) InvokableRun(ctx context.Context, argumentsInJSON str
 	}
 
 	// 归因成功：拼装一等信封（drivers 落 Result Store + 文字洞察 + 口径/置信/下钻）
-	if analysisType == "attribution" && result.Success && result.Data != nil {
+	if analysisType == string(AnalysisAttribution) && result.Success && result.Data != nil {
 		t.enrichAttributionEnvelope(ctx, out, result.Data, sourceResultID)
 	}
 

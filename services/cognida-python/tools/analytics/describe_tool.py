@@ -15,6 +15,7 @@ from ._common import (
     to_jsonable,
     truncate,
 )
+from .contract import ToolName
 
 logger = get_logger(__name__)
 
@@ -24,7 +25,7 @@ class DataDescribeTool(AnalyticsTool):
 
     @property
     def name(self) -> str:
-        return "data_describe"
+        return ToolName.DESCRIBE.value
 
     @property
     def description(self) -> str:

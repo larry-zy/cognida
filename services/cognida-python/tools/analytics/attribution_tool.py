@@ -19,6 +19,7 @@ from ._common import (
     to_jsonable,
     truncate,
 )
+from .contract import ToolName
 
 logger = get_logger(__name__)
 
@@ -28,7 +29,7 @@ class DataAttributionTool(AnalyticsTool):
 
     @property
     def name(self) -> str:
-        return "data_attribution"
+        return ToolName.ATTRIBUTION.value
 
     @property
     def description(self) -> str:

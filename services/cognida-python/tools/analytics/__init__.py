@@ -6,6 +6,7 @@
 from .anomaly_tool import DataAnomalyTool
 from .attribution_tool import DataAttributionTool
 from .comparison_tool import DataComparisonTool
+from .contract import ToolName
 from .correlation_tool import DataCorrelationTool
 from .describe_tool import DataDescribeTool
 from .insight_tool import DataInsightTool
@@ -24,6 +25,7 @@ ANALYTICS_TOOLS = [
 
 __all__ = [
     "ANALYTICS_TOOLS",
+    "ToolName",
     "DataAnomalyTool",
     "DataAttributionTool",
     "DataComparisonTool",
