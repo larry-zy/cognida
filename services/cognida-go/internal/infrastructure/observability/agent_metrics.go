@@ -123,6 +123,9 @@ func NewMetrics() (*Metrics, error) {
 
 // RecordRequest records an agent request.
 func (m *Metrics) RecordRequest(ctx context.Context, agentName string, success bool) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 		attribute.String("success", formatBool(success)),
@@ -132,6 +135,9 @@ func (m *Metrics) RecordRequest(ctx context.Context, agentName string, success b
 
 // RecordToolCall records a tool invocation.
 func (m *Metrics) RecordToolCall(ctx context.Context, agentName, toolName string, success bool) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 		attribute.String(AttrToolName, toolName),
@@ -142,6 +148,9 @@ func (m *Metrics) RecordToolCall(ctx context.Context, agentName, toolName string
 
 // RecordError records an error.
 func (m *Metrics) RecordError(ctx context.Context, agentName, errorType string) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 		attribute.String("error_type", errorType),
@@ -151,6 +160,9 @@ func (m *Metrics) RecordError(ctx context.Context, agentName, errorType string) 
 
 // RecordLatency records request latency.
 func (m *Metrics) RecordLatency(ctx context.Context, agentName string, duration time.Duration) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 	)
@@ -159,6 +171,9 @@ func (m *Metrics) RecordLatency(ctx context.Context, agentName string, duration 
 
 // RecordToolLatency records tool execution latency.
 func (m *Metrics) RecordToolLatency(ctx context.Context, toolName string, duration time.Duration) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrToolName, toolName),
 	)
@@ -167,6 +182,9 @@ func (m *Metrics) RecordToolLatency(ctx context.Context, toolName string, durati
 
 // RecordTokens records token usage.
 func (m *Metrics) RecordTokens(ctx context.Context, agentName string, inputTokens, outputTokens int) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 		attribute.String("token_type", "input"),
@@ -182,6 +200,9 @@ func (m *Metrics) RecordTokens(ctx context.Context, agentName string, inputToken
 
 // RecordStreamChunk records a stream chunk.
 func (m *Metrics) RecordStreamChunk(ctx context.Context, agentName string) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 	)
@@ -190,6 +211,9 @@ func (m *Metrics) RecordStreamChunk(ctx context.Context, agentName string) {
 
 // IncrementActiveRequests increments the active requests gauge.
 func (m *Metrics) IncrementActiveRequests(ctx context.Context, agentName string) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 	)
@@ -198,6 +222,9 @@ func (m *Metrics) IncrementActiveRequests(ctx context.Context, agentName string)
 
 // DecrementActiveRequests decrements the active requests gauge.
 func (m *Metrics) DecrementActiveRequests(ctx context.Context, agentName string) {
+	if m == nil {
+		return
+	}
 	attrs := metric.WithAttributes(
 		attribute.String(AttrAgentName, agentName),
 	)
