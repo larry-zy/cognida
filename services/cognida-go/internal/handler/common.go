@@ -2,11 +2,14 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/pkg/httputil"
@@ -18,9 +21,21 @@ import (
 
 // Response 统一响应结构
 type Response struct {
-	Code    int         `json:"code"`           // 业务状态码
-	Message string      `json:"message"`        // 提示信息
-	Data    interface{} `json:"data,omitempty"` // 数据
+	Code    int         `json:"code"`                 // 业务状态码
+	Message string      `json:"message"`              // 提示信息
+	Data    interface{} `json:"data,omitempty"`       // 数据
+	// RequestID 全链路请求 ID，与响应头 X-Request-ID 同源（Trace 中间件注入）。
+	// 补入响应体以闭合链路断点（〔M7〕）：仅解析 body 的客户端也能关联请求。
+	RequestID string `json:"request_id,omitempty"`
+}
+
+// respond 统一出口：从 gin 上下文取 Trace 中间件注入的 request_id 盖进封套后写出，
+// 使**所有** JSON 响应体都携带 request_id（闭合「响应 body 不回带 request_id」断点，〔M7〕）。
+func respond(c *gin.Context, status int, r *Response) {
+	if r.RequestID == "" {
+		r.RequestID = c.GetString("request_id")
+	}
+	c.JSON(status, r)
 }
 
 // ========================================
@@ -73,7 +88,7 @@ func PageSuccess(total int64, items interface{}, page, size int) *Response {
 
 // PageSuccessJSON 分页成功 JSON 响应
 func PageSuccessJSON(c *gin.Context, total int64, items interface{}, page, size int) {
-	c.JSON(http.StatusOK, &Response{
+	respond(c, http.StatusOK, &Response{
 		Code:    0,
 		Message: "success",
 		Data: &PageData{
@@ -91,12 +106,12 @@ func PageSuccessJSON(c *gin.Context, total int64, items interface{}, page, size 
 
 // OK 成功响应
 func OK(c *gin.Context, data interface{}) {
-	c.JSON(http.StatusOK, Success(data))
+	respond(c, http.StatusOK, Success(data))
 }
 
 // Created 创建成功响应
 func Created(c *gin.Context, data interface{}) {
-	c.JSON(http.StatusCreated, Success(data))
+	respond(c, http.StatusCreated, Success(data))
 }
 
 // NoContent 无内容响应
@@ -106,32 +121,59 @@ func NoContent(c *gin.Context) {
 
 // BadRequest 错误请求响应
 func BadRequest(c *gin.Context, message string) {
-	c.JSON(http.StatusBadRequest, Fail(http.StatusBadRequest, message))
+	respond(c, http.StatusBadRequest, Fail(http.StatusBadRequest, message))
 }
 
 // Unauthorized 未授权响应
 func Unauthorized(c *gin.Context, message string) {
-	c.JSON(http.StatusUnauthorized, Fail(http.StatusUnauthorized, message))
+	respond(c, http.StatusUnauthorized, Fail(http.StatusUnauthorized, message))
 }
 
 // Forbidden 禁止访问响应
 func Forbidden(c *gin.Context, message string) {
-	c.JSON(http.StatusForbidden, Fail(http.StatusForbidden, message))
+	respond(c, http.StatusForbidden, Fail(http.StatusForbidden, message))
 }
 
 // NotFound 未找到响应
 func NotFound(c *gin.Context, message string) {
-	c.JSON(http.StatusNotFound, Fail(http.StatusNotFound, message))
+	respond(c, http.StatusNotFound, Fail(http.StatusNotFound, message))
 }
 
 // InternalError 内部错误响应
 func InternalError(c *gin.Context, message string) {
-	c.JSON(http.StatusInternalServerError, Fail(http.StatusInternalServerError, message))
+	respond(c, http.StatusInternalServerError, Fail(http.StatusInternalServerError, message))
 }
 
 // Conflict 资源冲突响应（如重复上传），data 携带冲突详情供前端处理
 func Conflict(c *gin.Context, message string, data interface{}) {
-	c.JSON(http.StatusConflict, NewResponse(http.StatusConflict, message, data))
+	respond(c, http.StatusConflict, NewResponse(http.StatusConflict, message, data))
+}
+
+// RespondError 中心化错误→HTTP 响应映射（〔M7〕）。为消除各 handler「一刀切 500」与
+// 各写各的 errors.Is 分支并存的乱象提供统一出口：按错误语义映射状态码，未识别的错误
+// 归 500 且不回显内部细节（避免泄漏）。handler 可渐进改用本函数替代手写分支。
+//
+// 识别以下通用语义（领域包各自的 sentinel 可通过 errors.Is 在此登记扩展）：
+//   - context 取消/超时 → 499/504
+//   - gorm.ErrRecordNotFound → 404
+//   - 其余 → 500（message 用通用文案，不回显 err.Error()）
+func RespondError(c *gin.Context, err error) {
+	if err == nil {
+		OK(c, nil)
+		return
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		respond(c, 499, Fail(499, "请求已取消"))
+	case errors.Is(err, context.DeadlineExceeded):
+		respond(c, http.StatusGatewayTimeout, Fail(http.StatusGatewayTimeout, "请求超时"))
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		NotFound(c, "资源不存在")
+	default:
+		// 未识别错误：记录真实原因供排查，但对外只给通用文案，避免泄漏内部实现。
+		log.Printf("[handler] 未映射错误 rid=%s: %v", c.GetString("request_id"), err)
+		InternalError(c, "服务内部错误")
+	}
 }
 
 // ========================================

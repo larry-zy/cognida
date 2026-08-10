@@ -640,7 +640,12 @@ func (r *Router) setupWebRoutes() {
 		// 跳过 API 路径
 		path := c.Request.URL.Path
 		if len(path) >= 4 && path[:4] == "/api" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Not Found"})
+			// 与统一封套一致（含 request_id），避免 API 404 走异形 body（〔M7〕）。
+			c.JSON(http.StatusNotFound, gin.H{
+				"code":       http.StatusNotFound,
+				"message":    "Not Found",
+				"request_id": c.GetString("request_id"),
+			})
 			return
 		}
 		c.File("./dist/index.html")
