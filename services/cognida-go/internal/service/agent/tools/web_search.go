@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -205,7 +206,9 @@ func webSearch(ctx context.Context, req *agenttools.WebSearchRequest, metasoClie
 		// 调用真实 API
 		result, err := metasoClient.Search(ctx, optimizedQuery, req.Limit)
 		if err != nil {
-			// API 失败时使用模拟数据
+			// API 失败时降级为模拟数据，但**不吞真实错误**（〔H7〕）：记录原因以便运维诊断
+			// （超时/鉴权/限流等），否则调用方仅见 IsFallback=true 而无从区分「未配置」与「真故障」。
+			log.Printf("[web_search] Metaso 搜索失败，降级为模拟数据: query=%q err=%v", optimizedQuery, err)
 			isFallback = true
 			items = generateMockSearchResults(optimizedQuery, req.Limit)
 		} else {
