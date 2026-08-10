@@ -22,7 +22,7 @@ type LLM interface {
 	Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error)
 }
 
-// summarizeSystemPrompt 正文集中于 internal/prompt/configs/experience.yaml。
+// summarizeSystemPrompt 正文集中于 internal/prompt/templates/experience.yaml。
 var summarizeSystemPrompt = prompts.MustGet("experience", "summarize_system")
 
 // Summarizer 负责调用 LLM 把会话蒸馏为结构化经验。

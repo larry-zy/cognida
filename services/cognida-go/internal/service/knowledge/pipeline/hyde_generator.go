@@ -84,7 +84,7 @@ func (h *HyDEGeneratorImpl) GenerateMultiple(ctx context.Context, query string, 
 
 // getSystemPrompt 获取系统 prompt
 func (h *HyDEGeneratorImpl) getSystemPrompt(opts *domainrag.HyDEOptions) string {
-	// 基础提示词正文集中于 internal/prompt/configs/knowledge.yaml；
+	// 基础提示词正文集中于 internal/prompt/templates/knowledge.yaml；
 	// 领域限定（第 6 条）为运行时按 opts.Domain 动态追加，保留在此处。
 	basePrompt := prompts.MustGet("knowledge", "hyde_system_base")
 

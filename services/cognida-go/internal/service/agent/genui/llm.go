@@ -19,7 +19,7 @@ type LLM interface {
 	Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error)
 }
 
-// llmSystemPrompt 正文集中于 internal/prompt/configs/genui.yaml。
+// llmSystemPrompt 正文集中于 internal/prompt/templates/genui.yaml。
 var llmSystemPrompt = prompts.MustGet("genui", "system")
 
 // LLMCompose 是 Level 2：让 LLM 依据可用数据路径设计组件布局，Go 端组装 DataModel 并校验。

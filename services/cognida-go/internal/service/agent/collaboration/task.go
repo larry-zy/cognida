@@ -76,7 +76,7 @@ type TaskDecomposer struct {
 func NewTaskDecomposer(llm model.BaseChatModel) *TaskDecomposer {
 	return &TaskDecomposer{
 		llm: llm,
-		// 提示词正文集中于 internal/prompt/configs/collaboration.yaml。
+		// 提示词正文集中于 internal/prompt/templates/collaboration.yaml。
 		prompt: prompts.MustGet("collaboration", "decompose_system"),
 	}
 }
