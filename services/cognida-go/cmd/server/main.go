@@ -46,6 +46,7 @@ import (
 
 	"github.com/cloudwego/eino/components/embedding"
 	neo4jsdk "github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"gorm.io/gorm"
 
 	"github.com/joho/godotenv"
 )
@@ -99,7 +100,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ 数据库初始化失败: %v", err)
 	}
-	sqlDB, _ := db.DB()
+	// 取底层 *sql.DB 用于关闭。此处不可吞错：失败则 sqlDB 为 nil，
+	// 关闭序列里 sqlDB.Close() 会 nil-panic（〔H2〕）。fail-fast 中止启动。
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("❌ 获取底层数据库连接失败: %v", err)
+	}
 
 	// 多租户 fail-closed 兜底守卫：启用多租户时，对含 tenant_id 的表拦截无租户约束的读/改/删。
 	// 单租户部署（TENANT_ENABLED 未开）此处为空操作，行为不变。
@@ -154,9 +160,6 @@ func main() {
 		log.Fatalf("❌ 应用初始化失败: %v", err)
 	}
 
-	// 会话经验自动沉淀 Worker（在 Agent 初始化块内用同一 toolModel 装配后启动）。
-	var experienceWorker *experiencesvc.Worker
-
 	// ==================== 调用链追踪（自建 in-app trace）====================
 	// AGENT_TRACING_ENABLED=true 时：注册真实 TracerProvider（否则默认 no-op provider
 	// 会丢弃所有 span），并把「全部 agent」经 SpecRegistry 装饰钩子统一叠加遥测中间件，
@@ -174,6 +177,141 @@ func main() {
 			log.Println("✅ 调用链追踪已启用（TracerProvider + MySQL exporter + 全 agent 遥测）")
 		}
 	}
+
+	// 装配 Agent 运行时（工具注册表 + Initializer + 经验沉淀 Worker）。
+	// 这是一段 env 门控、构造有序的运行时装配，与 Wire 静态图正交，独立成函数
+	// （见 assembleAgentRuntime）；返回的经验 Worker 供后续启动/停止。
+	experienceWorker := assembleAgentRuntime(cfg, db, app, neo4jDriver)
+
+	// 启动评测 Worker（如果启用）
+	if app.EvaluationConfig != nil && app.EvaluationConfig.WorkerEnabled && app.EvaluationWorker != nil {
+		log.Println("🔧 启动评测 Worker...")
+		go func() {
+			defer safego.Recover("server-bg")
+			if err := app.EvaluationWorker.Run(); err != nil {
+				log.Printf("❌ 评测 Worker 错误: %v", err)
+			}
+		}()
+		log.Println("✅ 评测 Worker 已启动")
+	}
+
+	// 启动会话经验自动沉淀 Worker（EXPERIENCE_DISTILL_ENABLED=true 时装配）
+	if experienceWorker != nil {
+		log.Println("🔧 启动会话经验沉淀 Worker...")
+		if err := experienceWorker.Run(); err != nil {
+			log.Printf("❌ 经验沉淀 Worker 启动失败: %v", err)
+		} else {
+			log.Println("✅ 会话经验沉淀 Worker 已启动")
+		}
+	}
+
+	// 启动外部数据源健康检查（默认关闭；DATASOURCE_HEALTHCHECK_ENABLED=true 开启）
+	if os.Getenv("DATASOURCE_HEALTHCHECK_ENABLED") == "true" && app.DataSourceService != nil {
+		interval := 5 * time.Minute
+		if v := os.Getenv("DATASOURCE_HEALTHCHECK_INTERVAL"); v != "" {
+			if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
+				interval = d
+			} else {
+				log.Printf("⚠️  DATASOURCE_HEALTHCHECK_INTERVAL=%q 非法，回落 %s", v, interval)
+			}
+		}
+		log.Printf("🔧 启动数据源健康检查（间隔 %s）...", interval)
+		go func() {
+			defer safego.Recover("server-bg")
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			runCheck := func() {
+				hcCtx, cancel := context.WithTimeout(context.Background(), interval)
+				defer cancel()
+				report, err := app.DataSourceService.CheckHealthOnce(hcCtx)
+				if err != nil {
+					log.Printf("❌ 数据源健康检查失败: %v", err)
+					return
+				}
+				log.Printf("💓 数据源健康检查：检查 %d / 正常 %d / 跳过 %d",
+					report.Checked, report.Healthy, report.Skipped)
+			}
+			runCheck() // 启动即跑一次
+			for range ticker.C {
+				runCheck()
+			}
+		}()
+		log.Println("✅ 数据源健康检查已启动")
+	}
+
+	// 设置路由。限流器在组合根装配（Redis 令牌桶，Redis 未就绪则降级进程内），注入 router，
+	// 使 handler 层不直接依赖 infrastructure/cache/redis（Clean Architecture 依赖方向）。
+	app.Router.Setup(middleware.NewRateLimiter(rediscache.Client))
+
+	// 启动 HTTP 服务器（后台 goroutine），主 goroutine 负责等待信号并驱动优雅关闭。
+	// 关键：关闭走正常 return 而非 os.Exit(0)，以便 main 中已注册的 Milvus / Neo4j
+	// defer 清理得到执行（旧实现在关闭 goroutine 里 os.Exit(0)，会跳过全部 defer）。
+	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
+	log.Printf("🚀 服务器启动中... 监听地址: %s", addr)
+	serverErr := make(chan error, 1)
+	go func() {
+		defer safego.Recover("server-bg")
+		if err := app.Router.Run(addr); err != nil {
+			serverErr <- err
+		}
+	}()
+
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		// 监听失败（如端口占用）属启动阶段异常，直接终止。
+		log.Fatalf("❌ 服务器启动失败: %v", err)
+	case <-sigint:
+		log.Println("🛑 收到关闭信号...")
+	}
+
+	// 优雅关闭序列
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 先停止接收新连接并 drain 在途 HTTP 请求。
+	if err := app.Router.Shutdown(ctx); err != nil {
+		log.Printf("❌ HTTP 服务器优雅关闭失败: %v", err)
+	}
+
+	if err := app.Shutdown(ctx); err != nil {
+		log.Printf("❌ 应用关闭失败: %v", err)
+	}
+
+	// 停止经验沉淀 Worker（等待在途蒸馏完成）
+	if experienceWorker != nil {
+		experienceWorker.Stop()
+	}
+
+	// 关闭追踪：flush 批量队列里未导出的 span，避免退出丢尾。
+	if traceShutdown != nil {
+		if err := traceShutdown(ctx); err != nil {
+			log.Printf("❌ 调用链追踪关闭失败: %v", err)
+		}
+	}
+
+	// 关闭数据库
+	if err := sqlDB.Close(); err != nil {
+		log.Printf("❌ 数据库关闭失败: %v", err)
+	}
+	if err := mysql.CloseDatabase(); err != nil {
+		log.Printf("❌ GORM 数据库关闭失败: %v", err)
+	}
+
+	log.Println("✅ 应用已安全关闭")
+}
+
+// assembleAgentRuntime 装配 Agent 运行时并返回会话经验沉淀 Worker（未启用则返回 nil）。
+//
+// 这是一段 env 门控、构造有序的运行时装配（ToolModel → ToolDeps → ToolRegistry →
+// Initializer → Initialize，外加经验/技能 Sink 与语义缓存挂接），依赖 Wire 已装配好的
+// App 暴露字段，且各步骤广泛按环境变量与依赖就绪度降级。它与 Wire 的「静态依赖图」正交，
+// 天然放不进 wire.Build，故从 main 抽出独立成函数，令 main 回归
+// 「基础设施 init → 装配 → 生命周期」的清晰主干。行为与此前的内联版逐字等价。
+func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jDriver interface{}) *experiencesvc.Worker {
+	var experienceWorker *experiencesvc.Worker
 
 	// 初始化 Agent 注册中心
 	if app.AgentRegistry != nil && app.ChatConfig != nil && app.ChatConfig.APIKey != "" {
@@ -452,124 +590,7 @@ func main() {
 		}
 	}
 
-	// 启动评测 Worker（如果启用）
-	if app.EvaluationConfig != nil && app.EvaluationConfig.WorkerEnabled && app.EvaluationWorker != nil {
-		log.Println("🔧 启动评测 Worker...")
-		go func() {
-			defer safego.Recover("server-bg")
-			if err := app.EvaluationWorker.Run(); err != nil {
-				log.Printf("❌ 评测 Worker 错误: %v", err)
-			}
-		}()
-		log.Println("✅ 评测 Worker 已启动")
-	}
-
-	// 启动会话经验自动沉淀 Worker（EXPERIENCE_DISTILL_ENABLED=true 时装配）
-	if experienceWorker != nil {
-		log.Println("🔧 启动会话经验沉淀 Worker...")
-		if err := experienceWorker.Run(); err != nil {
-			log.Printf("❌ 经验沉淀 Worker 启动失败: %v", err)
-		} else {
-			log.Println("✅ 会话经验沉淀 Worker 已启动")
-		}
-	}
-
-	// 启动外部数据源健康检查（默认关闭；DATASOURCE_HEALTHCHECK_ENABLED=true 开启）
-	if os.Getenv("DATASOURCE_HEALTHCHECK_ENABLED") == "true" && app.DataSourceService != nil {
-		interval := 5 * time.Minute
-		if v := os.Getenv("DATASOURCE_HEALTHCHECK_INTERVAL"); v != "" {
-			if d, perr := time.ParseDuration(v); perr == nil && d > 0 {
-				interval = d
-			} else {
-				log.Printf("⚠️  DATASOURCE_HEALTHCHECK_INTERVAL=%q 非法，回落 %s", v, interval)
-			}
-		}
-		log.Printf("🔧 启动数据源健康检查（间隔 %s）...", interval)
-		go func() {
-			defer safego.Recover("server-bg")
-			ticker := time.NewTicker(interval)
-			defer ticker.Stop()
-			runCheck := func() {
-				hcCtx, cancel := context.WithTimeout(context.Background(), interval)
-				defer cancel()
-				report, err := app.DataSourceService.CheckHealthOnce(hcCtx)
-				if err != nil {
-					log.Printf("❌ 数据源健康检查失败: %v", err)
-					return
-				}
-				log.Printf("💓 数据源健康检查：检查 %d / 正常 %d / 跳过 %d",
-					report.Checked, report.Healthy, report.Skipped)
-			}
-			runCheck() // 启动即跑一次
-			for range ticker.C {
-				runCheck()
-			}
-		}()
-		log.Println("✅ 数据源健康检查已启动")
-	}
-
-	// 设置路由。限流器在组合根装配（Redis 令牌桶，Redis 未就绪则降级进程内），注入 router，
-	// 使 handler 层不直接依赖 infrastructure/cache/redis（Clean Architecture 依赖方向）。
-	app.Router.Setup(middleware.NewRateLimiter(rediscache.Client))
-
-	// 启动 HTTP 服务器（后台 goroutine），主 goroutine 负责等待信号并驱动优雅关闭。
-	// 关键：关闭走正常 return 而非 os.Exit(0)，以便 main 中已注册的 Milvus / Neo4j
-	// defer 清理得到执行（旧实现在关闭 goroutine 里 os.Exit(0)，会跳过全部 defer）。
-	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("🚀 服务器启动中... 监听地址: %s", addr)
-	serverErr := make(chan error, 1)
-	go func() {
-		defer safego.Recover("server-bg")
-		if err := app.Router.Run(addr); err != nil {
-			serverErr <- err
-		}
-	}()
-
-	sigint := make(chan os.Signal, 1)
-	signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
-
-	select {
-	case err := <-serverErr:
-		// 监听失败（如端口占用）属启动阶段异常，直接终止。
-		log.Fatalf("❌ 服务器启动失败: %v", err)
-	case <-sigint:
-		log.Println("🛑 收到关闭信号...")
-	}
-
-	// 优雅关闭序列
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// 先停止接收新连接并 drain 在途 HTTP 请求。
-	if err := app.Router.Shutdown(ctx); err != nil {
-		log.Printf("❌ HTTP 服务器优雅关闭失败: %v", err)
-	}
-
-	if err := app.Shutdown(ctx); err != nil {
-		log.Printf("❌ 应用关闭失败: %v", err)
-	}
-
-	// 停止经验沉淀 Worker（等待在途蒸馏完成）
-	if experienceWorker != nil {
-		experienceWorker.Stop()
-	}
-
-	// 关闭追踪：flush 批量队列里未导出的 span，避免退出丢尾。
-	if traceShutdown != nil {
-		if err := traceShutdown(ctx); err != nil {
-			log.Printf("❌ 调用链追踪关闭失败: %v", err)
-		}
-	}
-
-	// 关闭数据库
-	if err := sqlDB.Close(); err != nil {
-		log.Printf("❌ 数据库关闭失败: %v", err)
-	}
-	if err := mysql.CloseDatabase(); err != nil {
-		log.Printf("❌ GORM 数据库关闭失败: %v", err)
-	}
-
-	log.Println("✅ 应用已安全关闭")
+	return experienceWorker
 }
 
 // ==================== 语义缓存装配（组合根，默认全关 → 零回归）====================
