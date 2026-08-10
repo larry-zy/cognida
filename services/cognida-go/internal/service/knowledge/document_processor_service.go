@@ -372,22 +372,25 @@ func (s *documentProcessorService) mapChunkStrategy(strategy string) docreader.C
 }
 
 // detectDocumentType 检测文档类型
+//
+// 入参 metadata["format"] 是 docreader 返回的文档格式 wire 值〔M13-P4 契约〕。
+// 先经 NormalizeFormat 把别名（doc/xls/ppt/markdown）归一为 canonical，再按类型化
+// 常量分派，避免散落的字面量。返回值为内部知识文档类型（word/excel/... 非 wire 契约）。
 func (s *documentProcessorService) detectDocumentType(metadata map[string]string) string {
-	format := metadata["format"]
-	switch format {
-	case "pdf":
+	switch NormalizeFormat(metadata["format"]) {
+	case DocumentFormatPDF:
 		return "pdf"
-	case "docx", "doc":
+	case DocumentFormatDOCX:
 		return "word"
-	case "xlsx", "xls":
+	case DocumentFormatXLSX:
 		return "excel"
-	case "pptx", "ppt":
+	case DocumentFormatPPTX:
 		return "ppt"
-	case "md", "markdown":
+	case DocumentFormatMD:
 		return "markdown"
-	case "txt":
+	case DocumentFormatTXT:
 		return "text"
-	case "html":
+	case DocumentFormatHTML:
 		return "html"
 	default:
 		return "unknown"

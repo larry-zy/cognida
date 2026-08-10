@@ -11,6 +11,12 @@ from .parsers.base import BaseParser, ParseResult
 from .ocr import get_ocr_engine
 from .ocr.base import BaseOCR, OCRResult
 from .chunking import ChunkStrategy, chunk_document
+from .formats import (
+    DocumentFormat,
+    OCREngine,
+    OCRLanguage,
+    normalize_document_format,
+)
 
 
 __all__ = [
@@ -26,6 +32,10 @@ __all__ = [
     "ocr_image",
     "chunk_text",
     "fetch_url",
+    "DocumentFormat",
+    "OCREngine",
+    "OCRLanguage",
+    "normalize_document_format",
 ]
 
 logger = get_logger(__name__)
@@ -109,8 +119,8 @@ async def parse_document(
 
 async def ocr_image(
     source: str | bytes,
-    engine: str = "paddleocr",
-    language: str = "chi_sim",
+    engine: str = OCREngine.PADDLEOCR,  # wire 契约默认〔M13-P5〕
+    language: str = OCRLanguage.CHI_SIM,
     det: bool = True,
     rec: bool = True,
     use_cls: bool = False,

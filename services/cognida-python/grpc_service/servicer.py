@@ -27,6 +27,8 @@ from services.document import (
     chunk_text,
     fetch_url,
     ChunkStrategy,
+    OCREngine,
+    OCRLanguage,
 )
 
 from proto import docreader_pb2
@@ -202,8 +204,8 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
 
         result = await ocr_image(
             source=source,
-            engine=request.engine or "paddleocr",
-            language=request.language or "chi_sim",
+            engine=request.engine or OCREngine.PADDLEOCR.value,  # wire 契约默认〔M13-P5〕
+            language=request.language or OCRLanguage.CHI_SIM.value,
             det=det,
             rec=rec,
             use_cls=use_cls,

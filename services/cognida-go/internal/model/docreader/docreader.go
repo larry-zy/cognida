@@ -25,8 +25,12 @@ type ParseOptions struct {
 	IncludeMetadata bool
 	ExtractTables   bool
 	ExtractImages   bool
-	OcrEngine       string
-	Language        string
+	// OcrEngine / Language 为 OCR wire 契约字符串〔M13-P5〕，保持 string 以直通 proto。
+	// 取值请引用类型化常量：OcrEngine ∈ {OCREnginePaddleOCR, OCREngineVLM}，
+	// Language ∈ {OCRLanguageChiSim, OCRLanguageEng}；空值时由 Python 服务端按
+	// DefaultOCREngine / DefaultOCRLanguage 兜底（见 ocr.go）。
+	OcrEngine string
+	Language  string
 }
 
 // ParseDocumentResponse 文档解析响应
