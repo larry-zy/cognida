@@ -113,6 +113,54 @@ func TestPubSub_Unsubscribe(t *testing.T) {
 	})
 }
 
+func TestPubSub_Unsubscribe_ClosesLiveSubscription(t *testing.T) {
+	// H10 回归：Unsubscribe 必须作用于 Subscribe 建立的真实连接。
+	// 旧实现另开一条无关连接 unsubscribe，对活跃订阅零影响（空操作）。
+	// 用 background ctx 订阅（不靠 ctx 取消），断言 Unsubscribe 后转发 goroutine
+	// 退出、msgChan 关闭。
+	mr, ps := setupPubSub(t)
+	defer mr.Close()
+
+	ctx := context.Background()
+
+	msgChan, err := ps.Subscribe(ctx, "channel1")
+	require.NoError(t, err)
+
+	err = ps.Unsubscribe(ctx, "channel1")
+	require.NoError(t, err)
+
+	select {
+	case _, ok := <-msgChan:
+		assert.False(t, ok, "Unsubscribe 后消息通道应关闭")
+	case <-time.After(time.Second * 2):
+		t.Fatal("Unsubscribe 未关闭订阅：msgChan 仍未关闭（转发 goroutine 泄漏）")
+	}
+}
+
+func TestPubSub_Unsubscribe_KeepsRemainingChannels(t *testing.T) {
+	// 多频道订阅只退订其一时，连接不应被关闭，msgChan 保持可用。
+	mr, ps := setupPubSub(t)
+	defer mr.Close()
+
+	ctx := context.Background()
+
+	msgChan, err := ps.Subscribe(ctx, "channel1", "channel2")
+	require.NoError(t, err)
+
+	err = ps.Unsubscribe(ctx, "channel1")
+	require.NoError(t, err)
+
+	// channel2 仍在订阅：通道不应关闭
+	select {
+	case _, ok := <-msgChan:
+		if !ok {
+			t.Fatal("仍有 channel2 订阅时不应关闭 msgChan")
+		}
+	case <-time.After(time.Millisecond * 100):
+		// 无消息、通道未关闭，符合预期
+	}
+}
+
 func TestPubSub_PSubscribe(t *testing.T) {
 	mr, ps := setupPubSub(t)
 	defer mr.Close()
