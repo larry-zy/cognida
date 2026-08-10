@@ -47,6 +47,7 @@ type Router struct {
 	tenantMiddleware     *middleware.TenantMiddleware
 	auditMiddleware      *middleware.AuditMiddleware
 	rateLimiter          *middleware.RateLimiter
+	idempotency          *middleware.Idempotency
 
 	mu  sync.Mutex   // 保护 srv 在 Run/Shutdown 间的并发访问
 	srv *http.Server // 由 Run 构造并持有，供 Shutdown 优雅关闭
@@ -123,10 +124,11 @@ func NewRouter(
 // 限流器〔INF-2〕由组合根（cmd/server）构建后注入：router 属 handler 层，不应直接依赖
 // infrastructure/cache/redis 拿 *redis.Client（Clean Architecture 依赖方向），故 Redis 令牌桶
 // 的装配上移到 main，本层只消费 *middleware.RateLimiter。
-func (r *Router) Setup(rateLimiter *middleware.RateLimiter) {
+func (r *Router) Setup(rateLimiter *middleware.RateLimiter, idempotency *middleware.Idempotency) {
 	// 全局兜底限流对每个请求生效（/health 与静态资源除外，见 Global 内部跳过逻辑）。
 	// 优先 Redis 令牌桶（多实例共享配额），Redis 未就绪时降级为进程内令牌桶。
 	r.rateLimiter = rateLimiter
+	r.idempotency = idempotency
 	r.engine.Use(r.rateLimiter.Global())
 
 	// 健康检查
@@ -147,6 +149,8 @@ func (r *Router) Setup(rateLimiter *middleware.RateLimiter) {
 		// 需要认证的路由
 		auth := api.Group("")
 		auth.Use(r.authMiddleware.Apply())
+		// 幂等中间件〔M6〕：对写方法且携带 Idempotency-Key 的请求做请求级去重（重放缓存响应）。
+		auth.Use(r.idempotency.Apply())
 		{
 			r.setupUserRoutes(auth)
 			r.setupTenantRoutes(auth)
@@ -170,6 +174,7 @@ func (r *Router) Setup(rateLimiter *middleware.RateLimiter) {
 		tenant := api.Group("")
 		tenant.Use(r.authMiddleware.Apply())
 		tenant.Use(r.tenantMiddleware.Apply())
+		tenant.Use(r.idempotency.Apply()) // 幂等去重〔M6〕（tenant 组，去重键含 tenant_id）
 		{
 			r.setupKBRoutes(tenant)
 			r.setupGraphRoutes(tenant)

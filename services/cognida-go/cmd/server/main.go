@@ -239,9 +239,12 @@ func main() {
 		log.Println("✅ 数据源健康检查已启动")
 	}
 
-	// 设置路由。限流器在组合根装配（Redis 令牌桶，Redis 未就绪则降级进程内），注入 router，
-	// 使 handler 层不直接依赖 infrastructure/cache/redis（Clean Architecture 依赖方向）。
-	app.Router.Setup(middleware.NewRateLimiter(rediscache.Client))
+	// 设置路由。限流器与幂等中间件〔M6〕均在组合根装配（Redis 后端，未就绪则降级进程内），
+	// 注入 router，使 handler 层不直接依赖 infrastructure/cache/redis（Clean Architecture 依赖方向）。
+	app.Router.Setup(
+		middleware.NewRateLimiter(rediscache.Client),
+		middleware.NewIdempotency(rediscache.Client),
+	)
 
 	// 启动 HTTP 服务器（后台 goroutine），主 goroutine 负责等待信号并驱动优雅关闭。
 	// 关键：关闭走正常 return 而非 os.Exit(0)，以便 main 中已注册的 Milvus / Neo4j
