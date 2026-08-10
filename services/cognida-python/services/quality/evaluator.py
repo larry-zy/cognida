@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from .dimension_names import Dimension
 from .models import QualityReport, UnstructuredQualityReport
 from .registry import EvaluatorRegistry
 from .rules import RuleEngine
@@ -148,14 +149,14 @@ class DataQualityEvaluator:
         # 加载规则
         rules = self.rule_engine.load_rules(rule_file)
 
-        # 默认维度列表
+        # 默认维度列表（引用单一真源；沿用历史默认集——不含 relevance）
         if dimensions is None:
             dimensions = [
-                "readability",
-                "information_density",
-                "language_quality",
-                "duplication",
-                "pii_detector",
+                Dimension.READABILITY.value,
+                Dimension.INFORMATION_DENSITY.value,
+                Dimension.LANGUAGE_QUALITY.value,
+                Dimension.DUPLICATION.value,
+                Dimension.PII_DETECTOR.value,
             ]
 
         # 执行评估
@@ -200,30 +201,32 @@ class DataQualityEvaluator:
         """
         recommendations = []
 
+        # 分派键引用单一真源枚举；StrEnum 与字符串按值相等，dim.name（纯字符串）
+        # 与 Dimension.X 比较结果不变。
         if isinstance(report, QualityReport):
             for dim in report.dimensions:
                 if not dim.passed:
-                    if dim.name == "completeness":
+                    if dim.name == Dimension.COMPLETENESS:
                         recommendations.append(
                             "建议：检查并补充缺失的字段值，特别是必填字段"
                         )
-                    elif dim.name == "accuracy":
+                    elif dim.name == Dimension.ACCURACY:
                         recommendations.append(
                             "建议：检查数据范围和格式，修正异常值"
                         )
-                    elif dim.name == "consistency":
+                    elif dim.name == Dimension.CONSISTENCY:
                         recommendations.append(
                             "建议：检查跨字段的逻辑关系，修正不一致的数据"
                         )
-                    elif dim.name == "validity":
+                    elif dim.name == Dimension.VALIDITY:
                         recommendations.append(
                             "建议：检查数据类型和值约束，确保数据格式正确"
                         )
-                    elif dim.name == "uniqueness":
+                    elif dim.name == Dimension.UNIQUENESS:
                         recommendations.append(
                             "建议：去除重复记录，确保主键唯一性"
                         )
-                    elif dim.name == "timeliness":
+                    elif dim.name == Dimension.TIMELINESS:
                         recommendations.append(
                             "建议：更新过期数据，确保数据时效性"
                         )
@@ -231,23 +234,23 @@ class DataQualityEvaluator:
         elif isinstance(report, UnstructuredQualityReport):
             for dim in report.dimensions:
                 if not dim.passed:
-                    if dim.name == "readability":
+                    if dim.name == Dimension.READABILITY:
                         recommendations.append(
                             "建议：检查文本编码和格式，修复乱码问题"
                         )
-                    elif dim.name == "information_density":
+                    elif dim.name == Dimension.INFORMATION_DENSITY:
                         recommendations.append(
                             "建议：增加文本内容，提高信息密度"
                         )
-                    elif dim.name == "language_quality":
+                    elif dim.name == Dimension.LANGUAGE_QUALITY:
                         recommendations.append(
                             "建议：检查并修正语法和标点符号错误"
                         )
-                    elif dim.name == "duplication":
+                    elif dim.name == Dimension.DUPLICATION:
                         recommendations.append(
                             "建议：去除重复内容"
                         )
-                    elif dim.name == "pii_detector":
+                    elif dim.name == Dimension.PII_DETECTOR:
                         recommendations.append(
                             "建议：对敏感信息进行脱敏处理"
                         )

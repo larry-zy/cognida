@@ -9,16 +9,17 @@ from typing import Any
 from .base import UnstructuredEvaluator
 from ..models import SeverityLevel, TextQualityIssue, UnstructuredDimensionScore
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 
 
-@register_evaluator("language_quality")
+@register_evaluator(Dimension.LANGUAGE_QUALITY.value)
 class LanguageQualityEvaluator(UnstructuredEvaluator):
     """语言质量评估器。
 
     评估文本的语言质量，检测语法和标点符号问题。
     """
 
-    dimension_name = "language_quality"
+    dimension_name = Dimension.LANGUAGE_QUALITY.value
     description = "基础语法检查、标点符号检查"
 
     # 标点符号模式

@@ -12,6 +12,10 @@ from services.quality.evaluator import DataQualityEvaluator
 from services.quality.drift_detector import DriftDetector
 from services.quality.models import QualityReport, UnstructuredQualityReport
 from services.quality.pipeline.executor import QualityPipeline
+from services.quality.dimension_names import (
+    STRUCTURED_DIMENSIONS,
+    UNSTRUCTURED_DIMENSIONS,
+)
 from services.quality.registry import EvaluatorRegistry, CleanerRegistry
 from services.quality.rules import RuleEngine
 
@@ -352,23 +356,9 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
     ) -> quality_pb2.ListDimensionsResponse:
         """列出可用的评估维度。"""
         try:
-            # 内置维度
-            structured_dimensions = [
-                "completeness",
-                "accuracy",
-                "consistency",
-                "validity",
-                "uniqueness",
-                "timeliness",
-            ]
-            unstructured_dimensions = [
-                "readability",
-                "information_density",
-                "language_quality",
-                "duplication",
-                "pii_detector",
-                "relevance",
-            ]
+            # 内置维度（单一真源：services.quality.dimension_names，wire 值不变）
+            structured_dimensions = [d.value for d in STRUCTURED_DIMENSIONS]
+            unstructured_dimensions = [d.value for d in UNSTRUCTURED_DIMENSIONS]
 
             dimensions = []
 

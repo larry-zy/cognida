@@ -10,14 +10,15 @@ import pandas as pd
 from .base import DimensionEvaluator
 from ..models import DimensionScore, FieldRule
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 from ..rules.engine import get_engine
 
 
-@register_evaluator("timeliness")
+@register_evaluator(Dimension.TIMELINESS.value)
 class TimelinessEvaluator(DimensionEvaluator):
     """时效性评估器（委托规则引擎）。"""
 
-    dimension_name = "timeliness"
+    dimension_name = Dimension.TIMELINESS.value
     description = "检查数据新鲜度"
 
     def evaluate(

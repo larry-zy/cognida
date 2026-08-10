@@ -11,6 +11,7 @@ import jieba
 from .base import UnstructuredEvaluator
 from ..models import SeverityLevel, TextQualityIssue, UnstructuredDimensionScore
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 
 
 # 中文停用词（简化版）
@@ -34,14 +35,14 @@ ENGLISH_STOP_WORDS = {
 }
 
 
-@register_evaluator("information_density")
+@register_evaluator(Dimension.INFORMATION_DENSITY.value)
 class InformationDensityEvaluator(UnstructuredEvaluator):
     """信息密度评估器。
 
     评估文本的信息密度，检测内容是否过于稀疏。
     """
 
-    dimension_name = "information_density"
+    dimension_name = Dimension.INFORMATION_DENSITY.value
     description = "文本长度、有效词比例、停用词比例"
 
     def __init__(self) -> None:

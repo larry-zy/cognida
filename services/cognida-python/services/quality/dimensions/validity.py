@@ -11,14 +11,15 @@ import pandas as pd
 from .base import DimensionEvaluator
 from ..models import DimensionScore, FieldRule
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 from ..rules.engine import get_engine
 
 
-@register_evaluator("validity")
+@register_evaluator(Dimension.VALIDITY.value)
 class ValidityEvaluator(DimensionEvaluator):
     """有效性评估器（委托规则引擎）。"""
 
-    dimension_name = "validity"
+    dimension_name = Dimension.VALIDITY.value
     description = "数据类型和值约束验证"
 
     def evaluate(

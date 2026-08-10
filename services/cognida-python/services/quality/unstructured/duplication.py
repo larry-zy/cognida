@@ -10,16 +10,17 @@ from datasketch import MinHash, MinHashLSH
 from .base import UnstructuredEvaluator
 from ..models import SeverityLevel, TextQualityIssue, UnstructuredDimensionScore
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 
 
-@register_evaluator("duplication")
+@register_evaluator(Dimension.DUPLICATION.value)
 class DuplicationEvaluator(UnstructuredEvaluator):
     """重复度评估器。
 
     评估文本与参考内容的相似度，支持精确重复和近似重复检测。
     """
 
-    dimension_name = "duplication"
+    dimension_name = Dimension.DUPLICATION.value
     description = "精确重复检测和近似重复检测"
 
     def __init__(self) -> None:

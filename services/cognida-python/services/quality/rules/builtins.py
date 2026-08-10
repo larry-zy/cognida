@@ -20,6 +20,7 @@ from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 
+from ..dimension_names import Dimension
 from ..models import FieldType, SeverityLevel
 from .engine import Rule, RuleResult, register_rule
 
@@ -31,7 +32,7 @@ from .engine import Rule, RuleResult, register_rule
 class MissingScanRule(Rule):
     """必填字段空值 + 全列缺失率扫描。"""
 
-    dimension = "completeness"
+    dimension = Dimension.COMPLETENESS.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -98,7 +99,7 @@ class MissingScanRule(Rule):
 class RangeRule(Rule):
     """数值范围检查（min_value / max_value）。"""
 
-    dimension = "accuracy"
+    dimension = Dimension.ACCURACY.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -139,7 +140,7 @@ class RangeRule(Rule):
 class PatternRule(Rule):
     """正则模式检查（pattern）。"""
 
-    dimension = "accuracy"
+    dimension = Dimension.ACCURACY.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -183,7 +184,7 @@ _CASTABLE_TYPES = {FieldType.INTEGER, FieldType.FLOAT, FieldType.BOOLEAN}
 class TypeRule(Rule):
     """数据类型可转换性检查（type 非 string）。"""
 
-    dimension = "validity"
+    dimension = Dimension.VALIDITY.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -229,7 +230,7 @@ class TypeRule(Rule):
 class LengthRule(Rule):
     """字符串长度约束检查（min_length / max_length）。"""
 
-    dimension = "validity"
+    dimension = Dimension.VALIDITY.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -284,7 +285,7 @@ class LengthRule(Rule):
 class EnumRule(Rule):
     """枚举值一致性检查（allowed_values）。"""
 
-    dimension = "consistency"
+    dimension = Dimension.CONSISTENCY.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -322,7 +323,7 @@ class CrossFieldRule(Rule):
     end_after_start / positive_value / non_negative。
     """
 
-    dimension = "consistency"
+    dimension = Dimension.CONSISTENCY.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -405,7 +406,7 @@ class CrossFieldRule(Rule):
 class UniqueFieldRule(Rule):
     """唯一字段重复值检查（unique=True）。"""
 
-    dimension = "uniqueness"
+    dimension = Dimension.UNIQUENESS.value
 
     def run(self, data, field_rules, config):
         results: list[RuleResult] = []
@@ -435,7 +436,7 @@ class UniqueFieldRule(Rule):
 class DuplicateRowsRule(Rule):
     """完全重复行检查。"""
 
-    dimension = "uniqueness"
+    dimension = Dimension.UNIQUENESS.value
 
     def run(self, data, field_rules, config):
         full_row_duplicates = data[data.duplicated(keep=False)]
@@ -465,7 +466,7 @@ class StalenessRule(Rule):
     （通过 RuleResult.score_override 承载，与命中数无关）。
     """
 
-    dimension = "timeliness"
+    dimension = Dimension.TIMELINESS.value
 
     def run(self, data, field_rules, config):
         max_age_days = config.get("max_age_days", 30)

@@ -11,14 +11,15 @@ import pandas as pd
 from .base import DimensionEvaluator
 from ..models import DimensionScore, FieldRule
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 from ..rules.engine import get_engine
 
 
-@register_evaluator("accuracy")
+@register_evaluator(Dimension.ACCURACY.value)
 class AccuracyEvaluator(DimensionEvaluator):
     """准确性评估器（委托规则引擎）。"""
 
-    dimension_name = "accuracy"
+    dimension_name = Dimension.ACCURACY.value
     description = "范围检查和格式验证"
 
     def evaluate(

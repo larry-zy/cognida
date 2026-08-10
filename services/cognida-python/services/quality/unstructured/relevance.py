@@ -10,16 +10,17 @@ import jieba
 from .base import UnstructuredEvaluator
 from ..models import SeverityLevel, TextQualityIssue, UnstructuredDimensionScore
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 
 
-@register_evaluator("relevance")
+@register_evaluator(Dimension.RELEVANCE.value)
 class RelevanceEvaluator(UnstructuredEvaluator):
     """主题相关性评估器。
 
     评估文本是否与预期主题相关。
     """
 
-    dimension_name = "relevance"
+    dimension_name = Dimension.RELEVANCE.value
     description = "关键词匹配和主题分类"
 
     # 简单的主题分类词典

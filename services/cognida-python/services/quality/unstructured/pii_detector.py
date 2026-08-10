@@ -9,16 +9,17 @@ from typing import Any
 from .base import UnstructuredEvaluator
 from ..models import SeverityLevel, TextQualityIssue, UnstructuredDimensionScore
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 
 
-@register_evaluator("pii_detector")
+@register_evaluator(Dimension.PII_DETECTOR.value)
 class PIIDetector(UnstructuredEvaluator):
     """敏感信息检测器。
 
     检测文本中的手机号、邮箱、身份证号等敏感信息。
     """
 
-    dimension_name = "pii_detector"
+    dimension_name = Dimension.PII_DETECTOR.value
     description = "检测手机号、邮箱、身份证号、地址等敏感信息"
 
     # 中国大陆手机号正则

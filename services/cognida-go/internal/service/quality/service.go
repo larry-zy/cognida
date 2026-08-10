@@ -61,6 +61,11 @@ func NewService(gateway Gateway, timeout time.Duration, repo domain_quality.Chec
 // EvaluateStructured 评估结构化数据质量，并落库。
 // format 指定输入解析方式："csv"（默认）或 "json"（对象数组），经 config 透传给 Python。
 func (s *Service) EvaluateStructured(ctx context.Context, tenantID, userID int64, sourceName string, data []byte, format string, dimensions []string) (*StructuredReport, error) {
+	// 维度白名单校验：未知维度显式拒绝（400），替代旧的静默透传。
+	if err := validateDimensions(dimensions, structuredSet, "结构化质量评估"); err != nil {
+		return nil, err
+	}
+
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
@@ -116,6 +121,11 @@ func (s *Service) EvaluateDatasource(ctx context.Context, tenantID, userID int64
 
 // EvaluateUnstructured 评估文本质量，并落库。
 func (s *Service) EvaluateUnstructured(ctx context.Context, tenantID, userID int64, sourceName, text string, dimensions []string) (*UnstructuredReport, error) {
+	// 维度白名单校验：非结构化端点只接受非结构化维度，未知维度显式拒绝（400）。
+	if err := validateDimensions(dimensions, unstructuredSet, "文本质量评估"); err != nil {
+		return nil, err
+	}
+
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 

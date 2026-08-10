@@ -11,14 +11,15 @@ import pandas as pd
 from .base import DimensionEvaluator
 from ..models import DimensionScore, FieldRule
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 from ..rules.engine import get_engine
 
 
-@register_evaluator("uniqueness")
+@register_evaluator(Dimension.UNIQUENESS.value)
 class UniquenessEvaluator(DimensionEvaluator):
     """唯一性评估器（委托规则引擎）。"""
 
-    dimension_name = "uniqueness"
+    dimension_name = Dimension.UNIQUENESS.value
     description = "检测重复记录"
 
     def evaluate(

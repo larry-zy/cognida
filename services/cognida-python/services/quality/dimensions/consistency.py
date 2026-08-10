@@ -11,14 +11,15 @@ import pandas as pd
 from .base import DimensionEvaluator
 from ..models import DimensionScore, FieldRule
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 from ..rules.engine import get_engine
 
 
-@register_evaluator("consistency")
+@register_evaluator(Dimension.CONSISTENCY.value)
 class ConsistencyEvaluator(DimensionEvaluator):
     """一致性评估器（委托规则引擎）。"""
 
-    dimension_name = "consistency"
+    dimension_name = Dimension.CONSISTENCY.value
     description = "跨字段逻辑规则验证"
 
     def evaluate(

@@ -11,16 +11,17 @@ import chardet
 from .base import UnstructuredEvaluator
 from ..models import SeverityLevel, TextQualityIssue, UnstructuredDimensionScore
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 
 
-@register_evaluator("readability")
+@register_evaluator(Dimension.READABILITY.value)
 class ReadabilityEvaluator(UnstructuredEvaluator):
     """可读性评估器。
 
     评估文本的可读性，检测编码问题、乱码等。
     """
 
-    dimension_name = "readability"
+    dimension_name = Dimension.READABILITY.value
     description = "编码检测、乱码识别、语言检测"
 
     # 可读字符模式（可打印ASCII + 常用Unicode字符）

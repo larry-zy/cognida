@@ -21,6 +21,12 @@ func respondEvalError(c *gin.Context, err error) {
 		BadRequest(c, err.Error())
 		return
 	}
+	// 未知质量维度属客户端输入问题（拼写/用错类型），返回 400。
+	var dimErr *app_quality.InvalidDimensionError
+	if errors.As(err, &dimErr) {
+		BadRequest(c, err.Error())
+		return
+	}
 	InternalError(c, err.Error())
 }
 

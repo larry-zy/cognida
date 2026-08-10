@@ -11,14 +11,15 @@ import pandas as pd
 from .base import DimensionEvaluator
 from ..models import DimensionScore, FieldRule
 from ..registry import register_evaluator
+from ..dimension_names import Dimension
 from ..rules.engine import get_engine
 
 
-@register_evaluator("completeness")
+@register_evaluator(Dimension.COMPLETENESS.value)
 class CompletenessEvaluator(DimensionEvaluator):
     """完整性评估器（委托规则引擎）。"""
 
-    dimension_name = "completeness"
+    dimension_name = Dimension.COMPLETENESS.value
     description = "检测空值和必填字段验证"
 
     def evaluate(
