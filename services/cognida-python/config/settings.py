@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     grpc_enabled: bool = Field(default=True, description="是否启用 gRPC 服务")
     grpc_port: int = Field(default=50051, description="gRPC 监听端口")
     grpc_max_workers: int = Field(default=10, description="gRPC 最大工作线程数")
+    # 跨服务内部 gRPC 边界共享密钥（审计发现 H8）。两侧配置同一值；为空则禁用鉴权
+    # （接受所有调用，保留本地/开发行为，启动时告警一次）。环境变量 GRPC_AUTH_TOKEN。
+    grpc_auth_token: str = Field(default="", description="内部 gRPC 共享鉴权密钥")
 
     # Go 服务配置
     go_service_url: str = Field(

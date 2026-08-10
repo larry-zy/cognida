@@ -542,7 +542,7 @@ func ProvideDatasetService(loader *app_evaluation.DatasetLoader) app_evaluation.
 // 地址复用统一的 Python gRPC 目标（PYTHON_GRPC_TARGET，与 quality 网关同源），
 // 不再硬编码 localhost:50051（〔X-5〕）。底层基础客户端默认启用重试+熔断（〔X-4〕）。
 func ProvideDocReaderClient(pyCfg *config.PythonGrpcConfig) (*docreader.Client, error) {
-	return docreader.NewClient(pyCfg.Target)
+	return docreader.NewClientWithAuth(pyCfg.Target, pyCfg.AuthToken)
 }
 
 // ProvideIDGenerator 提供唯一 ID 生成器
@@ -1074,6 +1074,7 @@ func ProvidePythonGrpcConfig(cfg *config.Config) *config.PythonGrpcConfig {
 func ProvideQualityGateway(cfg *config.PythonGrpcConfig) qualitysvc.Gateway {
 	target := "localhost:50051"
 	timeout := 60 * time.Second
+	authToken := ""
 	if cfg != nil {
 		if cfg.Target != "" {
 			target = cfg.Target
@@ -1081,8 +1082,9 @@ func ProvideQualityGateway(cfg *config.PythonGrpcConfig) qualitysvc.Gateway {
 		if cfg.Timeout > 0 {
 			timeout = time.Duration(cfg.Timeout) * time.Second
 		}
+		authToken = cfg.AuthToken
 	}
-	return qualitygrpc.NewGateway(target, timeout)
+	return qualitygrpc.NewGateway(target, timeout, authToken)
 }
 
 // ProvideQualityCheckRecordRepository 提供质检记录仓储。

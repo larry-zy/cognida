@@ -15,22 +15,23 @@ import (
 // Gateway 基于 gRPC 的数据质量网关。懒连接：Python 服务未启动时不阻断应用启动，
 // 首次调用时才拨号，实现 service.quality.Gateway 端口。
 type Gateway struct {
-	target  string
-	timeout time.Duration
+	target    string
+	timeout   time.Duration
+	authToken string // 内部服务间共享密钥（〔H8〕），非空时以 Bearer 令牌鉴权
 
 	mu     sync.Mutex
 	client *infragrpc.Client
 }
 
-// NewGateway 创建数据质量 gRPC 网关
-func NewGateway(target string, timeout time.Duration) *Gateway {
+// NewGateway 创建数据质量 gRPC 网关。authToken 为共享密钥，为空则不启用鉴权（〔H8〕）。
+func NewGateway(target string, timeout time.Duration, authToken string) *Gateway {
 	if target == "" {
 		target = "localhost:50051"
 	}
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
-	return &Gateway{target: target, timeout: timeout}
+	return &Gateway{target: target, timeout: timeout, authToken: authToken}
 }
 
 // stub 懒建立连接并返回 gRPC 客户端。
@@ -41,6 +42,7 @@ func (g *Gateway) stub() (qualitypb.QualityServiceClient, error) {
 		cfg := infragrpc.DefaultConfig()
 		cfg.Target = g.target
 		cfg.Timeout = g.timeout
+		cfg.AuthToken = g.authToken
 		client, err := infragrpc.NewClient(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("连接数据质量服务失败(%s): %w", g.target, err)

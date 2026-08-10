@@ -365,13 +365,32 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
         gRPC 服务器实例
     """
 
-    from core import RequestIDServerInterceptor
+    from core import (
+        AuthServerInterceptor,
+        RequestIDServerInterceptor,
+        TenantServerInterceptor,
+    )
+    from config.settings import get_settings
+
+    logger = get_logger(__name__)
+
+    # 跨服务内部 gRPC 鉴权（审计发现 H8）：配置了共享密钥则强制校验 Bearer；
+    # 未配置则禁用（接受所有调用），保留本地/开发默认行为并告警一次。
+    auth_token = get_settings().grpc_auth_token
+    interceptors: tuple[grpc.ServerInterceptor, ...] = (
+        RequestIDServerInterceptor(),
+        TenantServerInterceptor(),
+    )
+    if auth_token:
+        interceptors = (AuthServerInterceptor(auth_token),) + interceptors
+    else:
+        logger.warning("GRPC_AUTH_TOKEN unset — internal gRPC auth disabled")
 
     # gRPC 消息大小上限与 Go 客户端对齐（100MB），否则大文档/OCR 载荷会
     # 触发 RESOURCE_EXHAUSTED（Python 默认仅 4MB）。见架构评审 X-1。
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=10),
-        interceptors=(RequestIDServerInterceptor(),),
+        interceptors=interceptors,
         options=[
             ("grpc.max_receive_message_length", MAX_MESSAGE_LENGTH),
             ("grpc.max_send_message_length", MAX_MESSAGE_LENGTH),

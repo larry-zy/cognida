@@ -282,9 +282,10 @@ type ServerConfig struct {
 
 // PythonGrpcConfig Python gRPC 服务配置
 type PythonGrpcConfig struct {
-	Enabled bool   // 是否启用 Python gRPC 服务
-	Target  string // gRPC 服务地址，如: localhost:50051
-	Timeout int    // 连接超时时间（秒）
+	Enabled   bool   // 是否启用 Python gRPC 服务
+	Target    string // gRPC 服务地址，如: localhost:50051
+	Timeout   int    // 连接超时时间（秒）
+	AuthToken string // 内部服务间共享密钥（GRPC_AUTH_TOKEN）；非空时以 Bearer 令牌鉴权（〔H8〕）
 }
 
 // RedisConfig Redis配置
@@ -494,6 +495,8 @@ func LoadPythonGrpcConfig() *PythonGrpcConfig {
 		Enabled: getEnvAsBool("PYTHON_GRPC_ENABLED", fc.PythonGrpc.Enabled),
 		Target:  getEnv("PYTHON_GRPC_TARGET", fc.PythonGrpc.Target),
 		Timeout: getEnvAsInt("PYTHON_GRPC_TIMEOUT", fc.PythonGrpc.Timeout),
+		// AuthToken 为密钥类字段，仅从环境变量读取，绝不落入 YAML 配置文件（见 config_test 的密钥字段守卫）。
+		AuthToken: getEnv("GRPC_AUTH_TOKEN", ""),
 	}
 }
 

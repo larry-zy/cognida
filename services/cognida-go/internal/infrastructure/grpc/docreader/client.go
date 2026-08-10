@@ -25,10 +25,17 @@ type Client struct {
 	client docreaderpb.DocumentReaderServiceClient
 }
 
-// NewClient 创建文档处理客户端
+// NewClient 创建文档处理客户端（无鉴权令牌）
 func NewClient(target string) (*Client, error) {
+	return NewClientWithAuth(target, "")
+}
+
+// NewClientWithAuth 创建带共享密钥鉴权的文档处理客户端（〔H8〕）。
+// authToken 为空时等价于 NewClient，不附加 Bearer 令牌。
+func NewClientWithAuth(target, authToken string) (*Client, error) {
 	cfg := grpcclient.DefaultConfig()
 	cfg.Target = target
+	cfg.AuthToken = authToken
 	return NewClientConfig(cfg)
 }
 

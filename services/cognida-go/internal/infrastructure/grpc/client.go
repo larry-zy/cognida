@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -27,6 +28,9 @@ type Config struct {
 	Keepalive      *KeepaliveConfig // 保活配置
 	MaxRecvMsgSize int              // 最大接收消息大小
 	MaxSendMsgSize int              // 最大发送消息大小
+	// AuthToken 内部服务间共享密钥（〔H8〕）。非空时以 per-RPC Bearer 凭证附加到每次调用，
+	// 供 Python 侧 AuthServerInterceptor 校验；为空则不附加（保持无鉴权的原有行为）。
+	AuthToken string
 	// Reliability 统一可靠性策略（透明重试 + per-target 熔断）。nil 表示采用默认
 	// 开启配置（见 reliability.DefaultConfig）；如需关闭可传 &reliability.Config{Enabled:false}。
 	// 所有走本基础客户端的通路（docreader、quality 等）由此获得一致的重试/熔断（〔X-4〕）。
@@ -127,7 +131,8 @@ func newClient(cfg *Config, opts []ClientOption) (*Client, error) {
 	}
 
 	// TLS
-	if cfg.TLS != nil && cfg.TLS.Enabled {
+	tlsEnabled := cfg.TLS != nil && cfg.TLS.Enabled
+	if tlsEnabled {
 		tlsCfg := &tls.Config{
 			// #nosec G402 -- 仅在配置显式开启的开发/内网场景跳过校验，生产默认关闭
 			InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
@@ -136,6 +141,16 @@ func newClient(cfg *Config, opts []ClientOption) (*Client, error) {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
 	} else {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	// per-RPC 鉴权：配置了共享密钥时，为每次调用附加 Bearer 令牌（〔H8〕）。
+	// RequireTransportSecurity 与信道 TLS 状态绑定，避免明文信道因要求 TLS 被拒发；
+	// 明文携带令牌仅适用于回环/内网，故打印一次告警提示。
+	if cfg.AuthToken != "" {
+		if !tlsEnabled {
+			log.Printf("[gRPC] 已为 %s 附加鉴权令牌但信道未启用 TLS——令牌将以明文传输，仅限回环/内网使用", cfg.Target)
+		}
+		dialOpts = append(dialOpts, grpc.WithPerRPCCredentials(interceptor.NewTokenAuth(cfg.AuthToken, tlsEnabled)))
 	}
 
 	// Keepalive
@@ -176,11 +191,11 @@ func newClient(cfg *Config, opts []ClientOption) (*Client, error) {
 		)
 	}
 
-	// 默认拦截器：所有 gRPC 客户端自动透传 request_id 到下游（Python）服务，
-	// 实现跨进程链路追踪。多次 WithChain* 会按顺序合并，故置于调用方自定义拦截器之前。
+	// 默认拦截器：所有 gRPC 客户端自动透传 request_id 与租户 ID 到下游（Python）服务，
+	// 实现跨进程链路追踪与租户隔离（〔H8〕）。多次 WithChain* 会按顺序合并，故置于调用方自定义拦截器之前。
 	dialOpts = append(dialOpts,
-		grpc.WithChainUnaryInterceptor(interceptor.RequestIDUnary()),
-		grpc.WithChainStreamInterceptor(interceptor.RequestIDStream()),
+		grpc.WithChainUnaryInterceptor(interceptor.RequestIDUnary(), interceptor.TenantUnary()),
+		grpc.WithChainStreamInterceptor(interceptor.RequestIDStream(), interceptor.TenantStream()),
 	)
 
 	// 添加拦截器
