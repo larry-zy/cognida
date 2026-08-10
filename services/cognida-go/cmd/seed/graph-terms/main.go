@@ -6,11 +6,11 @@
 // seed-semantic 已灌好模型内同义词；本工具灌的是「模型里没登记、但业务口语常用」的词，
 // 唯有它们才会真正触发并验证图谱层（登记过的词会在第一层命中，永远走不到图谱）。
 //
-// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed-graph-terms
+// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/graph-terms
 // 落库对象：租户 tenant_id="1"（dev 用户）、kb_id=""（租户全域，与运行时 GraphAdapter
 // 的检索命名空间一致）。节点按 name 幂等 MERGE、关系按 id 幂等，可反复执行。
 //
-// 前置：cmd/seed-semantic 已灌入语义模型（桥接的规范名须是模型内已登记的名/同义词），
+// 前置：cmd/seed/semantic 已灌入语义模型（桥接的规范名须是模型内已登记的名/同义词），
 // 且 Neo4j 可连（NEO4J_URI/USERNAME/PASSWORD）；连不上时接地自动退化为仅模型内同义词。
 package main
 

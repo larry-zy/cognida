@@ -1,7 +1,7 @@
 // 工具：为「电商演示库」(ecommerce_demo) 生成一套规模更大、结构更复杂、外键一致的演示数据。
 // 仅用于开发/演示：DROP 并按增强后的 schema 重建全部 30 张表，再灌入多年跨度的关联数据。
 //
-// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed-ecommerce
+// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/ecommerce
 // 连接的是业务库 ecommerce_demo（非 link 应用库），用 root 账号建表+写数据；
 // 数据源里配置的 ecommerce_ro 只读账号仅供 Go 后端查询，不用于本工具（库级 GRANT 覆盖新表）。
 //

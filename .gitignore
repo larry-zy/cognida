@@ -68,8 +68,8 @@ services/cognida-python/data/
 /services/cognida-go/server
 # compiled milvus-export binary (build artifact of cmd/milvus-export)
 /services/cognida-go/milvus-export
-# 本地编译的一次性数据播种可执行文件（cmd/seed-eval-datasets 的构建产物）
-/services/cognida-go/seed-eval-datasets
+# 本地编译的一次性数据播种可执行文件（cmd/seed/eval-datasets 的构建产物）
+/services/cognida-go/eval-datasets
 # 测评/联调一次性脚手架产物（非源码）
 /services/cognida-go/test-output/
 

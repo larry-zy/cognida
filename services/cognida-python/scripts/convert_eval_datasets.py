@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """评测数据集转换器：HuggingFace 基准 + 自造场景 → 统一 JSONL（供前端上传 / Go seed 灌库）。
 
-产物布局（默认写入 cognida-go/cmd/seed-eval-datasets/data/）：
+产物布局（默认写入 cognida-go/cmd/seed/eval-datasets/data/）：
     manifest.json            # 数据集清单：id/name/description/evaluation_type/records_file/count/supports_trajectory
     <dataset_id>.jsonl       # 每行一条样本记录，字段与 QAPair 对齐：
                              #   question / reference_answer / relevant_pids? / expected_tools? / expected_steps?
@@ -15,10 +15,10 @@
 
 reseed 注意（金标准一致性）：
 - scenario_ecommerce_agent 的 golden 在本脚本生成期直连 ecommerce_demo 现算并写入 JSONL，随后被
-  go:embed 打进 seed 二进制。若 ecommerce_demo 被 `cmd/seed-ecommerce`（DROP+CREATE 随机重建），
+  go:embed 打进 seed 二进制。若 ecommerce_demo 被 `cmd/seed/ecommerce`（DROP+CREATE 随机重建），
   冻结的 golden 会与新库失配。重建电商库后必须重跑：
       .venv/bin/python scripts/convert_eval_datasets.py --only scenario_ecommerce_agent
-  重新生成 golden 再 `go run ./cmd/seed-eval-datasets` 灌库。seed 工具带 --strict 会对若干整库计数题
+  重新生成 golden 再 `go run ./cmd/seed/eval-datasets` 灌库。seed 工具带 --strict 会对若干整库计数题
   现场对拍，失配则非零退出，把「静默失配」变「显眼报错」。
 
 用法：
@@ -43,12 +43,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services.dataset.loader import load_hf_dataset  # noqa: E402
 
-# 默认产物目录：Go seed 命令的数据目录（提交入库，供 cmd/seed-eval-datasets 读取）
+# 默认产物目录：Go seed 命令的数据目录（提交入库，供 cmd/seed/eval-datasets 读取）
 DEFAULT_OUT = (
     Path(__file__).resolve().parent.parent.parent
     / "cognida-go"
     / "cmd"
-    / "seed-eval-datasets"
+    / "seed"
+    / "eval-datasets"
     / "data"
 )
 

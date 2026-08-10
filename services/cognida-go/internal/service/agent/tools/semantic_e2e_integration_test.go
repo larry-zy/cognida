@@ -5,8 +5,8 @@
 //   经真实 ConnectionManager 打向 ecommerce_demo 执行 → 取到真实行 →
 //   覆盖埋点落 agent_semantic_coverage_logs 且可按模型聚合读回。
 //
-// 前置：link 库已 migrate-db 且 cmd/seed-semantic 已灌模（逻辑表绑定电商演示库数据源）、
-// cmd/seed-ecommerce 已灌业务数据、data_sources 已登记「电商演示库」、.env 有
+// 前置：link 库已 migrate-db 且 cmd/seed/semantic 已灌模（逻辑表绑定电商演示库数据源）、
+// cmd/seed/ecommerce 已灌业务数据、data_sources 已登记「电商演示库」、.env 有
 // DATASOURCE_SECRET_KEY（凭证解密）。缺任一前置则 t.Skip（不算失败）。
 //
 // 运行：cd cognida-go && set -a && source .env && set +a && \
@@ -68,10 +68,10 @@ func TestSemanticGovernanceE2E(t *testing.T) {
 	// 前置校验：seed 的「电商销售」模型须存在且逻辑表已绑定电商演示库数据源。
 	bundle, err := repo.GetActiveModel(ctx, e2eTenant, e2eModel)
 	if err != nil {
-		t.Skipf("未找到生效语义模型 %q（先跑 cmd/seed-semantic）: %v", e2eModel, err)
+		t.Skipf("未找到生效语义模型 %q（先跑 cmd/seed/semantic）: %v", e2eModel, err)
 	}
 	dsID := bundleDatabaseID(bundle)
-	require.NotEmpty(t, dsID, "seed 的逻辑表应已绑定电商演示库数据源（跑最新 cmd/seed-semantic）")
+	require.NotEmpty(t, dsID, "seed 的逻辑表应已绑定电商演示库数据源（跑最新 cmd/seed/semantic）")
 
 	// —— 1) 治理命中：按城市看营收 → covered=true、带 SQL、带数据源绑定 ——
 	sink := &recordingCoverageSink{}

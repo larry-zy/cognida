@@ -19,7 +19,8 @@ _SEED = (
     Path(__file__).resolve().parents[3]
     / "cognida-go"
     / "cmd"
-    / "seed-eval-datasets"
+    / "seed"
+    / "eval-datasets"
     / "data"
     / "scenario_ecommerce_agent.jsonl"
 )

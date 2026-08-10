@@ -1,9 +1,9 @@
 // 工具：将转换好的评测数据集（HF 基准 + 自造场景）一键灌入 link 元数据库，
 // 供「Agent 测评」创建任务时直接选用。
 //
-// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed-eval-datasets
+// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/eval-datasets
 //        # 加 --strict 时，若电商金标准与 ecommerce_demo 现状失配则非零退出
-//        cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed-eval-datasets --strict
+//        cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/eval-datasets --strict
 //
 // 数据来源：data/manifest.json + data/<dataset_id>.jsonl（由
 // cognida-python/scripts/convert_eval_datasets.py 产出，经 //go:embed 打包进二进制，
@@ -14,7 +14,7 @@
 // 落库对象：租户 tenant_id=1（dev 用户），evaluation_type 取 manifest 标注（agent/qa）。
 //
 // 金标准一致性（A6）：scenario_ecommerce_agent 的 golden 是生成期从 ecommerce_demo 现算并
-// 冻结进 JSONL 的。若电商库被 `cmd/seed-ecommerce`（DROP+CREATE 随机重建），冻结 golden 会与
+// 冻结进 JSONL 的。若电商库被 `cmd/seed/ecommerce`（DROP+CREATE 随机重建），冻结 golden 会与
 // 新库失配、导致「Agent 答对也判错」。本工具 seed 前会对若干整库计数题现场查 ecommerce_demo
 // 对拍嵌入 golden：不一致则 loud WARN；带 --strict 时直接非零退出。连不上电商库则降级跳过校验
 // 并提示。重建电商库后，务必重跑：

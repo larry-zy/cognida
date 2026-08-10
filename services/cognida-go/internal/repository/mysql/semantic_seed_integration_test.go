@@ -1,7 +1,7 @@
 //go:build integration
 // +build integration
 
-// Package mysql: cmd/seed-semantic 冷启动种子的端到端冒烟测试。
+// Package mysql: cmd/seed/semantic 冷启动种子的端到端冒烟测试。
 //
 // 验证「跑过 seed-semantic 后」，tenant=1 的两套语义模型（电商销售 / 商品销售）
 // 经指标引擎能稳定生成「治理口径 SQL」且 covered=true —— 即 semantic_query 走主路径
@@ -9,7 +9,7 @@
 //
 // 前置：先跑 seed（连的是 link 库）：
 //
-//	cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed-semantic
+//	cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/semantic
 //
 // 再针对同一 link 库运行：
 //
@@ -29,7 +29,7 @@ import (
 	"cognida/internal/service/agent/metricsql"
 )
 
-// seedTenantID 与 cmd/seed-semantic 的 seedTenant 一致（dev 用户）。
+// seedTenantID 与 cmd/seed/semantic 的 seedTenant 一致（dev 用户）。
 const seedTenantID = int64(1)
 
 // getSeeded 读取已 seed 的生效模型；未 seed 则跳过测试。
@@ -39,7 +39,7 @@ func getSeeded(t *testing.T, name string) *semantic.ModelBundle {
 	b, err := repo.GetActiveModel(context.Background(), seedTenantID, name)
 	if err != nil {
 		if errors.Is(err, semantic.ErrModelNotFound) {
-			t.Skipf("语义模型 %q 未 seed，先跑 `go run ./cmd/seed-semantic`", name)
+			t.Skipf("语义模型 %q 未 seed，先跑 `go run ./cmd/seed/semantic`", name)
 		}
 		t.Fatalf("GetActiveModel(%q): %v", name, err)
 	}

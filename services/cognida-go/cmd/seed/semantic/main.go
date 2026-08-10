@@ -1,7 +1,7 @@
 // 工具：为电商演示库（ecommerce_demo）冷启动写入受治理的语义模型，
 // 让 semantic_query 走「治理口径」主路径而非每次回退词法 NL2SQL。
 //
-// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed-semantic
+// 用法：cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/semantic
 // 连接的是 link 应用库（元数据库，非业务库 ecommerce_demo），经 GORM +
 // SemanticRepository.UpsertBundle 全量幂等写入；固定 ID，可反复执行。
 //
@@ -11,7 +11,7 @@
 //
 // 两套均为「扇出安全」：所有 JOIN 都是从事实表出发的 to-one 关系，聚合不虚增。
 //
-// 前置：ecommerce_demo 已 seed（cmd/seed-ecommerce），且 link 库已 migrate-db。
+// 前置：ecommerce_demo 已 seed（cmd/seed/ecommerce），且 link 库已 migrate-db。
 package main
 
 import (

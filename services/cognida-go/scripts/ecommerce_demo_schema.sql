@@ -5,9 +5,9 @@
 -- 目标库：ecommerce_demo（业务演示库，非 link 应用库；不走 migrations）。
 -- 用法：mysql -h<host> -P<port> -u<root_user> -p ecommerce_demo < ecommerce_demo_schema.sql
 --
--- 注意：本脚本是 cmd/seed-ecommerce 的 schema 镜像（纯文档/建表用）。
---       真正灌数据仍用 `go run ./cmd/seed-ecommerce`（DROP+CREATE 全表并生成关联数据）。
---       改表结构时两处需同步：cmd/seed-ecommerce/main.go createSchema() 与本文件。
+-- 注意：本脚本是 cmd/seed/ecommerce 的 schema 镜像（纯文档/建表用）。
+--       真正灌数据仍用 `go run ./cmd/seed/ecommerce`（DROP+CREATE 全表并生成关联数据）。
+--       改表结构时两处需同步：cmd/seed/ecommerce/main.go createSchema() 与本文件。
 -- ============================================================
 
 SET NAMES utf8mb4;
