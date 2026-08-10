@@ -10,6 +10,7 @@ import (
 
 	qualitypb "cognida/api/proto/quality"
 	infragrpc "cognida/internal/infrastructure/grpc"
+	"cognida/internal/infrastructure/reliability"
 )
 
 // Gateway 基于 gRPC 的数据质量网关。懒连接：Python 服务未启动时不阻断应用启动，
@@ -43,6 +44,11 @@ func (g *Gateway) stub() (qualitypb.QualityServiceClient, error) {
 		cfg.Target = g.target
 		cfg.Timeout = g.timeout
 		cfg.AuthToken = g.authToken
+		// QualityService 为纯评估、无服务端状态变更，声明为幂等以获得含
+		// RESOURCE_EXHAUSTED 的完整重试集（〔M10〕）。
+		rc := reliability.DefaultConfig()
+		rc.RetryableMethods = []string{"quality.QualityService"}
+		cfg.Reliability = &rc
 		client, err := infragrpc.NewClient(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("连接数据质量服务失败(%s): %w", g.target, err)

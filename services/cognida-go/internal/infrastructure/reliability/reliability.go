@@ -27,6 +27,12 @@ type Config struct {
 	Cooldown time.Duration
 	// HalfOpenProbes half-open 态放行的探测请求数。
 	HalfOpenProbes int
+	// RetryableMethods 调用方显式声明为幂等、可安全重试的 RPC 方法白名单，
+	// 元素形如 "pkg.Service/Method"（精确方法）或 "pkg.Service"（整个服务）。
+	// 仅这些方法获得含 RESOURCE_EXHAUSTED 的完整可重试码集；未列入的方法（默认全部）
+	// 只对 UNAVAILABLE（连接层「未送达」、对任何方法安全）重试，杜绝非幂等方法被
+	// 在服务端已产生副作用后（如限流 RESOURCE_EXHAUSTED）盲目重试致重复执行（〔M10〕）。
+	RetryableMethods []string
 }
 
 // DefaultConfig 返回带安全默认值的统一可靠性配置。

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	grpcclient "cognida/internal/infrastructure/grpc"
+	"cognida/internal/infrastructure/reliability"
 	docreaderpb "cognida/api/proto/docreader"
 	modeldocreader "cognida/internal/model/docreader"
 )
@@ -36,6 +37,11 @@ func NewClientWithAuth(target, authToken string) (*Client, error) {
 	cfg := grpcclient.DefaultConfig()
 	cfg.Target = target
 	cfg.AuthToken = authToken
+	// DocumentReaderService 全部方法（Parse/OCR/Chunk/FetchURL）均为纯计算、无服务端
+	// 状态变更，声明为幂等以获得含 RESOURCE_EXHAUSTED 的完整重试集（〔M10〕）。
+	rc := reliability.DefaultConfig()
+	rc.RetryableMethods = []string{"docreader.DocumentReaderService"}
+	cfg.Reliability = &rc
 	return NewClientConfig(cfg)
 }
 

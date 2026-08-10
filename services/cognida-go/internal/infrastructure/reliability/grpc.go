@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -23,26 +24,64 @@ func countableCode(code codes.Code) bool {
 	}
 }
 
-// ServiceConfigJSON 生成 gRPC 默认服务配置（透明重试）。RetryableStatusCodes 仅取
-// UNAVAILABLE/RESOURCE_EXHAUSTED——这两类可安全透明重试；DEADLINE_EXCEEDED 不列入
-// （截止时间通常共享，重试无益且可能放大负载）。配合 grpc.WithDefaultServiceConfig 使用。
+// ServiceConfigJSON 生成 gRPC 默认服务配置（透明重试）。按幂等性分层设置可重试码集
+// （〔M10〕，杜绝非幂等方法被盲目重试致重复副作用）：
+//   - 默认（blanket，匹配所有方法）：仅 UNAVAILABLE。该码表示请求在连接层未送达/服务
+//     未就绪，对任何方法（含非幂等写）重试都安全。
+//   - cfg.RetryableMethods 显式声明的幂等方法：追加 RESOURCE_EXHAUSTED（该码可能在服务端
+//     已开始处理、产生副作用后返回，故只对确认幂等的方法开放）。
 //
-// gRPC 透明重试位于连接层、熔断拦截器之下：短暂抖动由重试吸收，持续故障由熔断拦截器
-// 在多次失败回执后打开、快速失败——二者互补不冲突。
+// 两类均不含 DEADLINE_EXCEEDED（截止时间通常共享，重试无益且放大负载）。gRPC 透明重试
+// 位于连接层、熔断拦截器之下：短暂抖动由重试吸收，持续故障由熔断拦截器打开后快速失败。
 func ServiceConfigJSON(cfg Config) string {
 	cfg = cfg.WithDefaults()
+
+	// blanket：所有方法，仅 UNAVAILABLE（对任何方法安全）。
+	methodConfigs := []string{retryMethodConfig(`[{}]`, cfg, `"UNAVAILABLE"`)}
+
+	// 幂等白名单：追加 RESOURCE_EXHAUSTED。gRPC 服务配置「最长匹配优先」——精确 name
+	// 覆盖 blanket，故白名单方法命中此条、其余仍走 blanket。
+	if names := methodNames(cfg.RetryableMethods); names != "" {
+		methodConfigs = append(methodConfigs,
+			retryMethodConfig(names, cfg, `"UNAVAILABLE", "RESOURCE_EXHAUSTED"`))
+	}
+
+	return fmt.Sprintf("{\n  \"methodConfig\": [%s]\n}", strings.Join(methodConfigs, ", "))
+}
+
+// retryMethodConfig 组装单条 methodConfig 的 JSON（name 选择器 + retryPolicy）。
+func retryMethodConfig(names string, cfg Config, retryCodes string) string {
 	return fmt.Sprintf(`{
-  "methodConfig": [{
-    "name": [{}],
+    "name": %s,
     "retryPolicy": {
       "MaxAttempts": %d,
       "InitialBackoff": "%s",
       "MaxBackoff": "%s",
       "BackoffMultiplier": 2.0,
-      "RetryableStatusCodes": ["UNAVAILABLE", "RESOURCE_EXHAUSTED"]
+      "RetryableStatusCodes": [%s]
     }
-  }]
-}`, cfg.MaxAttempts, durSeconds(cfg.BaseBackoff), durSeconds(cfg.MaxBackoff))
+  }`, names, cfg.MaxAttempts, durSeconds(cfg.BaseBackoff), durSeconds(cfg.MaxBackoff), retryCodes)
+}
+
+// methodNames 把 "pkg.Service/Method" / "pkg.Service" 列表转成 gRPC 服务配置的 name
+// 选择器 JSON 数组；空列表返回空串（调用方据此跳过白名单 methodConfig）。
+func methodNames(methods []string) string {
+	entries := make([]string, 0, len(methods))
+	for _, m := range methods {
+		m = strings.TrimPrefix(strings.TrimSpace(m), "/")
+		if m == "" {
+			continue
+		}
+		if svc, method, ok := strings.Cut(m, "/"); ok {
+			entries = append(entries, fmt.Sprintf(`{"service": %q, "method": %q}`, svc, method))
+		} else {
+			entries = append(entries, fmt.Sprintf(`{"service": %q}`, m))
+		}
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(entries, ", ") + "]"
 }
 
 // durSeconds 以 gRPC 服务配置要求的秒制 duration 字符串（如 "0.200s"）格式化。

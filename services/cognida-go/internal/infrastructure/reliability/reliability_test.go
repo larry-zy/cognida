@@ -119,22 +119,36 @@ func TestRegistry_PerTargetIsolation(t *testing.T) {
 	}
 }
 
-func TestServiceConfigJSON_ValidAndRetryable(t *testing.T) {
-	js := ServiceConfigJSON(Config{MaxAttempts: 4, BaseBackoff: 200 * time.Millisecond, MaxBackoff: 5 * time.Second})
-	var parsed struct {
-		MethodConfig []struct {
-			RetryPolicy struct {
-				MaxAttempts          int      `json:"MaxAttempts"`
-				InitialBackoff       string   `json:"InitialBackoff"`
-				RetryableStatusCodes []string `json:"RetryableStatusCodes"`
-			} `json:"retryPolicy"`
-		} `json:"methodConfig"`
-	}
+// svcConfig 解析 ServiceConfigJSON 输出为可断言结构。
+type svcConfig struct {
+	MethodConfig []struct {
+		Name []struct {
+			Service string `json:"service"`
+			Method  string `json:"method"`
+		} `json:"name"`
+		RetryPolicy struct {
+			MaxAttempts          int      `json:"MaxAttempts"`
+			InitialBackoff       string   `json:"InitialBackoff"`
+			RetryableStatusCodes []string `json:"RetryableStatusCodes"`
+		} `json:"retryPolicy"`
+	} `json:"methodConfig"`
+}
+
+func parseSvcConfig(t *testing.T, js string) svcConfig {
+	t.Helper()
+	var parsed svcConfig
 	if err := json.Unmarshal([]byte(js), &parsed); err != nil {
 		t.Fatalf("服务配置须为合法 JSON: %v\n%s", err, js)
 	}
+	return parsed
+}
+
+// 默认（无 RetryableMethods）：仅一条 blanket methodConfig，可重试码只含 UNAVAILABLE
+// ——该码表示连接层未送达，对任何方法（含非幂等）重试都安全（〔M10〕）。
+func TestServiceConfigJSON_BlanketUnavailableOnly(t *testing.T) {
+	parsed := parseSvcConfig(t, ServiceConfigJSON(Config{MaxAttempts: 4, BaseBackoff: 200 * time.Millisecond, MaxBackoff: 5 * time.Second}))
 	if len(parsed.MethodConfig) != 1 {
-		t.Fatalf("应有一条 methodConfig")
+		t.Fatalf("默认应只有一条 blanket methodConfig，得 %d", len(parsed.MethodConfig))
 	}
 	rp := parsed.MethodConfig[0].RetryPolicy
 	if rp.MaxAttempts != 4 {
@@ -143,14 +157,46 @@ func TestServiceConfigJSON_ValidAndRetryable(t *testing.T) {
 	if rp.InitialBackoff != "0.200s" {
 		t.Fatalf("InitialBackoff 格式应为秒制 duration，得 %q", rp.InitialBackoff)
 	}
-	want := map[string]bool{"UNAVAILABLE": true, "RESOURCE_EXHAUSTED": true}
-	if len(rp.RetryableStatusCodes) != len(want) {
-		t.Fatalf("可重试码集合不符：%v", rp.RetryableStatusCodes)
+	if len(rp.RetryableStatusCodes) != 1 || rp.RetryableStatusCodes[0] != "UNAVAILABLE" {
+		t.Fatalf("blanket 可重试码应仅为 [UNAVAILABLE]，得 %v", rp.RetryableStatusCodes)
 	}
-	for _, c := range rp.RetryableStatusCodes {
-		if !want[c] {
-			t.Fatalf("不应出现可重试码 %q（DEADLINE_EXCEEDED 等须排除）", c)
+}
+
+// 声明 RetryableMethods（幂等白名单）：追加第二条 methodConfig，name 精确指向该服务/方法，
+// 可重试码含 RESOURCE_EXHAUSTED；blanket 条仍在且仍只含 UNAVAILABLE。
+func TestServiceConfigJSON_IdempotentAllowlist(t *testing.T) {
+	parsed := parseSvcConfig(t, ServiceConfigJSON(Config{
+		MaxAttempts:      3,
+		BaseBackoff:      200 * time.Millisecond,
+		MaxBackoff:       5 * time.Second,
+		RetryableMethods: []string{"docreader.DocumentReaderService", "pkg.Svc/Method"},
+	}))
+	if len(parsed.MethodConfig) != 2 {
+		t.Fatalf("应有 blanket + 白名单共 2 条 methodConfig，得 %d", len(parsed.MethodConfig))
+	}
+	// 第 0 条：blanket，仅 UNAVAILABLE。
+	if codes := parsed.MethodConfig[0].RetryPolicy.RetryableStatusCodes; len(codes) != 1 || codes[0] != "UNAVAILABLE" {
+		t.Fatalf("blanket 条码集应仅 [UNAVAILABLE]，得 %v", codes)
+	}
+	// 第 1 条：白名单，含 RESOURCE_EXHAUSTED，且 name 精确到服务/方法。
+	wl := parsed.MethodConfig[1]
+	wantCodes := map[string]bool{"UNAVAILABLE": true, "RESOURCE_EXHAUSTED": true}
+	if len(wl.RetryPolicy.RetryableStatusCodes) != len(wantCodes) {
+		t.Fatalf("白名单条码集应为 UNAVAILABLE+RESOURCE_EXHAUSTED，得 %v", wl.RetryPolicy.RetryableStatusCodes)
+	}
+	for _, c := range wl.RetryPolicy.RetryableStatusCodes {
+		if !wantCodes[c] {
+			t.Fatalf("白名单条出现意外码 %q", c)
 		}
+	}
+	if len(wl.Name) != 2 {
+		t.Fatalf("白名单 name 应有 2 项，得 %d: %+v", len(wl.Name), wl.Name)
+	}
+	if wl.Name[0].Service != "docreader.DocumentReaderService" || wl.Name[0].Method != "" {
+		t.Fatalf("整服务项应仅含 service，得 %+v", wl.Name[0])
+	}
+	if wl.Name[1].Service != "pkg.Svc" || wl.Name[1].Method != "Method" {
+		t.Fatalf("service/method 项解析错误，得 %+v", wl.Name[1])
 	}
 }
 
