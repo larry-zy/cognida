@@ -102,6 +102,21 @@ func (s *tenantService) ListTenants(ctx context.Context, page, pageSize int) ([]
 	return responses, total, nil
 }
 
+// ListTenantsByCursor 游标（keyset）分页列出租户〔M5〕。
+func (s *tenantService) ListTenantsByCursor(ctx context.Context, cursor string, pageSize int) ([]*TenantResponse, string, error) {
+	tenants, nextCursor, err := s.tenantRepo.FindAllByCursor(ctx, cursor, pageSize)
+	if err != nil {
+		return nil, "", err
+	}
+
+	responses := make([]*TenantResponse, len(tenants))
+	for i, t := range tenants {
+		responses[i] = s.toTenantResponse(t)
+	}
+
+	return responses, nextCursor, nil
+}
+
 // UpdateTenant updates a tenant
 func (s *tenantService) UpdateTenant(ctx context.Context, id int64, req *UpdateTenantRequest) (*TenantResponse, error) {
 	tenantEnt, err := s.tenantRepo.FindByID(ctx, id)

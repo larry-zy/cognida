@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"cognida/internal/model/evaluation"
+	"cognida/internal/pkg/pagination"
 )
 
 var (
@@ -103,6 +104,38 @@ func (r *EvaluationResultRepository) FindByTaskIDWithPagination(ctx context.Cont
 	}
 
 	return ToDomainEvaluationResultList(models), total, nil
+}
+
+// FindByTaskIDByCursor 游标（keyset）分页〔M5〕：按 id 升序（与 FindByTaskIDWithPagination 一致），
+// 以 cursor 为锚点取下一页。id 为自增主键、天然单调唯一，直接以 id 作 keyset 锚点即可稳定翻页。
+// 多取一条判断是否还有下一页，据此产出 nextCursor（空=末页）。
+func (r *EvaluationResultRepository) FindByTaskIDByCursor(ctx context.Context, taskID string, cursor string, limit int) ([]*evaluation.EvaluationResult, string, error) {
+	limit = pagination.NormalizeLimit(limit)
+
+	db := r.db.WithContext(ctx).Where("task_id = ?", taskID)
+
+	cur, err := pagination.Decode(cursor)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: 无效游标: %v", evaluation.ErrRepository, err)
+	}
+	if !cur.IsZero() {
+		// 升序按主键 id 翻页：取锚点之后（id 更大）的一侧。
+		db = db.Where("id > ?", cur.ID)
+	}
+
+	var models []*EvaluationResultModel
+	if err := db.Order("id ASC").Limit(limit + 1).Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("%w: %v", evaluation.ErrRepository, err)
+	}
+
+	nextCursor := ""
+	if len(models) > limit {
+		last := models[limit-1] // 本页末行即下一页锚点
+		nextCursor = pagination.Cursor{ID: last.ID}.Encode()
+		models = models[:limit]
+	}
+
+	return ToDomainEvaluationResultList(models), nextCursor, nil
 }
 
 // DeleteByTaskID 根据任务 ID 删除所有结果

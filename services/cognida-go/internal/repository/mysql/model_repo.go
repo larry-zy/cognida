@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"gorm.io/gorm"
 	"cognida/internal/model/llm"
+	"cognida/internal/pkg/pagination"
 )
 
 // modelRepo LLM 模型配置仓储实现
@@ -200,6 +202,55 @@ func (r *modelRepo) List(ctx context.Context, tenantID int64, offset, limit int)
 		configs[i] = r.toDomainModel(&e)
 	}
 	return configs, total, nil
+}
+
+// ListByCursor 游标（keyset）分页〔M5〕：与 List 一致按 created_at DESC 排序，
+// 追加 id DESC 作为唯一 tie-breaker（created_at 为毫秒时间戳，可能重复），保证翻页稳定。
+// modelType/enabled 过滤直接下推到 SQL，避免 keyset 多取一条判定被内存过滤破坏。
+func (r *modelRepo) ListByCursor(ctx context.Context, tenantID int64, modelType string, enabled *bool, cursor string, limit int) ([]*llm.ModelConfig, string, error) {
+	limit = pagination.NormalizeLimit(limit)
+
+	db := r.db.WithContext(ctx).Model(&Model{}).Where("tenant_id = ?", tenantID)
+	if modelType != "" {
+		db = db.Where("model_type = ?", modelType)
+	}
+	if enabled != nil {
+		db = db.Where("enabled = ?", *enabled)
+	}
+
+	cur, err := pagination.Decode(cursor)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid cursor: %w", err)
+	}
+	if !cur.IsZero() {
+		anchor, perr := strconv.ParseInt(cur.Sort, 10, 64)
+		if perr != nil {
+			return nil, "", fmt.Errorf("invalid cursor sort: %w", perr)
+		}
+		pred, args := pagination.KeysetPredicate("created_at", "id", anchor, cur.ID, pagination.Desc)
+		db = db.Where(pred, args...)
+	}
+
+	var entities []Model
+	if err := db.
+		Order("created_at DESC, id DESC").
+		Limit(limit + 1).
+		Find(&entities).Error; err != nil {
+		return nil, "", fmt.Errorf("list model configs by cursor failed: %w", err)
+	}
+
+	nextCursor := ""
+	if len(entities) > limit {
+		last := entities[limit-1]
+		nextCursor = pagination.Cursor{Sort: strconv.FormatInt(last.CreatedAt, 10), ID: last.ID}.Encode()
+		entities = entities[:limit]
+	}
+
+	configs := make([]*llm.ModelConfig, len(entities))
+	for i := range entities {
+		configs[i] = r.toDomainModel(&entities[i])
+	}
+	return configs, nextCursor, nil
 }
 
 // toDomainModel 转换为领域模型

@@ -69,6 +69,14 @@ type ListModelsResponseDTO struct {
 	PageSize  int                 `json:"page_size"`
 }
 
+// ListModelsCursorResponseDTO 游标分页列出模型响应 DTO〔M5〕
+type ListModelsCursorResponseDTO struct {
+	Models     []*ModelResponseDTO `json:"models"`
+	NextCursor string              `json:"next_cursor"`
+	HasMore    bool                `json:"has_more"`
+	PageSize   int                 `json:"page_size"`
+}
+
 // ========================================
 // Embedding 相关 DTO
 // ========================================

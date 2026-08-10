@@ -4,11 +4,13 @@ package mysql
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
 	"cognida/internal/model/tenant"
 	"cognida/internal/model/user"
+	"cognida/internal/pkg/pagination"
 )
 
 // ========================================
@@ -391,6 +393,47 @@ func (r *tenantRepository) FindAll(ctx context.Context, page, pageSize int) ([]*
 	}
 
 	return result, total, nil
+}
+
+// FindAllByCursor 游标（keyset）分页〔M5〕：与 FindAll 一致按 created_at DESC 排序，
+// 追加 id DESC 作为唯一 tie-breaker（created_at 可能相同），保证翻页稳定；多取一条判定是否还有下一页。
+func (r *tenantRepository) FindAllByCursor(ctx context.Context, cursor string, limit int) ([]*tenant.Tenant, string, error) {
+	limit = pagination.NormalizeLimit(limit)
+
+	db := r.dbCtx(ctx).Model(&TenantModel{})
+
+	cur, err := pagination.Decode(cursor)
+	if err != nil {
+		return nil, "", fmt.Errorf("无效游标: %w", err)
+	}
+	if !cur.IsZero() {
+		anchor, perr := time.Parse(time.RFC3339Nano, cur.Sort)
+		if perr != nil {
+			return nil, "", fmt.Errorf("无效游标锚点: %w", perr)
+		}
+		pred, args := pagination.KeysetPredicate("created_at", "id", anchor, cur.ID, pagination.Desc)
+		db = db.Where(pred, args...)
+	}
+
+	var models []*TenantModel
+	if err := db.Order("created_at DESC, id DESC").
+		Limit(limit + 1).
+		Find(&models).Error; err != nil {
+		return nil, "", fmt.Errorf("查询租户列表失败: %w", err)
+	}
+
+	nextCursor := ""
+	if len(models) > limit {
+		last := models[limit-1]
+		nextCursor = pagination.Cursor{Sort: last.CreatedAt.UTC().Format(time.RFC3339Nano), ID: last.ID}.Encode()
+		models = models[:limit]
+	}
+
+	result := make([]*tenant.Tenant, len(models))
+	for i, m := range models {
+		result[i] = m.ToDomain()
+	}
+	return result, nextCursor, nil
 }
 
 // FindByStatus 根据状态查找租户列表

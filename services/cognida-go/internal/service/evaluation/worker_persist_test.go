@@ -46,6 +46,10 @@ func (f *fakeResultRepo) FindByTaskIDWithPagination(ctx context.Context, taskID 
 	return rows, int64(len(rows)), nil
 }
 
+func (f *fakeResultRepo) FindByTaskIDByCursor(ctx context.Context, taskID string, cursor string, limit int) ([]*domeval.EvaluationResult, string, error) {
+	return f.rows[taskID], "", nil
+}
+
 func (f *fakeResultRepo) DeleteByTaskID(ctx context.Context, taskID string) error {
 	f.deletes++
 	delete(f.rows, taskID)

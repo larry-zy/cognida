@@ -59,6 +59,10 @@ type TenantService interface {
 	// ListTenants 列出所有租户
 	ListTenants(ctx context.Context, page, pageSize int) ([]*TenantResponse, int64, error)
 
+	// ListTenantsByCursor 游标（keyset）分页列出租户〔M5〕：仅在携带 cursor 时启用。
+	// 返回本页租户、下一页游标（空=末页），不返回总数。
+	ListTenantsByCursor(ctx context.Context, cursor string, pageSize int) ([]*TenantResponse, string, error)
+
 	// UpdateTenant 更新租户
 	UpdateTenant(ctx context.Context, id int64, req *UpdateTenantRequest) (*TenantResponse, error)
 

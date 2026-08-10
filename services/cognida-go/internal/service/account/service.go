@@ -113,6 +113,11 @@ func (s *AccountService) ListTenants(ctx context.Context, page, pageSize int) ([
 	return s.tenantService.ListTenants(ctx, page, pageSize)
 }
 
+// ListTenantsByCursor 游标（keyset）分页列出租户〔M5〕
+func (s *AccountService) ListTenantsByCursor(ctx context.Context, cursor string, pageSize int) ([]*TenantResponse, string, error) {
+	return s.tenantService.ListTenantsByCursor(ctx, cursor, pageSize)
+}
+
 // UpdateTenant updates a tenant
 func (s *AccountService) UpdateTenant(ctx context.Context, id int64, req *UpdateTenantRequest) (*TenantResponse, error) {
 	return s.tenantService.UpdateTenant(ctx, id, req)

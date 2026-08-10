@@ -91,6 +91,11 @@ type ModelRepository interface {
 
 	// List 列出模型配置
 	List(ctx context.Context, tenantID int64, offset, limit int) ([]*ModelConfig, int64, error)
+
+	// ListByCursor 游标（keyset）分页〔M5〕：按 created_at DESC, id DESC 稳定排序，
+	// 以 cursor 为锚点取下一页；modelType 为空表示不过滤类型，enabled 为 nil 表示不过滤启用状态。
+	// 返回本页配置与「下一页游标」；nextCursor 为空表示已到末页。不返回总数。
+	ListByCursor(ctx context.Context, tenantID int64, modelType string, enabled *bool, cursor string, limit int) (configs []*ModelConfig, nextCursor string, err error)
 }
 
 // ========================================

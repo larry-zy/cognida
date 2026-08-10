@@ -423,10 +423,34 @@ func (s *Service) GetQAResults(ctx context.Context, taskID string, page, pageSiz
 	}, nil
 }
 
+// GetQAResultsByCursor 游标（keyset）分页〔M5〕获取某任务的 QA 级评测结果。
+// 与 GetQAResults 语义一致但走 keyset：以 cursor 为锚点取下一页，nextCursor 为空表示末页，不返回 total。
+func (s *Service) GetQAResultsByCursor(ctx context.Context, taskID string, cursor string, pageSize int) (*QAResultCursorList, error) {
+	results, nextCursor, err := s.resultRepo.FindByTaskIDByCursor(ctx, taskID, cursor, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return &QAResultCursorList{
+		Results:    results,
+		NextCursor: nextCursor,
+		HasMore:    nextCursor != "",
+		PageSize:   pageSize,
+	}, nil
+}
+
 // QAResultList QA 结果列表
 type QAResultList struct {
 	Results []*domeval.EvaluationResult `json:"results"`
 	Total   int64                       `json:"total"`
 	Page    int                         `json:"page"`
 	PageSize int                        `json:"page_size"`
+}
+
+// QAResultCursorList QA 结果游标分页列表〔M5〕。
+type QAResultCursorList struct {
+	Results    []*domeval.EvaluationResult `json:"results"`
+	NextCursor string                      `json:"next_cursor"`
+	HasMore    bool                        `json:"has_more"`
+	PageSize   int                         `json:"page_size"`
 }

@@ -9,6 +9,7 @@ import (
 	domaintask "cognida/internal/model/task"
 	domeval "cognida/internal/model/evaluation"
 	evaluationcache "cognida/internal/infrastructure/cache/evaluation"
+	"cognida/internal/pkg/pagination"
 )
 
 // Mock repositories for testing
@@ -183,6 +184,31 @@ func (m *mockResultRepo) FindByTaskIDWithPagination(ctx context.Context, taskID 
 		end = len(results)
 	}
 	return results[start:end], total, nil
+}
+
+func (m *mockResultRepo) FindByTaskIDByCursor(ctx context.Context, taskID string, cursor string, limit int) ([]*domeval.EvaluationResult, string, error) {
+	if m.findErr != nil {
+		return nil, "", m.findErr
+	}
+	rows := m.results[taskID]
+	if limit <= 0 {
+		limit = 20
+	}
+	start := 0
+	if cur, err := pagination.Decode(cursor); err == nil && !cur.IsZero() {
+		start = int(cur.ID)
+	}
+	if start > len(rows) {
+		start = len(rows)
+	}
+	end := start + limit
+	next := ""
+	if end < len(rows) {
+		next = pagination.Cursor{ID: int64(end)}.Encode()
+	} else {
+		end = len(rows)
+	}
+	return rows[start:end], next, nil
 }
 
 func (m *mockResultRepo) DeleteByTaskID(ctx context.Context, taskID string) error {
@@ -481,6 +507,50 @@ func TestService_ListEvaluationResults_FilterPushdown(t *testing.T) {
 	}
 	if byBoth.Items[0].TaskID != "task-003" {
 		t.Errorf("status+type filter: got %s, want task-003", byBoth.Items[0].TaskID)
+	}
+}
+
+// TestService_GetQAResultsByCursor 验证游标（keyset）分页〔M5〕：分两页取满 3 条结果，
+// 首页返回 nextCursor 且 HasMore=true，用该游标取下一页取回剩余结果并到达末页。
+func TestService_GetQAResultsByCursor(t *testing.T) {
+	taskRepo := newMockTaskRepo()
+	resultRepo := newMockResultRepo()
+	dsService := newMockDatasetLoader()
+	progressCache := evaluationcache.NewProgressCache(nil)
+
+	resultRepo.results["task-001"] = []*domeval.EvaluationResult{
+		{TaskID: "task-001", Question: "q1", Success: true},
+		{TaskID: "task-001", Question: "q2", Success: true},
+		{TaskID: "task-001", Question: "q3", Success: false},
+	}
+
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
+
+	// 第 1 页：pageSize=2 → 取回 2 条，仍有下一页。
+	page1, err := service.GetQAResultsByCursor(context.Background(), "task-001", "", 2)
+	if err != nil {
+		t.Fatalf("GetQAResultsByCursor(page1) error = %v", err)
+	}
+	if len(page1.Results) != 2 {
+		t.Fatalf("page1 Results len = %d, want 2", len(page1.Results))
+	}
+	if !page1.HasMore || page1.NextCursor == "" {
+		t.Fatalf("page1 HasMore=%v NextCursor=%q, want has_more with cursor", page1.HasMore, page1.NextCursor)
+	}
+
+	// 第 2 页：携带上一页游标 → 取回剩余 1 条，到达末页。
+	page2, err := service.GetQAResultsByCursor(context.Background(), "task-001", page1.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("GetQAResultsByCursor(page2) error = %v", err)
+	}
+	if len(page2.Results) != 1 {
+		t.Fatalf("page2 Results len = %d, want 1", len(page2.Results))
+	}
+	if page2.HasMore || page2.NextCursor != "" {
+		t.Fatalf("page2 HasMore=%v NextCursor=%q, want末页", page2.HasMore, page2.NextCursor)
+	}
+	if page2.Results[0].Question != "q3" {
+		t.Errorf("page2 first question = %q, want q3", page2.Results[0].Question)
 	}
 }
 

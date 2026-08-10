@@ -133,6 +133,17 @@ func (h *ModelHandler) ListModels(c *gin.Context) {
 		}
 	}
 
+	// 游标（keyset）分页〔M5〕：仅当请求携带 cursor 时启用；不带 cursor 时行为与响应结构与原状一致。
+	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
+		cursorResult, err := h.modelService.ListModelsByCursor(c.Request.Context(), tenantID, &req, c.Query("cursor"))
+		if err != nil {
+			InternalError(c, err.Error())
+			return
+		}
+		OK(c, cursorResult)
+		return
+	}
+
 	result, err := h.modelService.ListModels(c.Request.Context(), tenantID, &req)
 	if err != nil {
 		InternalError(c, err.Error())

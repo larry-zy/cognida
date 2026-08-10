@@ -74,6 +74,10 @@ type EvaluationResultRepository interface {
 	// FindByTaskIDWithPagination 根据任务 ID 查找结果（分页）
 	FindByTaskIDWithPagination(ctx context.Context, taskID string, page, pageSize int) ([]*EvaluationResult, int64, error)
 
+	// FindByTaskIDByCursor 游标（keyset）分页〔M5〕：按 id 升序，以 cursor 为锚点取下一页。
+	// 返回本页结果与「下一页游标」；nextCursor 为空表示已到末页。不返回总数（游标翻页不依赖 total）。
+	FindByTaskIDByCursor(ctx context.Context, taskID string, cursor string, limit int) (results []*EvaluationResult, nextCursor string, err error)
+
 	// DeleteByTaskID 根据任务 ID 删除所有结果
 	DeleteByTaskID(ctx context.Context, taskID string) error
 

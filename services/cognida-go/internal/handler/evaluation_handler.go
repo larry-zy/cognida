@@ -321,6 +321,18 @@ func (h *EvaluationHandler) GetQAResults(c *gin.Context) {
 	// 解析分页参数
 	page, pageSize := GetPageParams(c)
 
+	// 游标（keyset）分页〔M5〕：携带 cursor 参数即走 keyset，返回 next_cursor（空=末页）；
+	// 未携带则维持既有 offset 分页（返回 total/page），保持前端契约向后兼容。
+	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
+		cursorResult, err := h.service.GetQAResultsByCursor(c.Request.Context(), taskID, c.Query("cursor"), pageSize)
+		if err != nil {
+			h.handleError(c, err)
+			return
+		}
+		OK(c, cursorResult)
+		return
+	}
+
 	// 获取 QA 结果
 	result, err := h.service.GetQAResults(c.Request.Context(), taskID, page, pageSize)
 	if err != nil {

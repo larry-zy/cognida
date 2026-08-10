@@ -21,6 +21,10 @@ type TenantRepository interface {
 	// FindAll 查找所有租户列表
 	FindAll(ctx context.Context, page, pageSize int) ([]*Tenant, int64, error)
 
+	// FindAllByCursor 游标（keyset）分页〔M5〕：按 created_at DESC, id DESC 稳定排序，
+	// 以 cursor 为锚点取下一页。返回本页租户与「下一页游标」；nextCursor 为空表示已到末页。不返回总数。
+	FindAllByCursor(ctx context.Context, cursor string, limit int) (tenants []*Tenant, nextCursor string, err error)
+
 	// FindByStatus 根据状态查找租户列表
 	FindByStatus(ctx context.Context, status string, page, pageSize int) ([]*Tenant, int64, error)
 

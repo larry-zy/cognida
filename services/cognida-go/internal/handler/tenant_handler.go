@@ -45,6 +45,22 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 func (h *TenantHandler) ListTenants(c *gin.Context) {
 	page, pageSize := GetPageParams(c)
 
+	// 游标（keyset）分页〔M5〕：仅当请求携带 cursor 时启用；不带 cursor 时行为与响应结构与原状一致。
+	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
+		result, nextCursor, err := h.accountService.ListTenantsByCursor(c.Request.Context(), c.Query("cursor"), pageSize)
+		if err != nil {
+			InternalError(c, err.Error())
+			return
+		}
+		OK(c, gin.H{
+			"list":        result,
+			"next_cursor": nextCursor,
+			"has_more":    nextCursor != "",
+			"page_size":   pageSize,
+		})
+		return
+	}
+
 	result, total, err := h.accountService.ListTenants(c.Request.Context(), page, pageSize)
 	if err != nil {
 		InternalError(c, err.Error())

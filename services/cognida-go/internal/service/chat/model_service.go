@@ -147,6 +147,32 @@ func (s *ModelService) ListModels(ctx context.Context, tenantID int64, req *List
 	}, nil
 }
 
+// ListModelsByCursor 游标（keyset）分页列出模型配置〔M5〕。
+// 与 ListModels 的偏移路径共享排序（created_at DESC），仅在请求携带 cursor 时启用。
+func (s *ModelService) ListModelsByCursor(ctx context.Context, tenantID int64, req *ListModelsRequestDTO, cursor string) (*ListModelsCursorResponseDTO, error) {
+	pageSize := req.PageSize
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	configs, nextCursor, err := s.modelRepo.ListByCursor(ctx, tenantID, req.ModelType, req.Enabled, cursor, pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("列出模型配置失败: %w", err)
+	}
+
+	models := make([]*ModelResponseDTO, len(configs))
+	for i, c := range configs {
+		models[i] = FromDomainModelConfig(c)
+	}
+
+	return &ListModelsCursorResponseDTO{
+		Models:     models,
+		NextCursor: nextCursor,
+		HasMore:    nextCursor != "",
+		PageSize:   pageSize,
+	}, nil
+}
+
 // GetDefaultModel 获取默认模型
 func (s *ModelService) GetDefaultModel(ctx context.Context, tenantID int64, modelType string) (*ModelResponseDTO, error) {
 	config, err := s.modelRepo.GetDefault(ctx, tenantID, llm.ModelType(modelType))
