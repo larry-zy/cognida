@@ -203,7 +203,9 @@ func metaString(v interface{}) string {
 // UISpec 下发（不等流结束）；校验失败的调用 status=error、无 ui_spec，不推 ui 事件
 // （错误已由 eino 循环回灌 LLM 自纠）。genUI.compose 仅作旧 preset 兜底：整个流
 // 没有任何 render_ui surface 时，done 之前用捕获的工具输出一次性拼装。
-func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agentuc.ChatChunkDTO, genUI genUIOption) agentStreamResult {
+// streamAgentChunks 消费 agent chunk 流并经 sw 下发 SSE。sw 由调用方与心跳共用同一把锁，
+// 保证本函数的数据帧与心跳帧对同一 ResponseWriter 的写入被串行化〔R2-3〕。
+func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkChan <-chan *agentuc.ChatChunkDTO, genUI genUIOption) agentStreamResult {
 	var sb strings.Builder
 	var toolCalls []agentuc.ToolCallInfo
 	var steps []map[string]interface{}
@@ -234,10 +236,10 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 					AnalysisOutputs: analysisOutputs,
 				}); spec != nil {
 					uiSurfaces = append(uiSurfaces, spec)
-					sse.SendSSE(c.Writer, "ui", spec)
+					sw.Send("ui", spec)
 				}
 			}
-			sse.SendSSE(c.Writer, "done", gin.H{
+			sw.Send("done", gin.H{
 				"event":  "done",
 				"answer": sb.String(),
 				// 回传归属会话 ID：新会话首轮时前端据此绑定 currentSessionId，
@@ -250,7 +252,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 		// 文本增量：作为回答内容
 		if chunk.Content != "" {
 			sb.WriteString(chunk.Content)
-			sse.SendSSE(c.Writer, "step", gin.H{
+			sw.Send("step", gin.H{
 				"event":   "step",
 				"type":    "thought",
 				"content": chunk.Content,
@@ -272,7 +274,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 		for k, v := range chunk.Metadata {
 			payload[k] = v
 		}
-		sse.SendSSE(c.Writer, "step", payload)
+		sw.Send("step", payload)
 		steps = append(steps, chunk.Metadata)
 
 		// 工具执行结果收集为持久化记录
@@ -293,7 +295,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 				if toolErr == "" {
 					if spec := extractRenderedUISpec(toolOutput); spec != nil {
 						uiSurfaces = append(uiSurfaces, spec)
-						sse.SendSSE(c.Writer, "ui", spec)
+						sw.Send("ui", spec)
 					}
 				}
 			case "sql_mutate":
@@ -302,7 +304,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, chunkChan <-chan *agent
 				if toolErr == "" {
 					if spec := extractPendingConfirmUISpec(toolOutput, genUI.sessionID); spec != nil {
 						uiSurfaces = append(uiSurfaces, spec)
-						sse.SendSSE(c.Writer, "ui", spec)
+						sw.Send("ui", spec)
 					}
 				}
 			// 捕获真实工具输出，供 done 前的旧路径 genUI 兜底（收全部结果集，融合成一份 DataModel）。
@@ -389,14 +391,17 @@ func (h *AgentHandler) DeepResearchStream(c *gin.Context) {
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)
 
+	// 串行化写入器：心跳与数据帧共用同一把锁，避免并发写 ResponseWriter 数据竞争〔R2-3〕。
+	sw := sse.NewWriter(c.Writer)
+
 	// 启动心跳机制
-	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
+	stopHeartbeat := sw.StartHeartbeat(c.Request.Context(), nil)
 	defer stopHeartbeat()
 
 	// 发送流式进度数据
 	for progress := range progressChan {
 		eventData := h.progressUseCase.ConvertToSSEEvent(progress)
-		sse.SendSSE(c.Writer, progress.Stage, eventData)
+		sw.Send(progress.Stage, eventData)
 	}
 }
 
@@ -539,8 +544,11 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)
 
+	// 串行化写入器：心跳与数据帧共用同一把锁，避免并发写 ResponseWriter 数据竞争〔R2-3〕。
+	sw := sse.NewWriter(c.Writer)
+
 	// 启动心跳机制（30秒间隔）
-	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
+	stopHeartbeat := sw.StartHeartbeat(c.Request.Context(), nil)
 	defer stopHeartbeat()
 
 	// 更新请求的 session_id 为准备好的会话 ID
@@ -566,7 +574,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	}
 
 	// 发送流式数据并收集内容（结构化 step 契约）；Text2SQL 开启生成式 UI 融合。
-	result := h.streamAgentChunks(c, chunkChan, genUIOption{compose: true, question: req.Query, sessionID: session.ID})
+	result := h.streamAgentChunks(c, sw, chunkChan, genUIOption{compose: true, question: req.Query, sessionID: session.ID})
 
 	// 持久化：保存助手消息。
 	// 注意：不能只以 Content 非空为条件——Data Agent 可能只产出画布 UI（surfaces）或工具调用而无文本，
@@ -943,8 +951,11 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)
 
+	// 串行化写入器：心跳与数据帧共用同一把锁，避免并发写 ResponseWriter 数据竞争〔R2-3〕。
+	sw := sse.NewWriter(c.Writer)
+
 	// 启动心跳机制（30秒间隔）
-	stopHeartbeat := sse.StartHeartbeat(ctx, c.Writer, nil)
+	stopHeartbeat := sw.StartHeartbeat(ctx, nil)
 	defer stopHeartbeat()
 
 	// 执行流式聊天（通过持久化服务包装）
@@ -956,7 +967,7 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	}
 
 	// 发送流式数据并收集内容（结构化 step 契约）；回传归属会话 ID 供前端绑定新会话。
-	result := h.streamAgentChunks(c, chunkChan, genUIOption{sessionID: req.SessionID})
+	result := h.streamAgentChunks(c, sw, chunkChan, genUIOption{sessionID: req.SessionID})
 
 	// 持久化：仅保存助手回复（用户消息已在执行前落库，避免重复）。
 	if h.persistenceService != nil && (result.Content != "" || len(result.UISurfaces) > 0 || len(result.ToolCalls) > 0) {

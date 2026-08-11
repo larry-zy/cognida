@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"cognida/internal/pkg/safego"
@@ -47,8 +48,10 @@ func SetSSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 }
 
-// SendSSE sends a Server-Sent Event to the client
-func SendSSE(w http.ResponseWriter, eventType string, data interface{}) {
+// writeSSE 无锁写出一条 SSE 事件到底层 ResponseWriter。
+// 仅供已持有 Writer.mu 的方法内部调用——外部一律经 *Writer 的加锁方法，
+// 以保证数据帧与心跳帧对同一 ResponseWriter 的写入被串行化〔R2-3〕。
+func writeSSE(w http.ResponseWriter, eventType string, data interface{}) {
 	fmt.Fprintf(w, "event: %s\n", eventType)
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -62,16 +65,40 @@ func SendSSE(w http.ResponseWriter, eventType string, data interface{}) {
 	}
 }
 
-// SendError sends an error event via SSE
-func SendError(w http.ResponseWriter, err error) {
-	SendSSE(w, EventTypeError, map[string]interface{}{
+// ========================================
+// Serialized SSE Writer
+// ========================================
+
+// Writer 串行化对同一 http.ResponseWriter 的所有 SSE 写入（数据帧 + 心跳帧）。
+// 消除心跳 goroutine 与主发送流并发写同一 ResponseWriter 的数据竞争〔R2-3〕。
+// 一个请求应只构造一个 Writer，并把它同时用于 StartHeartbeat 与所有发送。
+type Writer struct {
+	mu sync.Mutex
+	w  http.ResponseWriter
+}
+
+// NewWriter 基于底层 ResponseWriter 构造串行化 SSE 写入器。
+func NewWriter(w http.ResponseWriter) *Writer {
+	return &Writer{w: w}
+}
+
+// Send 加锁写出一条 SSE 事件。
+func (sw *Writer) Send(eventType string, data interface{}) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	writeSSE(sw.w, eventType, data)
+}
+
+// SendError 加锁写出错误事件。
+func (sw *Writer) SendError(err error) {
+	sw.Send(EventTypeError, map[string]interface{}{
 		"error": err.Error(),
 	})
 }
 
-// SendDone sends a completion event via SSE
-func SendDone(w http.ResponseWriter) {
-	SendSSE(w, EventTypeDone, ContentChunk{Done: true})
+// SendDone 加锁写出完成事件。
+func (sw *Writer) SendDone() {
+	sw.Send(EventTypeDone, ContentChunk{Done: true})
 }
 
 // ========================================
@@ -90,9 +117,9 @@ var DefaultHeartbeatConfig = &HeartbeatConfig{
 	Comment:  "keepalive",
 }
 
-// StartHeartbeat 启动心跳机制
-// 返回一个 stop 函数，调用可停止心跳
-func StartHeartbeat(ctx context.Context, w http.ResponseWriter, config *HeartbeatConfig) func() {
+// StartHeartbeat 启动心跳机制，返回一个 stop 函数供调用方停止心跳。
+// 心跳帧与数据帧共用 Writer 的同一把锁写出，二者互斥、不再竞争同一 ResponseWriter。
+func (sw *Writer) StartHeartbeat(ctx context.Context, config *HeartbeatConfig) func() {
 	if config == nil {
 		config = DefaultHeartbeatConfig
 	}
@@ -101,18 +128,20 @@ func StartHeartbeat(ctx context.Context, w http.ResponseWriter, config *Heartbea
 	ticker := time.NewTicker(config.Interval)
 
 	go func() {
-		defer safego.Recover("sse-forward")
+		defer safego.Recover("sse-heartbeat")
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// 发送 SSE 心跳（注释行，不会触发客户端事件）
-				fmt.Fprintf(w, ": %s\n\n", config.Comment)
-				if f, ok := w.(http.Flusher); ok {
+				// 发送 SSE 心跳（注释行，不会触发客户端事件）；与数据帧共用锁。
+				sw.mu.Lock()
+				fmt.Fprintf(sw.w, ": %s\n\n", config.Comment)
+				if f, ok := sw.w.(http.Flusher); ok {
 					f.Flush()
 				}
+				sw.mu.Unlock()
 			}
 		}
 	}()

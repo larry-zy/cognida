@@ -208,18 +208,21 @@ func (h *ModelHandler) ChatStream(c *gin.Context) {
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)
 
+	// 串行化写入器：心跳与数据帧共用同一把锁，避免并发写 ResponseWriter 数据竞争〔R2-3〕。
+	sw := sse.NewWriter(c.Writer)
+
 	// 启动心跳机制
-	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
+	stopHeartbeat := sw.StartHeartbeat(c.Request.Context(), nil)
 	defer stopHeartbeat()
 
 	// 发送流式数据
 	for chunk := range chunkChan {
 		if chunk.Done {
-			sse.SendSSE(c.Writer, sse.EventTypeDone, chunk)
+			sw.Send(sse.EventTypeDone, chunk)
 			break
 		}
 		if chunk.Content != "" {
-			sse.SendSSE(c.Writer, sse.EventTypeContent, chunk)
+			sw.Send(sse.EventTypeContent, chunk)
 		}
 	}
 }

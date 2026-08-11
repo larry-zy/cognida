@@ -29,7 +29,7 @@ func TestSetSSEHeaders(t *testing.T) {
 
 func TestSendSSE(t *testing.T) {
 	w := httptest.NewRecorder()
-	SendSSE(w, EventTypeContent, ContentChunk{Content: "test", Done: false})
+	NewWriter(w).Send(EventTypeContent, ContentChunk{Content: "test", Done: false})
 
 	body := w.Body.String()
 	if body == "" {
@@ -49,7 +49,7 @@ func TestSendSSE_WithComplexData(t *testing.T) {
 		"key":   "value",
 		"count": 42,
 	}
-	SendSSE(w, EventTypeMetadata, data)
+	NewWriter(w).Send(EventTypeMetadata, data)
 
 	body := w.Body.String()
 	if body == "" {
@@ -65,7 +65,7 @@ func TestSendSSE_WithComplexData(t *testing.T) {
 func TestSendError(t *testing.T) {
 	w := httptest.NewRecorder()
 	err := fmt.Errorf("test error")
-	SendError(w, err)
+	NewWriter(w).SendError(err)
 
 	body := w.Body.String()
 	if body == "" {
@@ -80,7 +80,7 @@ func TestSendError(t *testing.T) {
 
 func TestSendDone(t *testing.T) {
 	w := httptest.NewRecorder()
-	SendDone(w)
+	NewWriter(w).SendDone()
 
 	body := w.Body.String()
 	if body == "" {

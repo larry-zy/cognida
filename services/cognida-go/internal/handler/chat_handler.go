@@ -89,15 +89,18 @@ func (h *ChatHandler) chatStream(c *gin.Context, ctx context.Context, req *domai
 	// 设置 SSE 响应头
 	sse.SetSSEHeaders(c.Writer)
 
+	// 串行化写入器：心跳与数据帧共用同一把锁，避免并发写 ResponseWriter 数据竞争〔R2-3〕。
+	sw := sse.NewWriter(c.Writer)
+
 	// 启动心跳机制
-	stopHeartbeat := sse.StartHeartbeat(c.Request.Context(), c.Writer, nil)
+	stopHeartbeat := sw.StartHeartbeat(c.Request.Context(), nil)
 	defer stopHeartbeat()
 
 	// 执行流式聊天
 	streamChan, err := h.chatService.ChatStream(ctx, req)
 	if err != nil {
 		log.Printf("[ChatStream] 流式聊天失败: %v", err)
-		sse.SendError(c.Writer, err)
+		sw.SendError(err)
 		return
 	}
 
@@ -107,7 +110,7 @@ func (h *ChatHandler) chatStream(c *gin.Context, ctx context.Context, req *domai
 		if chunk.Done {
 			eventType = "end"
 		}
-		sse.SendSSE(c.Writer, eventType, map[string]interface{}{
+		sw.Send(eventType, map[string]interface{}{
 			"content": chunk.Content,
 			"done":    chunk.Done,
 			"role":    chunk.Role,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"cognida/internal/handler/sse"
 	agentuc "cognida/internal/service/agent"
 )
 
@@ -27,7 +28,7 @@ func TestStreamAgentChunks_CancelStopsConsuming(t *testing.T) {
 
 	done := make(chan agentStreamResult, 1)
 	go func() {
-		done <- h.streamAgentChunks(c, chunkChan, genUIOption{})
+		done <- h.streamAgentChunks(c, sse.NewWriter(w), chunkChan, genUIOption{})
 	}()
 
 	// 先正常消费一个 chunk，确认循环已启动
