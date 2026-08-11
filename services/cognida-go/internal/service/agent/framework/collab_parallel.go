@@ -9,11 +9,15 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
 	domainagent "cognida/internal/model/agent"
 	"cognida/internal/pkg/safego"
 )
+
+// 编译期断言：并行委派工具必须实现 eino tool.InvokableTool（见 collab_tools.go 同类断言注释）。
+var _ tool.InvokableTool = (*ParallelDelegateTool)(nil)
 
 // defaultDelegateConcurrency 并行委派默认并发上限（资源护栏，防子代理树暴涨）。
 const defaultDelegateConcurrency = 3
@@ -68,7 +72,7 @@ type parallelDelegationResult struct {
 }
 
 // InvokableRun executes fan-out delegation with a concurrency cap.
-func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...any) (string, error) {
+func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	var args struct {
 		Delegations []DelegationEnvelope `json:"delegations"`
 	}

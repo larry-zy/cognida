@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -151,21 +152,49 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (o
 		return "", false, fmt.Errorf("tool not found: %s", toolCall.Function.Name)
 	}
 
-	// 执行工具：可选套统一的单次工具超时兜底（toolTimeout>0 时）。
-	if a.toolTimeout <= 0 {
+	// 执行工具：可选套统一的单次工具超时兜底。委派类协作元工具自带更长的内部超时
+	// （delegationTimeout=180s），需给更宽的单工具挂钟上限——否则通用 toolTimeout（90s）会
+	// 先于其内部超时把三路并行委派掐断，退化回主循环内联，白费子代理隔离（历史 bug）。
+	timeout := a.effectiveToolTimeout(toolCall.Function.Name)
+	if timeout <= 0 {
 		out, err := a.runSelectedTool(ctx, selectedTool, toolCall)
 		return out, false, err
 	}
-	out, err := a.runToolWithTimeout(ctx, selectedTool, toolCall)
+	out, err := a.runToolWithTimeout(ctx, selectedTool, toolCall, timeout)
 	return out, false, err
+}
+
+// collabToolWallClock 委派类协作元工具的单工具挂钟上限：须高于其内部 delegationTimeout，
+// 让内部超时先触发、产出「失败项可携原信封单独重试」的优雅信封，本值只作真·卡死的外层兜底。
+const collabToolWallClock = delegationTimeout + 30*time.Second
+
+// selfBoundedCollabTools 自带内部超时的协作元工具名集合：委派走 delegationTimeout（executeDelegation），
+// ask/handoff 走各自 timeout（见 collab_tools.go）。这些工具不该受通用 toolTimeout 提前掐断。
+var selfBoundedCollabTools = map[string]bool{
+	"delegate_to_agent": true,
+	"delegate_parallel": true,
+	"ask_agent":         true,
+	"handoff_to":        true,
+}
+
+// effectiveToolTimeout 返回某工具单次执行的挂钟上限：通用 toolTimeout<=0（不限）时一律不设限；
+// 委派类协作元工具给更宽的 collabToolWallClock（避免通用 toolTimeout 先掐断退化回内联），其余工具用通用值。
+func (a *agentImpl) effectiveToolTimeout(toolName string) time.Duration {
+	if a.toolTimeout <= 0 {
+		return 0
+	}
+	if selfBoundedCollabTools[toolName] && collabToolWallClock > a.toolTimeout {
+		return collabToolWallClock
+	}
+	return a.toolTimeout
 }
 
 // runToolWithTimeout 在 toolTimeout 挂钟上限内执行工具：派生带 deadline 的子 ctx 传给工具（协作型
 // I/O 会据此及时取消，不泄漏），同时把执行放到 goroutine 并 select ctx.Done()——即便某工具忽略 ctx、
 // 纯阻塞，invokeTool 也能在到点后返回一次可恢复的超时观察，不把 ReAct 循环拖死（这正是「单步 hang 使
 // wallClock 失效」的堵口）。到点后被遗弃的 goroutine 会在其自身返回时自然结束，不影响主循环推进。
-func (a *agentImpl) runToolWithTimeout(ctx context.Context, selectedTool tool.BaseTool, toolCall schema.ToolCall) (string, error) {
-	toolCtx, cancel := context.WithTimeout(ctx, a.toolTimeout)
+func (a *agentImpl) runToolWithTimeout(ctx context.Context, selectedTool tool.BaseTool, toolCall schema.ToolCall, timeout time.Duration) (string, error) {
+	toolCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	type toolOutcome struct {
@@ -187,7 +216,7 @@ func (a *agentImpl) runToolWithTimeout(ctx context.Context, selectedTool tool.Ba
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return "", fmt.Errorf("工具 %s 执行超过 %s 未返回（已中止本步，交由循环换路径或收尾）", toolCall.Function.Name, a.toolTimeout)
+		return "", fmt.Errorf("工具 %s 执行超过 %s 未返回（已中止本步，交由循环换路径或收尾）", toolCall.Function.Name, timeout)
 	}
 }
 

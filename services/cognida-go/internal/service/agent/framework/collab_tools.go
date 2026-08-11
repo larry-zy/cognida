@@ -8,9 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 
 	"cognida/internal/model/agent"
+)
+
+// 编译期断言：这些协作元工具必须实现 eino tool.InvokableTool，否则
+// runSelectedTool 的 type switch 会落到 default 报「unsupported tool type」——
+// 工具能被 Info 广播给 LLM、却在执行时被拒（历史上 opts ...any 误签名即如此潜伏）。
+var (
+	_ tool.InvokableTool = (*DelegateTool)(nil)
+	_ tool.InvokableTool = (*AskTool)(nil)
+	_ tool.InvokableTool = (*HandoffTool)(nil)
 )
 
 // ========================================
@@ -91,7 +101,7 @@ func (t *DelegateTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 // InvokableRun executes the delegation.
-func (t *DelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...any) (string, error) {
+func (t *DelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	var env DelegationEnvelope
 	if err := json.Unmarshal([]byte(argumentsInJSON), &env); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
@@ -161,7 +171,7 @@ func (t *AskTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 // InvokableRun executes the ask operation.
-func (t *AskTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...any) (string, error) {
+func (t *AskTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	// Parse arguments
 	var args struct {
 		AgentName string `json:"agent_name"`
@@ -277,7 +287,7 @@ func (t *HandoffTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 // InvokableRun executes the handoff.
-func (t *HandoffTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...any) (string, error) {
+func (t *HandoffTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	// Parse arguments
 	var args struct {
 		AgentName string `json:"agent_name"`

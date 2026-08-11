@@ -29,6 +29,9 @@ server.exe
 /tmp/
 tmp/
 
+# 运行时产物：本地编译的 server 二进制、pid/日志、e2e 评测产物等，本地留存不入库
+/var/
+
 # Logs
 *.log
 

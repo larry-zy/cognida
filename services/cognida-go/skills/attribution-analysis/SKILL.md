@@ -52,6 +52,14 @@ allowed_tools:
   - `analysis_type=attribution`，`options.value_col`（指标列）+ `options.period_col`（期间列），得 drivers/confidence/drill_down。
   - `analysis_type=comparison` / `correlation`：补充验证驱动因子。
 
+## 编排（按上下文重量分流）
+
+- 归因通常上下文重（大行集 + 多轮下钻），默认委派：`SQLAuthor` 取「期间 × 候选维度 × 指标」行集回传
+  `result_id`，`Analysis` 做 `analysis_type=attribution`；你串 `result_id`、综合各轮下钻结论并标注 confidence。
+  子代理内部的试错与大结果不进你的主上下文。
+- 仅当行集小、单轮即可定论时才直接做，省委派往返。判据是上下文重量，不是步数。
+- 每次委派携最小 scope（read）；drivers 落的新 `result_id` 再串进下钻委派的 `inputs.result_id`。
+
 ## 数据传递
 
 - 取数返回大结果以 `result_id` 承载；归因分析传 `result_id`，drivers 结果也会落新的 `result_id` 供下钻取回，**不要**复制大结果进参数。

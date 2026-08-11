@@ -52,6 +52,14 @@ SELECT
 FROM (SELECT customer_id, COUNT(*) cnt FROM orders GROUP BY customer_id) t;
 ```
 
+## 编排（多主题务必扇出隔离）
+
+- 报告多主题、每主题各自展开取数+分析，上下文最重：用 `delegate_parallel` 并行委派 `Insight`（每主题一个），
+  每个 Insight 内部自行取数+分析、只回传结论摘要 + `result_id`，你汇总各主题结论。**不要**在主循环里逐一
+  展开各主题，否则中间数据会撑爆上下文。
+- 仅单一主题的轻量报告可直接按标准流程 `data_analysis(analysis_type=report)` 一次成形。
+- 每次委派携最小 scope（read）；汇总时以各 `Insight` 回传的 `result_id` 承载明细，正文只放结论与口径。
+
 ## 输出结构
 
 ```markdown

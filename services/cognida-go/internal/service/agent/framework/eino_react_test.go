@@ -362,6 +362,36 @@ func TestReAct_ToolTimeout(t *testing.T) {
 	}
 }
 
+// TestEffectiveToolTimeout 验证委派类协作元工具拿到比通用 toolTimeout 更宽的单工具挂钟上限
+// （collabToolWallClock，须高于内部 delegationTimeout），避免通用 90s 先掐断三路并行委派、
+// 退化回主循环内联（历史 bug）；普通工具仍用通用 toolTimeout；toolTimeout<=0（不限）时一律 0。
+func TestEffectiveToolTimeout(t *testing.T) {
+	a := &agentImpl{toolTimeout: 90 * time.Second}
+
+	// 委派类元工具须超过其内部 delegationTimeout，让内部超时先触发产出优雅信封。
+	for _, name := range []string{"delegate_to_agent", "delegate_parallel", "ask_agent", "handoff_to"} {
+		got := a.effectiveToolTimeout(name)
+		if got != collabToolWallClock {
+			t.Errorf("%s: expected collabToolWallClock=%s, got %s", name, collabToolWallClock, got)
+		}
+		if got <= delegationTimeout {
+			t.Errorf("%s: 挂钟上限 %s 必须高于内部 delegationTimeout %s，否则内部优雅超时无从先触发",
+				name, got, delegationTimeout)
+		}
+	}
+
+	// 普通工具仍用通用 toolTimeout。
+	if got := a.effectiveToolTimeout("sql_execute"); got != a.toolTimeout {
+		t.Errorf("普通工具应用通用 toolTimeout=%s，got %s", a.toolTimeout, got)
+	}
+
+	// toolTimeout<=0（不限）时协作工具也不额外设限，返回 0（跳过超时包裹）。
+	unlimited := &agentImpl{toolTimeout: 0}
+	if got := unlimited.effectiveToolTimeout("delegate_parallel"); got != 0 {
+		t.Errorf("toolTimeout=0 时应返回 0（不设限），got %s", got)
+	}
+}
+
 // TestReAct_TokenBudgetTermination 验证 token 预算耗尽时循环提前终止并 wind-down 收尾，
 // terminated_by=token_budget，且工具调用轮数少于 maxIter。
 func TestReAct_TokenBudgetTermination(t *testing.T) {

@@ -474,6 +474,96 @@ factory := llm.NewModelFactory(llm.WithResilience(cfg))
 factory := llm.NewModelFactory(llm.WithoutResilience())
 ```
 
+### 11. 量化数据分析（`data_analysis` · 取数 → 分析 → 归因）
+
+在 `sql_execute` / `semantic_query` 取数之后，把行集交给分析引擎做**有计算依据的统计**，而非让 LLM 凭空叙述数字。设计取向一句话：**数字归代码、叙述归模型**——确定性算法在 Python 侧算，文字结论与关键数字由 Go 侧确定性拼装，LLM 只负责「决定调哪个分析、如何解读业务含义」。
+
+#### 一个工具，八种能力（`tools/data_analysis.go`）
+
+Go 侧只有**一个** `data_analysis` 工具，靠参数 `analysis_type` 分派到 Python 侧对应 MCP 工具（`analysisTypeToMCPTool`）：
+
+| `analysis_type` | Python MCP 工具 | 用途 | 必填 options |
+|-----------------|-----------------|------|--------------|
+| `trend` | `data_trend` | 线性趋势 + 预测 + 增长率（环比/同比/CAGR）| `value_col` |
+| `comparison` | `data_comparison` | 分组聚合排名与占比，恰两组时附显著性检验 | `value_col` `dim_col` |
+| `attribution` | `data_attribution` | 归因/根因：可加方差分解 + 驱动排序 + 隐藏因子 | `value_col` `period_col`（`dim_col` 可缺省自动扫描）|
+| `report` | `data_insight` | 报告解读（综合洞察别名）| — |
+| `describe` | `data_describe` | 描述统计（均值/分位数/偏度峰度 + 正态性）| — |
+| `anomaly` | `data_anomaly` | 异常点检测（IQR / zscore）| `value_col` |
+| `correlation` | `data_correlation` | 数值列相关性矩阵与显著相关对 | — |
+| `insight` | `data_insight` | 综合洞察（与 report 等价）| — |
+
+#### 数据怎么进来：result_id 引用（data-by-reference）
+
+大行集**不在 LLM 上下文里搬来搬去**。取数与分析解耦：`sql_execute` 把结果存进 Result Store 返回 `result_id`，`data_analysis` 按句柄取回。`data` 与 `result_id` 二选一，缺来源时**三级兜底**（`InvokableRun`）：
+
+```
+① 委派带外句柄     指挥官为本次委派钉进子上下文的 result_id（多 Agent 场景，最精确）
+② 会话取数回退     本会话 live 取数：恰 1 份→直接用；≥2 份→宁拒不猜（列候选让模型显式指定）；
+                   0 份→退到「最近一次」兜底  ← 刻意避免静默取错数据集
+③ 缺来源           返回非致命错误结果，交回 Agent 补传 data 或 result_id
+```
+
+行集经 Python `records_to_df` 转 DataFrame（`{columns, rows}` 或 records 数组皆可），并**尝试把文本列转数值**（仅当不引入新 NA，避免误伤文本列）；超 10 万行截断并回传 `truncated`。
+
+#### 执行流
+
+```
+sql_execute 取数 ──► Result Store ──► result_id
+                                        │
+data_analysis(analysis_type, result_id, options)
+   │  Go：解析 result_id 取回行集 → 展开 options → 经既有 MCP 通道调 Python
+   ▼
+Python analytics 引擎（确定性 pandas 算法）
+   │  归因=可加方差分解 / 趋势=线性回归+预测 / 异常=IQR·zscore / 对比=分组+t 检验
+   ▼
+Go：透传 {analysis_type, success, data}
+   │  attribution 成功时额外拼「一等信封」（见下）
+   ▼
+render_ui 画图 / 结论回灌 ReAct
+```
+
+#### 归因算法（`services/analytics/attribution.py`，最具业务价值）
+
+`AttributionAnalyzer.decompose` 对指标两期变化做**可加方差分解**（各切片 delta 之和恰等于总 delta，不丢行）：
+
+1. **切基期/现期**：不指定则取排序后最后两期。
+2. **自动选维度**（`dim_col` 缺省时）：扫描取值数 2~50 的非数值列作候选，按**归一化集中度 HHI×n** 选「变化最集中」的维度——注释特别指出不能用 top3 覆盖率跨维度比较（低基数维度天然偏高）。
+3. **切片分解**：每切片给出 `delta` / `contribution_pct`（占总变化）/ `share_of_change`（对冲场景也可用）/ `direction`，按 `|delta|` 降序即得头号驱动；标记 `new_segment` / `disappeared`（新开/关停）。
+4. **隐藏因子探测**：top3 仅解释 <50% → 驱动分散提示；`(未知)` 切片占比 >30% → 口径不完整；头部含新增/消失切片 → 结构性变化。
+5. **置信分级**：样本量 + 驱动集中度启发式标 high/medium/low（明确「不作为确定性事实」）。
+
+其余：**anomaly** 单列 IQR（默认）或 zscore（阈值默认 3.0），<3 点拒绝；**trend** 线性趋势（方向/斜率/R²/显著性）+ 预测（默认 5 步）+ 增长率，时间列自动识别；**comparison** 分组排名 + 占比，**恰两组时自动 t 检验**给显著性。
+
+#### 归因的「一等信封」（`enrichAttributionEnvelope`）
+
+`attribution` 成功时 Go 侧额外拼装，让结论可信、可追、可继续：
+
+| 字段 | 说明 |
+|------|------|
+| `result_id` | drivers 表回落 Result Store 得到新引用，可继续 `render_ui` 画图或再分析 |
+| `insight` | **确定性中文洞察**：数字由 Go 从计算结果拼装，不靠 LLM 复述（杜绝把 -15% 说成 -1.5%）|
+| `caliber` / `confidence` | 口径（指标/维度/期间/聚合）与置信上提到顶层，保证不被裁剪 |
+| `drill_down` | 下钻校验建议，引用来源 result_id：「按头号驱动切片过滤明细重新取数校验」|
+
+#### 案例走查：连锁奶茶店「华东区昨天销量为什么跌了？」
+
+```
+① 老板提问 ──► Data Agent（intentRoutingHook 命中 归因/根因 意图，注入 playbook）
+② 取数     ──► SchemaExplorer + SQLAuthor 子代理：语义层把「销量/华东区」翻成
+                度量+维度 → sql_execute 拉「门店 × 期间 × 销量」明细 → result_id
+③ 归因     ──► data_analysis(attribution, result_id,
+                options{value_col:销量, period_col:日期})   # dim_col 缺省 → 自动扫描
+                Python 分解：按门店切片，华东XX店 delta 最大 → 头号驱动
+④ 信封     ──► Go 拼确定性洞察：
+                「销量 由 上周的 12000 变为 本周的 10200（-1800, -15%）。
+                 按 门店 维度可加分解，主要驱动：华东XX店 -900（贡献 50%）……。
+                 置信度：中。」+ drivers 新 result_id + 下钻建议
+⑤ 出图     ──► render_ui 把 drivers 表画成瀑布/条形图，SSE 流式下发
+```
+
+> 前置配置见 [§5 多数据源](#5-多数据源管理)（接业务库）与 [§6 语义引擎](#6-语义引擎治理型语义层--nl2semantics)（建指标/维度）。当前系统为**对话按需触发**，尚无「每天定时自动生成日报并推送」的调度层。
+
 ## Agent 开发指南（新建 · 配置 · 使用）
 
 本节回答三个问题：**这个项目里的 Agent 是怎么组织的、如何从零新建一个、以及如何配置和调用它。**

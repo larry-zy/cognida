@@ -48,6 +48,14 @@ allowed_tools:
   - `analysis_type=trend`，`options.value_col` 指定数值列，得方向与幅度。
   - `analysis_type=anomaly`：检测序列中的异常点/突变。
 
+## 编排（按上下文重量分流）
+
+- 取数重则委派、轻则直接做——判据是上下文重量，不是步数：
+  - 需多表定位、序列很长、或 SQL 可能多轮试错 → 委派 `SQLAuthor` 取回 `result_id`，再委派 `Analysis`
+    做 `analysis_type=trend`（携 `result_id`）；子代理的中间往返不进你的上下文，你只收结论摘要。
+  - 序列小、表已知、单查即得 → 直接按标准流程自己做，省委派往返。
+- 委派携最小 scope（read），把 `result_id` 串进下一次委派的 `inputs.result_id` 做数据接力。
+
 ## 数据传递
 
 - 取数返回的大结果以 `result_id` 承载；分析时传 `result_id`，**不要**把整段序列复制进参数。
