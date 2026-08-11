@@ -14,6 +14,13 @@ useDefault = true
 [allowlist]
 description = "已核实的示例/测试假密钥与仅存于历史的路径（非真实凭证）"
 
+# regexes 正则匹配「命中的密钥值」。命中即豁免，不随历史重写失效，且比按路径豁免更精准。
+regexes = [
+  # config_test.go 里 t.Setenv 用的测试环境变量名常量：generic-api-key 规则误判
+  #   `const key = "COGNIDA_TEST_INT64"` 为泄漏。非真实凭证，仅豁免该固定字面量。
+  '''COGNIDA_TEST_INT64''',
+]
+
 # paths 正则匹配「命中文件的路径」。命中即豁免，覆盖该文件在全部历史提交中的匹配。
 paths = [
   # 1) 代码评审提示文档：演示"硬编码密钥=反模式"的占位示例值。

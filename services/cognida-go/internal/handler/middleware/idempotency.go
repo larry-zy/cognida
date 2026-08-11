@@ -163,12 +163,14 @@ func (m *Idempotency) begin(ctx context.Context, key string) (first bool, existi
 	defer cancel()
 
 	placeholder, _ := json.Marshal(idemRecord{State: idemStateNew})
-	ok, err := m.redis.SetNX(ctx, key, placeholder, m.lockTTL).Result()
-	if err != nil {
-		return false, nil, err
-	}
-	if ok {
+	// SET key placeholder NX EX：占位成功返回 OK，键已存在则返回 redis.Nil（非错误）。
+	// 用 SetArgs 替代已弃用的 SetNX（SA1019）。
+	err = m.redis.SetArgs(ctx, key, placeholder, redis.SetArgs{Mode: "NX", TTL: m.lockTTL}).Err()
+	if err == nil {
 		return true, nil, nil
+	}
+	if err != redis.Nil {
+		return false, nil, err
 	}
 	// 已存在：读取既有记录。
 	val, err := m.redis.Get(ctx, key).Bytes()
