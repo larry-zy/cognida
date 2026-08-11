@@ -37,6 +37,15 @@ func (r *ToolRegistry) registerSQLTools() error {
 		}
 	}
 
+	// list_datasources：列出租户已注册外部数据源，供 agent 按业务描述自选目标库。
+	// lister 为 nil 时工具仍注册，Run 时返回「未启用」提示（仅默认业务库可查）。
+	listDatasourcesTool := NewListDatasourcesTool(r.deps.DatasourceLister)
+	if listDatasourcesTool != nil {
+		if err := r.Register("sql", listDatasourcesTool); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

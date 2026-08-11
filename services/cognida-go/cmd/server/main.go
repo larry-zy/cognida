@@ -451,7 +451,9 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			// 路由到已注册外部数据源；无效 id 显式报错不回落业务库。
 			if app.DataSourceService != nil {
 				deps.DatasourceProvider = app.DataSourceService
-				log.Println("✅ 外部数据源工具路由已注入")
+				// list_datasources 选库工具的数据源清单来源：与业务库同库的数据源注册表。
+				deps.DatasourceLister = mysql.NewDataSourceRepository(db)
+				log.Println("✅ 外部数据源工具路由已注入（含 list_datasources 选库清单）")
 			}
 
 			// 术语接地：模型内同义词接地始终可用；Neo4j 可用时叠加知识图谱/血缘增强。

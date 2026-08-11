@@ -194,6 +194,20 @@
             />
             <span v-if="editingId" class="form-hint">留空将保留原密码</span>
           </div>
+
+          <!-- 描述 -->
+          <div class="form-field form-field--full">
+            <label class="form-label">
+              描述
+            </label>
+            <textarea
+              v-model="form.description"
+              class="form-textarea"
+              rows="3"
+              placeholder="业务描述（可选），如：电商订单库，含订单、商品、用户表"
+            ></textarea>
+            <span class="form-hint">供 AI 助手按业务语义自动选库；可留空</span>
+          </div>
         </div>
       </form>
 
@@ -326,6 +340,7 @@ interface FormState {
   database_name: string
   username: string
   password: string
+  description: string
 }
 
 const form = reactive<FormState>({
@@ -335,7 +350,8 @@ const form = reactive<FormState>({
   port: 3306,
   database_name: '',
   username: '',
-  password: ''
+  password: '',
+  description: ''
 })
 
 const errors = reactive<Partial<Record<keyof FormState, string>>>({})
@@ -348,6 +364,7 @@ function resetForm() {
   form.database_name = ''
   form.username = ''
   form.password = ''
+  form.description = ''
   Object.keys(errors).forEach(k => delete (errors as any)[k])
   testFormTask.reset()   // 清掉上次的测试连接三态，避免打开弹窗时残留
 }
@@ -366,6 +383,7 @@ function openEditDialog(row: Datasource) {
   form.port          = row.port
   form.database_name = row.database_name
   form.username      = row.username
+  form.description   = row.description ?? ''
   form.password      = ''        // 永不回填密码
   Object.keys(errors).forEach(k => delete (errors as any)[k])
   testFormTask.reset()
@@ -399,7 +417,8 @@ async function submitForm() {
         port:          form.port,
         database_name: form.database_name,
         username:      form.username,
-        password:      form.password   // 空字符串 = 保留旧密码
+        password:      form.password,  // 空字符串 = 保留旧密码
+        description:    form.description
       })
       toast.success('数据源已更新')
     } else {
@@ -410,7 +429,8 @@ async function submitForm() {
         port:          form.port,
         database_name: form.database_name,
         username:      form.username,
-        password:      form.password
+        password:      form.password,
+        description:    form.description
       })
       toast.success('数据源已创建')
     }
@@ -703,6 +723,33 @@ onMounted(() => {
   font-size: 11.5px;
   color: var(--text-muted, rgba(255,255,255,0.4));
   margin-top: 2px;
+}
+
+/* 多行描述输入（与 UiInput 视觉保持一致） */
+.form-textarea {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  resize: vertical;
+  transition: all var(--duration-fast);
+}
+
+.form-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.form-textarea:hover {
+  border-color: var(--border-strong);
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
 }
 
 /* 对话框底部 */

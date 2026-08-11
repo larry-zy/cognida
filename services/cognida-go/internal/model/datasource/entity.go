@@ -37,6 +37,7 @@ type DataSource struct {
 	ID                string
 	TenantID          int64
 	Name              string // 租户内唯一
+	Description       string // 业务描述（可空）：供 Data Agent 按业务语义自动选库
 	Type              Type
 	Host              string
 	Port              int

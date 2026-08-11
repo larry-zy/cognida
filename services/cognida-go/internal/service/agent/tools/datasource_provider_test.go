@@ -63,6 +63,24 @@ func TestResolveQueryTargetSessionDefault(t *testing.T) {
 	}
 }
 
+// TestResolveQueryTargetSessionOverridesToolParam 会话已手动选库时以其为准，覆盖工具入参
+// database_id（手动选库权威）：模型自选的 database_id 不得覆盖用户的手动选择。
+func TestResolveQueryTargetSessionOverridesToolParam(t *testing.T) {
+	gormDB, _ := setupMockSchemaDB(t)
+	rawDB, _ := gormDB.DB()
+	// 提供者只认会话锁定的 ds-manual；若实现错误采纳了工具入参 ds-agent，Acquire 会报错 → 测试失败。
+	dsp := &fakeConnProvider{id: "ds-manual", dbName: "manualdb", db: rawDB}
+
+	ctx := agentctx.WithDatasourceID(context.Background(), "ds-manual")
+	target, err := resolveQueryTarget(ctx, "ds-agent", gormDB, dsp)
+	if err != nil {
+		t.Fatalf("手动选库应权威覆盖工具入参, got err %v", err)
+	}
+	if !target.external || target.dbName != "manualdb" {
+		t.Fatalf("应路由到会话手动锁定的 manualdb（非工具入参 ds-agent）, got %+v", target)
+	}
+}
+
 // TestResolveQueryTargetBusinessBackwardCompat database_id 与会话数据源均为空 → 业务库（向后兼容）。
 func TestResolveQueryTargetBusinessBackwardCompat(t *testing.T) {
 	gormDB, _ := setupMockSchemaDB(t)

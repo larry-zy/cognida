@@ -55,6 +55,7 @@ func (s *Service) ConnectionManager() *ConnectionManager { return s.cm }
 // SaveInput 创建/更新数据源输入。更新时 Password 为空表示保留原密码。
 type SaveInput struct {
 	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"` // 业务描述（可选）：供 Data Agent 按业务语义自动选库
 	Type         string          `json:"type"`
 	Host         string          `json:"host"`
 	Port         int             `json:"port"`
@@ -68,6 +69,7 @@ type SaveInput struct {
 type Sanitized struct {
 	ID                string     `json:"id"`
 	Name              string     `json:"name"`
+	Description       string     `json:"description,omitempty"`
 	Type              string     `json:"type"`
 	Host              string     `json:"host"`
 	Port              int        `json:"port"`
@@ -83,6 +85,7 @@ func sanitize(ds *model.DataSource) *Sanitized {
 	return &Sanitized{
 		ID:                ds.ID,
 		Name:              ds.Name,
+		Description:       ds.Description,
 		Type:              string(ds.Type),
 		Host:              ds.Host,
 		Port:              ds.Port,
@@ -143,6 +146,7 @@ func (s *Service) Create(ctx context.Context, tenantID, userID int64, in *SaveIn
 		ID:                s.idGen.Generate(),
 		TenantID:          tenantID,
 		Name:              in.Name,
+		Description:       strings.TrimSpace(in.Description),
 		Type:              model.Type(in.Type),
 		Host:              in.Host,
 		Port:              in.Port,
@@ -182,6 +186,7 @@ func (s *Service) Update(ctx context.Context, tenantID int64, id string, in *Sav
 		}
 	}
 	ds.Name = in.Name
+	ds.Description = strings.TrimSpace(in.Description)
 	ds.Type = model.Type(in.Type)
 	ds.Host = in.Host
 	ds.Port = in.Port

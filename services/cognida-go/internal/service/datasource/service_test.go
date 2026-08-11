@@ -106,6 +106,42 @@ func TestSanitizedResponseHasNoPassword(t *testing.T) {
 	}
 }
 
+// TestDescriptionPersistedAndSanitized 描述随创建落库、在安全视图回显，更新时可改（含 trim）。
+func TestDescriptionPersistedAndSanitized(t *testing.T) {
+	s, repo := newTestService(t)
+	ctx := context.Background()
+
+	in := validInput("ecom-db")
+	in.Description = "  电商订单库，含订单、商品、用户表  "
+	created, err := s.Create(ctx, 1, 10, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Description != "电商订单库，含订单、商品、用户表" {
+		t.Fatalf("创建应 trim 并回显描述, got %q", created.Description)
+	}
+	stored, _ := repo.Get(ctx, created.ID, 1)
+	if stored.Description != "电商订单库，含订单、商品、用户表" {
+		t.Fatalf("描述应落库, got %q", stored.Description)
+	}
+
+	// 更新描述
+	upd := validInput("ecom-db")
+	upd.Description = "改为：电商库（新描述）"
+	upd.Password = ""
+	sanitized, err := s.Update(ctx, 1, created.ID, upd)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if sanitized.Description != "改为：电商库（新描述）" {
+		t.Fatalf("更新后应回显新描述, got %q", sanitized.Description)
+	}
+	after, _ := repo.Get(ctx, created.ID, 1)
+	if after.Description != "改为：电商库（新描述）" {
+		t.Fatalf("更新后描述应落库, got %q", after.Description)
+	}
+}
+
 func TestDeleteNotFound(t *testing.T) {
 	s, _ := newTestService(t)
 	if err := s.Delete(context.Background(), 1, "missing"); !errors.Is(err, ErrNotFound) {

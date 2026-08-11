@@ -45,6 +45,9 @@ type ToolDeps struct {
 	UIBinding uibinding.Store
 	// DatasourceProvider 外部数据源连接提供者（可选）；nil 时 database_id 非空显式报错。
 	DatasourceProvider model_datasource.ConnectionProvider
+	// DatasourceLister 外部数据源清单提供者（可选）；供 list_datasources 工具列出租户已注册数据源
+	// 以便 agent 按业务描述自选库。nil 时 list_datasources 报告未启用（仅默认业务库可查）。
+	DatasourceLister model_datasource.Repository
 	// SemanticRepo 语义模型仓储（可选）；nil 时语义工具报告未启用并回退词法 NL2SQL。
 	SemanticRepo semantic.Repository
 	// SemanticCache 受信查询缓存（可选）；nil 时不缓存，每次经引擎生成。

@@ -20,6 +20,7 @@ type DataSourceModel struct {
 	ID                string     `gorm:"column:id;primaryKey;type:varchar(64)" json:"id"`
 	TenantID          int64      `gorm:"column:tenant_id;not null;uniqueIndex:uk_ds_tenant_name" json:"tenant_id"`
 	Name              string     `gorm:"column:name;not null;type:varchar(128);uniqueIndex:uk_ds_tenant_name" json:"name"`
+	Description       string     `gorm:"column:description;type:varchar(512)" json:"description,omitempty"`
 	Type              string     `gorm:"column:type;not null;type:varchar(32)" json:"type"`
 	Host              string     `gorm:"column:host;not null;type:varchar(255)" json:"host"`
 	Port              int        `gorm:"column:port;not null" json:"port"`
@@ -45,6 +46,7 @@ func (m *DataSourceModel) toDomain() *domain_datasource.DataSource {
 		ID:                m.ID,
 		TenantID:          m.TenantID,
 		Name:              m.Name,
+		Description:       m.Description,
 		Type:              domain_datasource.Type(m.Type),
 		Host:              m.Host,
 		Port:              m.Port,
@@ -66,6 +68,7 @@ func datasourceModelFromDomain(d *domain_datasource.DataSource) *DataSourceModel
 		ID:                d.ID,
 		TenantID:          d.TenantID,
 		Name:              d.Name,
+		Description:       d.Description,
 		Type:              string(d.Type),
 		Host:              d.Host,
 		Port:              d.Port,
@@ -177,7 +180,7 @@ func (r *dataSourceRepository) Update(ctx context.Context, ds *domain_datasource
 	ds.UpdatedAt = time.Now()
 	return r.db.WithContext(ctx).
 		Where("id = ? AND tenant_id = ?", ds.ID, ds.TenantID).
-		Select("name", "type", "host", "port", "database_name", "username",
+		Select("name", "description", "type", "host", "port", "database_name", "username",
 			"password_encrypted", "extra", "status", "updated_at").
 		Updates(datasourceModelFromDomain(ds)).Error
 }

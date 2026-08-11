@@ -51,13 +51,17 @@ func (t *queryTarget) databaseNameContext(ctx context.Context) (string, error) {
 }
 
 // resolveQueryTarget 解析查询目标：
-//   - databaseID 为空时先以会话上下文的 datasource_id 兜底（会话级默认数据源）；
+//   - 会话已手动选定数据源（用户在入口显式选库）时以其为准，覆盖工具入参 databaseID：
+//     用户显式意图 > 模型经 list_datasources 的自选，保证「手动选库始终权威」；
+//   - 会话未选库时才采纳工具入参 databaseID（此时才是 agent 自选生效的场景）；
 //   - 最终仍为空 → businessDB 当前业务库（向后兼容）；
 //   - 非空 → 视为已注册外部数据源 ID，经 ConnectionProvider 按租户路由；
 //     无效 id / 提供者未注入(dsp==nil) → 显式错误，绝不静默回落业务库。
 func resolveQueryTarget(ctx context.Context, databaseID string, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider) (*queryTarget, error) {
-	if databaseID == "" {
-		databaseID = agentctx.MustGetDatasourceID(ctx)
+	// 手动选库权威：会话锁定了 datasource_id 就无条件采用，忽略模型自选的 databaseID，
+	// 避免 agent 用 list_datasources 覆盖用户的手动选择。会话未锁定（空）才落到工具入参。
+	if sessionDS := agentctx.MustGetDatasourceID(ctx); sessionDS != "" {
+		databaseID = sessionDS
 	}
 
 	// 业务库路径

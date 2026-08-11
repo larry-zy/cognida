@@ -19,6 +19,8 @@ export interface Datasource {
   port: number
   database_name: string
   username: string
+  /** 业务描述：帮助 AI 助手按业务语义自动选库（可选） */
+  description?: string
   status: DatasourceStatus
   last_health_check_at?: string
   created_at: string
@@ -45,6 +47,8 @@ export interface CreateDatasourceRequest {
   database_name: string
   username: string
   password: string
+  /** 业务描述：帮助 AI 助手按业务语义自动选库（可选） */
+  description?: string
   extra?: Record<string, unknown>
 }
 
@@ -61,6 +65,8 @@ export interface UpdateDatasourceRequest {
   username?: string
   /** 留空 = 保留旧密码 */
   password?: string
+  /** 业务描述：帮助 AI 助手按业务语义自动选库（可选） */
+  description?: string
   extra?: Record<string, unknown>
 }
 
