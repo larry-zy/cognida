@@ -89,8 +89,9 @@ type ModelRepository interface {
 	// GetDefault 获取默认模型配置
 	GetDefault(ctx context.Context, tenantID int64, modelType ModelType) (*ModelConfig, error)
 
-	// List 列出模型配置
-	List(ctx context.Context, tenantID int64, offset, limit int) ([]*ModelConfig, int64, error)
+	// List 偏移分页列出模型配置。modelType 为空表示不过滤类型，enabled 为 nil 表示不过滤
+	// 启用状态；过滤条件与总数统计、分页取数在同一 SQL 条件下完成，保证 total 与返回集一致。
+	List(ctx context.Context, tenantID int64, modelType string, enabled *bool, offset, limit int) ([]*ModelConfig, int64, error)
 
 	// ListByCursor 游标（keyset）分页〔M5〕：按 created_at DESC, id DESC 稳定排序，
 	// 以 cursor 为锚点取下一页；modelType 为空表示不过滤类型，enabled 为 nil 表示不过滤启用状态。

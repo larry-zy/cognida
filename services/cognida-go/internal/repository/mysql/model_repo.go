@@ -174,22 +174,32 @@ func (r *modelRepo) GetDefault(ctx context.Context, tenantID int64, modelType ll
 	return r.toDomainModel(&entity), nil
 }
 
-// List 列出模型配置
-func (r *modelRepo) List(ctx context.Context, tenantID int64, offset, limit int) ([]*llm.ModelConfig, int64, error) {
+// List 偏移分页列出模型配置。modelType/enabled 过滤下推 SQL，且总数统计与分页取数
+// 复用同一组 where 条件，保证 total 与返回集在相同过滤口径下一致（〔R2-2〕）。
+func (r *modelRepo) List(ctx context.Context, tenantID int64, modelType string, enabled *bool, offset, limit int) ([]*llm.ModelConfig, int64, error) {
 	var entities []Model
 	var total int64
 
-	// 获取总数
-	if err := r.db.WithContext(ctx).
-		Model(&Model{}).
-		Where("tenant_id = ?", tenantID).
+	// applyFilters 把租户/类型/启用状态三项过滤挂到给定查询上，供 count 与取数共用。
+	applyFilters := func(q *gorm.DB) *gorm.DB {
+		q = q.Where("tenant_id = ?", tenantID)
+		if modelType != "" {
+			q = q.Where("model_type = ?", modelType)
+		}
+		if enabled != nil {
+			q = q.Where("enabled = ?", *enabled)
+		}
+		return q
+	}
+
+	// 获取总数（与分页同一过滤口径）
+	if err := applyFilters(r.db.WithContext(ctx).Model(&Model{})).
 		Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("count model configs failed: %w", err)
 	}
 
 	// 获取分页数据
-	if err := r.db.WithContext(ctx).
-		Where("tenant_id = ?", tenantID).
+	if err := applyFilters(r.db.WithContext(ctx)).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(limit).

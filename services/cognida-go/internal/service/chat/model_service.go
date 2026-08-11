@@ -108,30 +108,11 @@ func (s *ModelService) ListModels(ctx context.Context, tenantID int64, req *List
 
 	offset := (page - 1) * pageSize
 
-	var configs []*llm.ModelConfig
-	var total int64
-	var err error
-
-	if req.ModelType != "" {
-		configs, err = s.modelRepo.GetByType(ctx, tenantID, llm.ModelType(req.ModelType))
-		total = int64(len(configs))
-	} else {
-		configs, total, err = s.modelRepo.List(ctx, tenantID, offset, pageSize)
-	}
-
+	// 类型/启用状态过滤与分页、总数统计全部下推仓储（同一 SQL 过滤口径），
+	// 避免旧实现「类型分支不分页」「Enabled 内存过滤致 total 失真」两处缺陷（〔R2-2〕）。
+	configs, total, err := s.modelRepo.List(ctx, tenantID, req.ModelType, req.Enabled, offset, pageSize)
 	if err != nil {
 		return nil, fmt.Errorf("列出模型配置失败: %w", err)
-	}
-
-	// 应用过滤
-	if req.Enabled != nil {
-		filtered := make([]*llm.ModelConfig, 0)
-		for _, c := range configs {
-			if c.Enabled == *req.Enabled {
-				filtered = append(filtered, c)
-			}
-		}
-		configs = filtered
 	}
 
 	models := make([]*ModelResponseDTO, len(configs))
