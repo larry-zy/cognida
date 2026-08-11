@@ -215,37 +215,52 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkCh
 	// 客户端断开（request ctx 取消）即停止消费与下发；上游发送端同样以该 ctx 终止生成。
 	ctx := c.Request.Context()
 
+	// emitDone 下发终局 done 标识——正常收尾（收到 Done 标记）与异常收尾（通道未发 Done
+	// 即关闭）共用同一路径，保证「每次问答必有一条 done」。含旧 preset 的 genUI 兜底拼装：
+	// 整个流没有任何 render_ui surface 时，done 之前用捕获的工具输出一次性拼一份 UISpec。
+	emitDone := func() {
+		if genUI.compose && len(uiSurfaces) == 0 {
+			if spec := genui.Compose(c.Request.Context(), h.genuiModel, genui.ComposeInput{
+				Question:        genUI.question,
+				SQLOutputs:      sqlOutputs,
+				AnalysisOutputs: analysisOutputs,
+			}); spec != nil {
+				uiSurfaces = append(uiSurfaces, spec)
+				sw.Send("ui", spec)
+			}
+		}
+		sw.Send("done", gin.H{
+			"event":  "done",
+			"answer": sb.String(),
+			// 回传归属会话 ID：新会话首轮时前端据此绑定 currentSessionId，
+			// 使后续轮次复用同一会话（否则每轮都以空 session_id 新建会话，对话被拆散）。
+			"session_id": genUI.sessionID,
+		})
+	}
+
 	for {
 		var chunk *agentuc.ChatChunkDTO
 		var ok bool
 		select {
 		case chunk, ok = <-chunkChan:
 			if !ok {
-				return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces}
+				// 通道关闭却没收到 Done 标记：仅当 producer 在发 Done:true 前异常退出
+				// （panic 被 safego.Recover 兜住、只 close(resultChan)）才会走到这里。
+				// 若不补发 done，前端只能靠流关闭落到占位语、拿不到显式终局标识。
+				// 客户端仍在（ctx 未取消）时补发一个终局 done，保证「每次问答必有结束标识」。
+				// 注意：select 内 break 只跳出 select，跳出 for 由下方 `if !ok` 承担。
+				emitDone()
 			}
 		case <-ctx.Done():
+			// 客户端已断开，写回也会失败，无需补发 done。
 			return agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces}
+		}
+		if !ok {
+			break
 		}
 
 		if chunk.Done {
-			// 兜底路径：未产生任何 render_ui surface 时才做 done 前一次性拼装。
-			if genUI.compose && len(uiSurfaces) == 0 {
-				if spec := genui.Compose(c.Request.Context(), h.genuiModel, genui.ComposeInput{
-					Question:        genUI.question,
-					SQLOutputs:      sqlOutputs,
-					AnalysisOutputs: analysisOutputs,
-				}); spec != nil {
-					uiSurfaces = append(uiSurfaces, spec)
-					sw.Send("ui", spec)
-				}
-			}
-			sw.Send("done", gin.H{
-				"event":  "done",
-				"answer": sb.String(),
-				// 回传归属会话 ID：新会话首轮时前端据此绑定 currentSessionId，
-				// 使后续轮次复用同一会话（否则每轮都以空 session_id 新建会话，对话被拆散）。
-				"session_id": genUI.sessionID,
-			})
+			emitDone()
 			break
 		}
 

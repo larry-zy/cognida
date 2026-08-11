@@ -4,6 +4,7 @@ package handler
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,5 +57,36 @@ func TestStreamAgentChunks_CancelStopsConsuming(t *testing.T) {
 		t.Fatal("取消后仍在消费 chunkChan")
 	case <-time.After(100 * time.Millisecond):
 		// ✓ 无人接收
+	}
+}
+
+// TestStreamAgentChunks_ChannelClosedWithoutDoneStillEmitsDone 通道未发 Done 标记
+// 即关闭（模拟 producer 发 Done 前异常退出/panic 被兜住）时，streamAgentChunks 必须
+// 仍补发一条终局 done——保证「每次问答必有结束标识」，前端不至只落到占位语。〔终局标识兜底〕
+func TestStreamAgentChunks_ChannelClosedWithoutDoneStillEmitsDone(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil) // ctx 未取消：客户端仍在
+
+	chunkChan := make(chan *agentuc.ChatChunkDTO, 2)
+	chunkChan <- &agentuc.ChatChunkDTO{Content: "已生成的部分内容"}
+	close(chunkChan) // 关键：只发内容、不发 Done 就关闭
+
+	h := &AgentHandler{}
+	res := h.streamAgentChunks(c, sse.NewWriter(w), chunkChan, genUIOption{sessionID: "sess-x"})
+
+	if res.Content != "已生成的部分内容" {
+		t.Errorf("Content = %q, 期望 %q", res.Content, "已生成的部分内容")
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "\"event\":\"done\"") && !strings.Contains(body, "event: done") {
+		t.Errorf("通道无 Done 关闭后应补发终局 done，SSE 输出未见 done 事件：\n%s", body)
+	}
+	if !strings.Contains(body, "已生成的部分内容") {
+		t.Errorf("终局 done 的 answer 应含已累积内容，实际：\n%s", body)
+	}
+	if !strings.Contains(body, "sess-x") {
+		t.Errorf("终局 done 应回传 session_id，实际：\n%s", body)
 	}
 }

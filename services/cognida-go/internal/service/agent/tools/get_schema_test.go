@@ -4,6 +4,7 @@ package tools
 import (
 	"context"
 	"regexp"
+	"strings"
 	"testing"
 
 	model_datasource "cognida/internal/model/datasource"
@@ -208,20 +209,33 @@ func TestGetSchema(t *testing.T) {
 		}
 	})
 
-	t.Run("non-existent table", func(t *testing.T) {
-		// 指定不存在的表：列查询返回空 → 跳过，不再发主键查询，结果 0 张表。
+	t.Run("non-existent table falls back to catalog", func(t *testing.T) {
+		// 指定不存在的表：列查询返回空 → tables 为空。〔选表兜底〕不再返回空壳，
+		// 改回轻量表目录 + not-found 说明，引导模型改用正确 table_name/keywords 自纠。
 		mock.ExpectQuery(regexp.QuoteMeta(
 			"SELECT column_name, data_type, is_nullable, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
 		)).WithArgs("main", "nonexistent").WillReturnRows(
 			sqlmock.NewRows([]string{"column_name", "data_type", "is_nullable", "column_comment"}))
+		// 兜底触发 loadTableCards 的两次 information_schema 查询。
+		tableRows := sqlmock.NewRows([]string{"table_name", "table_comment"}).
+			AddRow("dataagent_sales", "销售表").
+			AddRow("e2e_orders", "订单表")
+		colRows := sqlmock.NewRows([]string{"table_name", "column_name", "column_comment"}).
+			AddRow("dataagent_sales", "id", "").
+			AddRow("e2e_orders", "id", "")
+		expectLoadTableCards(mock, "main", tableRows, colRows)
 
 		req := &GetSchemaRequest{DatabaseID: "main", TableName: "nonexistent"}
 		result, err := getSchema(ctx, req, gormDB, dsp, nil)
 		if err != nil {
 			t.Fatalf("getSchema() error = %v", err)
 		}
-		if len(result.Tables) != 0 {
-			t.Errorf("expected 0 tables for non-existent table, got %d", len(result.Tables))
+		// 空壳会让模型误判「已查过、无数据」而空收尾；兜底须返回可用表目录。
+		if len(result.Tables) != 2 {
+			t.Errorf("expected 2 catalog tables on fallback, got %d", len(result.Tables))
+		}
+		if result.Note == "" || !strings.Contains(result.Note, "nonexistent") {
+			t.Errorf("expected a not-found Note naming the missing table, got %q", result.Note)
 		}
 	})
 }

@@ -138,8 +138,19 @@ func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, 
 		}
 		if len(tables) == 1 {
 			attachAndRefreshProfiles(ctx, profileStore, businessDB, dsp, target, req.DatabaseID, &tables[0])
+			return &GetSchemaResult{Tables: tables, Database: target.dbName}, nil
 		}
-		return &GetSchemaResult{Tables: tables, Database: target.dbName}, nil
+		// 表名不存在（MySQL 表至少一列，queryTableSchemas 对无列表跳过 → tables 为空）。
+		// 不返回空壳结果：那会让模型误判「已查过、无数据」而空收尾（表现为前端卡住）。
+		// 改回轻量表目录（表名+描述）+ 明确 not-found 说明，引导模型改用正确 table_name
+		// 或改传 keywords 自纠——把「猜错表名」从死路变成可恢复的一步。〔选表兜底〕
+		cards, err := loadTableCards(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return catalogResult(target.dbName, cards, fmt.Sprintf(
+			"表 %q 在库 %s 中不存在；返回可用表目录（表名+描述）。请据此改用正确的 table_name，或改传 keywords 按意图选表。",
+			req.TableName, target.dbName))
 	}
 
 	// 载入全部表描述卡片（名/表注释/列名/列注释），作为选表与目录的共同数据源。
