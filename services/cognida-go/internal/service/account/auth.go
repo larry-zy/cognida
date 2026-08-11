@@ -105,13 +105,13 @@ func (s *authService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		// 检查邮箱是否已存在（在租户内）
 		existingUser, err := s.userRepo.FindByEmail(ctx, tenantID, req.Email)
 		if err == nil && existingUser != nil {
-			return errors.New("邮箱已被注册")
+			return ErrEmailExists
 		}
 
 		// 检查用户名是否已存在（在租户内）
 		existingUser, err = s.userRepo.FindByUsername(ctx, tenantID, req.Username)
 		if err == nil && existingUser != nil {
-			return errors.New("用户名已被使用")
+			return ErrUsernameExists
 		}
 
 		// 加密密码
@@ -204,18 +204,18 @@ func (s *authService) Login(ctx context.Context, req *LoginRequest) (*AuthRespon
 	}
 
 	if err != nil {
-		return nil, errors.New("邮箱或密码错误")
+		return nil, ErrInvalidCredential
 	}
 
 	// 验证密码
 	err = bcrypt.CompareHashAndPassword([]byte(usr.PasswordHash), []byte(req.Password))
 	if err != nil {
-		return nil, errors.New("邮箱或密码错误")
+		return nil, ErrInvalidCredential
 	}
 
 	// 检查用户状态
 	if usr.Status != 1 {
-		return nil, errors.New("账号已被禁用")
+		return nil, ErrAccountDisabled
 	}
 
 	// 更新最后登录时间
@@ -268,29 +268,29 @@ func (s *authService) RefreshToken(ctx context.Context, req *RefreshTokenRequest
 	// 验证刷新Token
 	claims, err := s.ValidateToken(req.RefreshToken)
 	if err != nil {
-		return nil, errors.New("无效的刷新Token")
+		return nil, ErrInvalidToken
 	}
 
 	if claims.TokenType != "refresh" {
-		return nil, errors.New("Token类型错误")
+		return nil, ErrInvalidToken
 	}
 
-	// 获取用户信息
+	// 获取用户信息（令牌指向的用户已不存在 → 视作令牌失效，归 401 而非 404）
 	usr, err := s.userRepo.FindByID(ctx, claims.UserID)
 	if err != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrInvalidToken
 	}
 
 	// 检查用户状态
 	if usr.Status != 1 {
-		return nil, errors.New("账号已被禁用")
+		return nil, ErrAccountDisabled
 	}
 
 	// 验证刷新Token是否在数据库中
 	tokenHash := s.hashToken(req.RefreshToken)
 	_, err = s.refreshTokenRepo.FindByHash(ctx, tokenHash)
 	if err != nil {
-		return nil, errors.New("刷新Token不存在或已失效")
+		return nil, ErrInvalidToken
 	}
 
 	// 生成新的Token（包含租户ID）
@@ -346,7 +346,7 @@ func (s *authService) ValidateToken(tokenString string) (*user.TokenClaims, erro
 		// 而非裸类型断言 panic 成 500。user_id 为身份主键，缺失即视为无效令牌。
 		userID, ok := claims["user_id"].(float64)
 		if !ok {
-			return nil, errors.New("无效的Token：缺少 user_id")
+			return nil, fmt.Errorf("%w: 缺少 user_id", ErrInvalidToken)
 		}
 		tokenClaims := &user.TokenClaims{
 			UserID: int64(userID),
@@ -367,7 +367,7 @@ func (s *authService) ValidateToken(tokenString string) (*user.TokenClaims, erro
 		return tokenClaims, nil
 	}
 
-	return nil, errors.New("无效的Token")
+	return nil, ErrInvalidToken
 }
 
 // generateTokens 生成访问令牌和刷新令牌

@@ -2,10 +2,37 @@
 package handler
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	appAccount "cognida/internal/service/account"
 )
+
+// respondAuthError 将账号域业务错误映射为恰当的 HTTP 语义，未识别错误委托中心化
+// RespondError（context/gorm/游标 → 对应码，其余 → 500 且不回显内部细节）〔R2-1/M7〕。
+// 对外文案统一取 sentinel 自身 message，即便 service 侧对 sentinel 做了 %w 包裹，
+// 也只暴露安全文案、不泄漏包裹链中的内部细节。
+func respondAuthError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, appAccount.ErrEmailExists):
+		Conflict(c, appAccount.ErrEmailExists.Error(), nil)
+	case errors.Is(err, appAccount.ErrUsernameExists):
+		Conflict(c, appAccount.ErrUsernameExists.Error(), nil)
+	case errors.Is(err, appAccount.ErrInvalidCredential):
+		Unauthorized(c, appAccount.ErrInvalidCredential.Error())
+	case errors.Is(err, appAccount.ErrInvalidToken):
+		Unauthorized(c, appAccount.ErrInvalidToken.Error())
+	case errors.Is(err, appAccount.ErrAccountDisabled):
+		Forbidden(c, appAccount.ErrAccountDisabled.Error())
+	case errors.Is(err, appAccount.ErrUserNotFound):
+		NotFound(c, appAccount.ErrUserNotFound.Error())
+	case errors.Is(err, appAccount.ErrOldPasswordIncorrect):
+		BadRequest(c, appAccount.ErrOldPasswordIncorrect.Error())
+	default:
+		RespondError(c, err)
+	}
+}
 
 // ========================================
 // AuthHandler 认证处理器
@@ -32,7 +59,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	result, err := h.accountService.Register(c.Request.Context(), &req)
 	if err != nil {
-		InternalError(c, err.Error())
+		respondAuthError(c, err)
 		return
 	}
 
@@ -48,7 +75,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	result, err := h.accountService.Login(c.Request.Context(), &req)
 	if err != nil {
-		Unauthorized(c, err.Error())
+		respondAuthError(c, err)
 		return
 	}
 
@@ -64,7 +91,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	result, err := h.accountService.RefreshToken(c.Request.Context(), &req)
 	if err != nil {
-		Unauthorized(c, err.Error())
+		respondAuthError(c, err)
 		return
 	}
 
@@ -76,7 +103,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	userID := GetUserID(c)
 
 	if err := h.accountService.Logout(c.Request.Context(), userID); err != nil {
-		InternalError(c, err.Error())
+		respondAuthError(c, err)
 		return
 	}
 
@@ -89,7 +116,7 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 
 	result, err := h.accountService.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
-		NotFound(c, err.Error())
+		respondAuthError(c, err)
 		return
 	}
 

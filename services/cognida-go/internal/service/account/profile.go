@@ -3,7 +3,6 @@ package account
 
 import (
 	"context"
-	"errors"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -48,7 +47,7 @@ func (s *profileService) GetProfile(ctx context.Context, userID int64) (*user.Us
 func (s *profileService) UpdateProfile(ctx context.Context, userID int64, req *UpdateUserRequest) (*user.UserInfo, error) {
 	usr, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return nil, errors.New("用户不存在")
+		return nil, ErrUserNotFound
 	}
 
 	// 更新字段
@@ -83,13 +82,13 @@ func (s *profileService) UpdateProfile(ctx context.Context, userID int64, req *U
 func (s *profileService) ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword string) error {
 	usr, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
-		return errors.New("用户不存在")
+		return ErrUserNotFound
 	}
 
 	// 验证旧密码
 	err = bcrypt.CompareHashAndPassword([]byte(usr.PasswordHash), []byte(oldPassword))
 	if err != nil {
-		return errors.New("旧密码错误")
+		return ErrOldPasswordIncorrect
 	}
 
 	// 加密新密码
