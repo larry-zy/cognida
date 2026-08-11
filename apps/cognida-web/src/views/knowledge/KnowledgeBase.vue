@@ -58,14 +58,28 @@
               ref="fileInputRef"
               type="file"
               accept=".txt,.md,.pdf,.doc,.docx"
+              multiple
               style="display: none"
               @change="handleFileChange"
+            />
+            <input
+              ref="folderInputRef"
+              type="file"
+              webkitdirectory
+              directory
+              multiple
+              style="display: none"
+              @change="handleFolderChange"
             />
             <UiButton variant="primary" icon @click="fileInputRef?.click()">
               <template #icon><el-icon><Upload /></el-icon></template>
               上传文档
             </UiButton>
-            <UiText class="hint">支持 txt, md, pdf, doc, docx 格式</UiText>
+            <UiButton variant="secondary" icon @click="folderInputRef?.click()">
+              <template #icon><el-icon><FolderOpened /></el-icon></template>
+              选择文件夹上传
+            </UiButton>
+            <UiText class="hint">支持 txt, md, pdf, doc, docx 格式，可多选或整个文件夹批量上传</UiText>
           </div>
 
           <UiDivider />
@@ -326,6 +340,55 @@
       </template>
     </UiModal>
 
+    <!-- 文件夹选择：勾选/取消要上传的文件 -->
+    <DirectoryTreePicker
+      v-model="showTreePicker"
+      :files="folderFiles"
+      @confirm="startBatchUpload"
+    />
+
+    <!-- 批量上传进度 -->
+    <UiModal
+      v-model="showBatchDialog"
+      title="批量上传"
+      size="lg"
+      :mask-closable="!batchUpload.running.value"
+      :close-on-esc="!batchUpload.running.value"
+    >
+      <UiText size="sm" type="info" class="batch-summary">
+        共 {{ batchUpload.summary.value.total }} 个文件
+        · 成功 {{ batchUpload.summary.value.success }}
+        · 重复跳过 {{ batchUpload.summary.value.duplicate }}
+        · 失败 {{ batchUpload.summary.value.error }}
+      </UiText>
+
+      <UiDivider />
+
+      <div class="batch-list">
+        <div v-for="(item, idx) in batchUpload.items.value" :key="idx" class="batch-item">
+          <UiText class="batch-item__name" :title="item.file.name">{{ item.file.name }}</UiText>
+          <UiTag :variant="batchStatusVariant(item.status)" size="sm">
+            {{ batchStatusText(item.status) }}
+          </UiTag>
+          <UiProgress
+            v-if="item.status === 'uploading'"
+            class="batch-item__progress"
+            :percentage="item.progress"
+            status="active"
+          />
+          <UiText v-if="item.message" size="sm" type="info" class="batch-item__message">
+            {{ item.message }}
+          </UiText>
+        </div>
+      </div>
+
+      <template #footer>
+        <UiButton variant="primary" :disabled="batchUpload.running.value" @click="showBatchDialog = false">
+          {{ batchUpload.running.value ? '上传中…' : '完成' }}
+        </UiButton>
+      </template>
+    </UiModal>
+
     <!-- 分块详情对话框 -->
     <UiModal v-model="showChunkDialog" title="分块详情" size="lg">
       <UiDescriptions :column="2" border v-if="currentChunk">
@@ -371,10 +434,13 @@ import {
 } from '@/components'
 import toast from '@/utils/toast'
 import { useAsyncTask } from '@/composables/useAsyncTask'
+import { useBatchUpload, type BatchItemStatus } from '@/composables/useBatchUpload'
 import { ElMessageBox } from '@/utils/confirm'
-import { Upload, Search } from '@element-plus/icons-vue'
+import { Upload, Search, FolderOpened } from '@element-plus/icons-vue'
 import GraphView from './GraphView.vue'
+import DirectoryTreePicker from './DirectoryTreePicker.vue'
 import { knowledgeApi } from '@/api/knowledge'
+import { computeFileHash } from '@/utils/hash'
 import type {
   KnowledgeBase,
   KnowledgeBaseStats,
@@ -452,6 +518,13 @@ const statusPolling = ref<Record<string, PollState>>({})
 // 文件选择（替代 el-upload）
 const fileInputRef = ref<HTMLInputElement>()
 const selectedFileName = ref('')
+
+// 文件夹批量上传：选文件夹 → 树状勾选 → 批量上传进度
+const folderInputRef = ref<HTMLInputElement>()
+const folderFiles = ref<File[]>([])
+const showTreePicker = ref(false)
+const showBatchDialog = ref(false)
+const batchUpload = useBatchUpload(kbId)
 
 // 检索相关
 const searchQuery = ref('')
@@ -650,30 +723,66 @@ function stopStatusPolling(knowledgeId: string) {
 }
 
 // 处理文件选择（原生 input，替代 el-upload 的 :on-change）
+// 选中单个文件走原有单文件对话框流程；选中多个文件则走批量上传流程
 function handleFileChange(e: Event) {
   const input = e.target as HTMLInputElement
-  const files = input.files
-  if (files && files.length) {
-    const file = files[0]
-    uploadForm.file = file
-    selectedFileName.value = file.name
+  const files = input.files ? Array.from(input.files) : []
+  input.value = '' // 重置 input 以便重复选择同一文件时仍触发 change
+  if (!files.length) return
+
+  if (files.length === 1) {
+    uploadForm.file = files[0]
+    selectedFileName.value = files[0].name
     showUploadDialog.value = true
+    return
   }
-  // 重置 input 以便重复选择同一文件时仍触发 change
-  input.value = ''
+  startBatchUpload(files)
 }
 
-// 计算文件内容的 SHA-256 十六进制哈希（与后端一致，用于防止重传相同文件）。
-// 注意：这里刻意保留 arrayBuffer() 一次性读入 + crypto.subtle.digest 的口径——
-// Web Crypto 的 digest() 不支持增量/流式摘要，改用分块流式必须引入 userland 增量
-// SHA-256 实现（新依赖），且一旦算法/口径与后端不一致就会破坏上传去重逻辑，风险高，
-// 故不改哈希计算方式。大文件内存峰值问题留待后端/依赖层面统一处理。
-async function computeFileHash(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer()
-  const digest = await crypto.subtle.digest('SHA-256', buffer)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+// 处理文件夹选择：先弹出目录树供用户勾选/取消，确认后再进入批量上传
+function handleFolderChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files ? Array.from(input.files) : []
+  input.value = ''
+  if (!files.length) return
+  folderFiles.value = files
+  showTreePicker.value = true
+}
+
+// 状态展示映射（与 useBatchUpload 的 BatchItemStatus 一一对应）
+function batchStatusText(status: BatchItemStatus) {
+  const map: Record<BatchItemStatus, string> = {
+    pending: '等待中',
+    checking: '校验中',
+    duplicate: '已跳过',
+    uploading: '上传中',
+    success: '成功',
+    error: '失败'
+  }
+  return map[status]
+}
+
+function batchStatusVariant(status: BatchItemStatus) {
+  const map: Record<BatchItemStatus, 'primary' | 'success' | 'warning' | 'info' | 'danger' | 'default'> = {
+    pending: 'info',
+    checking: 'info',
+    duplicate: 'warning',
+    uploading: 'warning',
+    success: 'success',
+    error: 'danger'
+  }
+  return map[status]
+}
+
+// 启动批量上传：装入队列、打开进度弹窗，完成后若有成功项则刷新文档列表
+function startBatchUpload(files: File[]) {
+  batchUpload.setFiles(files)
+  showBatchDialog.value = true
+  batchUpload.start().then(() => {
+    if (batchUpload.summary.value.success > 0) {
+      loadKnowledges()
+    }
+  })
 }
 
 // 上传文件
@@ -1021,5 +1130,43 @@ onUnmounted(() => {
   font-size: 24px;
   font-weight: bold;
   color: var(--color-text-primary);
+}
+
+.batch-summary {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.batch-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.batch-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.batch-item__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-item__progress {
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.batch-item__message {
+  flex-shrink: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
