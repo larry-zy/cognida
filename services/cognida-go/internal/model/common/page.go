@@ -58,11 +58,6 @@ func (r *Req) Normalize() *Req {
 	return r
 }
 
-// Offset 计算偏移量
-func (r *Req) Offset() int {
-	return (r.Page - 1) * r.PageSize
-}
-
 // Limit 获取限制数量
 func (r *Req) Limit() int {
 	return r.PageSize

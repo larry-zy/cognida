@@ -27,7 +27,6 @@ type Router struct {
 	knowledgeBaseHandler *handler.KnowledgeBaseHandler
 	sessionHandler       *handler.SessionHandler
 	messageHandler       *handler.MessageHandler
-	chatHandler          *handler.ChatHandler
 	tenantHandler        *handler.TenantHandler
 	agentHandler         *handler.AgentHandler
 	registryAgentHandler *handler.RegistryAgentHandler
@@ -60,7 +59,6 @@ func NewRouter(
 	knowledgeBaseHandler *handler.KnowledgeBaseHandler,
 	sessionHandler *handler.SessionHandler,
 	messageHandler *handler.MessageHandler,
-	chatHandler *handler.ChatHandler,
 	tenantHandler *handler.TenantHandler,
 	agentHandler *handler.AgentHandler,
 	registryAgentHandler *handler.RegistryAgentHandler,
@@ -97,7 +95,6 @@ func NewRouter(
 		knowledgeBaseHandler: knowledgeBaseHandler,
 		sessionHandler:       sessionHandler,
 		messageHandler:       messageHandler,
-		chatHandler:          chatHandler,
 		tenantHandler:        tenantHandler,
 		agentHandler:         agentHandler,
 		registryAgentHandler: registryAgentHandler,

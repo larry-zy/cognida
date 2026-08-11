@@ -188,7 +188,6 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		ProvideKnowledgeBaseHandler,
 		ProvideSessionHandler,
 		ProvideMessageHandler,
-		ProvideChatHandler,
 		ProvideTenantHandler,
 		ProvideAgentHandler,
 		ProvideRegistryAgentHandler,
@@ -815,10 +814,6 @@ func ProvideMessageHandler(messageService *app_chat.MessageService) *handler.Mes
 	return handler.NewMessageHandler(messageService)
 }
 
-func ProvideChatHandler(chatService *app_chat.ChatService) *handler.ChatHandler {
-	return handler.NewChatHandler(chatService)
-}
-
 func ProvideTenantHandler(accountService *appAccount.AccountService) *handler.TenantHandler {
 	return handler.NewTenantHandler(accountService)
 }
@@ -1015,7 +1010,6 @@ func ProvideRouter(
 	knowledgeBaseHandler *handler.KnowledgeBaseHandler,
 	sessionHandler *handler.SessionHandler,
 	messageHandler *handler.MessageHandler,
-	chatHandler *handler.ChatHandler,
 	tenantHandler *handler.TenantHandler,
 	agentHandler *handler.AgentHandler,
 	registryAgentHandler *handler.RegistryAgentHandler,
@@ -1040,7 +1034,6 @@ func ProvideRouter(
 		knowledgeBaseHandler,
 		sessionHandler,
 		messageHandler,
-		chatHandler,
 		tenantHandler,
 		agentHandler,
 		registryAgentHandler,

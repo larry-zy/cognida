@@ -126,7 +126,6 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	sessionHandler := ProvideSessionHandler(sessionService, chatService)
 	messageService := ProvideMessageService(messageRepository)
 	messageHandler := ProvideMessageHandler(messageService)
-	chatHandler := ProvideChatHandler(chatService)
 	tenantHandler := ProvideTenantHandler(accountService)
 	specRegistry := ProvideAgentRegistry()
 	agentExecutor := ProvideAgentOrchestrator(specRegistry)
@@ -186,7 +185,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	tenantMiddleware := ProvideTenantMiddleware()
 	writer := ProvideAuditWriter(auditRepository)
 	auditMiddleware := ProvideAuditMiddleware(writer)
-	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, chatHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, semanticHandler, auditHandler, traceHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
+	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, semanticHandler, auditHandler, traceHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
 	corsMiddleware := ProvideCORSMiddleware()
 	recoveryMiddleware := ProvideRecoveryMiddleware()
 	loggerMiddleware := ProvideLoggerMiddleware()
@@ -731,10 +730,6 @@ func ProvideMessageHandler(messageService *chat.MessageService) *handler.Message
 	return handler.NewMessageHandler(messageService)
 }
 
-func ProvideChatHandler(chatService *chat.ChatService) *handler.ChatHandler {
-	return handler.NewChatHandler(chatService)
-}
-
 func ProvideTenantHandler(accountService *account.AccountService) *handler.TenantHandler {
 	return handler.NewTenantHandler(accountService)
 }
@@ -917,7 +912,6 @@ func ProvideRouter(
 	knowledgeBaseHandler *handler.KnowledgeBaseHandler,
 	sessionHandler *handler.SessionHandler,
 	messageHandler *handler.MessageHandler,
-	chatHandler *handler.ChatHandler,
 	tenantHandler *handler.TenantHandler,
 	agentHandler *handler.AgentHandler,
 	registryAgentHandler *handler.RegistryAgentHandler,
@@ -942,7 +936,6 @@ func ProvideRouter(
 		knowledgeBaseHandler,
 		sessionHandler,
 		messageHandler,
-		chatHandler,
 		tenantHandler,
 		agentHandler,
 		registryAgentHandler,
