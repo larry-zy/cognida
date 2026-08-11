@@ -4,8 +4,10 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	domainrag "cognida/internal/model/rag"
+	"cognida/internal/pkg/safego"
 )
 
 // ========================================
@@ -80,36 +82,56 @@ func (r *Retriever) Retrieve(ctx context.Context, tenantID int64, req *RetrieveR
 	}, nil
 }
 
-// MultiKBRetrieve executes retrieval across multiple knowledge bases
+// MultiKBRetrieve executes retrieval across multiple knowledge bases.
+//
+// 逐库检索有界并发扇出〔PF-3〕：各库检索（含底层各自 embedding + 向量/BM25 查询）彼此
+// 独立，串行会让总延迟 = Σ每库延迟；有界并发把它压到 ≈ max 单库延迟。并发上限沿用
+// retrieval_capability.go 的 capMaxConcurrentKB，避免库多时对下游 embedder/向量库瞬时打满。
+// 结果写入按 kbIDs 原序的定长槽位（无共享写冲突），单库失败留零结果不阻断整体，
+// 语义与原串行版完全一致；totalCount 在扇入后按原序串行累加，与调度顺序无关。
 func (r *Retriever) MultiKBRetrieve(ctx context.Context, tenantID int64, req *MultiKBRetrieveRequest) (*MultiKBRetrieveResponse, error) {
 	results := make([]KBRetrieveResultDTO, len(req.KnowledgeBaseIDs))
-	totalCount := 0
 
+	sem := make(chan struct{}, capMaxConcurrentKB)
+	var wg sync.WaitGroup
 	for i, kbID := range req.KnowledgeBaseIDs {
-		retrieveReq := &RetrieveRequest{
-			KnowledgeBaseID:       kbID,
-			Query:                  req.Query,
-			TopK:                   req.TopK,
-			SimilarityThreshold:    req.SimilarityThreshold,
-			RetrievalMode:          req.RetrievalMode,
-			EnableRerank:           req.EnableRerank,
-		}
+		wg.Add(1)
+		go func(i int, kbID string) {
+			defer safego.Recover("multi-kb-retrieval")
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		resp, err := r.Retrieve(ctx, tenantID, retrieveReq)
-		if err != nil {
+			retrieveReq := &RetrieveRequest{
+				KnowledgeBaseID:     kbID,
+				Query:               req.Query,
+				TopK:                req.TopK,
+				SimilarityThreshold: req.SimilarityThreshold,
+				RetrievalMode:       req.RetrievalMode,
+				EnableRerank:        req.EnableRerank,
+			}
+
+			resp, err := r.Retrieve(ctx, tenantID, retrieveReq)
+			if err != nil {
+				results[i] = KBRetrieveResultDTO{
+					KnowledgeBaseID: kbID,
+					Count:           0,
+				}
+				return
+			}
+
 			results[i] = KBRetrieveResultDTO{
 				KnowledgeBaseID: kbID,
-				Count:           0,
+				Documents:       resp.Documents,
+				Count:           len(resp.Documents),
 			}
-			continue
-		}
+		}(i, kbID)
+	}
+	wg.Wait()
 
-		results[i] = KBRetrieveResultDTO{
-			KnowledgeBaseID: kbID,
-			Documents:       resp.Documents,
-			Count:           len(resp.Documents),
-		}
-		totalCount += len(resp.Documents)
+	totalCount := 0
+	for _, res := range results {
+		totalCount += res.Count
 	}
 
 	return &MultiKBRetrieveResponse{

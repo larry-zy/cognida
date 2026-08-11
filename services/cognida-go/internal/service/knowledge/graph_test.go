@@ -49,6 +49,10 @@ func (m *mockGraphRepository) DeleteByChunkID(ctx context.Context, namespace dom
 	return nil
 }
 
+func (m *mockGraphRepository) DeleteByChunkIDs(ctx context.Context, namespace domain_knowledge.NameSpace, chunkIDs []string) error {
+	return nil
+}
+
 func (m *mockGraphRepository) DeleteByKnowledgeID(ctx context.Context, namespace domain_knowledge.NameSpace, knowledgeID string) error {
 	return nil
 }

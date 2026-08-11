@@ -10,6 +10,7 @@ type VectorDocument struct {
 	ID           int64           // Primary key ID
 	DenseVector  []float32       // Dense vector
 	SparseVector SparseEmbedding // Sparse vector
+	Text         string          // Raw text for BM25 full-text search (Milvus "text" field)
 	ChunkID      string          // Chunk ID
 	KnowledgeID  string          // Knowledge entry ID
 	KnowledgeBaseID string          // Knowledge base ID
@@ -57,10 +58,13 @@ func DefaultVectorSearchOptions() *VectorSearchOptions {
 
 // CollectionOptions vector collection options
 type CollectionOptions struct {
-	Description   string // Collection description
-	AutoID        bool   // Auto-generate ID
-	EnableDynamic bool   // Enable dynamic fields
-	ReplicaNumber int    // Replica number for load balancing
+	Description   string  // Collection description
+	AutoID        bool    // Auto-generate ID
+	EnableDynamic bool    // Enable dynamic fields
+	ReplicaNumber int     // Replica number for load balancing
+	EnableBM25    bool    // 启用服务端 BM25 全文检索（建 text→sparse Function 及 sparse 索引）
+	BM25K1        float64 // BM25 k1（词频饱和度，范围 [1.2, 2.0]，默认 1.2）
+	BM25B         float64 // BM25 b（文档长度归一化，范围 [0, 1]，默认 0.75）
 }
 
 // DefaultCollectionOptions returns default collection options
@@ -70,6 +74,9 @@ func DefaultCollectionOptions() *CollectionOptions {
 		AutoID:        false,
 		EnableDynamic: true,
 		ReplicaNumber: 1,
+		EnableBM25:    true,
+		BM25K1:        1.2,
+		BM25B:         0.75,
 	}
 }
 

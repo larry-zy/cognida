@@ -118,9 +118,27 @@ func (s *GraphService) calculateRelationMetrics(
 	// 统计实体对共同出现的文档块数
 	coOccurrenceCount := make(map[string]int, len(relations))
 	for _, rel := range relations {
-		sourceChunks := nodes[rel.Source].Chunks
-		targetChunks := nodes[rel.Target].Chunks
-		coOccurrenceCount[fmt.Sprintf("%s#%s", rel.Source, rel.Target)] = len(intersect(sourceChunks, targetChunks))
+		// 增量抽取的关系可能引用不在本批 node 集合里的既有实体，
+		// source/target 任一端点缺失时跳过，避免解引用 nil 直接崩请求。
+		sourceNode, okSource := nodes[rel.Source]
+		targetNode, okTarget := nodes[rel.Target]
+		if !okSource || !okTarget {
+			continue
+		}
+		coOccurrenceCount[fmt.Sprintf("%s#%s", rel.Source, rel.Target)] = len(intersect(sourceNode.Chunks, targetNode.Chunks))
+	}
+
+	// 预算每个节点的度〔PF-3〕：一次遍历累加每个端点被关系触及的次数，把 CombinedDegree
+	// 的计算从「每个关系再内层遍历全部关系」的 O(R²) 降到 O(R)。
+	// 语义与旧逐关系内层扫描完全一致——某节点的度 = 以它为任一端点的「关系条数」，
+	// 每条关系对该节点至多计一次；故自环（Source==Target）只计一次（跳过重复自增），
+	// 与旧代码里对单条关系用 if-OR 只 +1 的行为对齐。
+	nodeDegree := make(map[string]int, len(nodes))
+	for _, rel := range relations {
+		nodeDegree[rel.Source]++
+		if rel.Target != rel.Source {
+			nodeDegree[rel.Target]++
+		}
 	}
 
 	// 计算每个关系的 PMI、Weight 和 CombinedDegree
@@ -152,18 +170,8 @@ func (s *GraphService) calculateRelationMetrics(
 		// 保存 PMI
 		rel.PMI = pmi
 
-		// 计算 CombinedDegree
-		sourceDegree := 0
-		targetDegree := 0
-		for _, r := range relations {
-			if r.Source == rel.Source || r.Target == rel.Source {
-				sourceDegree++
-			}
-			if r.Source == rel.Target || r.Target == rel.Target {
-				targetDegree++
-			}
-		}
-		rel.CombinedDegree = sourceDegree + targetDegree
+		// 计算 CombinedDegree = 源节点度 + 目标节点度（度已在上方 O(R) 预算）
+		rel.CombinedDegree = nodeDegree[rel.Source] + nodeDegree[rel.Target]
 	}
 }
 

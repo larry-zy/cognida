@@ -52,9 +52,10 @@ func (r *Neo4jRepository) GetDegreeStats(ctx context.Context, namespace knowledg
 		MATCH (n:Entity {tenant_id: $tenantId, kb_id: $kbId})
 		OPTIONAL MATCH (n)-[r:RELATION]-()
 		WITH n, count(r) as degree
-		RETURN avg(degree) as avgDegree, max(degree) as maxDegree, min(degree) as minDegree,
-		       count(CASE WHEN degree = 0 THEN 1 END) as isolatedNodes,
-		       count(CASE WHEN degree > 2 * avg(degree) THEN 1 END) as highDegreeNodes
+		WITH collect(degree) as degrees, avg(degree) as avgDegree, max(degree) as maxDegree, min(degree) as minDegree
+		RETURN avgDegree, maxDegree, minDegree,
+		       size([d IN degrees WHERE d = 0]) as isolatedNodes,
+		       size([d IN degrees WHERE d > 2 * avgDegree]) as highDegreeNodes
 	`
 
 	result, err := session.Run(ctx, cypher, map[string]interface{}{
@@ -198,10 +199,14 @@ func (r *Neo4jRepository) GetCentralitySummaries(ctx context.Context, namespace 
 	cypher := fmt.Sprintf(`
 		MATCH (n:Entity {tenant_id: $tenantId, kb_id: $kbId})
 		WHERE n.%s IS NOT NULL
-		RETURN avg(n.%s) as avgScore, max(n.%s) as maxScore, min(n.%s) as minScore,
-		       n.id as nodeId, n.name as nodeName, n.%s as score
-		ORDER BY score DESC
+		WITH collect({id: n.id, name: n.name, score: n.%s}) as nodes,
+		     avg(n.%s) as avgScore, max(n.%s) as maxScore, min(n.%s) as minScore
+		UNWIND nodes as node
+		WITH avgScore, maxScore, minScore, node
+		ORDER BY node.score DESC
 		LIMIT 10
+		RETURN avgScore, maxScore, minScore,
+		       node.id as nodeId, node.name as nodeName, node.score as score
 	`, propName, propName, propName, propName, propName)
 
 	result, err := session.Run(ctx, cypher, map[string]interface{}{

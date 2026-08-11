@@ -44,51 +44,6 @@ export interface GraphStatistics {
   entity_types: Record<string, number>
 }
 
-// G6 节点数据模型 - G6 5.x 格式
-export interface G6Node {
-  id: string
-  // G6 5.x: 所有自定义数据都存储在 data 属性中
-  data?: {
-    label?: string
-    name?: string
-    entity_type?: string
-    attributes?: string[]
-    chunks?: string[]
-  }
-  // G6 5.x: 样式属性
-  style?: {
-    fill?: string | ((d: any) => string)
-    stroke?: string
-    lineWidth?: number
-  }
-}
-
-// G6 边数据模型 - G6 5.x 格式
-export interface G6Edge {
-  id: string
-  source: string
-  target: string
-  // G6 5.x: 所有自定义数据都存储在 data 属性中
-  data?: {
-    label?: string
-    type?: string
-    description?: string
-    strength?: number
-  }
-  // G6 5.x: 样式属性
-  style?: {
-    stroke?: string | ((d: any) => string)
-    lineWidth?: number | ((d: any) => number)
-    endArrow?: boolean
-  }
-}
-
-// G6 图数据模型
-export interface G6GraphData {
-  nodes?: G6Node[]
-  edges?: G6Edge[]
-}
-
 // 添加节点请求
 export interface AddNodeRequest {
   name: string

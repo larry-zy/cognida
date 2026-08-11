@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +12,14 @@ import (
 	"cognida/internal/model/rag"
 	"cognida/internal/pkg/safego"
 )
+
+// EnabledKnowledgeFilter 按知识条目启用状态过滤检索命中。MySQL 是启用状态的唯一权威源：
+// 停用只写 MySQL（doc.enable_status + chunk.is_enabled），检索命中后回查 MySQL 剔除停用/已删条目，
+// 无需向量库回写或重嵌入。为 nil 时不过滤（保持旧行为，便于测试与渐进接线）。
+type EnabledKnowledgeFilter interface {
+	// FilterEnabledKnowledgeIDs 输入 knowledge_id 集合，返回其中「启用且未删除」条目的 id->true 映射。
+	FilterEnabledKnowledgeIDs(ctx context.Context, ids []string) (map[string]bool, error)
+}
 
 // errRetrieverNotWired 底层检索器未注入时的哨兵错误。
 var errRetrieverNotWired = errors.New("检索器未接线")
@@ -72,13 +81,21 @@ type GovernedResult struct {
 
 // RetrievalCapability 封装底层检索器 + 可插拔重排器。
 type RetrievalCapability struct {
-	retriever rag.Retriever
-	reranker  rag.Reranker // 可插拔；为 nil 或 GovernedQuery.EnableRerank=false 时跳过重排
+	retriever     rag.Retriever
+	reranker      rag.Reranker           // 可插拔；为 nil 或 GovernedQuery.EnableRerank=false 时跳过重排
+	enabledFilter EnabledKnowledgeFilter // 可插拔；为 nil 时不做启用状态过滤（保持旧行为）
 }
 
 // NewRetrievalCapability 创建检索能力封装。reranker 可为 nil（重排能力缺省关闭）。
 func NewRetrievalCapability(retriever rag.Retriever, reranker rag.Reranker) *RetrievalCapability {
 	return &RetrievalCapability{retriever: retriever, reranker: reranker}
+}
+
+// WithEnabledFilter 注入「按启用状态过滤命中」的能力，返回自身便于链式装配。
+// 未注入（nil）时检索不做启用状态过滤，保持旧行为。
+func (c *RetrievalCapability) WithEnabledFilter(f EnabledKnowledgeFilter) *RetrievalCapability {
+	c.enabledFilter = f
+	return c
 }
 
 // Retrieve 在给定知识库范围内执行受治理检索。kbIDs 须已由调用方完成租户边界强制。
@@ -156,6 +173,10 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 		}
 	}
 
+	// 启用状态后过滤：MySQL 权威，回查命中的 knowledge_id，剔除停用/已删条目。放在去重之后、
+	// 质量下限与重排之前——先按业务权威把停用内容清出候选集，再对干净候选集做质量筛选与排序。
+	merged = c.filterByEnabled(ctx, merged)
+
 	// 混合模式相对质量下限：丢弃 RRF 量纲下明显弱相关的命中（vector/bm25 已在底层按余弦阈值过滤）。
 	merged = applyHybridFloor(merged, q.Mode)
 
@@ -186,6 +207,44 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 		})
 	}
 	return &GovernedResult{Chunks: chunks, HasAnswer: len(chunks) > 0}, nil
+}
+
+// filterByEnabled 用 MySQL 权威启用状态过滤命中：收集去重后的 knowledge_id，回查启用子集，
+// 剔除停用/已删条目。未注入过滤器或无有效 id 时原样返回。
+//
+// 容错取向：回查失败时保守放行（记日志、不过滤），与本函数上游「单库失败不阻断整体」的可用性
+// 基调一致——启用状态是业务治理而非租户安全边界（租户隔离在底层 filter 已强制），偶发 DB 抖动
+// 下短暂放行停用内容优于整体检索归零。
+func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.Document) []*rag.Document {
+	if c.enabledFilter == nil || len(docs) == 0 {
+		return docs
+	}
+	idSet := make(map[string]struct{}, len(docs))
+	for _, d := range docs {
+		if d != nil && d.KnowledgeID != "" {
+			idSet[d.KnowledgeID] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return docs // 命中都没有 knowledge_id，无从过滤
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	enabled, err := c.enabledFilter.FilterEnabledKnowledgeIDs(ctx, ids)
+	if err != nil {
+		log.Printf("[RetrievalCapability] 启用状态过滤回查失败，本轮不过滤: %v", err)
+		return docs
+	}
+	kept := docs[:0]
+	for _, d := range docs {
+		// 无 knowledge_id 的命中无从判定，保守保留；有 id 的仅保留启用子集。
+		if d == nil || d.KnowledgeID == "" || enabled[d.KnowledgeID] {
+			kept = append(kept, d)
+		}
+	}
+	return kept
 }
 
 // retrieveByMode 按检索模式选择底层检索器方法（未知模式按 hybrid）。

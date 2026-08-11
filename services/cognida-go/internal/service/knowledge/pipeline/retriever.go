@@ -4,6 +4,7 @@ package rag
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -126,6 +127,18 @@ func (r *RetrieverImpl) RetrieveWithEmbedding(ctx context.Context, tenantID, kbI
 	}, nil
 }
 
+// milvusFilter 构建 Milvus 统一 "link" collection 的过滤条件。
+// 所有知识库共用同一 collection，必须同时按 tenant_id 与 kb_id 过滤，
+// 否则单库检索会串到同租户其它库的分片（跨库泄漏）。kbID 为空（多库/未指定）
+// 时只按 tenant_id 过滤，交由上层按库聚合。
+func milvusFilter(tenantID, kbID string) map[string]string {
+	filter := map[string]string{"tenant_id": tenantID}
+	if kbID != "" {
+		filter["kb_id"] = kbID
+	}
+	return filter
+}
+
 // VectorRetrieve 向量检索
 func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, query string, opts *domainrag.RetrieveOptions) (*domainrag.RetrieveResponse, error) {
 	if opts == nil {
@@ -142,7 +155,10 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 	var embeddingVec []float32
 	if r.embedder != nil {
 		vecs, err := r.embedder.EmbedStrings(ctx, []string{query})
-		if err == nil && len(vecs) > 0 {
+		if err != nil {
+			// 不再静默吞掉：embedding 失败会让整条向量检索退化，必须可观测。
+			log.Printf("[Retriever] EmbedStrings failed, dense retrieval degraded: %v", err)
+		} else if len(vecs) > 0 {
 			// 将 float64 转换为 float32
 			for _, v := range vecs[0] {
 				embeddingVec = append(embeddingVec, float32(v))
@@ -152,9 +168,7 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 
 	// Milvus 向量检索
 	if r.milvusRetriever != nil && len(embeddingVec) > 0 {
-		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embeddingVec, opts.TopK, map[string]string{
-			"tenant_id": tenantID,
-		})
+		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embeddingVec, opts.TopK, milvusFilter(tenantID, kbID))
 		if err == nil && len(vectorDocs) > 0 {
 			for _, doc := range vectorDocs {
 				doc.MatchType = "vector"
@@ -217,9 +231,7 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 
 	// 优先使用 Milvus BM25 全文搜索
 	if r.milvusRetriever != nil {
-		bm25Docs, err := r.milvusRetriever.FullTextSearch(ctx, kbID, query, opts.TopK, map[string]string{
-			"tenant_id": tenantID,
-		})
+		bm25Docs, err := r.milvusRetriever.FullTextSearch(ctx, kbID, query, opts.TopK, milvusFilter(tenantID, kbID))
 		if err == nil && len(bm25Docs) > 0 {
 			for _, doc := range bm25Docs {
 				doc.MatchType = "bm25"

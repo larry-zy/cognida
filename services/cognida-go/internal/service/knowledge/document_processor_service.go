@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strings"
 	"sync"
@@ -110,7 +111,12 @@ func (s *documentProcessorService) ProcessDocument(
 	var knowledgeID string
 	if req.DocumentID != "" {
 		knowledgeID = req.DocumentID
-		// TODO: 更新已有文档
+		// 重处理已有文档：先清除旧分块及其向量/图谱投影，否则后续 CreateBatch 直接追加
+		// 新分块，旧数据残留 → 分块翻倍、检索重复命中（KB-8）。任一存储清理失败即中止，
+		// 不产生"新旧混叠"。
+		if err := s.purgeExistingDocument(ctx, tenantID, req.KnowledgeBaseID, knowledgeID); err != nil {
+			return nil, fmt.Errorf("failed to purge existing document before reprocess: %w", err)
+		}
 	} else {
 		// 创建新文档
 		knowledgeID = s.idGenerator.Generate()
@@ -126,7 +132,8 @@ func (s *documentProcessorService) ProcessDocument(
 		knowledge.Source = s.getSource(req)
 		knowledge.FilePath = req.FilePath
 		knowledge.ParseStatus = domain_knowledge.ParseStatusProcessing
-		knowledge.EnableStatus = domain_knowledge.EnableStatusDisabled
+		// 新入库文档默认启用，可被检索命中；停用是显式管理动作（见 SetKnowledgeEnabled）。
+		knowledge.EnableStatus = domain_knowledge.EnableStatusEnabled
 		knowledge.StorageSize = int64(len(text))
 
 		if err := s.knowledgeRepo.Create(ctx, knowledge); err != nil {
@@ -191,9 +198,15 @@ func (s *documentProcessorService) ProcessDocument(
 	wg.Wait()
 
 	// 9. 更新知识条目状态
+	// 向量化是语义检索的前置条件：失败则该文档无法被检索，标 completed 属谎报——
+	// 置为 failed 并回传错误信息，前端可见失败并触发重试，避免"已完成却搜不到"的静默坏账。
+	// 图谱抽取是增强能力、非检索必需，其失败仅记录、不改变解析状态（行为与既有一致）。
 	finalStatus := domain_knowledge.ParseStatusCompleted
+	var statusErrMsg string
 	if vectorErr != nil {
-		log.Printf("[DocumentProcessor] Vectorization warning: %v", vectorErr)
+		finalStatus = domain_knowledge.ParseStatusFailed
+		statusErrMsg = fmt.Sprintf("vectorization failed: %v", vectorErr)
+		log.Printf("[DocumentProcessor] Vectorization failed, marking document as failed: %v", vectorErr)
 	}
 	if graphErr != nil {
 		log.Printf("[DocumentProcessor] Graph extraction warning: %v", graphErr)
@@ -206,7 +219,7 @@ func (s *documentProcessorService) ProcessDocument(
 	}
 
 	// 更新解析状态
-	if err := s.knowledgeRepo.UpdateParseStatus(ctx, knowledgeID, finalStatus, ""); err != nil {
+	if err := s.knowledgeRepo.UpdateParseStatus(ctx, knowledgeID, finalStatus, statusErrMsg); err != nil {
 		log.Printf("[DocumentProcessor] Warning: failed to update parse status: %v", err)
 	}
 
@@ -411,6 +424,54 @@ func (s *documentProcessorService) getSource(req *ProcessDocumentRequest) string
 	}
 }
 
+// purgeExistingDocument 重处理前清除文档的旧分块及其投影（向量/图谱），保证幂等重建（KB-8）。
+// 顺序要点：先按旧 chunk_id 清图谱、再删向量，最后删 MySQL 分块——MySQL 分块删除后
+// chunk_id 即不可得，故图谱清理必须在最前。任一步失败即返回错误，调用方中止本次重处理，
+// 避免"清一半 + 追加新分块"造成的混叠。
+func (s *documentProcessorService) purgeExistingDocument(ctx context.Context, tenantID int64, kbID, knowledgeID string) error {
+	// 1. 取旧分块 id（含禁用），供图谱按 chunk_id 精确清理（节点存 chunk_id 而非 knowledge_id）
+	if s.graphRepo != nil && s.chunkRepo != nil {
+		oldChunks, err := s.chunkRepo.FindByKnowledgeID(ctx, knowledgeID, false)
+		if err != nil {
+			return fmt.Errorf("加载旧分块失败: %w", err)
+		}
+		if len(oldChunks) > 0 {
+			chunkIDs := make([]string, 0, len(oldChunks))
+			for _, c := range oldChunks {
+				chunkIDs = append(chunkIDs, c.ID)
+			}
+			namespace := domain_knowledge.NameSpace{
+				TenantID:        fmt.Sprintf("%d", tenantID),
+				KnowledgeBaseID: kbID,
+				Knowledge:       knowledgeID,
+			}
+			if err := s.graphRepo.DeleteByChunkIDs(ctx, namespace, chunkIDs); err != nil {
+				return fmt.Errorf("清除旧图谱失败: %w", err)
+			}
+		}
+	}
+
+	// 2. 删旧向量（按 knowledge_id，向量行带该字段）
+	if s.vectorRepo != nil {
+		var kbIDInt int64
+		if kbID != "" {
+			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
+		}
+		if err := s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID); err != nil {
+			return fmt.Errorf("清除旧向量失败: %w", err)
+		}
+	}
+
+	// 3. 删旧 MySQL 分块
+	if s.chunkRepo != nil {
+		if err := s.chunkRepo.DeleteByKnowledgeID(ctx, knowledgeID); err != nil {
+			return fmt.Errorf("清除旧分块失败: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // createChunkEntities 创建分块实体
 func (s *documentProcessorService) createChunkEntities(
 	ctx context.Context,
@@ -463,6 +524,15 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// stableVectorID 由全局唯一的 chunk_id 派生稳定、唯一的 int64 主键（FNV-1a 64 位哈希取非负）。
+// "link" collection 主键为非 AutoID，客户端必须提供唯一 id；用 chunk_id 派生既保证跨文档唯一，
+// 又对同一 chunk 幂等（重复写入得到同一主键），避免旧的循环下标实现导致的跨文档主键冲突。
+func stableVectorID(chunkID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(chunkID))
+	return int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
 }
 
 // vectorizeChunks 向量化分块（保存到向量存储）
@@ -519,8 +589,14 @@ func (s *documentProcessorService) vectorizeChunks(
 		}
 
 		docs[i] = &domain_knowledge.VectorDocument{
-			ID:              int64(i), // 临时 ID，由数据库生成
+			// 由全局唯一的 chunk_id 派生稳定且唯一的主键，替换旧的循环下标 int64(i)——
+			// 后者会让不同文档的第 i 个分块拿到相同主键，在非 AutoID 的 "link" collection
+			// 里造成跨文档主键冲突/覆盖（KB-2）。
+			ID:              stableVectorID(chunk.ID),
 			DenseVector:     vector,
+			// Text 为 BM25 全文检索的分词源，写入分块内容；旧代码从不设置该字段，
+			// 导致 collection 的 text 列恒空、BM25 永远召回为空（KB-3）。
+			Text:            chunk.Content,
 			ChunkID:         chunk.ID,
 			KnowledgeID:     chunk.KnowledgeID,
 			KnowledgeBaseID: chunk.KnowledgeBaseID,

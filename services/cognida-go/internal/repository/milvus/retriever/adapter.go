@@ -51,8 +51,11 @@ func (a *MilvusAdapter) Search(ctx context.Context, collectionName string, vecto
 			KnowledgeID: r.KnowledgeID,
 		 KnowledgeBaseID:        r.KnowledgeBaseID,
 			Content:     r.Content,
-			Score:       r.Score,
-			ChunkIndex:  r.ChunkIndex,
+			// dense 检索走 L2 度量（距离越小越相似），而领域检索链路统一按
+			// 「分数越大越相关」排序/阈值/RRF/重排。此处在适配边界把 L2 距离转成
+			// 单调相似度 1/(1+d)，与 BM25/RRF 的语义对齐，避免最佳匹配被降序排到末位。
+			Score:      l2DistanceToSimilarity(r.Score),
+			ChunkIndex: r.ChunkIndex,
 			Metadata: map[string]interface{}{
 				"tenant_id":   r.TenantID,
 				"is_enabled":  r.IsEnabled,
@@ -64,6 +67,16 @@ func (a *MilvusAdapter) Search(ctx context.Context, collectionName string, vecto
 	}
 
 	return docs, nil
+}
+
+// l2DistanceToSimilarity 将 Milvus L2 距离（[0,∞)，越小越相似）映射为
+// 单调递减的相似度分（(0,1]，距离 0→1.0），使 dense 结果与领域层
+// 「分数越大越相关」的排序/阈值/融合语义一致。
+func l2DistanceToSimilarity(distance float32) float32 {
+	if distance < 0 {
+		distance = 0
+	}
+	return 1.0 / (1.0 + distance)
 }
 
 // FullTextSearch BM25 全文搜索 - 实现 MilvusRetriever 接口

@@ -17,37 +17,39 @@ func (r *Neo4jRepository) GetGraph(ctx context.Context, namespace knowledge.Name
 	defer session.Close(ctx)
 
 	// 查询节点
+	// 加有界 LIMIT（PF-1）：大知识库若无上限会一次性把全部节点物化进内存。
+	// 无分页入参，统一用 defaultGraphLoadLimit 兜底。
 	nodeCypher := `
 		MATCH (n:Entity {tenant_id: $tenantId, kb_id: $kbId})
 		RETURN n.id as id, n.name as name, n.entity_type as entityType,
 		       n.chunks as chunks, n.properties as properties
 		ORDER BY n.name
+		LIMIT $limit
 	`
 
 	nodesResult, err := session.Run(ctx, nodeCypher, map[string]interface{}{
 		"tenantId": namespace.TenantID,
 		"kbId":     namespace.KnowledgeBaseID,
+		"limit":    defaultGraphLoadLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("查询节点失败: %w", err)
 	}
 
 	nodes := make([]*knowledge.GraphNode, 0)
+	nodeNames := make([]string, 0)
 	for nodesResult.Next(ctx) {
 		record := nodesResult.Record()
 
 		id := getStringValue(record, "id")
 		name := getStringValue(record, "name")
 		entityType := getStringValue(record, "entityType")
-		chunksStr := getStringValue(record, "chunks")
+		chunks := getStringSliceValue(record, "chunks") // chunks 为 Neo4j 原生 list〔GR-1〕
 		propsStr := getStringValue(record, "properties")
 
 		if id == "" {
 			continue
 		}
-
-		var chunks []string
-		_ = json.Unmarshal([]byte(chunksStr), &chunks) // 解析失败保持零值
 
 		var properties map[string]string
 		_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
@@ -59,20 +61,33 @@ func (r *Neo4jRepository) GetGraph(ctx context.Context, namespace knowledge.Name
 			Chunks:     chunks,
 			Properties: properties,
 		})
+		nodeNames = append(nodeNames, name)
+	}
+
+	// 节点集为空则无需查关系，直接返回（避免空 IN 列表全表扫描）。
+	if len(nodeNames) == 0 {
+		return &knowledge.GraphData{Node: nodes, Relation: make([]*knowledge.GraphRelation, 0)}, nil
 	}
 
 	// 查询关系
+	// 关键修正〔#4〕：节点与关系各自独立 LIMIT 会让返回的边引用到未在节点集中的实体，
+	// 前端据此物化出「幽灵节点/悬空边」。此处把关系两端约束在已返回的节点名集合内
+	// （s.name/t.name IN $names），保证每条边的两端都在 nodes 中；仍加 LIMIT 兜底防边集放大。
 	relCypher := `
 		MATCH (s:Entity {tenant_id: $tenantId, kb_id: $kbId})-[r:RELATION]->(t:Entity {tenant_id: $tenantId, kb_id: $kbId})
+		WHERE s.name IN $names AND t.name IN $names
 		RETURN r.id as id, s.name as source, t.name as target, r.type as type,
 		       r.strength as strength, r.weight as weight, r.chunk_ids as chunkIds,
 		       r.properties as properties
 		ORDER BY r.weight DESC
+		LIMIT $limit
 	`
 
 	relResult, err := session.Run(ctx, relCypher, map[string]interface{}{
 		"tenantId": namespace.TenantID,
 		"kbId":     namespace.KnowledgeBaseID,
+		"names":    nodeNames,
+		"limit":    defaultGraphLoadLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("查询关系失败: %w", err)
@@ -133,12 +148,14 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			MATCH (n:Entity {name: $name, tenant_id: $tenantId, kb_id: $kbId})
 			RETURN n.id as id, n.name as name, n.entity_type as entityType,
 			       n.chunks as chunks, n.properties as properties
+			LIMIT $limit
 		`
 
 		result, err := session.Run(ctx, cypher, map[string]interface{}{
 			"name":     nodeName,
 			"tenantId": namespace.TenantID,
 			"kbId":     namespace.KnowledgeBaseID,
+			"limit":    defaultGraphLoadLimit,
 		})
 		if err != nil {
 			continue
@@ -150,15 +167,12 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			id := getStringValue(record, "id")
 			name := getStringValue(record, "name")
 			entityType := getStringValue(record, "entityType")
-			chunksStr := getStringValue(record, "chunks")
+			chunks := getStringSliceValue(record, "chunks") // chunks 为 Neo4j 原生 list〔GR-1〕
 			propsStr := getStringValue(record, "properties")
 
 			if id == "" || nodeSet[id] {
 				continue
 			}
-
-			var chunks []string
-			_ = json.Unmarshal([]byte(chunksStr), &chunks) // 解析失败保持零值
 
 			var properties map[string]string
 			_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
@@ -177,6 +191,7 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 	// 查询这些节点之间的关系
 	relations := make([]*knowledge.GraphRelation, 0)
 	if len(nodes) > 0 {
+		// 加有界 LIMIT（PF-1）：命中节点间的关系数上界为 O(命中数²)，加上限兜底防止内存放大。
 		relCypher := `
 			MATCH (s:Entity)-[r:RELATION]->(t:Entity)
 			WHERE s.name IN $names AND t.name IN $names
@@ -185,12 +200,14 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			RETURN r.id as id, s.name as source, t.name as target, r.type as type,
 			       r.strength as strength, r.weight as weight, r.chunk_ids as chunkIds,
 			       r.properties as properties
+			LIMIT $limit
 		`
 
 		relResult, err := session.Run(ctx, relCypher, map[string]interface{}{
 			"names":    nodeNames,
 			"tenantId": namespace.TenantID,
 			"kbId":     namespace.KnowledgeBaseID,
+			"limit":    defaultGraphLoadLimit,
 		})
 		if err == nil {
 			for relResult.Next(ctx) {
@@ -305,16 +322,13 @@ func (r *Neo4jRepository) SearchNodes(ctx context.Context, namespace knowledge.N
 		id := getStringValue(record, "id")
 		name := getStringValue(record, "name")
 		entityType := getStringValue(record, "entityType")
-		chunksStr := getStringValue(record, "chunks")
+		chunks := getStringSliceValue(record, "chunks") // chunks 为 Neo4j 原生 list〔GR-1〕
 		attrsStr := getStringValue(record, "attributes")
 		propsStr := getStringValue(record, "properties")
 
 		if id == "" {
 			continue
 		}
-
-		var chunks []string
-		_ = json.Unmarshal([]byte(chunksStr), &chunks) // 解析失败保持零值
 
 		var attributes []string
 		_ = json.Unmarshal([]byte(attrsStr), &attributes) // 解析失败保持零值
@@ -406,9 +420,7 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 		if !centerLoaded {
 			center.ID = getStringValue(record, "centerId")
 			center.EntityType = getStringValue(record, "centerType")
-			var centerChunks []string
-			_ = json.Unmarshal([]byte(getStringValue(record, "centerChunks")), &centerChunks) // 解析失败保持零值
-			center.Chunks = centerChunks
+			center.Chunks = getStringSliceValue(record, "centerChunks") // chunks 为 Neo4j 原生 list〔GR-1〕
 			var centerAttrs []string
 			_ = json.Unmarshal([]byte(getStringValue(record, "centerAttrs")), &centerAttrs) // 解析失败保持零值
 			center.Attributes = centerAttrs
@@ -431,8 +443,7 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 		relSource := getStringValue(record, "relSource")
 		relTarget := getStringValue(record, "relTarget")
 
-		var chunks []string
-		_ = json.Unmarshal([]byte(getStringValue(record, "chunks")), &chunks) // 解析失败保持零值
+		chunks := getStringSliceValue(record, "chunks") // chunks 为 Neo4j 原生 list〔GR-1〕
 
 		var relChunks []string
 		_ = json.Unmarshal([]byte(getStringValue(record, "relChunks")), &relChunks) // 解析失败保持零值

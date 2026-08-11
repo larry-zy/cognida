@@ -190,15 +190,6 @@ func (s *knowledgeService) FindKnowledgeBaseSettingByKnowledgeBaseID(
 	return s.kbSettingRepo.FindByKnowledgeBaseID(ctx, kbID)
 }
 
-// FindKnowledgeBaseSettingByKnowledgeBaseIDAndKey finds KB setting by KB ID and key
-func (s *knowledgeService) FindKnowledgeBaseSettingByKnowledgeBaseIDAndKey(
-	ctx context.Context,
-	kbID string,
-	key string,
-) (*domain_knowledge.KnowledgeBaseSetting, error) {
-	return s.kbSettingRepo.FindByKnowledgeBaseID(ctx, kbID)
-}
-
 // CreateKnowledgeBaseSetting creates a KB setting
 func (s *knowledgeService) CreateKnowledgeBaseSetting(ctx context.Context, setting *domain_knowledge.KnowledgeBaseSetting) error {
 	return s.kbSettingRepo.Create(ctx, setting)
@@ -231,20 +222,12 @@ func (s *knowledgeService) GetTransactionManager() domain_knowledge.TransactionM
 
 // CountByKnowledgeBaseID counts knowledge by KB ID
 func (s *knowledgeService) CountByKnowledgeBaseID(ctx context.Context, kbID string) (int64, error) {
-	knowledges, _, err := s.FindByKnowledgeBaseID(ctx, kbID, &domain_knowledge.KnowledgeListQuery{})
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(knowledges)), nil
+	return s.knowledgeRepo.CountByKnowledgeBaseID(ctx, kbID)
 }
 
 // CountByTenantID counts knowledge by tenant ID
 func (s *knowledgeService) CountByTenantID(ctx context.Context, tenantID int64) (int64, error) {
-	knowledges, _, err := s.FindByTenantID(ctx, tenantID, 1, 1000)
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(knowledges)), nil
+	return s.knowledgeRepo.CountByTenantID(ctx, tenantID)
 }
 
 // ========================================

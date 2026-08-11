@@ -122,14 +122,12 @@ func (s *MessageService) UpdateMessage(ctx context.Context, id string, req *Upda
 		}
 		message.IsCompleted = *req.IsCompleted
 	}
-	if req.KnowledgeReferences != nil {
-		message.KnowledgeReferences = *req.KnowledgeReferences
-	}
-	if req.AgentSteps != nil {
-		message.AgentSteps = *req.AgentSteps
-	}
-	if req.TokenCount != nil {
-		message.TokenCount = *req.TokenCount
+	// 知识引用 / Agent 步骤 / Token 计数需真正落库：
+	// 否则仅改内存结构体，随后 FindByID 从 DB 重拉会覆盖改动，导致静默 no-op。
+	if req.KnowledgeReferences != nil || req.AgentSteps != nil || req.TokenCount != nil {
+		if err := s.messageRepo.UpdateAgentData(ctx, id, req.KnowledgeReferences, req.AgentSteps, req.TokenCount); err != nil {
+			return nil, fmt.Errorf("更新消息字段失败: %w", err)
+		}
 	}
 
 	// 重新获取更新后的消息

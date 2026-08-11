@@ -301,21 +301,38 @@ func getAgentDisplayName(agentType string) string {
 	}
 }
 
-// serializeToolCalls converts tool calls to JSON string
+// serializeToolCalls converts tool calls to JSON string.
+//
+// 用 encoding/json 序列化，而非手搓拼接：工具输入/输出常含模型原样字节（控制字符、
+// U+2028/2029 等），手搓的 escapeString 覆盖不全会生成非法 JSON，令前端 JSON.parse
+// 整条工具时间线失败。字段名沿用原格式（id/name/input/output/error）以兼容前端。
 func serializeToolCalls(calls []ToolCallInfo) string {
 	if len(calls) == 0 {
 		return ""
 	}
-	result := "["
-	for i, tc := range calls {
-		if i > 0 {
-			result += ","
-		}
-		result += fmt.Sprintf(`{"id":"%s","name":"%s","input":"%s","output":"%s","error":"%s"}`,
-			tc.ID, tc.Name, escapeString(tc.Input), escapeString(tc.Output), escapeString(tc.Error))
+	type toolCallJSON struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Input  string `json:"input"`
+		Output string `json:"output"`
+		Error  string `json:"error"`
 	}
-	result += "]"
-	return result
+	out := make([]toolCallJSON, len(calls))
+	for i, tc := range calls {
+		out[i] = toolCallJSON{
+			ID:     tc.ID,
+			Name:   tc.Name,
+			Input:  tc.Input,
+			Output: tc.Output,
+			Error:  tc.Error,
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		log.Printf("[AgentPersistence] serializeToolCalls marshal failed: %v", err)
+		return ""
+	}
+	return string(b)
 }
 
 // serializeAgentSteps converts agent steps to JSON string.
@@ -332,16 +349,6 @@ func serializeAgentSteps(steps map[string]interface{}) string {
 		return ""
 	}
 	return string(b)
-}
-
-// escapeString escapes special characters in string
-func escapeString(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, "\t", "\\t")
-	return s
 }
 
 // ========================================

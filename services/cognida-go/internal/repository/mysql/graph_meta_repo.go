@@ -76,26 +76,32 @@ func (r *graphQueryRepository) GetKnowledgeByGraphNodes(ctx context.Context, kno
 
 	db := r.db.WithContext(ctx)
 
-	// 通过分块查找知识条目
-	subQuery := db.Table("chunks").
-		Select("DISTINCT knowledge_id").
-		Where("knowledge_base_id = ?", knowledgeBaseID).
-		Where("is_enabled = ?", true)
-
-	// 添加节点名称匹配条件
-	for _, nodeName := range nodeNames {
-		subQuery = subQuery.Or("content LIKE ?", "%"+nodeName+"%")
+	// 构造节点名称匹配的 OR 分组：用独立 Session 生成带括号的子条件，
+	// 避免 AND/OR 优先级导致 KB/enabled 作用域对 content 匹配失效（跨租户泄漏）。
+	orGroup := r.db.Session(&gorm.Session{NewDB: true})
+	for i, nodeName := range nodeNames {
+		if i == 0 {
+			orGroup = orGroup.Where("content LIKE ?", "%"+nodeName+"%")
+		} else {
+			orGroup = orGroup.Or("content LIKE ?", "%"+nodeName+"%")
+		}
 	}
 
-	var knowledgeID string
-	err := subQuery.Pluck("knowledge_id", &knowledgeID).Error
+	// 通过分块查找知识条目：KB/enabled 作用域对所有 content 匹配都生效
+	var knowledgeIDs []string
+	err := db.Table("chunks").
+		Select("DISTINCT knowledge_id").
+		Where("knowledge_base_id = ? AND is_enabled = ?", knowledgeBaseID, true).
+		Where(orGroup).
+		Pluck("knowledge_id", &knowledgeIDs).Error
 	if err != nil {
 		return nil, fmt.Errorf("查询知识条目ID失败: %w", err)
 	}
 
-	if knowledgeID == "" {
+	if len(knowledgeIDs) == 0 {
 		return nil, fmt.Errorf("未找到关联的知识条目")
 	}
+	knowledgeID := knowledgeIDs[0]
 
 	// 查询完整知识条目
 	var knowledge KnowledgeModel

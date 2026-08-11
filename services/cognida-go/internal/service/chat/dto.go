@@ -391,4 +391,8 @@ type ListSessionsRequest struct {
 type SessionDetailResponse struct {
 	Session  *conversation.Session   `json:"session"`
 	Messages []*conversation.Message `json:"messages"`
+	// Total 为该会话消息总数；HasMore 表示返回的 Messages 因上限被截断、仍有更早历史未返回〔#10〕。
+	// 使「只返回最近 N 条」这一截断对前端显式可见，而非静默丢弃历史。
+	Total   int64 `json:"total"`
+	HasMore bool  `json:"has_more"`
 }

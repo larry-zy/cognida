@@ -333,6 +333,36 @@ func (r *messageRepository) UpdateCompleted(ctx context.Context, id string, isCo
 		Update("is_completed", isCompleted).Error
 }
 
+// UpdateAgentData 更新消息的知识引用 / Agent 步骤 / Token 计数（仅更新非 nil 字段）。
+// knowledge_references / agent_steps 是 JSON 列，空字符串非法，故与 FromDomain 保持一致：
+// 空知识引用存 "null"、空 agent 步骤存 "[]"。
+func (r *messageRepository) UpdateAgentData(ctx context.Context, id string, knowledgeReferences, agentSteps *string, tokenCount *int) error {
+	updates := make(map[string]interface{})
+	if knowledgeReferences != nil {
+		v := *knowledgeReferences
+		if v == "" {
+			v = "null"
+		}
+		updates["knowledge_references"] = v
+	}
+	if agentSteps != nil {
+		v := *agentSteps
+		if v == "" {
+			v = "[]"
+		}
+		updates["agent_steps"] = v
+	}
+	if tokenCount != nil {
+		updates["token_count"] = *tokenCount
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&MessageModel{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
 // Delete 删除消息（软删除）
 func (r *messageRepository) Delete(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&MessageModel{}).Error

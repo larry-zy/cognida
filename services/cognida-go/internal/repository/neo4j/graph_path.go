@@ -9,14 +9,32 @@ import (
 	"cognida/internal/model/knowledge"
 )
 
+// maxPathDepth 是变长路径查询 maxDepth 的硬上限（PF-2）。
+// 变长 MATCH [*1..depth] 在密集图上随 depth 近似指数级膨胀，depth≥3 即有 CPU/内存 DoS 风险，
+// 故对所有路径查询的 maxDepth 统一封顶，超出则截断到该上限（保持函数签名与调用方不变）。
+const maxPathDepth = 5
+
+// maxPathResults 是无 shortestPath 的变长路径查询（FindPathWithTypes）返回结果集的硬上限（PF-2），
+// 防止密集图上枚举出海量路径全部物化进内存。
+const maxPathResults = 50
+
+// clampPathDepth 将 maxDepth 收敛到 (0, maxPathDepth]：非正值取默认 3，超上限则截断到 maxPathDepth。
+func clampPathDepth(maxDepth int) int {
+	if maxDepth <= 0 {
+		maxDepth = 3
+	}
+	if maxDepth > maxPathDepth {
+		maxDepth = maxPathDepth
+	}
+	return maxDepth
+}
+
 // SearchPath 搜索路径
 func (r *Neo4jRepository) SearchPath(ctx context.Context, namespace knowledge.NameSpace, startNode, endNode string, maxDepth int) ([]*knowledge.GraphData, error) {
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
 
-	if maxDepth <= 0 {
-		maxDepth = 3
-	}
+	maxDepth = clampPathDepth(maxDepth) // 封顶 maxDepth（PF-2）
 
 	cypher := fmt.Sprintf(`
 		MATCH (start:Entity {name: $start, tenant_id: $tenantId, kb_id: $kbId}),
@@ -82,9 +100,7 @@ func (r *Neo4jRepository) FindShortestPath(ctx context.Context, namespace knowle
 	if opts == nil {
 		opts = &knowledge.PathQueryOptions{MaxDepth: 3}
 	}
-	if opts.MaxDepth <= 0 {
-		opts.MaxDepth = 3
-	}
+	opts.MaxDepth = clampPathDepth(opts.MaxDepth) // 封顶 maxDepth（PF-2）
 
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
@@ -167,9 +183,7 @@ func (r *Neo4jRepository) FindKShortestPaths(ctx context.Context, namespace know
 	if k <= 0 {
 		k = 3
 	}
-	if opts.MaxDepth <= 0 {
-		opts.MaxDepth = 3
-	}
+	opts.MaxDepth = clampPathDepth(opts.MaxDepth) // 封顶 maxDepth（PF-2）；LIMIT $k 已限定结果集
 
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
@@ -252,13 +266,12 @@ func (r *Neo4jRepository) FindKShortestPaths(ctx context.Context, namespace know
 
 // FindPathWithTypes find path with relation type constraints
 func (r *Neo4jRepository) FindPathWithTypes(ctx context.Context, namespace knowledge.NameSpace, startNode, endNode string, relationTypes []string, maxDepth int) ([]*knowledge.PathQueryResult, error) {
-	if maxDepth <= 0 {
-		maxDepth = 3
-	}
+	maxDepth = clampPathDepth(maxDepth) // 封顶 maxDepth（PF-2）
 
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
 
+	// 变长非 shortestPath 查询在密集图上会枚举出海量路径，故封顶 maxDepth 并加硬 LIMIT（PF-2）。
 	cypher := fmt.Sprintf(`
 		MATCH (start:Entity {name: $start, tenant_id: $tenantId, kb_id: $kbId}),
 		      (end:Entity {name: $end, tenant_id: $tenantId, kb_id: $kbId})
@@ -269,6 +282,7 @@ func (r *Neo4jRepository) FindPathWithTypes(ctx context.Context, namespace knowl
 		       length(path) as length,
 		       reduce(weight = 0.0, r IN relationships(path) | weight + coalesce(r.weight, 0.0)) as weight
 		ORDER BY weight ASC
+		LIMIT $limit
 	`, maxDepth)
 
 	result, err := session.Run(ctx, cypher, map[string]interface{}{
@@ -277,6 +291,7 @@ func (r *Neo4jRepository) FindPathWithTypes(ctx context.Context, namespace knowl
 		"tenantId": namespace.TenantID,
 		"kbId":     namespace.KnowledgeBaseID,
 		"types":    relationTypes,
+		"limit":    maxPathResults,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("约束路径查询失败: %w", err)

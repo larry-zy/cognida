@@ -312,6 +312,43 @@ func (h *KnowledgeBaseHandler) DeleteKnowledge(c *gin.Context) {
 	OK(c, map[string]interface{}{"message": "删除成功"})
 }
 
+// EnableKnowledge 启用某文档，使其可被检索命中。
+func (h *KnowledgeBaseHandler) EnableKnowledge(c *gin.Context) {
+	h.setKnowledgeEnabled(c, true)
+}
+
+// DisableKnowledge 停用某文档，使其不再被检索命中（MySQL 权威 + 检索后过滤）。
+func (h *KnowledgeBaseHandler) DisableKnowledge(c *gin.Context) {
+	h.setKnowledgeEnabled(c, false)
+}
+
+// setKnowledgeEnabled 是启用/停用文档的公共处理逻辑。
+func (h *KnowledgeBaseHandler) setKnowledgeEnabled(c *gin.Context, enabled bool) {
+	knowledgeBaseID := c.Param("id")
+	knowledgeID := c.Param("knowledge_id")
+
+	if knowledgeBaseID == "" {
+		BadRequest(c, "知识库ID不能为空")
+		return
+	}
+	if knowledgeID == "" {
+		BadRequest(c, "文档ID不能为空")
+		return
+	}
+
+	tenantID := GetTenantID(c)
+	if err := h.knowledgeBaseService.SetKnowledgeEnabled(c.Request.Context(), knowledgeBaseID, knowledgeID, tenantID, enabled); err != nil {
+		InternalError(c, err.Error())
+		return
+	}
+
+	msg := "停用成功"
+	if enabled {
+		msg = "启用成功"
+	}
+	OK(c, map[string]interface{}{"message": msg})
+}
+
 // UploadKnowledgeFile 上传知识库文件
 // @Summary 上传知识库文件
 // @Description 上传文档文件到知识库

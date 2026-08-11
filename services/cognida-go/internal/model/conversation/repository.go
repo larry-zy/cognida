@@ -83,6 +83,10 @@ type MessageRepository interface {
 	// UpdateCompleted 更新消息完成状态
 	UpdateCompleted(ctx context.Context, id string, isCompleted bool) error
 
+	// UpdateAgentData 更新消息的知识引用 / Agent 步骤 / Token 计数。
+	// 仅持久化非 nil 的字段（对应 UpdateMessage 的可选更新语义）。
+	UpdateAgentData(ctx context.Context, id string, knowledgeReferences, agentSteps *string, tokenCount *int) error
+
 	// Delete 删除消息（软删除）
 	Delete(ctx context.Context, id string) error
 

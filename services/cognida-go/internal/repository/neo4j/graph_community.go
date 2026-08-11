@@ -46,25 +46,36 @@ func (r *Neo4jRepository) StoreCommunityMembers(ctx context.Context, namespace k
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
 
-	for _, member := range members {
-		cypher := `
-			MATCH (e:Entity {name: $entityName, tenant_id: $tenantId, kb_id: $kbId})
-			MATCH (c:Community {id: $communityId, kb_id: $kbId})
-			MERGE (e)-[r:MEMBER_OF]->(c)
-			SET r.membership_score = $score
-			RETURN r
-		`
+	if len(members) == 0 {
+		return nil
+	}
 
-		_, err := session.Run(ctx, cypher, map[string]interface{}{
+	// 批量写入（PF-3）：单条 UNWIND 取代逐成员 session.Run，语义完全一致
+	//（相同的 MATCH 键、MERGE 关系与 SET 字段）。
+	rows := make([]map[string]interface{}, 0, len(members))
+	for _, member := range members {
+		rows = append(rows, map[string]interface{}{
 			"entityName":  member.EntityName,
 			"communityId": member.CommunityID,
 			"score":       member.MembershipScore,
-			"tenantId":    namespace.TenantID,
-			"kbId":        namespace.KnowledgeBaseID,
 		})
-		if err != nil {
-			return fmt.Errorf("存储社区成员失败: %w", err)
-		}
+	}
+
+	cypher := `
+		UNWIND $rows AS row
+		MATCH (e:Entity {name: row.entityName, tenant_id: $tenantId, kb_id: $kbId})
+		MATCH (c:Community {id: row.communityId, kb_id: $kbId})
+		MERGE (e)-[r:MEMBER_OF]->(c)
+		SET r.membership_score = row.score
+	`
+
+	_, err := session.Run(ctx, cypher, map[string]interface{}{
+		"rows":     rows,
+		"tenantId": namespace.TenantID,
+		"kbId":     namespace.KnowledgeBaseID,
+	})
+	if err != nil {
+		return fmt.Errorf("存储社区成员失败: %w", err)
 	}
 
 	return nil
@@ -97,20 +108,28 @@ func (r *Neo4jRepository) UpdateCentralityScores(ctx context.Context, namespace 
 		return fmt.Errorf("不支持的分数类型: %s", scoreType)
 	}
 
-	for nodeID, score := range scores {
+	// 批量写入（PF-3）：单条 UNWIND 取代逐节点 tx.Run，语义完全一致（同一 MATCH 键与 SET 字段）。
+	// propName 来自受限 switch（pagerank/betweenness），Sprintf 拼接无注入风险。
+	if len(scores) > 0 {
+		rows := make([]map[string]interface{}, 0, len(scores))
+		for nodeID, score := range scores {
+			rows = append(rows, map[string]interface{}{
+				"nodeId": nodeID,
+				"score":  score,
+			})
+		}
+
 		cypher := fmt.Sprintf(`
-			MATCH (n:Entity {id: $nodeId, tenant_id: $tenantId, kb_id: $kbId})
-			SET n.%s = $score
-			RETURN n
+			UNWIND $rows AS row
+			MATCH (n:Entity {id: row.nodeId, tenant_id: $tenantId, kb_id: $kbId})
+			SET n.%s = row.score
 		`, propName)
 
-		_, err := tx.Run(ctx, cypher, map[string]interface{}{
-			"nodeId":   nodeID,
-			"score":    score,
+		if _, err := tx.Run(ctx, cypher, map[string]interface{}{
+			"rows":     rows,
 			"tenantId": namespace.TenantID,
 			"kbId":     namespace.KnowledgeBaseID,
-		})
-		if err != nil {
+		}); err != nil {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("更新中心性分数失败: %w", err)
 		}

@@ -489,7 +489,8 @@ func NewKnowledge(id string, tenantID, userID int64, knowledgeBaseID string, kno
 		Type:              knowledgeType,
 		Title:             title,
 		ParseStatus:       ParseStatusPending,
-		EnableStatus:      EnableStatusDisabled,
+		// 新建文档默认启用；停用是显式管理动作（见 SetKnowledgeEnabled）。
+		EnableStatus:      EnableStatusEnabled,
 		StorageSize:       0,
 		CreatedAt:         now,
 		UpdatedAt:         now,

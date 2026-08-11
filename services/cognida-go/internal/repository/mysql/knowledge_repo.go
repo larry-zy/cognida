@@ -168,6 +168,33 @@ func (r *knowledgeRepository) UpdateChunkCount(ctx context.Context, id string, c
 		Update("chunk_count", chunkCount).Error
 }
 
+// UpdateEnableStatus 单独更新启用状态，不触碰其它字段。
+func (r *knowledgeRepository) UpdateEnableStatus(ctx context.Context, id string, enableStatus string) error {
+	return r.db.WithContext(ctx).Model(&KnowledgeModel{}).
+		Where("id = ?", id).
+		Update("enable_status", enableStatus).Error
+}
+
+// FilterEnabledKnowledgeIDs 返回入参 id 集合中「启用且未删除」条目的 id->true 映射，供检索后过滤。
+// 只回查主键与启用状态，命中量受 top_k 约束，单次 IN 查询即可。
+func (r *knowledgeRepository) FilterEnabledKnowledgeIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	result := make(map[string]bool, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+	var enabledIDs []string
+	err := r.db.WithContext(ctx).Model(&KnowledgeModel{}).
+		Where("id IN ? AND enable_status = ? AND deleted_at IS NULL", ids, domain_knowledge.EnableStatusEnabled).
+		Pluck("id", &enabledIDs).Error
+	if err != nil {
+		return nil, fmt.Errorf("查询启用知识条目失败: %w", err)
+	}
+	for _, id := range enabledIDs {
+		result[id] = true
+	}
+	return result, nil
+}
+
 // Delete 删除知识条目（软删除）
 func (r *knowledgeRepository) Delete(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&KnowledgeModel{}).Error
@@ -313,6 +340,28 @@ func (r *knowledgeRepository) AddTagIDBatch(ctx context.Context, ids []string, t
 	return r.db.WithContext(ctx).Model(&KnowledgeModel{}).
 		Where("id IN ?", ids).
 		Update("tag_id", tagID).Error
+}
+
+// CountByKnowledgeBaseID 统计知识库的知识条目数量（过滤条件与 FindByKnowledgeBaseID 空查询一致）
+func (r *knowledgeRepository) CountByKnowledgeBaseID(ctx context.Context, knowledgeBaseID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&KnowledgeModel{}).
+		Where("knowledge_base_id = ?", knowledgeBaseID).
+		Count(&count).Error
+
+	return count, err
+}
+
+// CountByTenantID 统计租户的知识条目数量（过滤条件与 FindByTenantID 一致）
+func (r *knowledgeRepository) CountByTenantID(ctx context.Context, tenantID int64) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&KnowledgeModel{}).
+		Where("tenant_id = ?", tenantID).
+		Count(&count).Error
+
+	return count, err
 }
 
 // ========================================
@@ -806,6 +855,29 @@ func (r *retrievalSettingRepository) FindBySessionID(ctx context.Context, sessio
 	}
 
 	return model.ToDomain(), nil
+}
+
+// FindBySessionIDs 批量按会话ID查询检索设置，一次 IN 查询返回 sessionID→设置 映射（避免 ListSessions N+1）
+func (r *retrievalSettingRepository) FindBySessionIDs(ctx context.Context, sessionIDs []string) (map[string]*domain_knowledge.RetrievalSetting, error) {
+	result := make(map[string]*domain_knowledge.RetrievalSetting, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+
+	var models []RetrievalSettingModel
+	if err := r.db.WithContext(ctx).
+		Where("session_id IN ?", sessionIDs).
+		Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("批量查询检索设置失败: %w", err)
+	}
+
+	for i := range models {
+		if models[i].SessionID == nil {
+			continue
+		}
+		result[*models[i].SessionID] = models[i].ToDomain()
+	}
+	return result, nil
 }
 
 // Update 更新检索设置

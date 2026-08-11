@@ -34,13 +34,12 @@ func (r *VectorRetriever) InsertData(ctx context.Context, kbID int64, docs []*Do
 		return fmt.Errorf("insert data failed: %w", err)
 	}
 
-	// 使用新 SDK Option API 刷新数据以确保可搜索
-	flushOpt := milvusclient.NewFlushOption(collectionName)
-	_, err = r.client.Flush(ctx, flushOpt)
-	if err != nil {
-		return fmt.Errorf("flush collection failed: %w", err)
-	}
-
+	// 不再每次 Insert 后同步 Flush〔PF-3〕。Flush 是重操作（封存 segment、触发落盘），
+	// 此前每批插入都同步阻塞一次 Flush，摄取大量分块时成为吞吐瓶颈。Milvus 会自动
+	// 定时/按大小封存 growing segment，且已 Load 的 collection 检索时同时服务 growing
+	// （未 Flush）segment，可搜索性不依赖显式 Flush——故此处安全移除。若上层批量摄取
+	// 需要立即持久化/封存，应由调用方在整批结束后统一 Flush 一次（需在 VectorRepository
+	// 接口补一个 Flush 能力上移），而非在单条插入原语里逐批强制。
 	log.Printf("[Milvus] Inserted %d documents into %s", len(docs), collectionName)
 	return nil
 }
@@ -67,8 +66,7 @@ type DocumentData struct {
 func (r *VectorRetriever) buildColumns(docs []*DocumentData) []column.Column {
 	ids := make([]int64, len(docs))
 	denseVectors := make([][]float32, len(docs))
-	sparseVectors := make([]entity.SparseEmbedding, len(docs))
-	texts := make([]string, len(docs)) // BM25 全文搜索字段
+	texts := make([]string, len(docs)) // BM25 全文搜索字段（Function 输入）
 	chunkIDs := make([]string, len(docs))
 	knowledgeIDs := make([]string, len(docs))
 	kbIDs := make([]string, len(docs))
@@ -83,8 +81,7 @@ func (r *VectorRetriever) buildColumns(docs []*DocumentData) []column.Column {
 	for i, doc := range docs {
 		ids[i] = doc.ID
 		denseVectors[i] = doc.DenseVector
-		sparseVectors[i] = doc.SparseVector
-		texts[i] = doc.Text // BM25 文本字段
+		texts[i] = doc.Text // BM25 文本字段（服务端 Function 据此生成 sparse）
 		chunkIDs[i] = doc.ChunkID
 		knowledgeIDs[i] = doc.KnowledgeID
 		kbIDs[i] = doc.KnowledgeBaseID
@@ -101,9 +98,10 @@ func (r *VectorRetriever) buildColumns(docs []*DocumentData) []column.Column {
 	columns := []column.Column{
 		column.NewColumnInt64("id", ids),
 		column.NewColumnFloatVector("dense_vector", dim, denseVectors),
-		column.NewColumnVarChar("text", texts),                        // BM25 文本字段
-		column.NewColumnSparseVectors("sparse", sparseVectors),        // BM25 稀疏向量字段（由 Function 自动生成）
-		column.NewColumnSparseVectors("sparse_vector", sparseVectors), // 保留兼容性
+		column.NewColumnVarChar("text", texts), // BM25 文本字段（Function 输入）
+		// 注意：sparse 是 BM25 Function 的输出字段，由 Milvus 服务端据 text 自动生成，
+		// 插入时禁止显式赋值（否则报 "field sparse is a function output"）；旧的
+		// sparse_vector 冗余字段已随 schema 一并移除。
 		column.NewColumnVarChar("chunk_id", chunkIDs),
 		column.NewColumnVarChar("knowledge_id", knowledgeIDs),
 		column.NewColumnVarChar("kb_id", kbIDs),

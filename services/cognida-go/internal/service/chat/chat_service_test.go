@@ -192,6 +192,10 @@ func (m *mockMessageRepository) UpdateCompleted(ctx context.Context, id string, 
 	return nil
 }
 
+func (m *mockMessageRepository) UpdateAgentData(ctx context.Context, id string, knowledgeReferences, agentSteps *string, tokenCount *int) error {
+	return nil
+}
+
 func (m *mockMessageRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }

@@ -18,7 +18,8 @@
     <div class="gv-body">
 
       <!-- 图谱画布区 -->
-      <div class="gv-canvas-wrap">
+      <!-- 全屏目标为外层 wrap（含图例/缩放/背景点阵），而非内层裸 canvas〔FE-2〕 -->
+      <div ref="canvasWrap" class="gv-canvas-wrap">
         <div ref="graphContainer" class="gv-canvas">
           <div v-if="loading" class="gv-loader">
             <UiLoader size="lg" />
@@ -171,6 +172,8 @@ const route = useRoute()
 const kbId = ref<string>(props.kbId || (route.params.kbId as string))
 
 const graphContainer = ref<HTMLElement>()
+// 全屏容器：外层 wrap（含图例/缩放/背景点阵），全屏时一并保留控件〔FE-2〕
+const canvasWrap = ref<HTMLElement>()
 
 const graphData = ref<VisGraphData>({ nodes: [], edges: [] })
 const loading = ref(false)
@@ -272,15 +275,7 @@ const legendItems = computed(() => {
       result.push({ type: t, label: t, color: getTypeColor(t) })
     }
   }
-  if (result.length === 0) {
-    // 占位：设计稿的四族
-    return [
-      { type: 'service',    label: '服务',     color: '#62758a' },
-      { type: 'component',  label: '技术组件', color: '#56687c' },
-      { type: 'storage',    label: '存储',     color: '#4a5b6e' },
-      { type: 'doc',        label: '文档',     color: '#3d4a5c' }
-    ]
-  }
+  // 空图不再渲染 service/component/storage/doc 假占位项，仅在有对应类型节点时才显示图例〔轻微〕
   return result
 })
 
@@ -491,7 +486,9 @@ function applyLocalRelations(nodeId: string) {
 }
 
 // 下钻：把服务端返回的邻居/关系里画布上还没有的部分增量注入
-function mergeNeighbors(detail: NodeDetailResponse) {
+// physics 稳定后已永久关闭，注入无坐标的新节点会全部堆在 (0,0)。
+// 取被点节点当前坐标，让新邻居围绕它做小半径散开，避免"点一次就炸"〔FE-1〕
+function mergeNeighbors(detail: NodeDetailResponse, centerId: string) {
   if (!nodesDataSet || !edgesDataSet) return
 
   const nodeById = new Map(graphData.value.nodes.map(n => [n.id, n]))
@@ -518,17 +515,36 @@ function mergeNeighbors(detail: NodeDetailResponse) {
   }
   if (newNodes.length) {
     graphData.value.nodes.push(...newNodes)
-    nodesDataSet.add(newNodes)
+    // 被点节点当前坐标作为散布中心（physics 已关，需手动给初始坐标）
+    let cx = 0
+    let cy = 0
+    if (network) {
+      const pos = network.getPositions([centerId])
+      const p = pos && pos[centerId]
+      if (p) { cx = p.x; cy = p.y }
+    }
+    // 围绕中心节点小半径环形散开注入画布，x/y 仅用于初始定位，仍可拖拽
+    const radius = 130
+    const positioned = newNodes.map((vn, i) => {
+      const angle = (2 * Math.PI * i) / newNodes.length
+      return { ...vn, x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) }
+    })
+    nodesDataSet.add(positioned)
   }
 
   const edgeIds = new Set(graphData.value.edges.map(e => e.id))
   const newEdges: VisEdge[] = []
   for (const rel of detail.relations || []) {
     if (!rel || !rel.id || edgeIds.has(rel.id)) continue
+    // 端点必须落在画布已有节点上，否则 vis.js 会按未知 id 凭空生成一个"幽灵节点"。
+    // 服务端 relations 可能引用本次未随 neighbors 返回的节点——此类边直接跳过〔#9〕。
+    const fromId = nameToId.get(rel.source)
+    const toId = nameToId.get(rel.target)
+    if (!fromId || !toId) continue
     const ve: VisEdge = {
       id: rel.id,
-      from: nameToId.get(rel.source) || rel.source,
-      to: nameToId.get(rel.target) || rel.target,
+      from: fromId,
+      to: toId,
       label: rel.type,
       width: 1,
       description: rel.description || '',
@@ -551,10 +567,12 @@ function mergeNeighbors(detail: NodeDetailResponse) {
 async function loadNodeRelations(node: VisNode) {
   applyLocalRelations(node.id)
   try {
+    // 后端 GetNodeDetail 以节点 name 为中心匹配（Cypher MATCH (n:Entity {name: $name})），
+    // 路由参数虽名为 nodeId 实为名称，故此处仍传 node.label；散布中心用 node.id 定位画布坐标〔FE-1〕
     const res = await graphApi.getNodeDetail(kbId.value, node.label)
     const detail = res.data
     if (!detail || !detail.node) return
-    mergeNeighbors(detail)
+    mergeNeighbors(detail, node.id)
     const rels = detail.relations || []
     nodeRelations.value = rels.map(rel => ({
       id:          rel.id,
@@ -576,6 +594,13 @@ async function loadNodeRelations(node: VisNode) {
 // ========================================
 // User Actions
 // ========================================
+
+// 增删改后按当前视图状态刷新：搜索态回搜索子图，否则刷全量图，
+// 避免在搜索结果上做增删改后被静默刷回全量图（搜索框有字、结果却丢失）〔FE-5〕
+function refreshView() {
+  if (searchText.value.trim()) return handleSearch()
+  return loadGraph()
+}
 
 async function handleSearch() {
   if (!searchText.value.trim()) { loadGraph(); return }
@@ -615,7 +640,7 @@ async function handleAddNode() {
     if (res.data) {
       toastSuccess('节点添加成功')
       addNodeDialogVisible.value = false
-      await loadGraph()
+      await refreshView()
     }
   } catch (error: any) {
     toastError(error.message || '添加节点失败')
@@ -646,7 +671,7 @@ async function handleAddRelation() {
     if (res.data) {
       toastSuccess('关系添加成功')
       addRelationDialogVisible.value = false
-      await loadGraph()
+      await refreshView()
     }
   } catch (error: any) {
     toastError(error.message || '添加关系失败')
@@ -684,7 +709,7 @@ async function handleEditNode() {
       toastSuccess('节点更新成功')
       editNodeDialogVisible.value = false
       detailDrawerVisible.value = false
-      await loadGraph()
+      await refreshView()
     }
   } catch (error: any) {
     toastError(error.message || '更新节点失败')
@@ -719,7 +744,7 @@ async function handleEditRelation() {
       toastSuccess('关系更新成功')
       editRelationDialogVisible.value = false
       detailDrawerVisible.value = false
-      await loadGraph()
+      await refreshView()
     }
   } catch (error: any) {
     toastError(error.message || '更新关系失败')
@@ -810,7 +835,7 @@ function handleDeleteNode() {
       await graphApi.deleteNode(kbId.value, selectedNode.value!.id)
       toastSuccess('节点删除成功')
       detailDrawerVisible.value = false
-      await loadGraph()
+      await refreshView()
     } catch (error: any) {
       toastError(error.message || '删除节点失败')
     } finally {
@@ -829,7 +854,7 @@ function handleDeleteRelation(rel: RelationDisplay) {
       await graphApi.deleteRelation(kbId.value, rel.id)
       toastSuccess('关系删除成功')
       detailDrawerVisible.value = false
-      await loadGraph()
+      await refreshView()
     } catch (error: any) {
       toastError(error.message || '删除关系失败')
     } finally {
@@ -845,10 +870,21 @@ function handleConfirm() {
 
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
-    graphContainer.value?.requestFullscreen()
+    // 对外层 wrap 请求全屏，保留图例/缩放/背景点阵；只全屏内层 canvas 会丢失所有控件〔FE-2〕
+    canvasWrap.value?.requestFullscreen()
   } else {
     document.exitFullscreen()
   }
+}
+
+// 全屏进入/退出后 wrap 尺寸变化，vis-network 需重算画布尺寸并适配视图〔FE-2〕
+function handleFullscreenChange() {
+  nextTick(() => {
+    if (!network) return
+    network.setSize('100%', '100%')
+    network.redraw()
+    network.fit({ animation: { duration: 200, easingFunction: 'easeInOutQuad' } })
+  })
 }
 
 function zoomIn() {
@@ -881,6 +917,7 @@ async function ensureInited() {
 }
 
 onMounted(async () => {
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
   if (props.active) await ensureInited()
 })
 
@@ -900,6 +937,7 @@ watch(() => props.kbId, async (v) => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
   if (network) { network.destroy(); network = null }
 })
 </script>

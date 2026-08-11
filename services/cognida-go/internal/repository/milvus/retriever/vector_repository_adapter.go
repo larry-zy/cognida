@@ -29,9 +29,18 @@ func (a *VectorRepositoryAdapter) CreateCollection(ctx context.Context, kbID int
 	// Convert options to CreateKnowledgeBaseOptions
 	autoID := false
 	enableDynamic := false
+	enableBM25 := false
+	bm25K1, bm25B := 1.2, 0.75
 	if opts != nil {
 		autoID = opts.AutoID
 		enableDynamic = opts.EnableDynamic
+		enableBM25 = opts.EnableBM25
+		if opts.BM25K1 > 0 {
+			bm25K1 = opts.BM25K1
+		}
+		if opts.BM25B > 0 {
+			bm25B = opts.BM25B
+		}
 	}
 
 	createOpts := &CreateKnowledgeBaseOptions{
@@ -40,8 +49,22 @@ func (a *VectorRepositoryAdapter) CreateCollection(ctx context.Context, kbID int
 		MetricType:    entity.L2,
 		AutoID:        autoID,
 		EnableDynamic: enableDynamic,
+		EnableBM25:    enableBM25,
+		BM25K1:        bm25K1,
+		BM25B:         bm25B,
 	}
-	return a.retriever.CreateKnowledgeBase(ctx, kbID, createOpts)
+	if err := a.retriever.CreateKnowledgeBase(ctx, kbID, createOpts); err != nil {
+		return err
+	}
+
+	// 启用 BM25 时，建表后立即在 sparse 字段上创建 BM25 稀疏倒排索引，
+	// 使服务端 Function 生成的 sparse 向量可被 FullTextSearch 检索（否则查询报索引缺失）。
+	if enableBM25 {
+		if err := a.retriever.CreateBM25Index(ctx, kbID, &BM25IndexOptions{K1: bm25K1, B: bm25B}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // HasCollection implements VectorRepository.HasCollection
@@ -70,6 +93,7 @@ func (a *VectorRepositoryAdapter) Insert(ctx context.Context, kbID int64, docs [
 			ID:              doc.ID,
 			DenseVector:     doc.DenseVector,
 			SparseVector:    sparseVec,
+			Text:            doc.Text, // BM25 全文检索分词源
 			ChunkID:         doc.ChunkID,
 			KnowledgeID:     doc.KnowledgeID,
 			KnowledgeBaseID: doc.KnowledgeBaseID,

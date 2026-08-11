@@ -1,6 +1,8 @@
 package neo4j
 
 import (
+	"encoding/json"
+
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 
 	"cognida/internal/model/knowledge"
@@ -66,6 +68,14 @@ func getStringSliceValue(record *neo4j.Record, key string) []string {
 				if str, ok := item.(string); ok {
 					result = append(result, str)
 				}
+			}
+			return result
+		case string:
+			// 兼容 GR-1 之前以 JSON 字符串存储的遗留 chunks（如 "null" 或
+			// "[\"c1\",\"c2\"]"）。解析失败或为 "null" 时返回 nil，不丢数据也不 panic。
+			var result []string
+			if err := json.Unmarshal([]byte(v), &result); err != nil {
+				return nil
 			}
 			return result
 		}

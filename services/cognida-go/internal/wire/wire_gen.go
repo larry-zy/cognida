@@ -109,11 +109,11 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	llmClient := ProvideLLMClient(chatConfig)
 	idGenerator := ProvideIDGenerator()
 	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, llmClient, idGenerator)
-	milvusRetriever := ProvideMilvusRetriever()
+	milvusRetriever := ProvideMilvusRetriever(embedder)
 	ragGraphRepository := ProvideRAGGraphRepository()
 	graphQueryRepository := ProvideGraphQueryRepository(db)
 	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, ragGraphRepository, graphQueryRepository)
-	retrievalCapability := ProvideRetrievalCapability(retriever)
+	retrievalCapability := ProvideRetrievalCapability(retriever, knowledgeRepository)
 	uploadConfig := ProvideUploadConfig(cfg)
 	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability, uploadConfig)
 	sessionRepository := ProvideSessionRepository(db)
@@ -715,8 +715,9 @@ func ProvideKnowledgeBaseHandler(
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
 // 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
-func ProvideRetrievalCapability(retriever2 rag.Retriever) *knowledge2.RetrievalCapability {
-	return knowledge2.NewRetrievalCapability(retriever2, rag2.NewReranker())
+func ProvideRetrievalCapability(retriever2 rag.Retriever, knowledgeRepo knowledge.KnowledgeRepository) *knowledge2.RetrievalCapability {
+	// 注入启用状态过滤器（MySQL 权威）：检索命中后回查 MySQL 剔除停用/已删条目。
+	return knowledge2.NewRetrievalCapability(retriever2, rag2.NewReranker()).WithEnabledFilter(knowledgeRepo)
 }
 
 func ProvideSessionHandler(
@@ -857,9 +858,9 @@ func ProvideVectorRetriever(embedder embedding.Embedder) (*retriever.VectorRetri
 	return retriever.NewVectorRetriever(embedder)
 }
 
-func ProvideMilvusRetriever() rag2.MilvusRetriever {
+func ProvideMilvusRetriever(embedder embedding.Embedder) rag2.MilvusRetriever {
 
-	vectorRetriever, err := retriever.NewVectorRetriever(nil)
+	vectorRetriever, err := retriever.NewVectorRetriever(embedder)
 	if err != nil {
 
 		return nil

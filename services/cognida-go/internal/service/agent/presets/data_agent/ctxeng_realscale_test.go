@@ -38,6 +38,9 @@ func (s *scaleRepo) FindByRequestID(context.Context, string) (*conversation.Mess
 func (s *scaleRepo) Update(context.Context, *conversation.Message) error      { return nil }
 func (s *scaleRepo) UpdateContent(context.Context, string, string) error      { return nil }
 func (s *scaleRepo) UpdateCompleted(context.Context, string, bool) error      { return nil }
+func (s *scaleRepo) UpdateAgentData(context.Context, string, *string, *string, *int) error {
+	return nil
+}
 func (s *scaleRepo) Delete(context.Context, string) error                     { return nil }
 func (s *scaleRepo) DeleteBySessionID(context.Context, string) error          { return nil }
 func (s *scaleRepo) CountBySessionID(context.Context, string) (int64, error)  { return 0, nil }

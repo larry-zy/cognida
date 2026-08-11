@@ -177,7 +177,7 @@
               placeholder="选择文档"
               clearable
               :options="knowledgeOptions"
-              @change="loadChunks"
+              @change="onSelectedKnowledgeChange"
               style="width: 300px"
             />
           </div>
@@ -191,6 +191,16 @@
               </UiButton>
             </template>
           </UiTable>
+
+          <div v-if="chunkTotal > chunkPageSize" class="chunks-pagination">
+            <UiPagination
+              :page="chunkPage"
+              :page-size="chunkPageSize"
+              :total="chunkTotal"
+              show-info
+              @update:page="loadChunks"
+            />
+          </div>
 
           <UiEmpty v-if="!chunksLoading && chunks.length === 0" description="暂无分块数据" />
         </div>
@@ -356,7 +366,8 @@ import {
   UiAlert,
   UiSelect,
   UiProgress,
-  UiAsyncStatus
+  UiAsyncStatus,
+  UiPagination
 } from '@/components'
 import toast from '@/utils/toast'
 import { useAsyncTask } from '@/composables/useAsyncTask'
@@ -428,7 +439,16 @@ const uploadStage = ref<'idle' | 'hashing' | 'uploading'>('idle')
 const uploadForm = reactive({
   file: null as File | null
 })
-const statusPolling = ref<Record<string, NodeJS.Timeout>>({})
+// 文档状态轮询：指数退避 + 次数上限，避免卡 processing 的文档永久打后端。
+// 起始 3s，每轮翻倍，封顶 30s；最多 40 轮（约 18 分钟）后停止并提示手动刷新。
+const POLL_INITIAL_MS = 3000
+const POLL_MAX_MS = 30000
+const POLL_MAX_ATTEMPTS = 40
+interface PollState {
+  timer: ReturnType<typeof setTimeout> | null
+  attempts: number
+}
+const statusPolling = ref<Record<string, PollState>>({})
 // 文件选择（替代 el-upload）
 const fileInputRef = ref<HTMLInputElement>()
 const selectedFileName = ref('')
@@ -450,6 +470,12 @@ const chunksLoading = ref(false)
 const chunks = ref<Chunk[]>([])
 const showChunkDialog = ref(false)
 const currentChunk = ref<Chunk | null>(null)
+// 分块分页：后端 /chunks 支持 page/size（默认 page_size=20），改为按页拉取，避免一次性拉全库分块卡死。
+const chunkPage = ref(1)
+const chunkPageSize = ref(20)
+const chunkTotal = ref(0)
+// 加载序号：仅采用最新一次请求的响应，消除「选文档」与「切 tab」两条路径的竞态双加载。
+let chunkLoadSeq = 0
 
 // 设置相关
 const settingsLoading = ref(false)
@@ -570,14 +596,22 @@ async function loadKnowledges() {
   }
 }
 
-// 启动状态轮询
+// 启动状态轮询（指数退避 + 次数上限）
 function startStatusPolling(knowledgeId: string) {
-  // 清除旧的轮询
-  if (statusPolling.value[knowledgeId]) {
-    clearInterval(statusPolling.value[knowledgeId])
+  // 清除旧的轮询，避免同一文档重复计时器
+  stopStatusPolling(knowledgeId)
+
+  const state: PollState = { timer: null, attempts: 0 }
+  statusPolling.value[knowledgeId] = state
+
+  const scheduleNext = () => {
+    // 指数退避：3s、6s、12s… 封顶 30s
+    const delay = Math.min(POLL_INITIAL_MS * 2 ** state.attempts, POLL_MAX_MS)
+    state.timer = setTimeout(poll, delay)
   }
 
-  statusPolling.value[knowledgeId] = setInterval(async () => {
+  const poll = async () => {
+    state.attempts += 1
     try {
       const res = await knowledgeApi.getKnowledgeStatus(kbId.value, knowledgeId)
       if (res.data) {
@@ -586,19 +620,31 @@ function startStatusPolling(knowledgeId: string) {
         if (status.parse_status === 'completed' || status.parse_status === 'failed') {
           stopStatusPolling(knowledgeId)
           await loadKnowledges()
+          return
         }
       }
     } catch (error) {
       console.error('Failed to poll status:', error)
       stopStatusPolling(knowledgeId)
+      return
     }
-  }, 3000) // 每3秒轮询一次
+    // 达到次数上限：停止轮询并提示，避免卡 processing 的文档永久打后端
+    if (state.attempts >= POLL_MAX_ATTEMPTS) {
+      stopStatusPolling(knowledgeId)
+      toast.info('文档处理耗时较长，已暂停自动刷新，可稍后手动刷新查看最新状态')
+      return
+    }
+    scheduleNext()
+  }
+
+  scheduleNext()
 }
 
 // 停止状态轮询
 function stopStatusPolling(knowledgeId: string) {
-  if (statusPolling.value[knowledgeId]) {
-    clearInterval(statusPolling.value[knowledgeId])
+  const state = statusPolling.value[knowledgeId]
+  if (state) {
+    if (state.timer) clearTimeout(state.timer)
     delete statusPolling.value[knowledgeId]
   }
 }
@@ -617,7 +663,11 @@ function handleFileChange(e: Event) {
   input.value = ''
 }
 
-// 计算文件内容的 SHA-256 十六进制哈希（与后端一致，用于防止重传相同文件）
+// 计算文件内容的 SHA-256 十六进制哈希（与后端一致，用于防止重传相同文件）。
+// 注意：这里刻意保留 arrayBuffer() 一次性读入 + crypto.subtle.digest 的口径——
+// Web Crypto 的 digest() 不支持增量/流式摘要，改用分块流式必须引入 userland 增量
+// SHA-256 实现（新依赖），且一旦算法/口径与后端不一致就会破坏上传去重逻辑，风险高，
+// 故不改哈希计算方式。大文件内存峰值问题留待后端/依赖层面统一处理。
 async function computeFileHash(file: File): Promise<string> {
   const buffer = await file.arrayBuffer()
   const digest = await crypto.subtle.digest('SHA-256', buffer)
@@ -740,50 +790,43 @@ async function handleSearch() {
   }
 }
 
-// 加载分块
-async function loadChunks() {
-  if (!selectedKnowledgeId.value) {
-    // 没有选择文档时，加载所有分块
-    await loadAllChunks()
-    return
-  }
-
+// 加载分块（分页；selectedKnowledgeId 为空时加载全库分块，非空时限定文档）
+async function loadChunks(page = 1) {
+  const seq = ++chunkLoadSeq
   chunksLoading.value = true
   try {
     const res = await knowledgeApi.getChunks(kbId.value, {
-      knowledge_id: selectedKnowledgeId.value
+      page,
+      size: chunkPageSize.value,
+      ...(selectedKnowledgeId.value ? { knowledge_id: selectedKnowledgeId.value } : {})
     })
-    if (res.data) {
-      const items = (res.data as any).items || res.data || []
+    // 已有更新的加载发起，丢弃过期响应，避免竞态覆盖
+    if (seq !== chunkLoadSeq) return
+    const data = res.data as any
+    if (data) {
+      const items = data.items || data || []
       chunks.value = Array.isArray(items) ? items : []
+      chunkTotal.value = typeof data.total === 'number' ? data.total : chunks.value.length
+      chunkPage.value = typeof data.page === 'number' ? data.page : page
+      // 后端权威页大小（默认 20）；若返回则同步，保证分页器与实际口径一致
+      if (typeof data.size === 'number' && data.size > 0) chunkPageSize.value = data.size
     } else {
       chunks.value = []
+      chunkTotal.value = 0
     }
   } catch (error) {
+    if (seq !== chunkLoadSeq) return
     console.error('Failed to load chunks:', error)
     chunks.value = []
+    chunkTotal.value = 0
   } finally {
-    chunksLoading.value = false
+    if (seq === chunkLoadSeq) chunksLoading.value = false
   }
 }
 
-// 加载所有分块（不限定文档）
-async function loadAllChunks() {
-  chunksLoading.value = true
-  try {
-    const res = await knowledgeApi.getChunks(kbId.value, {})
-    if (res.data) {
-      const items = (res.data as any).items || res.data || []
-      chunks.value = Array.isArray(items) ? items : []
-    } else {
-      chunks.value = []
-    }
-  } catch (error) {
-    console.error('Failed to load all chunks:', error)
-    chunks.value = []
-  } finally {
-    chunksLoading.value = false
-  }
+// 切换文档筛选：重置到第一页再加载
+function onSelectedKnowledgeChange() {
+  loadChunks(1)
 }
 
 // 查看分块详情
@@ -852,8 +895,8 @@ function handleTabChange(tabName: string | number) {
   } else if (tab === 'documents' && knowledges.value.length === 0) {
     loadKnowledges()
   } else if (tab === 'chunks' && chunks.value.length === 0) {
-    // 首次切换到分块tab时，自动加载所有分块（不限定文档）
-    loadAllChunks()
+    // 首次切换到分块tab时，自动加载第一页分块（不限定文档）
+    loadChunks(1)
   } else if (tab === 'graph') {
     // 首次进入图谱 tab 时挂载 GraphView（容器此时可见，vis-network 能正确取到尺寸）
     graphTabLoaded.value = true
@@ -903,6 +946,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.chunks-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .hint {

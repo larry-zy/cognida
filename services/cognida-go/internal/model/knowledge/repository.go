@@ -73,6 +73,13 @@ type KnowledgeRepository interface {
 	// UpdateChunkCount update chunk count
 	UpdateChunkCount(ctx context.Context, id string, chunkCount int) error
 
+	// UpdateEnableStatus 单独更新启用状态（enabled/disabled），不触碰其它字段。
+	UpdateEnableStatus(ctx context.Context, id string, enableStatus string) error
+
+	// FilterEnabledKnowledgeIDs 输入 knowledge_id 集合，返回其中「启用且未删除」条目的 id->true 映射。
+	// 供检索后过滤使用：MySQL 是启用状态的唯一权威源。未命中/停用/已删除的 id 不出现在结果中。
+	FilterEnabledKnowledgeIDs(ctx context.Context, ids []string) (map[string]bool, error)
+
 	// Delete soft delete
 	Delete(ctx context.Context, id string) error
 
@@ -108,6 +115,12 @@ type KnowledgeRepository interface {
 
 	// AddTagIDBatch batch add tag ID
 	AddTagIDBatch(ctx context.Context, ids []string, tagID int64) error
+
+	// CountByKnowledgeBaseID count knowledge entries by knowledge base
+	CountByKnowledgeBaseID(ctx context.Context, knowledgeBaseID string) (int64, error)
+
+	// CountByTenantID count knowledge entries by tenant
+	CountByTenantID(ctx context.Context, tenantID int64) (int64, error)
 }
 
 // ========================================
@@ -231,6 +244,9 @@ type RetrievalSettingRepository interface {
 
 	// FindBySessionID find by session ID
 	FindBySessionID(ctx context.Context, sessionID string) (*RetrievalSetting, error)
+
+	// FindBySessionIDs 批量按会话ID查询，返回 sessionID→设置 的映射（避免 ListSessions N+1）
+	FindBySessionIDs(ctx context.Context, sessionIDs []string) (map[string]*RetrievalSetting, error)
 
 	// Update update retrieval setting
 	Update(ctx context.Context, setting *RetrievalSetting) error
@@ -373,6 +389,10 @@ type GraphRepository interface {
 
 	// DeleteByChunkID delete by chunk ID
 	DeleteByChunkID(ctx context.Context, namespace NameSpace, chunkID string) error
+
+	// DeleteByChunkIDs 批量按 chunk_id 集合删除：从命中节点的 chunks 列表移除这些 id，
+	// 并清除由此变空的孤儿节点。删文档/重处理时按 chunk_id 精确清理图谱（KB-7）
+	DeleteByChunkIDs(ctx context.Context, namespace NameSpace, chunkIDs []string) error
 
 	// DeleteByKnowledgeID delete by knowledge ID
 	DeleteByKnowledgeID(ctx context.Context, namespace NameSpace, knowledgeID string) error

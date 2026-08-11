@@ -9,6 +9,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,13 @@ import (
 	"cognida/internal/model/conversation"
 	domain_knowledge "cognida/internal/model/knowledge"
 )
+
+// maxSessionDetailMessages 会话详情返回消息的硬上限〔PF-1〕。
+// 此前用 Size:10000 全量拉取，长会话（异常/机器人刷屏）会撑爆内存与响应体。
+// 取「最近 N 条」有界返回：典型会话（<500 条）行为不变、全量返回且时间正序；
+// 超限会话只回最近 500 条（对聊天场景最新上下文最有价值）。后续如需完整历史
+// 回溯，应在 handler/前端接 cursor 分页（见 CLAUDE.md cursor 约定），此处仅做兜底封顶。
+const maxSessionDetailMessages = 500
 
 // SessionService 会话服务实现
 type SessionService struct {
@@ -131,21 +139,29 @@ func (s *SessionService) GetSessionDetail(ctx context.Context, id string) (*Sess
 		return nil, err
 	}
 
-	// 查询消息列表（获取所有消息，不分页）
-	msgReq := &conversation.ListMessagesRequest{
-		SessionID: id,
-		Page:      1,
-		Size:      10000,
-	}
-	messages, _, err := s.messageRepo.FindBySessionID(ctx, id, msgReq)
+	// 查询消息列表：有界取最近 maxSessionDetailMessages 条〔PF-1〕。
+	// FindRecentBySessionID 已按时间倒序取最近 N 条再反转为正序（最早在前），
+	// 与旧 FindBySessionID(created_at ASC) 的展示顺序一致；典型会话（<N 条）
+	// 返回全部消息、行为不变，仅对超长会话封顶防无界加载。
+	messages, err := s.messageRepo.FindRecentBySessionID(ctx, id, maxSessionDetailMessages)
 	if err != nil {
 		return nil, fmt.Errorf("查询消息列表失败: %w", err)
+	}
+
+	// 统计消息总数，使「最近 N 条」的截断对前端显式可见〔#10〕。
+	// 统计失败不阻断详情返回：退化为 Total=len(messages)、HasMore=false（保守认为未截断）。
+	total, cerr := s.messageRepo.CountBySessionID(ctx, id)
+	if cerr != nil {
+		log.Printf("[SessionService] 统计会话 %s 消息总数失败，HasMore 降级为 false: %v", id, cerr)
+		total = int64(len(messages))
 	}
 
 	// 构建会话响应（包含 RAG 配置）
 	return &SessionDetailResponse{
 		Session:  session,
 		Messages: messages,
+		Total:    total,
+		HasMore:  total > int64(len(messages)),
 	}, nil
 }
 
@@ -179,13 +195,34 @@ func (s *SessionService) ListSessions(ctx context.Context, req *ListSessionsRequ
 		return nil, fmt.Errorf("查询会话列表失败: %w", err)
 	}
 
-	// 转换为响应格式（批量加载 RAG 配置）
+	// 批量加载 RAG 配置：一次 IN 查询替代逐会话 FindBySessionID，消除 N+1〔PF-3〕
+	sessionIDs := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		sessionIDs = append(sessionIDs, session.ID)
+	}
+	settingsBySession, err := s.retrievalRepo.FindBySessionIDs(ctx, sessionIDs)
+	if err != nil {
+		// 批量加载失败不阻断列表返回，但一次瞬时批量错误不应抹掉整页所有会话的 RAG 配置〔#7〕。
+		// 记录错误并降级为逐会话补偿加载：单个会话失败只影响它自己，其余仍带出配置。
+		log.Printf("[SessionService] 批量加载 RAG 配置失败，降级逐会话补偿: %v", err)
+		settingsBySession = make(map[string]*domain_knowledge.RetrievalSetting, len(sessionIDs))
+		for _, sid := range sessionIDs {
+			setting, ferr := s.retrievalRepo.FindBySessionID(ctx, sid)
+			if ferr != nil {
+				continue
+			}
+			if setting != nil {
+				settingsBySession[sid] = setting
+			}
+		}
+	}
+
+	// 转换为响应格式
 	sessionResponses := make([]*SessionResponse, 0, len(sessions))
 	for _, session := range sessions {
-		resp, err := s.buildSessionResponseWithRAG(ctx, session)
-		if err != nil {
-			// 如果加载 RAG 配置失败，仍然返回会话信息
-			resp = s.toSessionResponse(session)
+		resp := s.toSessionResponse(session)
+		if setting := settingsBySession[session.ID]; setting != nil {
+			resp.RAGConfig = s.convertToRAGConfig(setting)
 		}
 		sessionResponses = append(sessionResponses, resp)
 	}

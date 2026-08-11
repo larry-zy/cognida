@@ -171,9 +171,18 @@ func (r *VectorRetriever) CreateBM25Index(ctx context.Context, kbID int64, opts 
 		return fmt.Errorf("drop_ratio_search 参数必须在 [0, 1] 范围内，当前值: %.2f", opts.DropRatioSearch)
 	}
 
-	// 创建 SPARSE_INVERTED_INDEX 索引，使用 BM25 作为 metric_type
-	// 注意：BM25 作为字符串传递，因为 SDK 暂未定义常量
-	idx := index.NewSparseInvertedIndex(entity.MetricType("BM25"), opts.DropRatioSearch)
+	// 创建 SPARSE_INVERTED_INDEX 索引，metric_type=BM25。
+	// NewSparseInvertedIndex 的 Params() 只含 metric/index/drop_ratio_build，无法携带
+	// bm25_k1 / bm25_b / inverted_index_algo；改用 NewGenericIndex 显式传全量参数，
+	// 使 k1/b（此前仅校验/打日志却未生效）真正落到服务端索引。
+	idx := index.NewGenericIndex("bm25", map[string]string{
+		index.IndexTypeKey:    string(index.SparseInverted),
+		index.MetricTypeKey:   "BM25",
+		"drop_ratio_build":    fmt.Sprintf("%v", opts.DropRatioSearch),
+		"bm25_k1":             fmt.Sprintf("%v", opts.K1),
+		"bm25_b":              fmt.Sprintf("%v", opts.B),
+		"inverted_index_algo": opts.InvertedAlgo,
+	})
 
 	// 使用新 SDK Option API 创建索引（在 sparse 字段上）
 	createIndexOpt := milvusclient.NewCreateIndexOption(collectionName, "sparse", idx)

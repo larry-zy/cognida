@@ -43,7 +43,6 @@ func TestWriter_ConcurrentSendAndHeartbeatNoRace(t *testing.T) {
 		Interval: time.Millisecond,
 		Comment:  "keepalive",
 	})
-	defer stop()
 
 	var wg sync.WaitGroup
 	for g := 0; g < 4; g++ {
@@ -56,6 +55,10 @@ func TestWriter_ConcurrentSendAndHeartbeatNoRace(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+
+	// 停止心跳并等待其 goroutine 完全退出——建立 happens-before，
+	// 之后主 goroutine 读取 lw.writes 不再与心跳写入竞争。
+	stop()
 
 	if lw.writes == 0 {
 		t.Fatal("expected writes to underlying ResponseWriter")

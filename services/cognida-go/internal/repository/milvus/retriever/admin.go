@@ -34,6 +34,26 @@ func (r *VectorRetriever) DropField(ctx context.Context, kbID int64, fieldName s
 	return fmt.Errorf("Milvus does not support dropping fields. Use dynamic fields or recreate collection")
 }
 
+// DropKnowledgeBase 删除整个 "link" collection（连带索引/数据）。
+// 用于重建：BM25 Function 无法追加到既有 collection，须先 drop 再以带 Function 的
+// schema 重建。collection 不存在时直接返回 nil（幂等）。危险操作，调用方须显式确认。
+func (r *VectorRetriever) DropKnowledgeBase(ctx context.Context, kbID int64) error {
+	collectionName := r.getCollectionName(kbID)
+	exists, err := r.client.HasCollection(ctx, milvusclient.NewHasCollectionOption(collectionName))
+	if err != nil {
+		return fmt.Errorf("check collection exists failed: %w", err)
+	}
+	if !exists {
+		log.Printf("[Milvus] Collection '%s' 不存在，无需 drop", collectionName)
+		return nil
+	}
+	if err := r.client.DropCollection(ctx, milvusclient.NewDropCollectionOption(collectionName)); err != nil {
+		return fmt.Errorf("drop collection failed: %w", err)
+	}
+	log.Printf("[Milvus] Collection '%s' dropped", collectionName)
+	return nil
+}
+
 // ========================================
 // 加载和释放
 // ========================================

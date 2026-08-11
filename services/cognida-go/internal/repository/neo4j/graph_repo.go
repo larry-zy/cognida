@@ -3,13 +3,11 @@ package neo4j
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
-
-	"cognida/internal/model/knowledge"
 )
 
 // ========================================
@@ -20,18 +18,14 @@ import (
 // 用于防止未限制查询退化为整命名空间扫描返回全部节点的大结果集风险。
 const defaultSearchNodeLimit = 100
 
+// defaultGraphLoadLimit 是 GetGraph/SearchNode 等整图加载查询的兜底上限，
+// 防止大知识库一次性把全部节点/关系物化进内存（PF-1 无界加载）。
+const defaultGraphLoadLimit = 1000
+
 // Neo4jRepository Neo4j 图谱仓储实现
 type Neo4jRepository struct {
 	driver neo4j.DriverWithContext
 	dbName string
-	cache  *graphCache
-}
-
-// graphCache 图谱缓存
-type graphCache struct {
-	nodes     map[string]*knowledge.GraphNode
-	relations map[string]*knowledge.GraphRelation
-	mu        sync.RWMutex
 }
 
 // NewNeo4jRepository 创建 Neo4j 仓储
@@ -52,10 +46,6 @@ func NewNeo4jRepositoryFromDriver(driver neo4j.DriverWithContext, dbName string)
 	repo := &Neo4jRepository{
 		driver: driver,
 		dbName: dbName,
-		cache: &graphCache{
-			nodes:     make(map[string]*knowledge.GraphNode),
-			relations: make(map[string]*knowledge.GraphRelation),
-		},
 	}
 
 	// Initialize indexes idempotently
@@ -64,7 +54,74 @@ func NewNeo4jRepositoryFromDriver(driver neo4j.DriverWithContext, dbName string)
 		return nil, fmt.Errorf("初始化索引失败: %w", err)
 	}
 
+	// 一次性归一化 GR-1 之前以 JSON 字符串存储的遗留 chunks 为 Neo4j 原生 list。
+	// 非致命：读路径已兼容遗留字符串（getStringSliceValue），此处失败仅告警不阻断启动。
+	if n, err := repo.NormalizeChunksToList(ctx); err != nil {
+		fmt.Printf("Warning: 归一化遗留 chunks 失败（读路径仍兼容，可忽略）: %v\n", err)
+	} else if n > 0 {
+		fmt.Printf("[Neo4j] 已归一化遗留字符串 chunks 节点 %d 个为原生 list\n", n)
+	}
+
 	return repo, nil
+}
+
+// NormalizeChunksToList 将 GR-1 之前以 JSON 字符串形式存储的 n.chunks 一次性归一化为
+// Neo4j 原生 list。存量库遗留节点的 chunks 形如字符串 "null" 或 "[\"c1\",\"c2\"]"，会令
+// 新版删除谓词（$chunkId IN n.chunks 等列表操作）在该节点上抛类型错误。本方法幂等：仅命中
+// chunks 为字符串类型的节点（toStringOrNull(n.chunks)=n.chunks 便携识别——对 list/其它类型
+// 返回 null 故不命中），解析后写回原生 list；归一化后的节点不再命中，分批循环至清零。
+func (r *Neo4jRepository) NormalizeChunksToList(ctx context.Context) (int, error) {
+	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
+	defer session.Close(ctx)
+
+	const batch = 500
+	normalized := 0
+	for {
+		readCypher := `
+			MATCH (n:Entity)
+			WHERE n.chunks IS NOT NULL AND toStringOrNull(n.chunks) = n.chunks
+			RETURN elementId(n) AS eid, n.chunks AS chunks
+			LIMIT $batch
+		`
+		result, err := session.Run(ctx, readCypher, map[string]interface{}{"batch": batch})
+		if err != nil {
+			return normalized, fmt.Errorf("扫描遗留 chunks 失败: %w", err)
+		}
+
+		rows := make([]map[string]interface{}, 0, batch)
+		for result.Next(ctx) {
+			rec := result.Record()
+			eid, _ := rec.Get("eid")
+			raw := getStringValue(rec, "chunks")
+			var list []string
+			// "null" / 非法 JSON 均落到空 list（这些遗留节点本就无 chunk 关联）。
+			if err := json.Unmarshal([]byte(raw), &list); err != nil || list == nil {
+				list = []string{}
+			}
+			rows = append(rows, map[string]interface{}{"eid": eid, "chunks": list})
+		}
+		if err := result.Err(); err != nil {
+			return normalized, fmt.Errorf("读取遗留 chunks 失败: %w", err)
+		}
+		if len(rows) == 0 {
+			break
+		}
+
+		writeCypher := `
+			UNWIND $rows AS row
+			MATCH (n) WHERE elementId(n) = row.eid
+			SET n.chunks = row.chunks
+		`
+		if _, err := session.Run(ctx, writeCypher, map[string]interface{}{"rows": rows}); err != nil {
+			return normalized, fmt.Errorf("回写归一化 chunks 失败: %w", err)
+		}
+		normalized += len(rows)
+
+		if len(rows) < batch {
+			break
+		}
+	}
+	return normalized, nil
 }
 
 // InitIndexes initialize indexes idempotently
@@ -162,23 +219,4 @@ func (r *Neo4jRepository) CheckHealth(ctx context.Context) error {
 	cypher := "RETURN 1"
 	_, err := session.Run(ctx, cypher, nil)
 	return err
-}
-
-// ========================================
-// 缓存操作
-// ========================================
-
-func (r *Neo4jRepository) updateCache(namespace knowledge.NameSpace, graphs []*knowledge.GraphData) {
-	key := namespace.String()
-	r.cache.mu.Lock()
-	defer r.cache.mu.Unlock()
-
-	for _, graphData := range graphs {
-		for _, node := range graphData.Node {
-			r.cache.nodes[key+":"+node.Name] = node
-		}
-		for _, rel := range graphData.Relation {
-			r.cache.relations[key+":"+rel.GetKey()] = rel
-		}
-	}
 }

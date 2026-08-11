@@ -52,6 +52,10 @@ type KnowledgeBaseService interface {
 	// DeleteKnowledge deletes knowledge from a KB
 	DeleteKnowledge(ctx context.Context, kbID, knowledgeID string, tenantID int64) error
 
+	// SetKnowledgeEnabled 启用/停用某文档：MySQL 权威——更新 knowledge.enable_status
+	// 并级联 chunk.is_enabled，随后失效该库检索缓存。停用后该文档不再被检索命中（检索侧后过滤）。
+	SetKnowledgeEnabled(ctx context.Context, kbID, knowledgeID string, tenantID int64, enabled bool) error
+
 	// GetChunks gets chunks for a KB（tenantID 强制归属校验）
 	GetChunks(ctx context.Context, kbID string, tenantID int64, page, pageSize int, knowledgeID string) ([]*domain_knowledge.Chunk, int64, error)
 
@@ -152,7 +156,6 @@ type KnowledgeService interface {
 
 	// KnowledgeBaseSetting operations
 	FindKnowledgeBaseSettingByKnowledgeBaseID(ctx context.Context, kbID string) (*domain_knowledge.KnowledgeBaseSetting, error)
-	FindKnowledgeBaseSettingByKnowledgeBaseIDAndKey(ctx context.Context, kbID string, key string) (*domain_knowledge.KnowledgeBaseSetting, error)
 	CreateKnowledgeBaseSetting(ctx context.Context, setting *domain_knowledge.KnowledgeBaseSetting) error
 	UpdateKnowledgeBaseSetting(ctx context.Context, setting *domain_knowledge.KnowledgeBaseSetting) error
 	UpdateRetrievalConfig(ctx context.Context, kbID string, mode string, threshold float64, topK int) error

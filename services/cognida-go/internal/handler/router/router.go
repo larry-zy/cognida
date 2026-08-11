@@ -280,6 +280,9 @@ func (r *Router) setupKBRoutes(api *gin.RouterGroup) {
 		kbs.GET("/:id/knowledge/:kid", r.knowledgeBaseHandler.GetKnowledgeDetail)
 		kbs.GET("/:id/knowledge/:kid/status", r.knowledgeBaseHandler.GetKnowledgeStatus)
 		kbs.DELETE("/:id/knowledge/:knowledge_id", r.knowledgeBaseHandler.DeleteKnowledge)
+		// 文档启用/停用（MySQL 权威 + 检索后过滤）：停用后不再被检索命中
+		kbs.PUT("/:id/knowledge/:knowledge_id/enable", r.knowledgeBaseHandler.EnableKnowledge)
+		kbs.PUT("/:id/knowledge/:knowledge_id/disable", r.knowledgeBaseHandler.DisableKnowledge)
 
 		// 分块管理
 		kbs.GET("/:id/chunks", r.knowledgeBaseHandler.GetChunks)

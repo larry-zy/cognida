@@ -799,8 +799,9 @@ func ProvideKnowledgeBaseHandler(
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
 // 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
-func ProvideRetrievalCapability(retriever domain_rag.Retriever) *app_kb.RetrievalCapability {
-	return app_kb.NewRetrievalCapability(retriever, ragpipeline.NewReranker())
+func ProvideRetrievalCapability(retriever domain_rag.Retriever, knowledgeRepo domain_knowledge.KnowledgeRepository) *app_kb.RetrievalCapability {
+	// 注入启用状态过滤器（MySQL 权威）：检索命中后回查 MySQL 剔除停用/已删条目。
+	return app_kb.NewRetrievalCapability(retriever, ragpipeline.NewReranker()).WithEnabledFilter(knowledgeRepo)
 }
 
 func ProvideSessionHandler(
@@ -949,9 +950,11 @@ func ProvideVectorRetriever(embedder embedding.Embedder) (*retriever.VectorRetri
 	return retriever.NewVectorRetriever(embedder)
 }
 
-func ProvideMilvusRetriever() ragpipeline.MilvusRetriever {
-	// 创建 Milvus 向量检索器
-	vectorRetriever, err := retriever.NewVectorRetriever(nil) // embedder 将从外部注入
+func ProvideMilvusRetriever(embedder embedding.Embedder) ragpipeline.MilvusRetriever {
+	// 创建 Milvus 向量检索器：必须传入真实 embedder，
+	// 否则 NewVectorRetriever 因 embedder==nil 直接报错并返回 nil，
+	// 导致整条 Milvus dense/BM25 检索链路失效、静默降级到内存子串兜底。
+	vectorRetriever, err := retriever.NewVectorRetriever(embedder)
 	if err != nil {
 		// 如果 Milvus 未初始化，返回 nil
 		return nil

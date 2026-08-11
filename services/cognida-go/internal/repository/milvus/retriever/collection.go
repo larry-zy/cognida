@@ -91,23 +91,25 @@ func (r *VectorRetriever) buildSchema(kbID int64, opts *CreateKnowledgeBaseOptio
 
 	// 3. BM25 全文搜索字段（如果启用）
 	if opts.EnableBM25 {
-		// text 字段：存储原始文本，用于 BM25 分词
-		// 注意：enable_analyzer 需要通过 Milvus 服务端配置，SDK 暂不支持直接设置
+		// text 字段：存储原始文本，开启分词器（analyzer）供 BM25 Function 消费。
+		// SDK v2.6+ 支持直接在 VarChar 字段上启用 analyzer 并配置分词参数。
 		schema = schema.WithField(
 			entity.NewField().WithName("text").WithDataType(entity.FieldTypeVarChar).
-				WithMaxLength(65535),
+				WithMaxLength(65535).
+				WithEnableAnalyzer(true).
+				WithAnalyzerParams(map[string]any{"tokenizer": "standard"}),
 		)
 
-		// sparse 字段：BM25 生成的稀疏向量
+		// sparse 字段：由 BM25 Function 从 text 自动生成的稀疏向量（Function 输出字段，
+		// 插入时禁止显式赋值，见 data.go buildColumns）
 		schema = schema.WithField(
 			entity.NewField().WithName("sparse").WithDataType(entity.FieldTypeSparseVector),
 		)
 	}
 
-	// 4. 稀疏向量字段（Sparse Vector）- 用于自定义 BM25 关键词匹配（保留兼容性）
-	schema = schema.WithField(
-		entity.NewField().WithName("sparse_vector").WithDataType(entity.FieldTypeSparseVector),
-	)
+	// 说明：旧版曾额外声明一个 sparse_vector 字段用于「自定义 BM25 关键词匹配」，但全库
+	// 无任何检索路径使用它（SparseVector 在主入库路径从不赋值），且未索引的向量字段会
+	// 阻断 collection 的 Load。服务端 BM25 Function 落地后该字段彻底冗余，故移除。
 
 	// 4. 元数据字段 - chunk_id (UUID string，对应 MySQL chunks.id)
 	schema = schema.WithField(
@@ -162,9 +164,18 @@ func (r *VectorRetriever) buildSchema(kbID int64, opts *CreateKnowledgeBaseOptio
 		schema = schema.WithDynamicFieldEnabled(true)
 	}
 
-	// 注意：BM25 Function 需要在 Milvus 服务端通过 REST API 或配置添加
-	// SDK 当前版本暂不支持直接创建 Function
-	// 用户需要手动在 Milvus 中配置 BM25 Function 或使用稀疏向量索引
+	// 14. BM25 Function：声明 text -> sparse 的服务端全文映射（SDK v2.6+ 直接支持）。
+	// 建表即注册后，插入 text 列时 Milvus 自动分词并生成 sparse 稀疏向量，
+	// FullTextSearch 在 sparse 字段上以 entity.Text(query) 检索即走服务端 BM25。
+	if opts.EnableBM25 {
+		schema = schema.WithFunction(
+			entity.NewFunction().
+				WithName("text_bm25").
+				WithType(entity.FunctionTypeBM25).
+				WithInputFields("text").
+				WithOutputFields("sparse"),
+		)
+	}
 
 	return schema
 }

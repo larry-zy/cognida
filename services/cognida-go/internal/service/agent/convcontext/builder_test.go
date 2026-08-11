@@ -38,6 +38,9 @@ func (s *stubMessageRepo) FindByRequestID(ctx context.Context, requestID string)
 func (s *stubMessageRepo) Update(ctx context.Context, m *conversation.Message) error       { return nil }
 func (s *stubMessageRepo) UpdateContent(ctx context.Context, id, content string) error      { return nil }
 func (s *stubMessageRepo) UpdateCompleted(ctx context.Context, id string, done bool) error  { return nil }
+func (s *stubMessageRepo) UpdateAgentData(ctx context.Context, id string, knowledgeReferences, agentSteps *string, tokenCount *int) error {
+	return nil
+}
 func (s *stubMessageRepo) Delete(ctx context.Context, id string) error                      { return nil }
 func (s *stubMessageRepo) DeleteBySessionID(ctx context.Context, sessionID string) error    { return nil }
 func (s *stubMessageRepo) CountBySessionID(ctx context.Context, sessionID string) (int64, error) {

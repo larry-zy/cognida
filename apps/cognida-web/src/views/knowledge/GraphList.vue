@@ -65,7 +65,20 @@
         :data="knowledgeBases"
         :columns="modalColumns"
         @row-click="handleSelectKB"
-      />
+      >
+        <!-- 行点击选库为鼠标交互；额外提供键盘可聚焦的操作按钮，供键盘/读屏用户选库 -->
+        <template #cell-actions="{ row }">
+          <UiButton
+            variant="primary"
+            size="sm"
+            :aria-label="`查看知识库 ${row.name} 的图谱`"
+            @click="handleSelectKB(row)"
+          >
+            <template #icon><component :is="ShareIcon" /></template>
+            查看图谱
+          </UiButton>
+        </template>
+      </UiTable>
       <template #footer>
         <UiButton variant="secondary" @click="selectKBDialogVisible = false">
           取消
@@ -118,7 +131,8 @@ const tableColumns = computed(() => [
 
 const modalColumns = computed(() => [
   { key: 'name', title: '知识库名称' },
-  { key: 'description', title: '描述' }
+  { key: 'description', title: '描述' },
+  { key: 'actions', title: '操作', width: 120 }
 ])
 
 async function loadKnowledgeBases() {

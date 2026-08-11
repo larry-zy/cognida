@@ -83,7 +83,7 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 		startTime := time.Now()
 
 		// Send start event
-		sendProgress(progressChan, &ResearchProgressDTO{
+		sendProgress(ctx, progressChan, &ResearchProgressDTO{
 			Stage:       "decomposing",
 			Progress:    0.0,
 			Detail:      fmt.Sprintf("开始研究: %s", truncate(req.Query, 50)),
@@ -95,7 +95,7 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 		_, err := s.Execute(ctx, req)
 
 		if err != nil {
-			sendProgress(progressChan, &ResearchProgressDTO{
+			sendProgress(ctx, progressChan, &ResearchProgressDTO{
 				Stage:       "error",
 				Progress:    0.0,
 				Detail:      err.Error(),
@@ -107,7 +107,7 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 		}
 
 		// Send analysis event
-		sendProgress(progressChan, &ResearchProgressDTO{
+		sendProgress(ctx, progressChan, &ResearchProgressDTO{
 			Stage:       "analyzing",
 			Progress:    0.5,
 			Detail:      "分析研究结果",
@@ -116,7 +116,7 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 		})
 
 		// Send complete event
-		sendProgress(progressChan, &ResearchProgressDTO{
+		sendProgress(ctx, progressChan, &ResearchProgressDTO{
 			Stage:        "complete",
 			Progress:     1.0,
 			Detail:       "研究完成",
@@ -133,12 +133,27 @@ func (s *ResearchService) ExecuteStreamWithProgress(ctx context.Context, req *De
 // Helper functions
 // ========================================
 
-func sendProgress(ch chan<- *ResearchProgressDTO, progress *ResearchProgressDTO) {
+// sendProgress 推送进度帧。
+// 终局帧（complete/error）必须送达——否则通道缓冲被中间帧打满时收尾信号被丢，
+// 前端永久转圈；故对终局帧阻塞发送并可被 ctx 取消。中间进度帧仍允许通道满时丢弃。
+func sendProgress(ctx context.Context, ch chan<- *ResearchProgressDTO, progress *ResearchProgressDTO) {
+	if isTerminalStage(progress.Stage) {
+		select {
+		case ch <- progress:
+		case <-ctx.Done():
+		}
+		return
+	}
 	select {
 	case ch <- progress:
 	default:
-		// Channel full, drop event
+		// Channel full, drop intermediate event
 	}
+}
+
+// isTerminalStage 判断是否为终局帧（研究结束/出错），此类帧必须保证送达。
+func isTerminalStage(stage string) bool {
+	return stage == "complete" || stage == "error"
 }
 
 func truncate(s string, maxLen int) string {

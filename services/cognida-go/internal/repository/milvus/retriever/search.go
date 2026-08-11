@@ -30,28 +30,30 @@ func (r *VectorRetriever) FullTextSearch(ctx context.Context, kbID int64, query 
 	// 构建过滤表达式
 	expr := r.buildFilterExpression(filter)
 
-	// 创建 AnnRequest - 使用 entity.Text() 进行全文搜索
-	// 在 sparse 字段上执行 BM25 搜索
-	annReq := milvusclient.NewAnnRequest("sparse", topK, entity.Text(query))
+	// 输出字段：不显式指定则 Milvus 只回主键+分数，content/chunk_id 等全为空
+	//（此前用 HybridSearch 时漏设 WithOutputFields，正是命中结果 content 恒空的根因）。
+	outputFields := []string{"chunk_id", "knowledge_id", "kb_id", "tenant_id", "chunk_index", "content", "is_enabled", "start_at", "end_at", "token_count"}
 
-	// 添加过滤表达式
+	// 单路稀疏向量检索：在 sparse 字段上以 entity.Text(query) 触发服务端 BM25。
+	// 用 client.Search 而非 HybridSearch——本查询只有一路 ANN，无需结果融合；而
+	// HybridSearch 会对唯一子请求强加 RRF 重排，把真实 BM25 相关性分替换成「名次倒数」
+	// 1/(60+rank)（表现为不同 query 却得到雷同的 0.0164/0.0161/0.0159），既失真又与
+	// query 无关。改用 Search 后 Scores 即服务端原始 BM25 分，可用于阈值与排序。
+	searchOpt := milvusclient.NewSearchOption(collectionName, topK, []entity.Vector{entity.Text(query)})
+	searchOpt.WithANNSField("sparse")
 	if expr != "" {
-		annReq.WithFilter(expr)
+		searchOpt.WithFilter(expr)
 	}
+	searchOpt.WithOutputFields(outputFields...)
+	searchOpt.WithAnnParam(index.NewCustomAnnParam())
 
-	// 创建搜索参数 - BM25 全文搜索参数
-	annSearchParams := index.NewCustomAnnParam()
-	// drop_ratio 参数可以在创建索引时配置
-	annReq.WithAnnParam(annSearchParams)
-
-	// 使用 HybridSearch API 执行 BM25 全文搜索
-	hybridSearchOpt := milvusclient.NewHybridSearchOption(collectionName, topK, annReq)
-	resultSets, err := r.client.HybridSearch(ctx, hybridSearchOpt)
+	resultSets, err := r.client.Search(ctx, searchOpt)
 	if err != nil {
-		// 如果 BM25 搜索失败，可能是 Milvus 版本不支持或索引未创建
-		// 返回空结果而不是错误，让上层可以 fallback
+		// BM25 失败通常意味着 Milvus 版本不支持、BM25 Function/索引未在服务端配置。
+		// 如实返回错误而非静默空结果：调用方（BM25Retrieve）在 err != nil 时会回退到
+		// 数据库关键词检索，同时错误得以被日志/监控观测，避免"BM25 恒空却伪装成正常"的坏账。
 		log.Printf("[Milvus] BM25 full-text search failed (possibly not supported or index not created): %v", err)
-		return []*SearchResult{}, nil
+		return nil, fmt.Errorf("BM25 full-text search failed: %w", err)
 	}
 
 	// 解析结果 - 新 SDK 返回的是 []ResultSet
@@ -59,12 +61,10 @@ func (r *VectorRetriever) FullTextSearch(ctx context.Context, kbID int64, query 
 	for _, resultSet := range resultSets {
 		for i := 0; i < resultSet.ResultCount; i++ {
 			result := &SearchResult{
-				Score: resultSet.Scores[i], // BM25 分数
+				Score: resultSet.Scores[i], // 服务端原始 BM25 分数
 			}
 
 			// 提取字段值 - 新 SDK 使用 GetColumn() 方法
-			// 输出字段列表
-			outputFields := []string{"chunk_id", "knowledge_id", "kb_id", "tenant_id", "chunk_index", "content", "is_enabled", "start_at", "end_at", "token_count"}
 			for _, fieldName := range outputFields {
 				col := resultSet.GetColumn(fieldName)
 				if col == nil {

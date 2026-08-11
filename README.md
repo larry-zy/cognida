@@ -14,6 +14,14 @@
 
 ---
 
+## 界面预览
+
+> **DaDa 数据智能体 · 结果画布**：左侧「思考过程」实时展开 ReAct 推理步骤，右侧 A2UI 生成式 UI 随流下发 UISpec，将图表 / 明细表 / 趋势结论实时绘制到结果画布。
+
+![DaDa 数据智能体 · 结果画布](docs/images/data-agent-canvas.png)
+
+---
+
 ## 项目简介
 
 **Cognida** 是一个面向企业的 **「数据 + 知识」Agent 平台**，采用 Go + Python 异构多服务架构。

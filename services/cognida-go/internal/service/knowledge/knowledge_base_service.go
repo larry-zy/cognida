@@ -428,39 +428,147 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 		return nil
 	}
 
-	// Delete from MySQL (knowledge and chunks)
-	if err := s.statsQuerier.DeleteKnowledgeWithChunks(ctx, kbID, knowledgeID); err != nil {
-		return err
-	}
-	s.invalidateKBCache(ctx, tenantID, kbID) // 知识删除 → 清该库硬缓存
+	// 一致性策略（KB-6/KB-7）：MySQL 是权威库，Milvus/Neo4j 是可从 MySQL 重建的投影。
+	// 旧代码"先删 MySQL，投影删除失败仅 log warning 不回滚" → 孤儿向量/图谱仍被检索命中，
+	// 却对外报删除成功。改为：① 先取删除图谱所需的 chunk_id 集合（MySQL 删除后即不可得）；
+	// ② 先删投影（Milvus + Neo4j），任一失败即中止并返回错误——此时 MySQL 记录仍在、
+	// 文档可见，可安全重试（各步幂等）；③ 投影删净后再删 MySQL 权威记录。
+	// 彻底的跨存储原子性需 outbox + 对账（见 review 参考模式 B），此处为低风险收敛版。
 
-	// Delete from Milvus (vectors) —— 尽力而为，MySQL 已删除，向量删除失败不回滚。
-	// 注意：collection 名由 kbID 的前导数字派生（与写入侧 fmt.Sscanf 一致），
-	// KB ID 形如 "20260704...bfa0e3" 含十六进制字母，不能用 strconv.ParseInt（会整体失败）。
+	// ① 取该文档全部分块 id（含禁用），用于按 chunk_id 精确清理图谱
+	var chunkIDs []string
+	if s.graphRepo != nil && s.chunkRepo != nil {
+		chunks, cerr := s.chunkRepo.FindByKnowledgeID(ctx, knowledgeID, false)
+		if cerr != nil {
+			return fmt.Errorf("加载分块以清理图谱失败: %w", cerr)
+		}
+		chunkIDs = make([]string, 0, len(chunks))
+		for _, c := range chunks {
+			chunkIDs = append(chunkIDs, c.ID)
+		}
+	}
+
+	// ② 先删投影 · Milvus 向量（按 knowledge_id，向量行带该字段，可靠且幂等）。
+	// collection 名由 kbID 前导数字派生（与写入侧 fmt.Sscanf 一致），KB ID 形如
+	// "20260704...bfa0e3" 含十六进制字母，不能用 strconv.ParseInt（会整体失败）。
 	if s.vectorRepo != nil {
 		var kbIDInt int64
 		if kbID != "" {
 			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
 		}
-		if err := s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID); err != nil {
-			log.Printf("[KnowledgeBaseService] Warning: failed to delete vectors for knowledge %s: %v", knowledgeID, err)
+		if err := retryTransientDelete(ctx, func() error {
+			return s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID)
+		}); err != nil {
+			return fmt.Errorf("删除向量失败，已中止（MySQL 未删，可重试）: %w", err)
 		}
 	}
 
-	// Delete from Neo4j (graph nodes/relations) —— 尽力而为。namespace 与写入侧
-	// document_processor_service.extractGraph 保持一致：TenantID 为字符串化的租户 ID。
-	if s.graphRepo != nil {
+	// ② 先删投影 · Neo4j 图谱（按 chunk_id 集合——节点存 chunk_id 而非 knowledge_id，
+	// 旧的 DeleteByKnowledgeID 恒不匹配、永远清不掉，KB-7）。namespace 与写入侧
+	// document_processor_service.extractGraph 一致：TenantID 为字符串化的租户 ID。
+	if s.graphRepo != nil && len(chunkIDs) > 0 {
 		namespace := domain_knowledge.NameSpace{
 			TenantID:        fmt.Sprintf("%d", tenantID),
 			KnowledgeBaseID: kbID,
 			Knowledge:       knowledgeID,
 		}
-		if err := s.graphRepo.DeleteByKnowledgeID(ctx, namespace, knowledgeID); err != nil {
-			log.Printf("[KnowledgeBaseService] Warning: failed to delete graph data for knowledge %s: %v", knowledgeID, err)
+		if err := retryTransientDelete(ctx, func() error {
+			return s.graphRepo.DeleteByChunkIDs(ctx, namespace, chunkIDs)
+		}); err != nil {
+			return fmt.Errorf("删除图谱失败，已中止（MySQL 未删，可重试）: %w", err)
 		}
 	}
 
+	// ③ 投影删净后再删 MySQL 权威记录（knowledge + chunks）
+	if err := s.statsQuerier.DeleteKnowledgeWithChunks(ctx, kbID, knowledgeID); err != nil {
+		return err
+	}
+	s.invalidateKBCache(ctx, tenantID, kbID) // 知识删除 → 清该库硬缓存
+
 	return nil
+}
+
+// SetKnowledgeEnabled 启用/停用某文档。MySQL 是启用状态的唯一权威源：更新 knowledge.enable_status
+// 并级联 chunk.is_enabled，随后失效该库检索缓存。停用不触碰向量库/图谱——检索侧按 MySQL 权威后过滤
+// 剔除停用命中（见 RetrievalCapability.filterByEnabled），无需回写向量或重嵌入。
+func (s *knowledgeBaseService) SetKnowledgeEnabled(ctx context.Context, kbID, knowledgeID string, tenantID int64, enabled bool) error {
+	// 强制归属校验：知识库必须属于当前租户
+	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
+		return err
+	}
+
+	// 文档必须存在且属于本知识库（纵深防御：避免跨库改写他库文档状态）
+	knowledge, err := s.knowledgeRepo.FindByID(ctx, knowledgeID)
+	if err != nil {
+		return err
+	}
+	if knowledge.KnowledgeBaseID != kbID {
+		return fmt.Errorf("知识条目不属于该知识库")
+	}
+
+	enableStatus := domain_knowledge.EnableStatusDisabled
+	if enabled {
+		enableStatus = domain_knowledge.EnableStatusEnabled
+	}
+
+	// ① 更新文档权威启用状态
+	if err := s.knowledgeRepo.UpdateEnableStatus(ctx, knowledgeID, enableStatus); err != nil {
+		return fmt.Errorf("更新文档启用状态失败: %w", err)
+	}
+
+	// ② 级联更新分块 is_enabled（含当前禁用分块，enabledOnly=false 取全量 id）。
+	// 分块状态是文档状态的从属投影，保持二者一致；检索后过滤按文档 knowledge_id 判定，
+	// 分块 is_enabled 供片段级检索/统计使用。
+	if s.chunkRepo != nil {
+		chunks, cerr := s.chunkRepo.FindByKnowledgeID(ctx, knowledgeID, false)
+		if cerr != nil {
+			return fmt.Errorf("加载分块以级联启用状态失败: %w", cerr)
+		}
+		if len(chunks) > 0 {
+			ids := make([]string, 0, len(chunks))
+			for _, c := range chunks {
+				ids = append(ids, c.ID)
+			}
+			if err := s.chunkRepo.UpdateBatchStatus(ctx, ids, enabled); err != nil {
+				return fmt.Errorf("级联分块启用状态失败: %w", err)
+			}
+		}
+	}
+
+	s.invalidateKBCache(ctx, tenantID, kbID) // 启用状态变更 → 清该库硬缓存，避免命中旧结果
+	return nil
+}
+
+// deleteRetryAttempts / deleteRetryBaseBackoff 控制投影删除的有界重试〔#8〕。
+const (
+	deleteRetryAttempts    = 3
+	deleteRetryBaseBackoff = 100 * time.Millisecond
+)
+
+// retryTransientDelete 对幂等的投影删除（Milvus / Neo4j）做有界指数退避重试，吸收瞬时抖动
+// （网络闪断、下游 GC 暂停）——一次短暂不可用不至于让「先删投影再删 MySQL」的删除彻底失败〔#8〕。
+// 这是在「一致性优先」前提下改善可用性：投影删净前绝不删 MySQL 权威记录，故不会产生可被检索命中
+// 的孤儿向量/图谱（检索直接读 Milvus/Neo4j、不回查 MySQL）；重试仍不成功才硬失败，此时 MySQL
+// 未删、各步幂等、可整体安全重试。ctx 取消时立即返回，不再空等退避。
+func retryTransientDelete(ctx context.Context, op func() error) error {
+	var err error
+	for attempt := 0; attempt < deleteRetryAttempts; attempt++ {
+		if err = op(); err == nil {
+			return nil
+		}
+		if attempt == deleteRetryAttempts-1 {
+			break
+		}
+		backoff := deleteRetryBaseBackoff * time.Duration(1<<attempt) // 100ms、200ms…
+		log.Printf("[KnowledgeBase] 投影删除瞬时失败（第 %d/%d 次），%v 后重试: %v",
+			attempt+1, deleteRetryAttempts, backoff, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return err
 }
 
 // GetChunks gets chunks for a KB（tenantID 强制归属校验）
@@ -526,7 +634,8 @@ func (s *knowledgeBaseService) UploadDocument(
 		Title:           fileName,
 		Source:          "upload",
 		ParseStatus:     domain_knowledge.ParseStatusProcessing,
-		EnableStatus:    domain_knowledge.EnableStatusDisabled,
+		// 新入库文档默认启用，可被检索命中；停用是显式管理动作（见 SetKnowledgeEnabled）。
+		EnableStatus:    domain_knowledge.EnableStatusEnabled,
 		FilePath:        filePath,
 		FileHash:        fileHash,
 		StorageSize:     fileSize,

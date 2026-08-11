@@ -661,6 +661,23 @@ func (s *GraphService) DeleteByChunkID(ctx context.Context, namespace domain_kno
 	return nil
 }
 
+// DeleteByChunkIDs 批量删除与指定 chunk_id 集合相关的图谱数据（KB-7）
+func (s *GraphService) DeleteByChunkIDs(ctx context.Context, namespace domain_knowledge.NameSpace, chunkIDs []string) error {
+	if len(chunkIDs) == 0 {
+		return nil
+	}
+	log.Printf("[GraphService] DeleteByChunkIDs START: namespace.KnowledgeBaseID=%s, count=%d", namespace.KnowledgeBaseID, len(chunkIDs))
+
+	if err := s.graphRepo.DeleteByChunkIDs(ctx, namespace, chunkIDs); err != nil {
+		log.Printf("[GraphService] DeleteByChunkIDs ERROR: %v", err)
+		return err
+	}
+
+	log.Printf("[GraphService] DeleteByChunkIDs SUCCESS: count=%d", len(chunkIDs))
+
+	return nil
+}
+
 // DeleteByKnowledgeID 删除与指定 knowledge_id 相关的所有图谱数据
 func (s *GraphService) DeleteByKnowledgeID(ctx context.Context, namespace domain_knowledge.NameSpace, knowledgeID string) error {
 	log.Printf("[GraphService] DeleteByKnowledgeID START: namespace.KnowledgeBaseID=%s, knowledge_id=%s", namespace.KnowledgeBaseID, knowledgeID)
