@@ -113,13 +113,15 @@ func TestReAct_DynamicToolOrder(t *testing.T) {
 	}
 }
 
-// TestReAct_EmptyNaturalFinish 验证模型主动收尾但返回空内容时，仍判为自然结束：
-// 不应误标 terminated_by=max_iter，也不应触发 wind-down / partial。
-func TestReAct_EmptyNaturalFinish(t *testing.T) {
+// TestReAct_EmptyFinishAfterToolsWindsDown 验证：已跑过工具轮后，模型返回「无工具调用 + 空正文」
+// 的收尾并非有效最终答复——观察结果已在手却过早停口，用户只会拿到空答（前端表现为"卡在半句话"）。
+// 应转 wind-down 从已有观察合成一份自洽答复，并标注 terminated_by=empty_finish、partial=true。
+func TestReAct_EmptyFinishAfterToolsWindsDown(t *testing.T) {
 	var order []string
 	qtool := &recordingTool{name: "query", calls: &order}
 
-	// 脚本：先 query，再返回「无工具调用 + 空内容」的主动收尾。
+	// 脚本：先 query（产生观察），再返回「无工具调用 + 空内容」的过早收尾；
+	// 脚本随即耗尽，wind-down（第 3 次 Generate）走桩默认收尾语 "final"。
 	tm := &scriptedToolModel{script: []*schema.Message{
 		toolCallMsg("1", "query"),
 		{Role: schema.Assistant, Content: ""},
@@ -133,19 +135,64 @@ func TestReAct_EmptyNaturalFinish(t *testing.T) {
 		maxIter:   10,
 	}
 
-	resp, err := a.Chat(context.Background(), "空结论收尾")
+	resp, err := a.Chat(context.Background(), "工具后空收尾")
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content != "final" {
+		t.Errorf("empty finish after tools must wind-down to a real answer, got %q", resp.Content)
+	}
+	if resp.Metadata["terminated_by"] != TerminatedByEmptyFinish {
+		t.Errorf("expected terminated_by=empty_finish, got %v", resp.Metadata["terminated_by"])
+	}
+	if resp.Metadata["partial"] != true {
+		t.Errorf("wind-down recovery must be marked partial")
+	}
+	// query（观察）+ 空收尾 + wind-down 合成 = 3 次生成；query 工具只跑一次。
+	if tm.calls != 3 {
+		t.Errorf("expected 3 Generate calls (query + empty finish + wind-down), got %d", tm.calls)
+	}
+	if len(order) != 1 || order[0] != "query" {
+		t.Errorf("expected query invoked once, got %v", order)
+	}
+}
+
+// TestReAct_EmptyNaturalFinish_NoTools 验证：首轮即返回「无工具调用 + 空内容」（没有跑过任何工具、
+// 无观察可合成）时仍判为自然结束——不误标 terminated_by、不触发 wind-down / partial。
+// 这是与 TestReAct_EmptyFinishAfterToolsWindsDown 互补的另一半：只在「有观察」时才兜底。
+func TestReAct_EmptyNaturalFinish_NoTools(t *testing.T) {
+	var order []string
+	qtool := &recordingTool{name: "query", calls: &order}
+
+	// 脚本：首个生成即无工具调用 + 空内容（i==0，无观察）。
+	tm := &scriptedToolModel{script: []*schema.Message{
+		{Role: schema.Assistant, Content: ""},
+	}}
+
+	a := &agentImpl{
+		name:      "react",
+		toolModel: tm,
+		prompt:    "p",
+		tools:     []tool.BaseTool{qtool},
+		maxIter:   10,
+	}
+
+	resp, err := a.Chat(context.Background(), "首轮空收尾")
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	if _, ok := resp.Metadata["terminated_by"]; ok {
-		t.Errorf("empty natural finish must not set terminated_by: %v", resp.Metadata)
+		t.Errorf("first-turn empty natural finish must not set terminated_by: %v", resp.Metadata)
 	}
 	if resp.Metadata["partial"] == true {
-		t.Errorf("empty natural finish must not be marked partial")
+		t.Errorf("first-turn empty natural finish must not be marked partial")
 	}
-	// 仅调用了一次 query，未因误判触发额外的 wind-down 生成。
-	if tm.calls != 2 {
-		t.Errorf("expected exactly 2 Generate calls (query + finish), got %d", tm.calls)
+	// 仅 1 次生成（空收尾）；无观察不触发 wind-down；query 从未被调用。
+	if tm.calls != 1 {
+		t.Errorf("expected exactly 1 Generate call (empty finish), got %d", tm.calls)
+	}
+	if len(order) != 0 {
+		t.Errorf("expected no tool invocation, got %v", order)
 	}
 }
 

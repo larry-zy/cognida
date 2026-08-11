@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -26,6 +27,10 @@ const (
 	// TerminatedByTruncated 表示模型输出被 finish_reason=length 截断（thinking 链撑爆输出预算），
 	// 有界重试后仍未产出工具调用而转 wind-down 收尾。
 	TerminatedByTruncated = "output_truncated"
+	// TerminatedByEmptyFinish 表示模型在已跑过工具轮后返回「无工具调用 + 空正文」的收尾（finish_reason=stop）。
+	// 这并非有效最终答复：观察结果已在手，模型却过早停口，用户只能看到开场思考＋若干工具步骤、
+	// 拿不到任何结论/数据（前端表现为"卡在半句话"）。转 wind-down 从已有观察合成一份自洽答复。
+	TerminatedByEmptyFinish = "empty_finish"
 )
 
 // maxTruncationRetries 是「finish_reason=length 截断且无工具调用」时注入精简提示后的最大重试轮数。
@@ -198,6 +203,16 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 				}
 				// 重试仍被截断：不把半句正文当最终答案，转 wind-down 给出诚实结论。
 				res.terminatedBy = TerminatedByTruncated
+				res.iterations = i + 1
+				break
+			}
+			// 已跑过工具轮（i>0）却返回空正文收尾：观察结果已在手，模型却过早停口，
+			// 空串当最终答案会让用户只看到开场思考＋工具步骤、拿不到任何结论（表现为"卡住"）。
+			// 转 wind-down 从已有观察合成一份自洽答复，而非交付空答。
+			// 注意 i>0 的门槛：首轮（i==0）即无工具空收尾时无任何观察可合成，仍按自然结束放行。
+			if i > 0 && strings.TrimSpace(msg.Content) == "" {
+				log.Printf("[agent:%s] 第%d步 无工具调用且正文为空（已跑过工具轮），转 wind-down 从观察合成收尾", a.name, i+1)
+				res.terminatedBy = TerminatedByEmptyFinish
 				res.iterations = i + 1
 				break
 			}
