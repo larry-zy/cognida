@@ -70,49 +70,66 @@ export function useBatchUpload(kbId: Ref<string> | string, options: UseBatchUplo
 
   async function uploadOne(item: BatchUploadItem) {
     const id = resolveKbId()
+    // 429 重试预算按文件计，预检与上传两个阶段共享，避免单个文件把整批时间拖死
     let retries = 0
 
-    while (true) {
-      try {
-        item.status = 'checking'
-        const hash = await computeFileHash(item.file)
-        const check = await knowledgeApi.checkFile(id, hash)
-        if (check.data?.duplicate) {
-          item.status = 'duplicate'
-          item.message = `已存在于知识库中（${check.data.title || item.file.name}）`
-          return
+    /**
+     * 仅对传入的请求本身做 429 退避重试。
+     * 哈希计算刻意留在外层只算一次——被限流的是 HTTP 请求，重算 SHA-256 毫无意义，
+     * 50MB 文件每重试一次就白算一遍全文件，是纯粹的 CPU 浪费。
+     */
+    async function withRateLimitRetry<T>(op: () => Promise<T>): Promise<T> {
+      while (true) {
+        try {
+          return await op()
+        } catch (error: any) {
+          if (error?.response?.status === 429 && retries < maxRateLimitRetries) {
+            retries += 1
+            const waitMs = parseRetryAfterMs(error)
+            item.message = `请求过于频繁，${Math.round(waitMs / 1000)} 秒后自动重试（第 ${retries} 次）`
+            await sleep(waitMs)
+            continue
+          }
+          throw error
         }
+      }
+    }
 
-        item.status = 'uploading'
-        const formData = new FormData()
-        formData.append('file', item.file)
-        await knowledgeApi.uploadFile(id, formData, (percent) => {
-          item.progress = percent
-        })
-        item.status = 'success'
-        return
-      } catch (error: any) {
-        const status = error?.response?.status
-        // 并发竞态下后端可能返回 409（预检通过后被他人抢先上传相同文件）
-        if (status === 409) {
-          item.status = 'duplicate'
-          item.message = error.response.data?.message || '已存在于知识库中'
-          return
-        }
-        // 429：按 Retry-After 退避重试，而非直接判失败——批量场景下很容易连续撞上同一限流窗口
-        if (status === 429 && retries < maxRateLimitRetries) {
-          retries += 1
-          const waitMs = parseRetryAfterMs(error)
-          item.message = `请求过于频繁，${Math.round(waitMs / 1000)} 秒后自动重试（第 ${retries} 次）`
-          await sleep(waitMs)
-          continue
-        }
-        item.status = 'error'
-        item.message = status === 429
-          ? '请求过于频繁，重试多次仍失败，请稍后手动重试'
-          : (error?.message || '上传失败')
+    try {
+      item.status = 'checking'
+      const hash = await computeFileHash(item.file)
+      const check = await withRateLimitRetry(() => knowledgeApi.checkFile(id, hash))
+      if (check.data?.duplicate) {
+        item.status = 'duplicate'
+        item.message = `已存在于知识库中（${check.data.title || item.file.name}）`
         return
       }
+
+      item.status = 'uploading'
+      await withRateLimitRetry(() => {
+        // FormData 每次尝试都重建：请求体已被消费后不可复用；进度也一并归零重新计
+        item.progress = 0
+        const formData = new FormData()
+        formData.append('file', item.file)
+        return knowledgeApi.uploadFile(id, formData, (percent) => {
+          item.progress = percent
+        })
+      })
+      item.status = 'success'
+      // 清掉重试阶段留下的「自动重试」提示，否则成功态旁边会挂着一句自相矛盾的文案
+      item.message = ''
+    } catch (error: any) {
+      const status = error?.response?.status
+      // 并发竞态下后端可能返回 409（预检通过后被他人抢先上传相同文件）
+      if (status === 409) {
+        item.status = 'duplicate'
+        item.message = error.response.data?.message || '已存在于知识库中'
+        return
+      }
+      item.status = 'error'
+      item.message = status === 429
+        ? '请求过于频繁，重试多次仍失败，请稍后手动重试'
+        : (error?.message || '上传失败')
     }
   }
 

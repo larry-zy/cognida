@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useBatchUpload } from '@/composables/useBatchUpload'
 import { knowledgeApi } from '@/api/knowledge'
+import { computeFileHash } from '@/utils/hash'
 
 vi.mock('@/api/knowledge', () => ({
   knowledgeApi: {
@@ -31,6 +32,8 @@ function deferred<T>() {
 beforeEach(() => {
   vi.mocked(knowledgeApi.checkFile).mockReset()
   vi.mocked(knowledgeApi.uploadFile).mockReset()
+  vi.mocked(computeFileHash).mockClear()
+  vi.mocked(computeFileHash).mockResolvedValue('deadbeef')
 })
 
 describe('useBatchUpload/成功与去重', () => {
@@ -91,6 +94,56 @@ describe('useBatchUpload/成功与去重', () => {
 
     expect(knowledgeApi.uploadFile).toHaveBeenCalledTimes(3)
     expect(batch.items.value[0].status).toBe('success')
+  })
+
+  it('429 重试只重发上传请求，不重算哈希也不重复预检', async () => {
+    vi.mocked(knowledgeApi.checkFile).mockResolvedValue({ data: { duplicate: false } } as any)
+    vi.mocked(knowledgeApi.uploadFile)
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '0.01' } } })
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '0.01' } } })
+      .mockResolvedValueOnce({ data: { knowledge_id: 'k4', status: 'processing' } } as any)
+
+    const batch = useBatchUpload('kb-1')
+    batch.setFiles([makeFile('big.pdf')])
+    await batch.start()
+
+    expect(knowledgeApi.uploadFile).toHaveBeenCalledTimes(3)
+    expect(computeFileHash).toHaveBeenCalledTimes(1)
+    expect(knowledgeApi.checkFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('429 重试成功后清空重试提示，不残留「自动重试」文案', async () => {
+    vi.mocked(knowledgeApi.checkFile).mockResolvedValue({ data: { duplicate: false } } as any)
+    vi.mocked(knowledgeApi.uploadFile)
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '0.01' } } })
+      .mockResolvedValueOnce({ data: { knowledge_id: 'k5', status: 'processing' } } as any)
+
+    const batch = useBatchUpload('kb-1')
+    batch.setFiles([makeFile('retry-then-ok.md')])
+    await batch.start()
+
+    expect(batch.items.value[0].status).toBe('success')
+    expect(batch.items.value[0].message).toBe('')
+  })
+
+  it('预检阶段命中 429 也会退避重试，且与上传共享同一重试预算', async () => {
+    vi.mocked(knowledgeApi.checkFile)
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '0.01' } } })
+      .mockResolvedValueOnce({ data: { duplicate: false } } as any)
+    vi.mocked(knowledgeApi.uploadFile)
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '0.01' } } })
+      .mockRejectedValueOnce({ response: { status: 429, headers: { 'retry-after': '0.01' } } })
+
+    // 预算 2 次：预检用掉 1 次，上传只剩 1 次，第二次上传失败即判 error
+    const batch = useBatchUpload('kb-1', { maxRateLimitRetries: 2 })
+    batch.setFiles([makeFile('limited-at-check.md')])
+    await batch.start()
+
+    expect(knowledgeApi.checkFile).toHaveBeenCalledTimes(2)
+    expect(knowledgeApi.uploadFile).toHaveBeenCalledTimes(2)
+    expect(computeFileHash).toHaveBeenCalledTimes(1)
+    expect(batch.items.value[0].status).toBe('error')
+    expect(batch.items.value[0].message).toContain('重试多次仍失败')
   })
 
   it('429 重试次数耗尽后标记 error，且不会无限重试', async () => {

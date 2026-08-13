@@ -441,6 +441,7 @@ import GraphView from './GraphView.vue'
 import DirectoryTreePicker from './DirectoryTreePicker.vue'
 import { knowledgeApi } from '@/api/knowledge'
 import { computeFileHash } from '@/utils/hash'
+import { filterAcceptableFiles } from '@/utils/directoryTree'
 import type {
   KnowledgeBase,
   KnowledgeBaseStats,
@@ -730,13 +731,22 @@ function handleFileChange(e: Event) {
   input.value = '' // 重置 input 以便重复选择同一文件时仍触发 change
   if (!files.length) return
 
-  if (files.length === 1) {
-    uploadForm.file = files[0]
-    selectedFileName.value = files[0].name
+  // accept 属性只是文件选择器的过滤提示（用户可切到「所有文件」绕过），且完全不管大小，
+  // 故这里与文件夹流程走同一套过滤，避免超过 50MB 或不支持格式的文件直接打到后端
+  const { accepted, rejectedByType, rejectedBySize } = filterAcceptableFiles(files)
+  const skipped = rejectedByType.length + rejectedBySize.length
+  if (skipped > 0) {
+    toast.warning(`已过滤 ${skipped} 个不支持格式或超过 50MB 大小限制的文件`)
+  }
+  if (!accepted.length) return
+
+  if (accepted.length === 1) {
+    uploadForm.file = accepted[0]
+    selectedFileName.value = accepted[0].name
     showUploadDialog.value = true
     return
   }
-  startBatchUpload(files)
+  startBatchUpload(accepted)
 }
 
 // 处理文件夹选择：先弹出目录树供用户勾选/取消，确认后再进入批量上传
