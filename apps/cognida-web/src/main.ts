@@ -7,6 +7,7 @@ import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router from './router'
 import { i18n } from './i18n'
+import { useSettingsStore } from './stores/settings'
 
 // 引入全局样式
 import './components/styles/global.css'
@@ -16,6 +17,9 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.use(i18n)
+
+// 应用用户偏好（主题 / 语言 / 字体）——须在 pinia 与 i18n 安装之后执行
+useSettingsStore().init()
 // 不再 app.use(ElementPlus) 全量注册，也不再全量注册图标：
 // - 模板 <el-icon> 由 unplugin-vue-components + ElementPlusResolver 按需解析；
 // - 各视图用到的图标已在各自文件显式 import（如 import { Plus } from '@element-plus/icons-vue'），
