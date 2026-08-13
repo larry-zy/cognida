@@ -6,6 +6,7 @@ import (
 	"cognida/internal/model/memory"
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/cloudwego/eino/schema"
 )
@@ -76,7 +77,10 @@ func (a *agentImpl) buildInitialMessages(ctx context.Context, req runRequest) ([
 	// （SaveUserMessage/SaveAssistantMessage → messageRepo），此处只读装配历史，不再重复写。
 
 	if err != nil || builtCtx == nil {
-		return def, rc // 降级到简单模式（builtCtx 保持 nil）
+		// 降级到简单模式（builtCtx 保持 nil）：此时会丢弃全部历史，仅保留 [System, User]，
+		// 长对话会静默"失忆"。以往错误被完全吞掉，这里补一条告警便于定位构建失败根因。
+		log.Printf("[Memory] 会话 %s 构建历史上下文失败，降级为无历史模式: %v", req.sessionID, err)
+		return def, rc
 	}
 	rc.builtCtx = builtCtx
 

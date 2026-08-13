@@ -422,8 +422,14 @@ func (b *Builder) WithReflection(
 			return nil
 		}
 
-		// 使用当前 prompt 作为任务描述
-		task := b.prompt
+		// 任务描述取本轮「用户原始问题」（preProcess 入口经 WithUserQuery 写入 ctx）：
+		// critic 据此评估回答是否切题、memory 据此按真实意图检索历史教训。
+		// 以往误用 b.prompt（系统提示词/agent 指令），会让评估与检索脱靶——见 WithUserQuery 注释。
+		// 兜底：ctx 无用户问题时退回系统提示词，再退回占位串。
+		task := UserQueryFromContext(ctx)
+		if task == "" {
+			task = b.prompt
+		}
 		if task == "" {
 			task = "agent_response"
 		}

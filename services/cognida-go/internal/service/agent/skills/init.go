@@ -25,13 +25,10 @@ var (
 func Initialize(dirs ...string) error {
 	var initErr error
 	initOnce.Do(func() {
-		// 设置默认目录
+		// 未显式指定时回退到规范候选目录（与 InitializeFromEnv 同源，见 DefaultSkillDirs）：
+		// 服务通常从 cognida-go/ 启动而 Skill 位于 ../skills，故列多级相对候选，修复 CWD 陷阱。
 		if len(dirs) == 0 {
-			// 默认目录（项目根目录下的 skills 文件夹）
-			dirs = []string{
-				filepath.Join(".", "skills"),
-				"D:/cognida/skills", // Windows 开发环境
-			}
+			dirs = DefaultSkillDirs()
 		}
 
 		skillDirs = dirs

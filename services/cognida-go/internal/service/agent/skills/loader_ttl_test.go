@@ -40,7 +40,7 @@ func TestLoadFile_ExpiredDistilledSkipped(t *testing.T) {
 
 	root := t.TempDir()
 	old := now.Add(-distilledSkillTTL - time.Hour)
-	path := writeSkillFile(t, root, "exp-old", distilledSkillAuthor, old)
+	path := writeSkillFile(t, root, "exp-old", DistilledSkillAuthor, old)
 
 	loader := NewSkillLoader()
 	_, err := loader.LoadFile(path)
@@ -56,7 +56,7 @@ func TestLoadFile_FreshDistilledLoaded(t *testing.T) {
 
 	root := t.TempDir()
 	fresh := now.Add(-distilledSkillTTL + time.Hour) // 差一小时到期，仍在存活期内
-	path := writeSkillFile(t, root, "exp-fresh", distilledSkillAuthor, fresh)
+	path := writeSkillFile(t, root, "exp-fresh", DistilledSkillAuthor, fresh)
 
 	loader := NewSkillLoader()
 	skill, err := loader.LoadFile(path)
@@ -89,8 +89,8 @@ func TestLoadDir_SkipsExpiredSilently(t *testing.T) {
 	defer withFixedNow(t, now)()
 
 	root := t.TempDir()
-	writeSkillFile(t, root, "exp-old", distilledSkillAuthor, now.Add(-distilledSkillTTL-time.Hour))
-	writeSkillFile(t, root, "exp-fresh", distilledSkillAuthor, now.Add(-time.Hour))
+	writeSkillFile(t, root, "exp-old", DistilledSkillAuthor, now.Add(-distilledSkillTTL-time.Hour))
+	writeSkillFile(t, root, "exp-fresh", DistilledSkillAuthor, now.Add(-time.Hour))
 
 	loader := NewSkillLoader()
 	loaded, errs := loader.LoadDir(root)

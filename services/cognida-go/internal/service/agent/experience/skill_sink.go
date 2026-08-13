@@ -10,16 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 
 	domain_experience "cognida/internal/model/agent/experience"
 	"cognida/internal/service/agent/skills"
 )
-
-// distilledSkillAuthor 是自动沉淀技能的作者落款，必须与加载侧
-// skills/loader.go 的 distilledSkillAuthor 常量逐字一致——加载侧据此识别沉淀技能
-// 并施加 TTL 回收。两处各留一份常量（跨包不便共享），改动需同步。
-const distilledSkillAuthor = "experience-distill"
 
 // skillNameMaxRunes 落盘技能名（目录名）最长 rune 数，避免超长标题撑出畸形目录名。
 const skillNameMaxRunes = 60
@@ -33,6 +29,11 @@ type SkillSink struct {
 	dir       string                                 // 落盘根目录（须 ⊆ 加载扫描范围，见 skills.SkillDirFromEnv）
 	repo      domain_experience.ExperienceRepository // 近重复合并判定；可空
 	registrar SkillRegistrar                         // 运行期即时注册；可空
+	// mu 串行化「查重→落盘」临界区：后台 Worker 以 goroutine 并发蒸馏多个会话
+	// （scanOnce 的 go func + 信号量），两个同租户同标题会话会同时通过 FindSkillWorthyByTenant
+	// 去重检查（此刻双方 skill_name 都还没落库）→ 都写同一 slug 目录（last-write-wins）。
+	// 进程内加锁闭合该竞态窗口；跨实例仍需 DB 唯一约束，属多实例范畴另议。
+	mu sync.Mutex
 }
 
 // NewSkillSink 创建技能落盘器。dir 为空时 Write 会报错（调用方须给出有效目录）。
@@ -57,6 +58,10 @@ func (s *SkillSink) Write(ctx context.Context, exp *domain_experience.Experience
 	if s.dir == "" {
 		return "", fmt.Errorf("skill sink: 落盘目录未配置")
 	}
+
+	// 查重→落盘为一个原子临界区，防止并发蒸馏的两个同标题会话都通过去重后重复落盘（见 mu 注释）。
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// 近重复合并：同租户已有相同 slug 的技能（多为不同会话得出的同名解法）→ 复用既有技能名，
 	// 本次不再另落一份内容雷同的技能，避免目录堆同义重复。
@@ -113,7 +118,7 @@ func renderSkillMarkdown(name string, exp *domain_experience.Experience) string 
 	if wt := strings.TrimSpace(exp.Problem); wt != "" {
 		fmt.Fprintf(&b, "when_to_use: %s\n", yamlInline(wt))
 	}
-	fmt.Fprintf(&b, "author: %s\n", yamlInline(distilledSkillAuthor))
+	fmt.Fprintf(&b, "author: %s\n", yamlInline(skills.DistilledSkillAuthor))
 	b.WriteString("experimental: true\n")
 	if len(exp.Tags) > 0 {
 		b.WriteString("tags:\n")

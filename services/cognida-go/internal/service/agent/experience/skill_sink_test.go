@@ -69,8 +69,8 @@ func TestRenderSkillMarkdown_RoundTrip(t *testing.T) {
 	if skill.Name != "按城市统计月度营收" {
 		t.Errorf("name = %q", skill.Name)
 	}
-	if skill.Author != distilledSkillAuthor {
-		t.Errorf("author = %q, want %q（须与加载侧 TTL 识别一致）", skill.Author, distilledSkillAuthor)
+	if skill.Author != skills.DistilledSkillAuthor {
+		t.Errorf("author = %q, want %q（须与加载侧 TTL 识别一致）", skill.Author, skills.DistilledSkillAuthor)
 	}
 	if !skill.Experimental {
 		t.Error("沉淀技能应标记 experimental=true")
