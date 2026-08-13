@@ -1,0 +1,289 @@
+# =====================================================================
+# Cognida 全栈编排 —— 一条命令拉起全部组件与服务
+#
+#   应用层：cognida-web(前端/nginx) · cognida-go(8080) · cognida-python(8000/18888/50051/3100)
+#   基础设施：mysql · milvus(+etcd+minio) · neo4j · redis
+#   一次性：cognida-migrate（golang-migrate 版本化迁移，先于 go 服务跑）
+#
+# 用法：
+#   cp .env.docker.example .env      # 填入密钥（DB/NEO4J/JWT/各 API Key…）
+#   docker compose up -d --build
+#   docker compose logs -f cognida-go
+#
+# 访问：前端 http://localhost:8888 ｜ Go API http://localhost:8080/api/v1
+#      Neo4j Browser http://localhost:7474 ｜ Milvus 9091/healthz
+#
+# 说明：非密配置用 ${VAR:-默认} 内联给出可直接跑的默认值；密钥类无默认，必须在 .env 提供。
+# =====================================================================
+
+networks:
+  cognida-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  neo4j_data:
+  redis_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  uploads:            # Go 与 Python 共享的上传/文档目录
+
+services:
+  # ------------------------------------------------------------------
+  # 基础设施
+  # ------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: cognida-mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?请在 .env 设置 DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-cognida}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [cognida-net]
+
+  neo4j:
+    image: neo4j:5
+    container_name: cognida-neo4j
+    environment:
+      NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:?请在 .env 设置 NEO4J_PASSWORD}
+      # 供健康检查内的 cypher-shell 使用（与 NEO4J_AUTH 同一密钥）
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_server_memory_pagecache_size: 512M
+    ports:
+      - "7474:7474"   # HTTP Browser
+      - "7687:7687"   # Bolt
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      # cypher-shell 内置于镜像；能成功执行 RETURN 1 才算 ready（比探端口更可靠）
+      test: ["CMD-SHELL", "cypher-shell -u ${NEO4J_USERNAME:-neo4j} -p \"$${NEO4J_PASSWORD}\" 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks: [cognida-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: cognida-redis
+    # 基础命令恒有效；仅当 .env 设置了 REDIS_PASSWORD 时才追加 --requirepass
+    command: redis-server --save 60 1 --loglevel warning ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a ${REDIS_PASSWORD}} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [cognida-net]
+
+  # ------- Milvus 及其依赖（etcd 元数据 + minio 对象存储）-------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: cognida-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls=http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    networks: [cognida-net]
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: cognida-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data --console-address ":9001"
+    volumes:
+      - minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    networks: [cognida-net]
+
+  milvus:
+    image: milvusdb/milvus:v2.5.4
+    container_name: cognida-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"   # gRPC
+      - "9091:9091"     # metrics / healthz
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      start_period: 90s
+      retries: 5
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks: [cognida-net]
+
+  # ------------------------------------------------------------------
+  # 一次性迁移：golang-migrate 应用全部未执行迁移后退出（CLAUDE.md 强制：不自动建表）
+  # ------------------------------------------------------------------
+  cognida-migrate:
+    build:
+      context: ./services/cognida-go
+    image: cognida-go:latest          # 与 cognida-go 复用同一镜像
+    container_name: cognida-migrate
+    command: ["/app/migrate-db", "up"]
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-cognida}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+    networks: [cognida-net]
+
+  # ------------------------------------------------------------------
+  # 应用层
+  # ------------------------------------------------------------------
+  cognida-go:
+    build:
+      context: ./services/cognida-go
+    image: cognida-go:latest
+    container_name: cognida-go
+    ports:
+      - "8080:8080"
+    environment:
+      # 服务
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      GIN_MODE: release
+      DEV_MODE: ${DEV_MODE:-false}
+      # MySQL
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-cognida}
+      # Milvus（客户端要求 Host+Token 均非空才建连；standalone 无鉴权时 Token 任意非空即可）
+      MILVUS_HOST: milvus:19530
+      MILVUS_TOKEN: ${MILVUS_TOKEN:-root:Milvus}
+      # Neo4j
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      # Redis
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # Python 服务（gRPC docreader + 评测 HTTP）
+      PYTHON_GRPC_TARGET: cognida-python:50051
+      PYTHON_EVALUATION_ENDPOINT: http://cognida-python:18888
+      SKILL_ENDPOINT: http://cognida-python:3100/mcp
+      # 上传目录（与 Python 共享卷）
+      UPLOAD_DIR: /data/uploads
+      PYTHON_ALLOWED_PATHS: /data/uploads
+      # CORS：直连 Go（非经 nginx 同源）时的允许来源
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8888}
+      # 密钥
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 设置 JWT_SECRET（openssl rand -hex 32）}
+      CHAT_API_KEY: ${CHAT_API_KEY:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      METASO_API_KEY: ${METASO_API_KEY:-}
+      DATASOURCE_SECRET_KEY: ${DATASOURCE_SECRET_KEY:-}
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      cognida-migrate:
+        condition: service_completed_successfully
+      cognida-python:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [cognida-net]
+
+  cognida-python:
+    build:
+      context: ./services/cognida-python
+      target: production
+    image: cognida-python:latest
+    container_name: cognida-python
+    ports:
+      - "8000:8000"     # HTTP /health
+      - "18888:18888"   # 评测 HTTP
+      - "50051:50051"   # gRPC docreader
+      - "3100:3100"     # MCP（skill 工具）
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      MILVUS_HOST: milvus
+      MILVUS_PORT: "19530"
+      NEO4J_URI: bolt://neo4j:7687
+      GO_SERVICE_URL: http://cognida-go:8080
+      REDIS_URL: redis://${REDIS_PASSWORD:+:${REDIS_PASSWORD}@}redis:6379/0
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      milvus:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [cognida-net]
+
+  cognida-web:
+    build:
+      context: ./apps/cognida-web
+    image: cognida-web:latest
+    container_name: cognida-web
+    ports:
+      - "8888:80"
+    depends_on:
+      cognida-go:
+        condition: service_started
+    networks: [cognida-net]

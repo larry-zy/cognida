@@ -1,0 +1,10 @@
+# 强制容器内全新安装 / 构建，忽略宿主机产物与依赖
+node_modules
+dist
+# 本地配置 / 版本控制 / IDE
+.env
+.env.*
+.git
+.idea
+.vscode
+*.log
