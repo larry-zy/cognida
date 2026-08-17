@@ -743,11 +743,11 @@ function handleFileChange(e: Event) {
   if (!files.length) return
 
   // accept 属性只是文件选择器的过滤提示（用户可切到「所有文件」绕过），且完全不管大小，
-  // 故这里与文件夹流程走同一套过滤，避免超过 50MB 或不支持格式的文件直接打到后端
+  // 故这里与文件夹流程走同一套过滤，避免超过 10 MiB 或不支持格式的文件直接打到后端
   const { accepted, rejectedByType, rejectedBySize } = filterAcceptableFiles(files)
   const skipped = rejectedByType.length + rejectedBySize.length
   if (skipped > 0) {
-    toast.warning(`已过滤 ${skipped} 个不支持格式或超过 50MB 大小限制的文件`)
+    toast.warning(`已过滤 ${skipped} 个不支持格式或超过 10 MiB 大小限制的文件`)
   }
   if (!accepted.length) return
 
