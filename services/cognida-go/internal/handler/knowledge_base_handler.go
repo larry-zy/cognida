@@ -274,6 +274,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeList(c *gin.Context) {
 			"storage_size":  k.StorageSize,
 			"file_path":     k.FilePath,
 			"parse_status":  k.ParseStatus,
+			"error_message": k.ErrorMessage,
 			"enable_status": k.EnableStatus,
 			"chunk_count":   k.ChunkCount,
 			"created_at":    k.CreatedAt.Unix(),
@@ -643,6 +644,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeDetail(c *gin.Context) {
 		"description":   knowledge.Description,
 		"source":        knowledge.Source,
 		"parse_status":  knowledge.ParseStatus,
+		"error_message": knowledge.ErrorMessage,
 		"enable_status": knowledge.EnableStatus,
 		"storage_size":  knowledge.StorageSize,
 		"chunk_count": func() int {
@@ -687,6 +689,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeStatus(c *gin.Context) {
 	OK(c, map[string]interface{}{
 		"knowledge_id":  knowledge.ID,
 		"parse_status":  knowledge.ParseStatus,
+		"error_message": knowledge.ErrorMessage,
 		"enable_status": knowledge.EnableStatus,
 		"chunk_count": func() int {
 			if knowledge.ChunkCount == nil {
@@ -729,6 +732,7 @@ func (h *KnowledgeBaseHandler) GetPendingKnowledgeList(c *gin.Context) {
 			"description":   k.Description,
 			"source":        k.Source,
 			"parse_status":  k.ParseStatus,
+			"error_message": k.ErrorMessage,
 			"enable_status": k.EnableStatus,
 			"chunk_count": func() int {
 				if k.ChunkCount == nil {

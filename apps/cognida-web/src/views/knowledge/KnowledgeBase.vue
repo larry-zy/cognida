@@ -98,9 +98,20 @@
               {{ row.chunk_count || 0 }}
             </template>
             <template #cell-parse_status="{ row }">
-              <UiTag :variant="getParseStatusType(row.parse_status)">
-                {{ getParseStatusText(row.parse_status) }}
-              </UiTag>
+              <div class="parse-status-cell">
+                <UiTag :variant="getParseStatusType(row.parse_status)">
+                  {{ getParseStatusText(row.parse_status) }}
+                </UiTag>
+                <UiText
+                  v-if="row.parse_status === 'failed' && row.error_message"
+                  class="parse-error-message"
+                  type="danger"
+                  size="sm"
+                  :title="row.error_message"
+                >
+                  {{ row.error_message }}
+                </UiText>
+              </div>
             </template>
             <template #cell-created_at="{ row }">
               {{ formatDateTime(row.created_at) }}
@@ -1076,6 +1087,20 @@ onUnmounted(() => {
 .hint {
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+.parse-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.parse-error-message {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .search-input {

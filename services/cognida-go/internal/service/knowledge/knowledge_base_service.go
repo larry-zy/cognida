@@ -457,7 +457,7 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
 		}
 		if err := retryTransientDelete(ctx, func() error {
-			return s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID)
+			return deleteVectorProjectionByKnowledgeID(ctx, s.vectorRepo, kbIDInt, knowledgeID)
 		}); err != nil {
 			return fmt.Errorf("删除向量失败，已中止（MySQL 未删，可重试）: %w", err)
 		}
@@ -635,12 +635,12 @@ func (s *knowledgeBaseService) UploadDocument(
 		Source:          "upload",
 		ParseStatus:     domain_knowledge.ParseStatusProcessing,
 		// 新入库文档默认启用，可被检索命中；停用是显式管理动作（见 SetKnowledgeEnabled）。
-		EnableStatus:    domain_knowledge.EnableStatusEnabled,
-		FilePath:        filePath,
-		FileHash:        fileHash,
-		StorageSize:     fileSize,
-		CreatedAt:       now,
-		UpdatedAt:       now,
+		EnableStatus: domain_knowledge.EnableStatusEnabled,
+		FilePath:     filePath,
+		FileHash:     fileHash,
+		StorageSize:  fileSize,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := s.knowledgeRepo.Create(ctx, knowledge); err != nil {

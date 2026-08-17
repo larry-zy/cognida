@@ -13,6 +13,8 @@ import type {
   RebuildGraphResult
 } from '@/types'
 
+const graphRebuildRequestTimeout = 5 * 60 * 1000
+
 /**
  * 知识库相关API
  */
@@ -63,7 +65,9 @@ export const knowledgeApi = {
    * 为知识库补建知识图谱（复用已存分块，为历史文档重建，幂等）
    */
   rebuildGraph(id: string) {
-    return http.post<RebuildGraphResult>(`/knowledge-bases/${id}/graph/rebuild`)
+    return http.post<RebuildGraphResult>(`/knowledge-bases/${id}/graph/rebuild`, undefined, {
+      timeout: graphRebuildRequestTimeout
+    })
   },
 
   /**

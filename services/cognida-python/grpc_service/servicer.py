@@ -418,7 +418,9 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
         logger = get_logger(__name__)
         logger.warning(f"Failed to register QualityService", error=str(e))
 
-    server.add_insecure_port(f'127.0.0.1:{port}')
+    # The Go API runs in a separate container, so loopback-only binding makes
+    # this service unreachable even though the Python container is healthy.
+    server.add_insecure_port(f"0.0.0.0:{port}")
     return server
 
 

@@ -35,6 +35,7 @@ type documentProcessorService struct {
 	embedder      embedding.Embedder   // Embedding 生成器
 	llmClient     domain_llm.LLMClient // LLM 客户端（用于图谱提取）
 	idGenerator   id.IDGenerator
+	vectorInitMu  sync.Mutex
 }
 
 // NewDocumentProcessorService 创建文档处理服务
@@ -457,7 +458,7 @@ func (s *documentProcessorService) purgeExistingDocument(ctx context.Context, te
 		if kbID != "" {
 			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
 		}
-		if err := s.vectorRepo.DeleteByKnowledgeID(ctx, kbIDInt, knowledgeID); err != nil {
+		if err := deleteVectorProjectionByKnowledgeID(ctx, s.vectorRepo, kbIDInt, knowledgeID); err != nil {
 			return fmt.Errorf("清除旧向量失败: %w", err)
 		}
 	}
@@ -535,6 +536,38 @@ func stableVectorID(chunkID string) int64 {
 	return int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF)
 }
 
+const embeddingBatchSize = 10
+
+const graphExtractionBatchSize = 4
+
+const graphExtractionSystemPrompt = `你是一个知识图谱构建专家。你的任务是从给定文本中提取实体和关系。
+
+请以 JSON 格式返回结果，包含 "nodes" 和 "relations"：
+- nodes: name、entity_type，以及可选的 properties
+- relations: source、target、type、strength 和 description
+
+要求：
+1. 只提取重要实体，使用人物、组织、概念、事件、地点等通用类型
+2. 关系类型使用 CONTAINS、RELATED_TO、CAUSES、PART_OF、LOCATED_IN、BELONGS_TO 等标准类型
+3. 确保 source 和 target 均在 nodes 中存在
+4. 只返回有效 JSON，不要输出 Markdown 或解释文字`
+
+func embedTextsInBatches(ctx context.Context, embedder embedding.Embedder, texts []string) ([][]float64, error) {
+	embeddings := make([][]float64, 0, len(texts))
+	for start := 0; start < len(texts); start += embeddingBatchSize {
+		end := min(start+embeddingBatchSize, len(texts))
+		batch, err := embedder.EmbedStrings(ctx, texts[start:end])
+		if err != nil {
+			return nil, fmt.Errorf("batch %d-%d: %w", start, end-1, err)
+		}
+		if len(batch) != end-start {
+			return nil, fmt.Errorf("batch %d-%d embedding count mismatch: got %d, want %d", start, end-1, len(batch), end-start)
+		}
+		embeddings = append(embeddings, batch...)
+	}
+	return embeddings, nil
+}
+
 // vectorizeChunks 向量化分块（保存到向量存储）
 func (s *documentProcessorService) vectorizeChunks(
 	ctx context.Context,
@@ -558,13 +591,29 @@ func (s *documentProcessorService) vectorizeChunks(
 		texts[i] = chunk.Content
 	}
 
-	// 2. 批量生成 embedding 向量
-	embeddings, err := s.embedder.EmbedStrings(ctx, texts)
+	// 2. 分批生成 embedding 向量。DashScope 单请求最多接收 10 条文本；保序合并各批结果。
+	embeddings, err := embedTextsInBatches(ctx, s.embedder, texts)
 	if err != nil {
 		return fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 	if len(embeddings) != len(chunks) {
 		return fmt.Errorf("embedding count mismatch: got %d, want %d", len(embeddings), len(chunks))
+	}
+	if len(embeddings) == 0 || len(embeddings[0]) == 0 {
+		return fmt.Errorf("embedding service returned an empty vector")
+	}
+
+	// kbID 转换为 int64，如果为空则使用 0（统一 collection）。首次写入时根据真实
+	// embedding 维度初始化 collection；锁内检查保证并发上传不会重复建表/建索引。
+	var kbIDInt64 int64
+	if kbID != "" {
+		_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt64) // 解析失败保持零值
+	}
+	s.vectorInitMu.Lock()
+	err = ensureVectorCollection(ctx, s.vectorRepo, kbIDInt64, len(embeddings[0]))
+	s.vectorInitMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("failed to initialize vector collection: %w", err)
 	}
 
 	// 3. 转换为 VectorDocument 格式
@@ -592,8 +641,8 @@ func (s *documentProcessorService) vectorizeChunks(
 			// 由全局唯一的 chunk_id 派生稳定且唯一的主键，替换旧的循环下标 int64(i)——
 			// 后者会让不同文档的第 i 个分块拿到相同主键，在非 AutoID 的 "link" collection
 			// 里造成跨文档主键冲突/覆盖（KB-2）。
-			ID:              stableVectorID(chunk.ID),
-			DenseVector:     vector,
+			ID:          stableVectorID(chunk.ID),
+			DenseVector: vector,
 			// Text 为 BM25 全文检索的分词源，写入分块内容；旧代码从不设置该字段，
 			// 导致 collection 的 text 列恒空、BM25 永远召回为空（KB-3）。
 			Text:            chunk.Content,
@@ -612,11 +661,6 @@ func (s *documentProcessorService) vectorizeChunks(
 	}
 
 	// 4. 批量插入到向量存储
-	// kbID 转换为 int64，如果为空则使用 0（统一 collection）
-	var kbIDInt64 int64
-	if kbID != "" {
-		_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt64) // 解析失败保持零值
-	}
 	if err := s.vectorRepo.Insert(ctx, kbIDInt64, docs); err != nil {
 		return fmt.Errorf("failed to insert vectors: %w", err)
 	}
@@ -645,79 +689,15 @@ func (s *documentProcessorService) extractGraph(
 	}
 
 	log.Printf("[DocumentProcessor] Starting graph extraction for %d chunks", len(chunks))
-
-	// 构建命名空间
 	namespace := domain_knowledge.NameSpace{
 		TenantID:        fmt.Sprintf("%d", tenantID),
 		KnowledgeBaseID: kbID,
 		Knowledge:       knowledgeID,
 	}
 
-	// 收集所有分块内容进行批量提取
-	var allContent strings.Builder
-	chunkIDMap := make(map[int]string) // 索引 -> chunkID
-	for i, chunk := range chunks {
-		chunkIDMap[i] = chunk.ID
-		allContent.WriteString(fmt.Sprintf("[Chunk %d] %s\n", i+1, chunk.Content))
-	}
-
-	// 构建提取 prompt
-	systemPrompt := `你是一个知识图谱构建专家。你的任务是从给定文本中提取实体和关系。
-
-请以 JSON 格式返回结果，包含以下结构：
-{
-  "nodes": [
-    {
-      "name": "实体名称",
-      "entity_type": "实体类型（如：人物、组织、概念、地点等）",
-      "properties": {"key": "value"}  // 可选的额外属性
-    }
-  ],
-  "relations": [
-    {
-      "source": "源实体名称",
-      "target": "目标实体名称",
-      "type": "关系类型（如：CONTAINS、RELATED_TO、CAUSES等）",
-      "strength": 1.0,  // 关系强度 1-10
-      "description": "关系描述"
-    }
-  ]
-}
-
-要求：
-1. 只提取重要的实体，忽略无关紧要的词语
-2. 实体类型应该是通用的分类（人物、组织、概念、事件、地点等）
-3. 关系类型使用标准类型：CONTAINS、RELATED_TO、CAUSES、PART_OF、LOCATED_IN、BELONGS_TO 等
-4. 确保源实体和目标实体在 nodes 列表中存在
-5. 返回有效的 JSON 格式`
-
-	userPrompt := fmt.Sprintf("请从以下文本中提取实体和关系构建知识图谱：\n\n%s", allContent.String())
-
-	// 调用 LLM
-	chatReq := &domain_llm.ChatRequest{
-		Messages: []*domain_llm.Message{
-			{Role: domain_llm.RoleSystem, Content: systemPrompt},
-			{Role: domain_llm.RoleUser, Content: userPrompt},
-		},
-		Options: &domain_llm.ChatOptions{
-			Temperature: domain_llm.Float64Ptr(0.1), // 低温度以获得更稳定的结果
-			MaxTokens:   4096,
-		},
-	}
-
-	resp, err := s.llmClient.Chat(ctx, chatReq)
+	graphData, err := s.extractGraphData(ctx, chunks)
 	if err != nil {
-		return 0, 0, fmt.Errorf("llm chat failed: %w", err)
-	}
-
-	// 解析 LLM 响应
-	graphData, err := s.parseGraphExtraction(resp.Content)
-	if err != nil {
-		// 返回错误以如实上报：解析失败不是“成功抽取 0 节点”。
-		// 单文档主流程（调用点仅记 warning、不影响解析状态）行为不变；
-		// 整库重建据此把该文档计入 FailedDocuments 而非 ProcessedDocuments，
-		// 避免 LLM 偶发解析失败被伪装成“已处理、0 节点”的静默成功。
-		return 0, 0, fmt.Errorf("parse graph extraction failed: %w", err)
+		return 0, 0, err
 	}
 
 	if len(graphData.Node) == 0 && len(graphData.Relation) == 0 {
@@ -725,19 +705,6 @@ func (s *documentProcessorService) extractGraph(
 		return 0, 0, nil
 	}
 
-	// 关联 chunk ID 到节点和关系
-	chunkIDs := make([]string, len(chunks))
-	for i, chunk := range chunks {
-		chunkIDs[i] = chunk.ID
-	}
-	for _, node := range graphData.Node {
-		node.Chunks = chunkIDs
-	}
-	for _, relation := range graphData.Relation {
-		relation.ChunkIDs = chunkIDs
-	}
-
-	// 保存到 Neo4j
 	if err := s.graphRepo.AddGraph(ctx, namespace, []*domain_knowledge.GraphData{graphData}); err != nil {
 		return 0, 0, fmt.Errorf("failed to save graph: %w", err)
 	}
@@ -747,8 +714,185 @@ func (s *documentProcessorService) extractGraph(
 	return len(graphData.Node), len(graphData.Relation), nil
 }
 
+func (s *documentProcessorService) extractGraphData(
+	ctx context.Context,
+	chunks []*domain_knowledge.Chunk,
+) (*domain_knowledge.GraphData, error) {
+	graphs := make([]*domain_knowledge.GraphData, 0, (len(chunks)+graphExtractionBatchSize-1)/graphExtractionBatchSize)
+	for start := 0; start < len(chunks); start += graphExtractionBatchSize {
+		end := min(start+graphExtractionBatchSize, len(chunks))
+		graph, err := s.extractGraphBatchWithRetry(ctx, chunks[start:end], start, end)
+		if err != nil {
+			return nil, err
+		}
+		graphs = append(graphs, graph)
+	}
+	return mergeGraphExtractionResults(graphs), nil
+}
+
+func (s *documentProcessorService) extractGraphBatchWithRetry(
+	ctx context.Context,
+	chunks []*domain_knowledge.Chunk,
+	start, end int,
+) (*domain_knowledge.GraphData, error) {
+	graph, retryable, err := s.extractGraphBatch(ctx, chunks, start, end)
+	if err == nil {
+		return graph, nil
+	}
+	if !retryable || len(chunks) == 1 {
+		return nil, fmt.Errorf("graph extraction batch %d-%d failed: %w", start, end-1, err)
+	}
+
+	middle := len(chunks) / 2
+	log.Printf("[DocumentProcessor] Retrying graph extraction with smaller batches: range=%d-%d chunks=%d reason=%v", start, end-1, len(chunks), err)
+	left, err := s.extractGraphBatchWithRetry(ctx, chunks[:middle], start, start+middle)
+	if err != nil {
+		return nil, err
+	}
+	right, err := s.extractGraphBatchWithRetry(ctx, chunks[middle:], start+middle, end)
+	if err != nil {
+		return nil, err
+	}
+	return mergeGraphExtractionResults([]*domain_knowledge.GraphData{left, right}), nil
+}
+
+func (s *documentProcessorService) extractGraphBatch(
+	ctx context.Context,
+	chunks []*domain_knowledge.Chunk,
+	start, end int,
+) (*domain_knowledge.GraphData, bool, error) {
+	userPrompt, inputChars := graphExtractionPrompt(chunks, start)
+	resp, err := s.llmClient.Chat(ctx, &domain_llm.ChatRequest{
+		Messages: []*domain_llm.Message{
+			{Role: domain_llm.RoleSystem, Content: graphExtractionSystemPrompt},
+			{Role: domain_llm.RoleUser, Content: userPrompt},
+		},
+		Options: &domain_llm.ChatOptions{
+			Temperature: domain_llm.Float64Ptr(0.1),
+			MaxTokens:   4096,
+		},
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("llm chat failed: %w", err)
+	}
+	if resp == nil {
+		return nil, false, fmt.Errorf("llm returned an empty response")
+	}
+
+	usage := "unavailable"
+	if resp.Usage != nil {
+		usage = fmt.Sprintf("prompt=%d completion=%d total=%d", resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.TotalTokens)
+	}
+	if resp.FinishReason == "length" {
+		log.Printf("[DocumentProcessor] Graph extraction response truncated: range=%d-%d chunks=%d input_chars=%d output_chars=%d finish_reason=%q usage=%s", start, end-1, len(chunks), inputChars, len(resp.Content), resp.FinishReason, usage)
+		return nil, true, fmt.Errorf("response truncated with finish_reason=%q", resp.FinishReason)
+	}
+
+	graph, err := s.parseGraphExtraction(resp.Content)
+	if err != nil {
+		log.Printf("[DocumentProcessor] Graph extraction response parse failed: range=%d-%d chunks=%d input_chars=%d output_chars=%d finish_reason=%q usage=%s error=%v", start, end-1, len(chunks), inputChars, len(resp.Content), resp.FinishReason, usage, err)
+		return nil, true, fmt.Errorf("parse graph extraction failed: %w", err)
+	}
+	attachGraphChunkIDs(graph, chunks)
+	return graph, false, nil
+}
+
+func graphExtractionPrompt(chunks []*domain_knowledge.Chunk, start int) (string, int) {
+	var content strings.Builder
+	for i, chunk := range chunks {
+		content.WriteString(fmt.Sprintf("[Chunk %d] %s\n", start+i+1, chunk.Content))
+	}
+	return fmt.Sprintf("请从以下文本中提取实体和关系构建知识图谱：\n\n%s", content.String()), content.Len()
+}
+
+func attachGraphChunkIDs(graph *domain_knowledge.GraphData, chunks []*domain_knowledge.Chunk) {
+	chunkIDs := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		chunkIDs = append(chunkIDs, chunk.ID)
+	}
+	for _, node := range graph.Node {
+		node.Chunks = chunkIDs
+	}
+	for _, relation := range graph.Relation {
+		relation.ChunkIDs = chunkIDs
+	}
+}
+
+func mergeGraphExtractionResults(graphs []*domain_knowledge.GraphData) *domain_knowledge.GraphData {
+	result := &domain_knowledge.GraphData{}
+	nodesByName := make(map[string]*domain_knowledge.GraphNode)
+	for _, graph := range graphs {
+		for _, node := range graph.Node {
+			if node == nil {
+				continue
+			}
+			key := normalizeGraphName(node.Name)
+			if key == "" {
+				continue
+			}
+			existing, found := nodesByName[key]
+			if !found {
+				nodesByName[key] = node
+				result.Node = append(result.Node, node)
+				continue
+			}
+			existing.Chunks = mergeGraphChunkIDs(existing.Chunks, node.Chunks)
+		}
+	}
+
+	relationsByKey := make(map[string]*domain_knowledge.GraphRelation)
+	for _, graph := range graphs {
+		for _, relation := range graph.Relation {
+			if relation == nil {
+				continue
+			}
+			source, sourceFound := nodesByName[normalizeGraphName(relation.Source)]
+			target, targetFound := nodesByName[normalizeGraphName(relation.Target)]
+			if !sourceFound || !targetFound {
+				continue
+			}
+			relation.Source = source.Name
+			relation.Target = target.Name
+			key := normalizeGraphName(relation.Source) + "\x00" + normalizeGraphName(relation.Target) + "\x00" + normalizeGraphName(relation.Type)
+			existing, found := relationsByKey[key]
+			if !found {
+				relationsByKey[key] = relation
+				result.Relation = append(result.Relation, relation)
+				continue
+			}
+			existing.ChunkIDs = mergeGraphChunkIDs(existing.ChunkIDs, relation.ChunkIDs)
+			if relation.Strength > existing.Strength {
+				existing.Strength = relation.Strength
+			}
+			if existing.Description == "" {
+				existing.Description = relation.Description
+			}
+		}
+	}
+	return result
+}
+
+func normalizeGraphName(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func mergeGraphChunkIDs(first, second []string) []string {
+	seen := make(map[string]struct{}, len(first)+len(second))
+	merged := make([]string, 0, len(first)+len(second))
+	for _, chunkIDs := range [][]string{first, second} {
+		for _, chunkID := range chunkIDs {
+			if _, found := seen[chunkID]; found {
+				continue
+			}
+			seen[chunkID] = struct{}{}
+			merged = append(merged, chunkID)
+		}
+	}
+	return merged
+}
+
 // RebuildKnowledgeBaseGraph 为知识库内所有已解析完成的历史文档补建/重建知识图谱。
-// 复用已存储的分块（不重新解析/分块），并在重建前清除该文档旧图谱以保证幂等。
+// 复用已存储的分块（不重新解析/分块），只在全部抽取成功后原子替换旧图谱。
 func (s *documentProcessorService) RebuildKnowledgeBaseGraph(
 	ctx context.Context,
 	tenantID int64,
@@ -762,13 +906,7 @@ func (s *documentProcessorService) RebuildKnowledgeBaseGraph(
 	}
 
 	resp := &RebuildGraphResponse{}
-
-	// 幂等：整库重建前先清空该 KB 的旧图谱（DETACH DELETE 全部节点+关系）。
-	// 不能按文档 DeleteByKnowledgeID——节点上存的是 chunk_id 而非 knowledge_id，
-	// 那条路径永远匹配不到、清不掉，导致重复补建时旧节点/关系不断累积。
-	if derr := s.graphRepo.DeleteByScope(ctx, "kb_id", kbID); derr != nil {
-		return nil, fmt.Errorf("clear old graph failed: %w", derr)
-	}
+	graphs := make([]*domain_knowledge.GraphData, 0)
 
 	// 分页遍历知识库下所有已完成的文档
 	const pageSize = 100
@@ -800,25 +938,46 @@ func (s *documentProcessorService) RebuildKnowledgeBaseGraph(
 				continue
 			}
 
-			nodes, relations, gerr := s.extractGraph(ctx, tenantID, kbID, doc.ID, chunks)
+			graph, gerr := s.extractGraphData(ctx, chunks)
 			if gerr != nil {
 				log.Printf("[DocumentProcessor] Rebuild: extract graph failed for doc %s: %v", doc.ID, gerr)
 				resp.FailedDocuments++
 				continue
 			}
+			graphs = append(graphs, graph)
 			resp.ProcessedDocuments++
-			resp.TotalNodes += nodes
-			resp.TotalRelations += relations
+			resp.TotalNodes += len(graph.Node)
+			resp.TotalRelations += len(graph.Relation)
 		}
 
 		if page*pageSize >= int(total) {
 			break
 		}
 	}
+	namespace := domain_knowledge.NameSpace{
+		TenantID:        fmt.Sprintf("%d", tenantID),
+		KnowledgeBaseID: kbID,
+	}
+	if err := s.replaceRebuiltGraph(ctx, namespace, graphs, resp.FailedDocuments); err != nil {
+		return nil, fmt.Errorf("replace graph failed: %w", err)
+	}
 
 	log.Printf("[DocumentProcessor] Rebuild graph completed for KB %s: total=%d processed=%d skipped=%d failed=%d nodes=%d relations=%d",
 		kbID, resp.TotalDocuments, resp.ProcessedDocuments, resp.SkippedDocuments, resp.FailedDocuments, resp.TotalNodes, resp.TotalRelations)
 	return resp, nil
+}
+
+func (s *documentProcessorService) replaceRebuiltGraph(
+	ctx context.Context,
+	namespace domain_knowledge.NameSpace,
+	graphs []*domain_knowledge.GraphData,
+	failedDocuments int,
+) error {
+	if failedDocuments > 0 {
+		log.Printf("[DocumentProcessor] Rebuild graph skipped replacement for KB %s after %d document failures", namespace.KnowledgeBaseID, failedDocuments)
+		return nil
+	}
+	return s.graphRepo.ReplaceGraph(ctx, namespace, []*domain_knowledge.GraphData{mergeGraphExtractionResults(graphs)})
 }
 
 // parseGraphExtraction 解析 LLM 返回的图谱提取结果

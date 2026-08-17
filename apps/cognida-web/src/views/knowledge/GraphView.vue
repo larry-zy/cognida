@@ -20,10 +20,12 @@
       <!-- 图谱画布区 -->
       <!-- 全屏目标为外层 wrap（含图例/缩放/背景点阵），而非内层裸 canvas〔FE-2〕 -->
       <div ref="canvasWrap" class="gv-canvas-wrap">
-        <div ref="graphContainer" class="gv-canvas">
-          <div v-if="loading" class="gv-loader">
-            <UiLoader size="lg" />
-          </div>
+        <!-- vis-network 专用容器：它会清空/接管容器内部 DOM，Vue 不得在此放置任何节点
+             （包括 v-if 的 loader），否则节点被摘掉后 Vue patch 会以 insertBefore(null) 崩溃 -->
+        <div ref="graphContainer" class="gv-canvas"></div>
+        <!-- loading 遮罩放在容器外层（gv-canvas-wrap）作为兄弟节点，绝对定位覆盖画布 -->
+        <div v-if="loading" class="gv-loader">
+          <UiLoader size="lg" />
         </div>
 
         <!-- 图例浮层（左下角） -->

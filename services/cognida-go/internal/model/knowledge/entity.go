@@ -121,25 +121,26 @@ func (kb *KnowledgeBase) RemoveChunks(count int, size int64) {
 // Knowledge knowledge entry entity
 // Corresponds to knowledges table
 type Knowledge struct {
-	ID                string
-	TenantID          int64
-	TagID             *int64
-	KnowledgeBaseID   string
-	UserID            int64
-	Type         string
-	Title        string
-	Description  string
-	Source       string
-	ParseStatus  string
-	EnableStatus string
-	FilePath     string
-	FileHash     string
-	StorageSize  int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    *time.Time
-	ProcessedAt  *time.Time
-	ChunkCount   *int
+	ID              string
+	TenantID        int64
+	TagID           *int64
+	KnowledgeBaseID string
+	UserID          int64
+	Type            string
+	Title           string
+	Description     string
+	Source          string
+	ParseStatus     string
+	ErrorMessage    string
+	EnableStatus    string
+	FilePath        string
+	FileHash        string
+	StorageSize     int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+	ProcessedAt     *time.Time
+	ChunkCount      *int
 }
 
 // ========================================
@@ -257,11 +258,11 @@ func (k *Knowledge) BelongsToTenant(tenantID int64) bool {
 // Chunk document chunk entity
 // Corresponds to chunks table
 type Chunk struct {
-	ID                string
-	TenantID          int64
-	TagID             *int64
-	KnowledgeBaseID   string
-	KnowledgeID       string
+	ID                     string
+	TenantID               int64
+	TagID                  *int64
+	KnowledgeBaseID        string
+	KnowledgeID            string
 	Content                string
 	ChunkIndex             int
 	IsEnabled              bool
@@ -288,12 +289,12 @@ type Chunk struct {
 
 // Chunk type constants
 const (
-	ChunkTypeText     = "text"
-	ChunkTypeImage    = "image"
-	ChunkTypeTable    = "table"
-	ChunkTypeMixed    = "mixed"
-	ChunkTypeCode     = "code"
-	ChunkTypeFormula  = "formula"
+	ChunkTypeText    = "text"
+	ChunkTypeImage   = "image"
+	ChunkTypeTable   = "table"
+	ChunkTypeMixed   = "mixed"
+	ChunkTypeCode    = "code"
+	ChunkTypeFormula = "formula"
 )
 
 // IsEnabled checks if the chunk is enabled
@@ -382,14 +383,14 @@ func (c *Chunk) HasParentChunk() bool {
 // KnowledgeBaseSetting knowledge base setting entity
 // Corresponds to knowledge_base_settings table
 type KnowledgeBaseSetting struct {
-	ID                int64
-	KnowledgeBaseID   string
-	GraphEnabled      bool
-	BM25Enabled       *bool
-	ChunkingConfig    *string
-	SettingsJSON      *string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID              int64
+	KnowledgeBaseID string
+	GraphEnabled    bool
+	BM25Enabled     *bool
+	ChunkingConfig  *string
+	SettingsJSON    *string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // ========================================
@@ -482,18 +483,18 @@ func NewKnowledge(id string, tenantID, userID int64, knowledgeBaseID string, kno
 
 	now := time.Now()
 	return &Knowledge{
-		ID:                id,
-		TenantID:          tenantID,
-		UserID:            userID,
-		KnowledgeBaseID:   knowledgeBaseID,
-		Type:              knowledgeType,
-		Title:             title,
-		ParseStatus:       ParseStatusPending,
+		ID:              id,
+		TenantID:        tenantID,
+		UserID:          userID,
+		KnowledgeBaseID: knowledgeBaseID,
+		Type:            knowledgeType,
+		Title:           title,
+		ParseStatus:     ParseStatusPending,
 		// 新建文档默认启用；停用是显式管理动作（见 SetKnowledgeEnabled）。
-		EnableStatus:      EnableStatusEnabled,
-		StorageSize:       0,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		EnableStatus: EnableStatusEnabled,
+		StorageSize:  0,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}, nil
 }
 
@@ -511,18 +512,18 @@ func NewChunk(id string, tenantID int64, knowledgeBaseID, knowledgeID string, co
 
 	now := time.Now()
 	return &Chunk{
-		ID:                id,
-		TenantID:          tenantID,
-		KnowledgeBaseID:   knowledgeBaseID,
-		KnowledgeID:       knowledgeID,
-		Content:           content,
-		ChunkIndex:        index,
-		IsEnabled:         true,
-		ChunkType:         ChunkTypeText,
-		StartAt:           0,
-		EndAt:             len(content),
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		ID:              id,
+		TenantID:        tenantID,
+		KnowledgeBaseID: knowledgeBaseID,
+		KnowledgeID:     knowledgeID,
+		Content:         content,
+		ChunkIndex:      index,
+		IsEnabled:       true,
+		ChunkType:       ChunkTypeText,
+		StartAt:         0,
+		EndAt:           len(content),
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}, nil
 }
 
@@ -588,21 +589,21 @@ type Number float64
 
 // KnowledgeListQuery knowledge entry query parameters
 type KnowledgeListQuery struct {
-	KnowledgeBaseID   string
-	Type              string
-	ParseStatus       string
-	EnableStatus      string
-	Page              int
-	PageSize          int
+	KnowledgeBaseID string
+	Type            string
+	ParseStatus     string
+	EnableStatus    string
+	Page            int
+	PageSize        int
 }
 
 // ChunkListQuery chunk query parameters
 type ChunkListQuery struct {
-	KnowledgeBaseID   string
-	KnowledgeID       string
-	IsEnabled   *bool
-	Page        int
-	PageSize    int
+	KnowledgeBaseID string
+	KnowledgeID     string
+	IsEnabled       *bool
+	Page            int
+	PageSize        int
 }
 
 // TagListQuery tag query parameters
@@ -622,10 +623,10 @@ type GraphStats struct {
 
 // KnowledgeBaseStats knowledge base statistics
 type KnowledgeBaseStats struct {
-	KnowledgeBaseID   string
-	KnowledgeCount    int64
-	ChunkCount        int64
-	TotalSize         int64
+	KnowledgeBaseID string
+	KnowledgeCount  int64
+	ChunkCount      int64
+	TotalSize       int64
 }
 
 // ========================================
@@ -634,10 +635,10 @@ type KnowledgeBaseStats struct {
 
 // NameSpace namespace for knowledge and graph
 type NameSpace struct {
-	TenantID         string
-	KnowledgeBaseID   string
-	Knowledge         string
-	Type              string
+	TenantID        string
+	KnowledgeBaseID string
+	Knowledge       string
+	Type            string
 }
 
 // String returns namespace string

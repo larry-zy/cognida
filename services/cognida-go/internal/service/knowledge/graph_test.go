@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	domain_knowledge "cognida/internal/model/knowledge"
 	"cognida/internal/infrastructure/id"
+	domain_knowledge "cognida/internal/model/knowledge"
 )
 
 // ========================================
@@ -20,11 +20,14 @@ type mockGraphRepository struct {
 	addGraphCalled     bool
 	addGraphNamespace  domain_knowledge.NameSpace
 	addGraphData       []*domain_knowledge.GraphData
+	replaceGraphCalled bool
+	replaceGraphData   []*domain_knowledge.GraphData
+	replaceGraphError  error
 
-	getGraphCalled     bool
-	getGraphNamespace  domain_knowledge.NameSpace
-	getGraphResult     *domain_knowledge.GraphData
-	getGraphError      error
+	getGraphCalled    bool
+	getGraphNamespace domain_knowledge.NameSpace
+	getGraphResult    *domain_knowledge.GraphData
+	getGraphError     error
 
 	entityContextResult *domain_knowledge.ExtractionContext
 	entityContextError  error
@@ -35,6 +38,12 @@ func (m *mockGraphRepository) AddGraph(ctx context.Context, namespace domain_kno
 	m.addGraphNamespace = namespace
 	m.addGraphData = graphs
 	return nil
+}
+
+func (m *mockGraphRepository) ReplaceGraph(ctx context.Context, namespace domain_knowledge.NameSpace, graphs []*domain_knowledge.GraphData) error {
+	m.replaceGraphCalled = true
+	m.replaceGraphData = graphs
+	return m.replaceGraphError
 }
 
 func (m *mockGraphRepository) AddNode(ctx context.Context, namespace domain_knowledge.NameSpace, node *domain_knowledge.GraphNode) error {
@@ -300,8 +309,8 @@ func TestGraphService_AddGraph(t *testing.T) {
 			}
 
 			namespace := domain_knowledge.NameSpace{
-				TenantID: "tenant-1",
-			 KnowledgeBaseID:     "kb-1",
+				TenantID:        "tenant-1",
+				KnowledgeBaseID: "kb-1",
 			}
 
 			err := service.AddGraph(context.Background(), namespace, tt.graphs)
@@ -352,8 +361,8 @@ func TestGraphService_GetGraph(t *testing.T) {
 			}
 
 			namespace := domain_knowledge.NameSpace{
-				TenantID: "tenant-1",
-			 KnowledgeBaseID:     "kb-1",
+				TenantID:        "tenant-1",
+				KnowledgeBaseID: "kb-1",
 			}
 
 			result, err := service.GetGraph(context.Background(), namespace)
@@ -384,7 +393,7 @@ func TestChunkExtractionInputValidation(t *testing.T) {
 			input: &domain_knowledge.ChunkExtractionInput{
 				ChunkID:         "chunk-1",
 				Document:        "Test document content",
-			KnowledgeBaseID:       "kb-1",
+				KnowledgeBaseID: "kb-1",
 			},
 			wantErr: false,
 		},
@@ -431,17 +440,17 @@ func TestNameSpaceString(t *testing.T) {
 		{
 			name: "Full namespace",
 			namespace: domain_knowledge.NameSpace{
-				TenantID:    "tenant-1",
-			 KnowledgeBaseID:        "kb-1",
-				Knowledge: "knowledge-1",
+				TenantID:        "tenant-1",
+				KnowledgeBaseID: "kb-1",
+				Knowledge:       "knowledge-1",
 			},
 			want: "tenant-1/kb-1/knowledge-1",
 		},
 		{
 			name: "KB only",
 			namespace: domain_knowledge.NameSpace{
-				TenantID: "tenant-1",
-			 KnowledgeBaseID:     "kb-1",
+				TenantID:        "tenant-1",
+				KnowledgeBaseID: "kb-1",
 			},
 			want: "tenant-1/kb-1/",
 		},
