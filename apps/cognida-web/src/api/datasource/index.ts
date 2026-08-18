@@ -96,9 +96,17 @@ export interface TestDatasourceResult {
   message?: string
 }
 
+/** 表清单条目（与后端 TableInfo 对齐） */
+export interface DatasourceTableInfo {
+  name: string
+  comment?: string
+  /** information_schema 估算行数 */
+  rows?: number
+}
+
 /** 表列表响应 */
 export interface DatasourceTablesResponse {
-  tables: string[]
+  tables: DatasourceTableInfo[]
 }
 
 /** 表结构详情（列信息等，后端可按需扩展） */
@@ -119,9 +127,16 @@ export interface DatasourceTableDetail {
 
 export const datasourceApi = {
   /**
-   * 分页获取数据源列表
+   * 分页获取数据源列表。
+   * 可选筛选：name（名称模糊）、type（mysql|postgres）、database（库名模糊）。
    */
-  list(params?: { page?: number; page_size?: number }) {
+  list(params?: {
+    page?: number
+    page_size?: number
+    name?: string
+    type?: DatasourceType | ''
+    database?: string
+  }) {
     return http.get<DatasourceListResponse>('/datasources', { params })
   },
 

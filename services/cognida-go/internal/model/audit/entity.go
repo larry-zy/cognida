@@ -23,17 +23,19 @@ type AuditLog struct {
 	RequestID    *string
 	DurationMs   *int
 	CreatedAt    time.Time
+	// HasTrace 该 request_id 是否在 trace_spans 有调用链。非持久化，查询时由 handler 填充。
+	HasTrace bool
 }
 
 // NewAuditLog 创建新的审计日志
 func NewAuditLog(tenantID, userID *int64, module, action string) *AuditLog {
 	return &AuditLog{
-		TenantID:     tenantID,
-		UserID:       userID,
-		Module:       module,
-		Action:       action,
-		Status:       "success",
-		CreatedAt:    time.Now(),
+		TenantID:  tenantID,
+		UserID:    userID,
+		Module:    module,
+		Action:    action,
+		Status:    "success",
+		CreatedAt: time.Now(),
 	}
 }
 
@@ -117,9 +119,9 @@ func (q *Query) Validate() error {
 
 // Stats 统计数据
 type Stats struct {
-	Total   int64
+	Total    int64
 	ByModule map[string]int64
-	ByDay   []DayCount
+	ByDay    []DayCount
 }
 
 // DayCount 每日统计

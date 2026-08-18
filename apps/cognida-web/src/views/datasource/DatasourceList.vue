@@ -13,6 +13,34 @@
       </UiButton>
     </div>
 
+    <!-- 筛选 -->
+    <div class="filter-bar">
+      <UiInput
+        v-model="filters.name"
+        placeholder="名称"
+        clearable
+        style="width: 200px"
+        @keyup.enter="handleSearch"
+      />
+      <UiSelect
+        v-model="filters.type"
+        placeholder="类型"
+        clearable
+        style="width: 160px"
+        :options="typeFilterOptions"
+        @update:modelValue="handleSearch"
+      />
+      <UiInput
+        v-model="filters.database"
+        placeholder="数据库"
+        clearable
+        style="width: 180px"
+        @keyup.enter="handleSearch"
+      />
+      <UiButton variant="primary" @click="handleSearch">查询</UiButton>
+      <UiButton variant="ghost" @click="resetFilters">重置</UiButton>
+    </div>
+
     <!-- 列表 -->
     <div class="table-wrap">
       <UiTable
@@ -266,6 +294,11 @@ const typeOptions = [
   { label: 'PostgreSQL', value: 'postgres' }
 ]
 
+const typeFilterOptions = [
+  { label: '全部类型', value: '' },
+  ...typeOptions
+]
+
 // 各类型默认端口
 const defaultPortByType: Record<DatasourceType, number> = {
   mysql: 3306,
@@ -287,11 +320,22 @@ const loading = ref(false)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+const filters = reactive({
+  name: '',
+  type: '' as DatasourceType | '',
+  database: ''
+})
 
 async function loadDatasources() {
   loading.value = true
   try {
-    const res = await datasourceApi.list({ page: page.value, page_size: pageSize.value })
+    const res = await datasourceApi.list({
+      page: page.value,
+      page_size: pageSize.value,
+      name: filters.name.trim() || undefined,
+      type: filters.type || undefined,
+      database: filters.database.trim() || undefined
+    })
     const data = res.data
     if (data) {
       datasources.value = data.items ?? []
@@ -303,6 +347,18 @@ async function loadDatasources() {
   } finally {
     loading.value = false
   }
+}
+
+function handleSearch() {
+  page.value = 1
+  loadDatasources()
+}
+
+function resetFilters() {
+  filters.name = ''
+  filters.type = ''
+  filters.database = ''
+  handleSearch()
 }
 
 // ==================== 状态显示 ====================
@@ -562,6 +618,14 @@ onMounted(() => {
   font-weight: 600;
   color: var(--color-text-primary);
   margin: 0;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
 /* 表格外层：相对定位以便加载覆盖层 */

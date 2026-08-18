@@ -11,15 +11,20 @@ import (
 
 // TaskFilter 任务查询过滤器
 type TaskFilter struct {
-	TenantID  *int64          `json:"tenant_id,omitempty"`
-	UserID    *int64          `json:"user_id,omitempty"`
-	Type      *EvaluationType `json:"type,omitempty"`
-	Status    *TaskStatus     `json:"status,omitempty"`
-	DatasetID *string         `json:"dataset_id,omitempty"`
-	DateFrom  *int64          `json:"date_from,omitempty"` // Unix timestamp
-	DateTo    *int64          `json:"date_to,omitempty"`   // Unix timestamp
-	Page      int             `json:"page"`
-	PageSize  int             `json:"page_size"`
+	TenantID *int64          `json:"tenant_id,omitempty"`
+	UserID   *int64          `json:"user_id,omitempty"`
+	Type     *EvaluationType `json:"type,omitempty"`
+	Status   *TaskStatus     `json:"status,omitempty"`
+	// TaskID 任务 ID 模糊匹配（空则不限）
+	TaskID string `json:"task_id,omitempty"`
+	// DatasetID 数据集 ID 模糊匹配（空则不限）；与 DatasetIDs 同时存在时取交集语义由调用方处理
+	DatasetID *string `json:"dataset_id,omitempty"`
+	// DatasetIDs 按数据集名称解析出的 ID 列表（空则不限）
+	DatasetIDs []string `json:"dataset_ids,omitempty"`
+	DateFrom   *int64   `json:"date_from,omitempty"` // Unix timestamp
+	DateTo     *int64   `json:"date_to,omitempty"`   // Unix timestamp
+	Page       int      `json:"page"`
+	PageSize   int      `json:"page_size"`
 }
 
 // ========================================
@@ -92,13 +97,13 @@ type EvaluationResultRepository interface {
 
 // DatasetFilter 数据集查询过滤器
 type DatasetFilter struct {
-	TenantID       *int64        `json:"tenant_id,omitempty"`
-	UserID         *int64        `json:"user_id,omitempty"`
-	Type           *DatasetType  `json:"type,omitempty"`
+	TenantID       *int64          `json:"tenant_id,omitempty"`
+	UserID         *int64          `json:"user_id,omitempty"`
+	Type           *DatasetType    `json:"type,omitempty"`
 	EvaluationType *EvaluationType `json:"evaluation_type,omitempty"`
-	Search         string        `json:"search,omitempty"` // 名称搜索
-	Page           int           `json:"page"`
-	PageSize       int           `json:"page_size"`
+	Search         string          `json:"search,omitempty"` // 名称搜索
+	Page           int             `json:"page"`
+	PageSize       int             `json:"page_size"`
 }
 
 // ========================================

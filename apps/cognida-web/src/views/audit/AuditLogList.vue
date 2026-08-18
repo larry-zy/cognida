@@ -85,16 +85,17 @@
           {{ formatTime(row.CreatedAt) }}
         </template>
         <template #cell-RequestID="{ row }">
-          <router-link
-            v-if="row.RequestID"
-            class="mono trace-link"
-            :to="{ path: '/traces', query: { request_id: row.RequestID } }"
-            title="查看该请求的调用链"
-            @click.stop
-          >
-            {{ row.RequestID }}
-          </router-link>
-          <span v-else class="mono">-</span>
+          <span class="req-id-cell">
+            <span class="mono">{{ row.RequestID || '-' }}</span>
+            <UiButton
+              v-if="row.HasTrace && row.RequestID"
+              size="sm"
+              variant="secondary"
+              @click.stop="openTrace(row.RequestID)"
+            >
+              追踪
+            </UiButton>
+          </span>
         </template>
         <template #cell-Status="{ row }">
           <UiTag size="sm" :variant="row.Status === 'success' ? 'success' : 'danger'">
@@ -127,58 +128,92 @@
     <UiDrawer v-model="showDetail" title="审计详情" :size="520">
       <div v-if="current" class="detail">
         <UiDescriptions :column="1" border>
-          <UiDescriptionsItem label="ID">{{ current.ID }}</UiDescriptionsItem>
-          <UiDescriptionsItem label="时间">{{ formatTime(current.CreatedAt) }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="ID">
+            <span class="copyable" title="点击复制" @click="copyField(String(current.ID))">{{ current.ID }}</span>
+          </UiDescriptionsItem>
+          <UiDescriptionsItem label="时间">
+            <span class="copyable" title="点击复制" @click="copyField(formatTime(current.CreatedAt))">{{ formatTime(current.CreatedAt) }}</span>
+          </UiDescriptionsItem>
           <UiDescriptionsItem label="Request ID">
-            <router-link
-              v-if="current.RequestID"
-              class="mono trace-link"
-              :to="{ path: '/traces', query: { request_id: current.RequestID } }"
-            >
-              {{ current.RequestID }}
-            </router-link>
-            <span v-else class="mono">-</span>
+            <span
+              class="mono copyable"
+              title="点击复制"
+              @click="copyField(current.RequestID || '')"
+            >{{ current.RequestID || '-' }}</span>
           </UiDescriptionsItem>
           <UiDescriptionsItem label="状态">
             <UiTag size="sm" :variant="current.Status === 'success' ? 'success' : 'danger'">
               {{ current.Status === 'success' ? '成功' : '失败' }}
             </UiTag>
           </UiDescriptionsItem>
-          <UiDescriptionsItem label="模块">{{ current.Module || '-' }}</UiDescriptionsItem>
-          <UiDescriptionsItem label="操作">
-            <span class="mono">{{ current.Action || '-' }}</span>
+          <UiDescriptionsItem label="模块">
+            <span class="copyable" title="点击复制" @click="copyField(current.Module || '')">{{ current.Module || '-' }}</span>
           </UiDescriptionsItem>
-          <UiDescriptionsItem label="资源类型">{{ current.ResourceType || '-' }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="操作">
+            <span
+              class="mono copyable"
+              title="点击复制"
+              @click="copyField(current.Action || '')"
+            >{{ current.Action || '-' }}</span>
+          </UiDescriptionsItem>
+          <UiDescriptionsItem label="资源类型">
+            <span class="copyable" title="点击复制" @click="copyField(current.ResourceType || '')">{{ current.ResourceType || '-' }}</span>
+          </UiDescriptionsItem>
           <UiDescriptionsItem label="资源">
-            {{ current.ResourceName || current.ResourceID || '-' }}
+            <span
+              class="copyable"
+              title="点击复制"
+              @click="copyField(current.ResourceName || current.ResourceID || '')"
+            >{{ current.ResourceName || current.ResourceID || '-' }}</span>
           </UiDescriptionsItem>
           <UiDescriptionsItem label="耗时">
             {{ current.DurationMs != null ? `${current.DurationMs} ms` : '-' }}
           </UiDescriptionsItem>
-          <UiDescriptionsItem label="用户 ID">{{ current.UserID ?? '-' }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="用户 ID">
+            <span
+              class="copyable"
+              title="点击复制"
+              @click="copyField(current.UserID != null ? String(current.UserID) : '')"
+            >{{ current.UserID ?? '-' }}</span>
+          </UiDescriptionsItem>
           <UiDescriptionsItem label="来源 IP">
-            <span class="mono">{{ current.IPAddress || '-' }}</span>
+            <span
+              class="mono copyable"
+              title="点击复制"
+              @click="copyField(current.IPAddress || '')"
+            >{{ current.IPAddress || '-' }}</span>
           </UiDescriptionsItem>
         </UiDescriptions>
 
         <div v-if="current.ErrorMessage" class="detail-block">
-          <h4>错误信息</h4>
-          <pre class="error-msg">{{ current.ErrorMessage }}</pre>
+          <h4>错误信息 <span class="copy-hint">点击下方复制</span></h4>
+          <pre class="error-msg copyable" title="点击复制" @click="copyField(current.ErrorMessage)">{{ current.ErrorMessage }}</pre>
         </div>
 
         <div class="detail-block">
-          <h4>请求详情</h4>
-          <pre class="details-json">{{ prettyDetails }}</pre>
+          <h4>请求详情 <span class="copy-hint">点击下方复制</span></h4>
+          <pre class="details-json copyable" title="点击复制" @click="copyField(prettyDetails)">{{ prettyDetails }}</pre>
         </div>
 
         <div v-if="current.RequestID" class="detail-block">
-          <h4>关联原始日志</h4>
+          <h4>关联原始日志 <span class="copy-hint">点击下方复制</span></h4>
           <p class="hint">在 Grafana Explore（Loki 数据源）中用如下 LogQL 检索该请求在各服务的原始日志：</p>
-          <pre class="logql">{{ `{job="link"} |= "${current.RequestID}"` }}</pre>
+          <pre
+            class="logql copyable"
+            title="点击复制"
+            @click="copyField(logqlQuery)"
+          >{{ logqlQuery }}</pre>
         </div>
       </div>
 
       <template #footer>
+        <UiButton
+          v-if="current?.HasTrace && current.RequestID"
+          variant="primary"
+          @click="openTrace(current.RequestID)"
+        >
+          查看追踪
+        </UiButton>
         <UiButton variant="secondary" @click="showDetail = false">关闭</UiButton>
       </template>
     </UiDrawer>
@@ -187,6 +222,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   UiButton,
@@ -201,11 +237,14 @@ import {
   UiStatistic
 } from '@/components'
 import toast from '@/utils/toast'
+import { copyToClipboard } from '@/utils/security'
 import { auditApi, type AuditLog, type AuditStats } from '@/api/audit'
+
+const router = useRouter()
 
 const columns = [
   { key: 'CreatedAt', title: '时间', width: 170 },
-  { key: 'RequestID', title: 'Request ID', width: 180 },
+  { key: 'RequestID', title: 'Request ID', width: 280 },
   { key: 'Module', title: '模块', width: 120 },
   { key: 'Action', title: '操作' },
   { key: 'Status', title: '状态', width: 90 },
@@ -243,6 +282,20 @@ const prettyDetails = computed(() => {
     return raw
   }
 })
+
+const logqlQuery = computed(() => {
+  const rid = current.value?.RequestID
+  if (!rid) return ''
+  return `{job="link"} |= "${rid}"`
+})
+
+async function copyField(text: string) {
+  const value = (text || '').trim()
+  if (!value || value === '-') return
+  const ok = await copyToClipboard(value)
+  if (ok) toast.success('已复制')
+  else toast.error('复制失败')
+}
 
 function formatTime(iso: string): string {
   if (!iso) return '-'
@@ -319,6 +372,10 @@ function viewDetail(row: AuditLog) {
   showDetail.value = true
 }
 
+function openTrace(requestId: string) {
+  router.push({ path: '/traces', query: { request_id: requestId } })
+}
+
 onMounted(() => {
   loadStats()
   loadLogs()
@@ -373,6 +430,29 @@ onMounted(() => {
 .mono {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
+}
+
+.copyable {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s ease;
+}
+
+.copyable:hover {
+  background: color-mix(in srgb, var(--primary, #4f8cff) 12%, transparent);
+}
+
+.copy-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.req-id-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .trace-link {

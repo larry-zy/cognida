@@ -177,8 +177,8 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter, profileReader)
 	semanticHandler := ProvideSemanticHandler(semanticService)
 	auditRepository := ProvideAuditRepository(db)
-	auditHandler := ProvideAuditHandler(auditRepository)
 	traceRepository := ProvideTraceRepository(db)
+	auditHandler := ProvideAuditHandler(auditRepository, traceRepository)
 	traceHandler := ProvideTraceHandler(traceRepository)
 	handler := ProvideWebHandler()
 	authMiddleware := ProvideAuthMiddleware(accountService)
@@ -688,8 +688,8 @@ func ProvideAuditWriter(repo audit2.Repository) *audit.Writer {
 	return audit.NewWriter(repo, audit.DefaultWriterConfig())
 }
 
-func ProvideAuditHandler(repo audit2.Repository) *handler.AuditHandler {
-	return handler.NewAuditHandler(repo)
+func ProvideAuditHandler(repo audit2.Repository, tracesRepo trace.Repository) *handler.AuditHandler {
+	return handler.NewAuditHandler(repo, tracesRepo)
 }
 
 func ProvideTraceRepository(db *gorm.DB) trace.Repository {

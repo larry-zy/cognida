@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -139,6 +140,15 @@ func (r *dataSourceRepository) GetByName(ctx context.Context, name string, tenan
 func (r *dataSourceRepository) List(ctx context.Context, filter domain_datasource.ListFilter) ([]*domain_datasource.DataSource, int64, error) {
 	query := r.db.WithContext(ctx).Model(&DataSourceModel{}).
 		Where("tenant_id = ?", filter.TenantID)
+	if name := strings.TrimSpace(filter.Name); name != "" {
+		query = query.Where("name LIKE ?", "%"+name+"%")
+	}
+	if typ := strings.TrimSpace(filter.Type); typ != "" {
+		query = query.Where("type = ?", typ)
+	}
+	if dbName := strings.TrimSpace(filter.DatabaseName); dbName != "" {
+		query = query.Where("database_name LIKE ?", "%"+dbName+"%")
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

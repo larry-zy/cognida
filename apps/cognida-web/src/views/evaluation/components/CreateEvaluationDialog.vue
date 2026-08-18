@@ -129,7 +129,7 @@ import type { CreateEvaluationRequest } from '@/types'
 
 const props = defineProps<{
   modelValue: boolean
-  datasets: Array<{ id: string; eval_type: string }>
+  datasets: Array<{ id: string; name?: string; eval_type: string }>
   knowledgeBases: Array<Record<string, any>>
   chatModels: Array<Record<string, any>>
   agents: AgentSummary[]
@@ -240,7 +240,10 @@ const datasetOptions = computed(() => [
   { label: 'default (默认数据集)', value: 'default' },
   ...props.datasets
     .filter(d => d.eval_type === formData.type)
-    .map(d => ({ label: d.id, value: d.id }))
+    .map(d => ({
+      label: d.name ? `${d.name}（${d.id}）` : d.id,
+      value: d.id
+    }))
 ])
 
 // 切换评测类型后，若当前所选数据集不再属于该类型，回退到 default，避免提交越界。

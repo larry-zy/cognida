@@ -11,6 +11,41 @@
     <!-- 统计卡片 -->
     <EvaluationStatsCards :stats="stats" />
 
+    <!-- 筛选 -->
+    <div class="filter-bar">
+      <UiSelect
+        v-model="filters.status"
+        placeholder="任务类型"
+        clearable
+        style="width: 160px"
+        :options="statusFilterOptions"
+        @update:modelValue="handleSearch"
+      />
+      <UiInput
+        v-model="filters.task_id"
+        placeholder="任务 ID"
+        clearable
+        style="width: 200px"
+        @keyup.enter="handleSearch"
+      />
+      <UiInput
+        v-model="filters.dataset_id"
+        placeholder="数据集 ID"
+        clearable
+        style="width: 180px"
+        @keyup.enter="handleSearch"
+      />
+      <UiInput
+        v-model="filters.dataset_name"
+        placeholder="数据集名称"
+        clearable
+        style="width: 180px"
+        @keyup.enter="handleSearch"
+      />
+      <UiButton variant="primary" @click="handleSearch">查询</UiButton>
+      <UiButton variant="ghost" @click="resetFilters">重置</UiButton>
+    </div>
+
     <!-- 任务列表 -->
     <EvaluationTable
       :evaluations="evaluations"
@@ -46,7 +81,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { UiButton } from '@/components'
+import { UiButton, UiInput, UiSelect } from '@/components'
 import type { CreateEvaluationRequest } from '@/types'
 import { useEvaluationList } from './composables/useEvaluationList'
 import EvaluationStatsCards from './components/EvaluationStatsCards.vue'
@@ -57,10 +92,18 @@ import EvaluationDetailDialog from './components/EvaluationDetailDialog.vue'
 const showCreateDialog = ref(false)
 const showDetailDialog = ref(false)
 
+const statusFilterOptions = [
+  { label: '全部', value: '' },
+  { label: '执行中', value: 'running' },
+  { label: '已完成', value: 'completed' },
+  { label: '失败', value: 'failed' }
+]
+
 const {
   loading,
   creating,
   evaluations,
+  filters,
   datasets,
   knowledgeBases,
   chatModels,
@@ -69,6 +112,8 @@ const {
   currentDetail,
   stats,
   loadAll,
+  handleSearch,
+  resetFilters,
   submitEvaluation,
   viewDetail,
   refreshDetail,
@@ -116,6 +161,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
 .header h2 {

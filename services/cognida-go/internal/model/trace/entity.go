@@ -100,6 +100,8 @@ type Repository interface {
 	ListTraces(ctx context.Context, q *Query) ([]*TraceSummary, int64, error)
 	// GetSpansByTraceID 取某条 trace 的全部 span（按开始时间升序）。
 	GetSpansByTraceID(ctx context.Context, traceID string) ([]*Span, error)
+	// HasRequestIDs 返回 ids 中确实在 trace_spans 出现过的 request_id（按租户过滤）。
+	HasRequestIDs(ctx context.Context, tenantID int64, ids []string) (map[string]bool, error)
 }
 
 // BuildTree 把扁平 span 列表还原成森林（多根容错）：

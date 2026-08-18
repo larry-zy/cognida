@@ -52,6 +52,10 @@ func (h *TraceHandler) ListTraces(c *gin.Context) {
 		InternalError(c, err.Error())
 		return
 	}
+	if q.RequestID != "" && total == 0 {
+		NotFound(c, "该 request_id 没有调用链。仅 Agent 对话会写入 span，普通 HTTP 审计记录无法展开。")
+		return
+	}
 
 	OK(c, gin.H{
 		"list":      list,

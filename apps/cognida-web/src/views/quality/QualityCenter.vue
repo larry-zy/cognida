@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { qualityApi } from '@/api/quality'
 import toast from '@/utils/toast'
 import { datasourceApi } from '@/api/datasource'
-import type { Datasource } from '@/api/datasource'
+import type { Datasource, DatasourceTableInfo } from '@/api/datasource'
 import { useAsyncTask } from '@/composables/useAsyncTask'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiInputNumber from '@/components/ui/UiInputNumber.vue'
@@ -167,7 +167,7 @@ const issueColumns = [
 // ==================== 数据源直评 ====================
 const dsList = ref<Datasource[]>([])
 const dsId = ref('')
-const dsTables = ref<string[]>([])
+const dsTables = ref<DatasourceTableInfo[]>([])
 const dsTable = ref('')
 const dsSampleSize = ref(200)
 const dsTask = useAsyncTask<StructuredReport | null>()
@@ -179,7 +179,12 @@ const dsOptions = computed(() =>
   dsList.value.map((d) => ({ label: `${d.name}（${d.type}）`, value: d.id }))
 )
 const dsTableOptions = computed(() =>
-  dsTables.value.map((t) => ({ label: t, value: t }))
+  dsTables.value.map((t) => {
+    const rowsHint =
+      typeof t.rows === 'number' ? ` · ${t.rows} 行` : ''
+    const base = t.comment ? `${t.name}（${t.comment}）` : t.name
+    return { label: `${base}${rowsHint}`, value: t.name }
+  })
 )
 
 async function loadDatasources() {
@@ -216,6 +221,13 @@ async function runDatasource() {
     dsError.value = '请选择数据表'
     return
   }
+  // 表清单已知行数为 0 时前端直接拦截，不发起评估请求
+  const selected = dsTables.value.find((t) => t.name === dsTable.value)
+  if (selected && typeof selected.rows === 'number' && selected.rows === 0) {
+    dsError.value = `表「${dsTable.value}」当前无数据，请换一张有数据的表后再评估`
+    dsReport.value = null
+    return
+  }
   dsError.value = ''
   dsReport.value = null
   await dsTask.run(
@@ -225,16 +237,22 @@ async function runDatasource() {
         table: dsTable.value,
         sample_size: dsSampleSize.value
       })
-      dsReport.value = res.data ?? null
+      const report = res.data ?? null
+      // 后端空样本短路径：业务成功但无行，用提示而非错误态
+      if (report && report.record_count === 0) {
+        dsError.value = `表「${dsTable.value}」无数据，已跳过质量评估`
+      }
+      dsReport.value = report
       loadRecords()
-      return res.data ?? null
+      return report
     },
     {
       pendingMessage: '抽样评估中…',
-      successMessage: (r) =>
-        r
-          ? `评估完成：综合得分 ${pct(r.overall_score)} 分，抽样 ${r.record_count} 行，${r.issues?.length || 0} 个问题`
-          : '评估完成',
+      successMessage: (r) => {
+        if (!r) return '评估完成'
+        if (r.record_count === 0) return `表无数据，已跳过评估`
+        return `评估完成：综合得分 ${pct(r.overall_score)} 分，抽样 ${r.record_count} 行，${r.issues?.length || 0} 个问题`
+      },
       errorMessage: (e) => e?.message || '评估失败'
     }
   )

@@ -4,6 +4,7 @@ package handler
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,10 +26,18 @@ func NewDataSourceHandler(service *app_datasource.Service) *DataSourceHandler {
 // @Router /api/v1/datasources [get]
 func (h *DataSourceHandler) List(c *gin.Context) {
 	page, pageSize := GetPageParams(c)
+	typ := strings.TrimSpace(c.Query("type"))
+	if typ != "" && typ != string(domain_datasource.TypeMySQL) && typ != string(domain_datasource.TypePostgres) {
+		BadRequest(c, "不支持的数据源类型，仅支持 mysql / postgres")
+		return
+	}
 	items, total, err := h.service.List(c.Request.Context(), domain_datasource.ListFilter{
-		TenantID: GetTenantID(c),
-		Limit:    pageSize,
-		Offset:   (page - 1) * pageSize,
+		TenantID:     GetTenantID(c),
+		Name:         strings.TrimSpace(c.Query("name")),
+		Type:         typ,
+		DatabaseName: strings.TrimSpace(c.Query("database")),
+		Limit:        pageSize,
+		Offset:       (page - 1) * pageSize,
 	})
 	if err != nil {
 		InternalError(c, err.Error())

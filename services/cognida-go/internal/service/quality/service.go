@@ -106,8 +106,24 @@ func (s *Service) EvaluateDatasource(ctx context.Context, tenantID, userID int64
 	if err != nil {
 		return nil, fmt.Errorf("数据源抽样失败: %w", err)
 	}
+	// 空表：业务短路径，不调 Python、不记 5xx；返回可展示的空报告
 	if n == 0 {
-		return nil, fmt.Errorf("数据源抽样为空：表 %q 无数据", table)
+		return &StructuredReport{
+			OverallScore: 0,
+			RecordCount:  0,
+			Dimensions:   nil,
+			Issues: []Issue{{
+				Severity:    "info",
+				Dimension:   "completeness",
+				Field:       table,
+				Description: fmt.Sprintf("表 %q 无数据，已跳过质量评估", table),
+				Count:       0,
+			}},
+			Metadata: map[string]string{
+				"skip_reason": "empty_sample",
+				"table":       table,
+			},
+		}, nil
 	}
 	// 以「数据源ID/表名」作为来源标识，便于历史回看定位
 	sourceName := datasourceID + "/" + table

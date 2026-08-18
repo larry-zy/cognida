@@ -2,7 +2,7 @@
 // 集中管理测评任务的数据加载、创建、删除、详情查看与 SSE 实时进度。
 // 视图组件只负责渲染，所有状态与副作用由此 composable 提供。
 
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import toast from '@/utils/toast'
 import { ElMessageBox } from '@/utils/confirm'
@@ -23,9 +23,23 @@ export function useEvaluationList() {
   const loading = ref(false)
   const creating = ref(false)
   const evaluations = ref<EvaluationTask[]>([])
+  // 列表筛选：任务状态 / 任务 ID / 数据集 ID / 数据集名称（空=不过滤）
+  const filters = ref({
+    status: '' as '' | 'running' | 'completed' | 'failed',
+    task_id: '',
+    dataset_id: '',
+    dataset_name: ''
+  })
+  // 顶部统计卡片：始终为全量汇总，不随列表筛选变化
+  const stats = ref({
+    total: 0,
+    success: 0,
+    running: 0,
+    failed: 0
+  })
   // 保留 eval_type 以便创建对话框按评测类型过滤可选数据集，
   // 避免给 agent 评测选到 llm/rag 数据集触发后端类型不匹配报错。
-  const datasets = ref<Array<{ id: string; eval_type: string }>>([])
+  const datasets = ref<Array<{ id: string; name: string; eval_type: string }>>([])
   // 知识库列表统一走带缓存 store（〔FE-10〕）：与助手/图谱/知识库管理共享同一份，避免重复拉取。
   const knowledgeStore = useKnowledgeStore()
   const { knowledgeBases } = storeToRefs(knowledgeStore)
@@ -38,30 +52,68 @@ export function useEvaluationList() {
 
   const sseClient = ref<SSEConnection | null>(null)
 
-  // ---------- 派生数据 ----------
-  const stats = computed(() => ({
-    total: evaluations.value.length,
-    success: evaluations.value.filter(t => t.status === 'completed').length,
-    running: evaluations.value.filter(t => t.status === 'running').length,
-    failed: evaluations.value.filter(t => t.status === 'failed').length
-  }))
-
-  // 任务级聚合指标改由 EvaluationDetailDialog 依据 detail 动态计算
-  // （注册表驱动，见 evaluation-config.ts taskAggregate*），此处不再预聚合。
-
   // ---------- 数据加载 ----------
+  /** 全量状态统计（与列表筛选无关） */
+  async function loadStats() {
+    try {
+      const [all, completed, running, failed] = await Promise.all([
+        evaluationApi.list({ page: 1, page_size: 1 }),
+        evaluationApi.list({ page: 1, page_size: 1, status: 'completed' }),
+        evaluationApi.list({ page: 1, page_size: 1, status: 'running' }),
+        evaluationApi.list({ page: 1, page_size: 1, status: 'failed' })
+      ])
+      stats.value = {
+        total: Number(all.data?.total ?? 0),
+        success: Number(completed.data?.total ?? 0),
+        running: Number(running.data?.total ?? 0),
+        failed: Number(failed.data?.total ?? 0)
+      }
+    } catch (error) {
+      console.error('Failed to load stats:', error)
+    }
+  }
+
   async function loadEvaluations() {
     loading.value = true
     try {
-      const res = await evaluationApi.list({ page: 1, page_size: 100 })
+      // 先确保数据集名称字典可用，便于列表缺 dataset_name 时兜底补齐
+      if (datasets.value.length === 0) {
+        await loadDatasets()
+      }
+      const nameById = new Map(datasets.value.map(d => [d.id, d.name]))
+      const res = await evaluationApi.list({
+        page: 1,
+        page_size: 100,
+        status: filters.value.status || undefined,
+        task_id: filters.value.task_id.trim() || undefined,
+        dataset_id: filters.value.dataset_id.trim() || undefined,
+        dataset_name: filters.value.dataset_name.trim() || undefined
+      })
       if (res.data) {
-        evaluations.value = res.data.tasks || []
+        evaluations.value = (res.data.tasks || []).map((t: EvaluationTask) => ({
+          ...t,
+          dataset_name: t.dataset_name || nameById.get(t.dataset_id) || ''
+        }))
       }
     } catch (error) {
       console.error('Failed to load evaluations:', error)
     } finally {
       loading.value = false
     }
+  }
+
+  function handleSearch() {
+    loadEvaluations()
+  }
+
+  function resetFilters() {
+    filters.value = {
+      status: '',
+      task_id: '',
+      dataset_id: '',
+      dataset_name: ''
+    }
+    loadEvaluations()
   }
 
   async function loadDatasets() {
@@ -71,6 +123,7 @@ export function useEvaluationList() {
         datasets.value =
           (res.data as any).datasets?.map((d: any) => ({
             id: d.id,
+            name: d.name || '',
             eval_type: d.eval_type || ''
           })) || []
       }
@@ -119,9 +172,11 @@ export function useEvaluationList() {
     }
   }
 
-  function loadAll() {
+  async function loadAll() {
+    // 先拉数据集名称字典，再拉任务列表，避免列表 dataset_name 兜底时字典为空
+    await loadDatasets()
+    loadStats()
     loadEvaluations()
-    loadDatasets()
     loadKnowledgeBases()
     loadModels()
     loadAgents()
@@ -139,7 +194,7 @@ export function useEvaluationList() {
       const res = await evaluationApi.create(request)
       if (res.data) {
         toast.success('测评任务创建成功')
-        await loadEvaluations()
+        await Promise.all([loadEvaluations(), loadStats()])
         // 自动打开详情并连接 SSE
         await viewDetail((res.data as any).task || res.data)
         return true
@@ -158,7 +213,12 @@ export function useEvaluationList() {
     try {
       const res = await evaluationApi.getResult(task.task_id)
       if (res.data) {
-        currentDetail.value = res.data
+        // 详情缺名称时用列表行兜底，保证「数据集名称」可点跳转
+        currentDetail.value = {
+          ...res.data,
+          dataset_name: res.data.dataset_name || task.dataset_name || '',
+          dataset_id: res.data.dataset_id || task.dataset_id
+        }
         if (res.data.status === 'running') {
           connectSSE(task.task_id)
         }
@@ -187,7 +247,7 @@ export function useEvaluationList() {
     if (task) {
       await refreshDetail(task)
       await viewDetail(task)
-      await loadEvaluations()
+      await Promise.all([loadEvaluations(), loadStats()])
     }
   }
 
@@ -202,7 +262,7 @@ export function useEvaluationList() {
       })
       await evaluationApi.delete(id)
       toast.success('删除成功')
-      await loadEvaluations()
+      await Promise.all([loadEvaluations(), loadStats()])
     } catch (error: any) {
       if (error !== 'cancel') {
         toast.error((error as Error).message || '删除失败')
@@ -261,18 +321,21 @@ export function useEvaluationList() {
     loading,
     creating,
     evaluations,
+    filters,
     datasets,
     knowledgeBases,
     chatModels,
     agents,
     datasources,
     currentDetail,
-    // computed
+    // computed / state
     stats,
     // actions
     loadAll,
     loadAgents,
     loadEvaluations,
+    handleSearch,
+    resetFilters,
     submitEvaluation,
     viewDetail,
     refreshDetail,

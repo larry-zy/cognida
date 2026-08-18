@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -168,8 +169,14 @@ func (r *EvaluationTaskRepository) List(ctx context.Context, filter *evaluation.
 	if filter.Status != nil {
 		query = query.Where("status = ?", string(*filter.Status))
 	}
-	if filter.DatasetID != nil {
-		query = query.Where("dataset_id = ?", *filter.DatasetID)
+	if tid := strings.TrimSpace(filter.TaskID); tid != "" {
+		query = query.Where("id LIKE ?", "%"+tid+"%")
+	}
+	if filter.DatasetID != nil && strings.TrimSpace(*filter.DatasetID) != "" {
+		query = query.Where("dataset_id LIKE ?", "%"+strings.TrimSpace(*filter.DatasetID)+"%")
+	}
+	if len(filter.DatasetIDs) > 0 {
+		query = query.Where("dataset_id IN ?", filter.DatasetIDs)
 	}
 	if filter.DateFrom != nil {
 		query = query.Where("created_at >= ?", *filter.DateFrom)

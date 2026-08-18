@@ -119,7 +119,8 @@ service.interceptors.response.use(
 
     // 处理404错误
     if (error.response?.status === 404) {
-      ElMessage.error('请求的资源不存在')
+      const payload = error.response.data as { message?: string } | undefined
+      ElMessage.error(payload?.message || '请求的资源不存在')
       return Promise.reject(error)
     }
 

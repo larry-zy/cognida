@@ -18,6 +18,8 @@ export interface AuditLog {
   RequestID: string | null
   DurationMs: number | null
   CreatedAt: string
+  /** 该 request_id 在 trace_spans 是否有调用链，无则前端不展示跳转按钮 */
+  HasTrace?: boolean
 }
 
 export interface AuditLogPage {
