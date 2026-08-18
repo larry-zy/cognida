@@ -1,6 +1,6 @@
 module cognida
 
-go 1.25.12
+go 1.25.13
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
