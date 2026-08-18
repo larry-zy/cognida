@@ -73,16 +73,16 @@ func (s *Service) ListAvailableGraders(ctx context.Context, evalType string) (*G
 func (s *Service) CreateEvaluation(ctx context.Context, tenantID, userID int64, req *CreateEvaluationTaskRequest) (*task.Task, error) {
 	// 验证配置
 	config := &EvaluationTaskConfig{
-		DatasetID: req.DatasetID,
-		Type:      req.Type,
-		KnowledgeBaseID:      req.KnowledgeBaseID,
-		AgentID:   req.AgentID,
-		ModelID:   req.ModelID,
-		Config:    req.Config,
+		DatasetID:       req.DatasetID,
+		Type:            req.Type,
+		KnowledgeBaseID: req.KnowledgeBaseID,
+		AgentID:         req.AgentID,
+		ModelID:         req.ModelID,
+		Config:          req.Config,
 	}
 
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+		return nil, fmt.Errorf("%w: %v", domeval.ErrInvalidConfig, err)
 	}
 
 	// 检查数据集是否存在
@@ -416,9 +416,9 @@ func (s *Service) GetQAResults(ctx context.Context, taskID string, page, pageSiz
 	}
 
 	return &QAResultList{
-		Results: results,
-		Total:   total,
-		Page:    page,
+		Results:  results,
+		Total:    total,
+		Page:     page,
 		PageSize: pageSize,
 	}, nil
 }
@@ -441,10 +441,10 @@ func (s *Service) GetQAResultsByCursor(ctx context.Context, taskID string, curso
 
 // QAResultList QA 结果列表
 type QAResultList struct {
-	Results []*domeval.EvaluationResult `json:"results"`
-	Total   int64                       `json:"total"`
-	Page    int                         `json:"page"`
-	PageSize int                        `json:"page_size"`
+	Results  []*domeval.EvaluationResult `json:"results"`
+	Total    int64                       `json:"total"`
+	Page     int                         `json:"page"`
+	PageSize int                         `json:"page_size"`
 }
 
 // QAResultCursorList QA 结果游标分页列表〔M5〕。
