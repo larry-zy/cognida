@@ -37,15 +37,15 @@ var DatasetDir = func() string {
 
 // DatasetLoader 数据集加载器
 type DatasetLoader struct {
-	db             *gorm.DB
+	db          *gorm.DB
 	datasetRepo domeval.DatasetRepository
 }
 
 // NewDatasetLoader 创建数据集加载器
 func NewDatasetLoader(db *gorm.DB, datasetRepo domeval.DatasetRepository) *DatasetLoader {
 	return &DatasetLoader{
-		db:             db,
-		datasetRepo:    datasetRepo,
+		db:          db,
+		datasetRepo: datasetRepo,
 	}
 }
 
@@ -168,8 +168,8 @@ func (l *DatasetLoader) LoadFromDB(ctx context.Context, datasetID string) (*Data
 			ID:          datasetEntity.DatasetID,
 			Name:        datasetEntity.Name,
 			Description: datasetEntity.Description,
-				Type:        DatasetType(datasetEntity.Type),
-				EvalType:    EvaluationType(datasetEntity.EvaluationType),
+			Type:        DatasetType(datasetEntity.Type),
+			EvalType:    EvaluationType(datasetEntity.EvaluationType),
 			QACount:     datasetEntity.QACount,
 			ModifiedAt:  datasetEntity.UpdatedAt,
 		},
@@ -369,12 +369,12 @@ func (l *DatasetLoader) CreateDataset(ctx context.Context, tenantID int64, datas
 // CreateEvaluationTask 创建评测任务
 func (l *DatasetLoader) CreateEvaluationTask(ctx context.Context, req *CreateEvaluationTaskRequest) (*task.Task, error) {
 	config := &EvaluationTaskConfig{
-		DatasetID: req.DatasetID,
-		Type:      req.Type,
-		KnowledgeBaseID:      req.KnowledgeBaseID,
-		AgentID:   req.AgentID,
-		ModelID:   req.ModelID,
-		Config:    req.Config,
+		DatasetID:       req.DatasetID,
+		Type:            req.Type,
+		KnowledgeBaseID: req.KnowledgeBaseID,
+		AgentID:         req.AgentID,
+		ModelID:         req.ModelID,
+		Config:          req.Config,
 	}
 
 	// 验证配置
@@ -383,12 +383,12 @@ func (l *DatasetLoader) CreateEvaluationTask(ctx context.Context, req *CreateEva
 	}
 
 	payload := map[string]interface{}{
-		"dataset_id":     config.DatasetID,
+		"dataset_id":      config.DatasetID,
 		"evaluation_type": string(config.Type),
-		"kb_id":          config.KnowledgeBaseID,
-		"agent_id":       config.AgentID,
-		"model_id":       config.ModelID,
-		"config":         config.Config,
+		"kb_id":           config.KnowledgeBaseID,
+		"agent_id":        config.AgentID,
+		"model_id":        config.ModelID,
+		"config":          config.Config,
 	}
 
 	task := &task.Task{
@@ -403,12 +403,12 @@ func (l *DatasetLoader) CreateEvaluationTask(ctx context.Context, req *CreateEva
 
 // CreateEvaluationTaskRequest 创建评测任务请求
 type CreateEvaluationTaskRequest struct {
-	DatasetID string                 `json:"dataset_id" binding:"required"`
-	Type      EvaluationType         `json:"type" binding:"required"`
-	KnowledgeBaseID      string                 `json:"kb_id,omitempty"`
-	AgentID   string                 `json:"agent_id,omitempty"`
-	ModelID   string                 `json:"model_id,omitempty"`
-	Config    map[string]interface{} `json:"config,omitempty"`
+	DatasetID       string                 `json:"dataset_id" binding:"required"`
+	Type            EvaluationType         `json:"type" binding:"required"`
+	KnowledgeBaseID string                 `json:"kb_id,omitempty"`
+	AgentID         string                 `json:"agent_id,omitempty"`
+	ModelID         string                 `json:"model_id,omitempty"`
+	Config          map[string]interface{} `json:"config,omitempty"`
 }
 
 // Validate 验证评测配置
@@ -431,12 +431,7 @@ func (c *EvaluationTaskConfig) Validate() error {
 		return fmt.Errorf("kb_id is required for RAG evaluation")
 	}
 
-	// model_id：QA/RAG 用它选择被测生成模型；Agent 类型的被测对象是运行中的 Agent，
-	// 模型由 Agent 自身配置内嵌，故 agent 类型不强制 model_id。
-	if c.Type != EvaluationTypeAgent && c.ModelID == "" {
-		return fmt.Errorf("model_id is required")
-	}
-
+	// model_id 为空 = 使用系统默认聊天模型（config.yaml chat.model_name / CHAT_*）
 	return nil
 }
 
