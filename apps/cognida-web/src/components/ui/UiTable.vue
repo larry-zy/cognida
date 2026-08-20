@@ -71,8 +71,8 @@
     <div v-if="showPagination && pagination" class="ui-table__pagination">
       <slot name="pagination">
         <UiPagination
-          v-model:page="pagination.page"
-          v-model:page-size="pagination.pageSize"
+          :page="pagination.page"
+          :page-size="pagination.pageSize"
           :total="pagination.total"
           @change="handlePageChange"
         />
