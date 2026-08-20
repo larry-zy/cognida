@@ -87,10 +87,20 @@ func (r *memRepo) List(_ context.Context, filter model.ListFilter) ([]*model.Dat
 	defer r.mu.Unlock()
 	var out []*model.DataSource
 	for _, ds := range r.items {
-		if ds.TenantID == filter.TenantID {
-			cp := *ds
-			out = append(out, &cp)
+		if ds.TenantID != filter.TenantID {
+			continue
 		}
+		if filter.Name != "" && !strings.Contains(strings.ToLower(ds.Name), strings.ToLower(filter.Name)) {
+			continue
+		}
+		if filter.Type != "" && string(ds.Type) != filter.Type {
+			continue
+		}
+		if filter.DatabaseName != "" && !strings.Contains(strings.ToLower(ds.DatabaseName), strings.ToLower(filter.DatabaseName)) {
+			continue
+		}
+		cp := *ds
+		out = append(out, &cp)
 	}
 	return out, int64(len(out)), nil
 }
