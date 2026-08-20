@@ -4,21 +4,22 @@ package evaluation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
-	domaintask "cognida/internal/model/task"
-	domeval "cognida/internal/model/evaluation"
 	evaluationcache "cognida/internal/infrastructure/cache/evaluation"
+	domeval "cognida/internal/model/evaluation"
+	domaintask "cognida/internal/model/task"
 	"cognida/internal/pkg/pagination"
 )
 
 // Mock repositories for testing
 type mockTaskRepo struct {
-	tasks      map[string]*domeval.EvaluationTask
-	createErr  error
-	findErr    error
-	updateErr  error
-	deleteErr  error
+	tasks     map[string]*domeval.EvaluationTask
+	createErr error
+	findErr   error
+	updateErr error
+	deleteErr error
 }
 
 func newMockTaskRepo() *mockTaskRepo {
@@ -106,6 +107,24 @@ func (m *mockTaskRepo) List(ctx context.Context, filter *domeval.TaskFilter) ([]
 			if filter.Type != nil && task.Type != *filter.Type {
 				continue
 			}
+			if filter.TaskID != "" && !strings.Contains(task.ID, filter.TaskID) {
+				continue
+			}
+			if filter.DatasetID != nil && *filter.DatasetID != "" && !strings.Contains(task.DatasetID, *filter.DatasetID) {
+				continue
+			}
+			if len(filter.DatasetIDs) > 0 {
+				ok := false
+				for _, id := range filter.DatasetIDs {
+					if task.DatasetID == id {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					continue
+				}
+			}
 		}
 		result = append(result, task)
 	}
@@ -117,10 +136,10 @@ func (m *mockTaskRepo) WithTransaction(ctx context.Context, fn func(context.Cont
 }
 
 type mockResultRepo struct {
-	results      map[string][]*domeval.EvaluationResult
-	createErr    error
-	findErr      error
-	deleteErr    error
+	results   map[string][]*domeval.EvaluationResult
+	createErr error
+	findErr   error
+	deleteErr error
 }
 
 func newMockResultRepo() *mockResultRepo {
@@ -234,9 +253,9 @@ func (m *mockResultRepo) ReplaceByTaskID(ctx context.Context, taskID string, res
 }
 
 type mockDatasetLoader struct {
-	datasets  map[string]*DatasetMetadata
-	listErr   error
-	findErr   error
+	datasets map[string]*DatasetMetadata
+	listErr  error
+	findErr  error
 }
 
 func newMockDatasetLoader() *mockDatasetLoader {
@@ -299,10 +318,10 @@ func TestService_CreateEvaluation(t *testing.T) {
 	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	req := &CreateEvaluationTaskRequest{
-		DatasetID: "ds-001",
-		Type:      EvaluationTypeRAG,
-		KnowledgeBaseID:      "kb-001",
-		ModelID:   "model-001", // Required for all types
+		DatasetID:       "ds-001",
+		Type:            EvaluationTypeRAG,
+		KnowledgeBaseID: "kb-001",
+		ModelID:         "model-001", // Required for all types
 	}
 
 	task, err := service.CreateEvaluation(context.Background(), 1, 10, req)
@@ -336,6 +355,34 @@ func TestService_CreateEvaluation(t *testing.T) {
 	}
 }
 
+func TestService_CreateEvaluation_EmptyModelIDAllowedForRAG(t *testing.T) {
+	taskRepo := newMockTaskRepo()
+	resultRepo := newMockResultRepo()
+	dsService := newMockDatasetLoader()
+	progressCache := evaluationcache.NewProgressCache(nil)
+	dsService.datasets["ds-001"] = &DatasetMetadata{
+		ID:       "ds-001",
+		Name:     "Test Dataset",
+		EvalType: EvaluationTypeRAG,
+		QACount:  1,
+	}
+	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
+
+	req := &CreateEvaluationTaskRequest{
+		DatasetID:       "ds-001",
+		Type:            EvaluationTypeRAG,
+		KnowledgeBaseID: "kb-001",
+		ModelID:         "", // 前端「默认模型」
+	}
+	task, err := service.CreateEvaluation(context.Background(), 1, 10, req)
+	if err != nil {
+		t.Fatalf("empty model_id should use system default, got %v", err)
+	}
+	if task == nil {
+		t.Fatal("task should not be nil")
+	}
+}
+
 func TestService_CreateEvaluation_DatasetNotFound(t *testing.T) {
 	taskRepo := newMockTaskRepo()
 	resultRepo := newMockResultRepo()
@@ -345,10 +392,10 @@ func TestService_CreateEvaluation_DatasetNotFound(t *testing.T) {
 	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	req := &CreateEvaluationTaskRequest{
-		DatasetID: "nonexistent",
-		Type:      EvaluationTypeRAG,
-		KnowledgeBaseID:      "kb-001",
-		ModelID:   "model-001",
+		DatasetID:       "nonexistent",
+		Type:            EvaluationTypeRAG,
+		KnowledgeBaseID: "kb-001",
+		ModelID:         "model-001",
 	}
 
 	_, err := service.CreateEvaluation(context.Background(), 1, 10, req)
@@ -376,7 +423,7 @@ func TestService_CreateEvaluation_TypeMismatch(t *testing.T) {
 	req := &CreateEvaluationTaskRequest{
 		DatasetID: "ds-001",
 		Type:      EvaluationTypeAgent, // Mismatch
-		AgentID:   "agent-001", // Required for Agent type
+		AgentID:   "agent-001",         // Required for Agent type
 		ModelID:   "model-001",
 	}
 
@@ -449,7 +496,7 @@ func TestService_ListEvaluationResults(t *testing.T) {
 
 	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
-	result, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, "", "")
+	result, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, ListEvaluationFilter{})
 	if err != nil {
 		t.Fatalf("ListEvaluationResults() error = %v", err)
 	}
@@ -489,7 +536,7 @@ func TestService_ListEvaluationResults_FilterPushdown(t *testing.T) {
 	service := NewService(dsService, taskRepo, resultRepo, progressCache, nil, nil)
 
 	// 仅按 status=completed 过滤 → 命中 task-002/task-003，Total=2
-	byStatus, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, "completed", "")
+	byStatus, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, ListEvaluationFilter{Status: "completed"})
 	if err != nil {
 		t.Fatalf("ListEvaluationResults(status) error = %v", err)
 	}
@@ -498,7 +545,7 @@ func TestService_ListEvaluationResults_FilterPushdown(t *testing.T) {
 	}
 
 	// status=completed + type=rag → 仅命中 task-003
-	byBoth, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, "completed", "rag")
+	byBoth, err := service.ListEvaluationResults(context.Background(), 1, 1, 10, ListEvaluationFilter{Status: "completed", EvalType: "rag"})
 	if err != nil {
 		t.Fatalf("ListEvaluationResults(status+type) error = %v", err)
 	}
