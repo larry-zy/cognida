@@ -90,10 +90,20 @@ func TestEvaluateDatasourceSamplerError(t *testing.T) {
 
 func TestEvaluateDatasourceEmptySample(t *testing.T) {
 	smp := &fakeSampler{csv: []byte("id\n"), n: 0}
-	s := NewService(&fakeGateway{}, 0, nil, nil, smp)
-	_, err := s.EvaluateDatasource(context.Background(), 1, 10, "ds1", "orders", 50, nil)
-	if err == nil || !strings.Contains(err.Error(), "无数据") {
-		t.Fatalf("空样本应报无数据, got %v", err)
+	gw := &fakeGateway{}
+	s := NewService(gw, 0, nil, nil, smp)
+	report, err := s.EvaluateDatasource(context.Background(), 1, 10, "ds1", "orders", 50, nil)
+	if err != nil {
+		t.Fatalf("空样本应业务拦截返回空报告，不应报错: %v", err)
+	}
+	if report == nil || report.RecordCount != 0 {
+		t.Fatalf("空样本应返回 RecordCount=0, got %+v", report)
+	}
+	if report.Metadata["skip_reason"] != "empty_sample" {
+		t.Fatalf("空样本应标记 skip_reason=empty_sample, got %+v", report.Metadata)
+	}
+	if gw.lastCSV != nil {
+		t.Fatal("空样本不应调用 Python 质量服务")
 	}
 }
 
