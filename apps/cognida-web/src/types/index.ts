@@ -306,6 +306,7 @@ export interface Knowledge {
   storage_size: number
   file_path: string
   parse_status: 'unprocessed' | 'pending' | 'processing' | 'completed' | 'failed'
+  error_message?: string
   enable_status: 'enabled' | 'disabled'
   chunk_count: number
   created_at: string
@@ -323,6 +324,7 @@ export interface UploadKnowledgeFileRequest {
 export interface KnowledgeStatus {
   knowledge_id: string
   parse_status: 'pending' | 'processing' | 'completed' | 'failed'
+  error_message?: string
   enable_status: 'enabled' | 'disabled'
   chunk_count: number
   created_at: string

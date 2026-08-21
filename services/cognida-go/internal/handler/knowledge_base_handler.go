@@ -34,6 +34,10 @@ type KnowledgeBaseHandler struct {
 	uploadConfig         *config.UploadConfig
 }
 
+const maxKnowledgeFileSize = 10 * 1024 * 1024
+
+const documentFailureUpdateTimeout = 10 * time.Second
+
 // NewKnowledgeBaseHandler 创建知识库处理器
 func NewKnowledgeBaseHandler(
 	knowledgeBaseService app_kb.KnowledgeBaseService,
@@ -274,6 +278,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeList(c *gin.Context) {
 			"storage_size":  k.StorageSize,
 			"file_path":     k.FilePath,
 			"parse_status":  k.ParseStatus,
+			"error_message": k.ErrorMessage,
 			"enable_status": k.EnableStatus,
 			"chunk_count":   k.ChunkCount,
 			"created_at":    k.CreatedAt.Unix(),
@@ -372,10 +377,8 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 		return
 	}
 
-	// 验证文件大小 (50MB)
-	const maxFileSize = 50 * 1024 * 1024
-	if fileHeader.Size > maxFileSize {
-		BadRequest(c, "文件大小超过限制(50MB)")
+	if err := validateKnowledgeFileSize(fileHeader.Size); err != nil {
+		BadRequest(c, err.Error())
 		return
 	}
 
@@ -444,7 +447,7 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 			if r := recover(); r != nil {
 				log.Printf("[KnowledgeBaseHandler] Document processing panicked: %v\n%s", r, debug.Stack())
 				// panic 后同样将记录标记为失败，避免永远停留在 processing
-				h.markDocumentFailed(context.Background(), knowledge.ID)
+				h.markDocumentFailed(knowledge.ID, fmt.Errorf("document processing panicked: %v", r))
 			}
 		}()
 		h.processDocumentWithUseCase(asyncCtx, knowledgeBaseID, tenantID, userID, fileHeader.Filename, absFilePath, knowledge.ID)
@@ -456,6 +459,13 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 		"title":        knowledge.Title,
 		"message":      "文档正在处理中",
 	})
+}
+
+func validateKnowledgeFileSize(fileSize int64) error {
+	if fileSize > maxKnowledgeFileSize {
+		return fmt.Errorf("文件大小超过限制(10 MiB)")
+	}
+	return nil
 }
 
 // CheckKnowledgeFile 预检文件是否已存在于知识库（防止重传相同文件）
@@ -517,14 +527,31 @@ func detectFileType(ext string) string {
 	return e
 }
 
-// markDocumentFailed 将文档记录标记为解析失败
-func (h *KnowledgeBaseHandler) markDocumentFailed(ctx context.Context, knowledgeID string) {
-	if knowledgeID == "" {
-		return
-	}
-	if err := h.knowledgeBaseService.UpdateParseStatus(ctx, knowledgeID, domain_knowledge.ParseStatusFailed, ""); err != nil {
+type parseStatusUpdater interface {
+	UpdateParseStatus(ctx context.Context, id, parseStatus, errorMessage string) error
+}
+
+// markDocumentFailed 将文档记录标记为解析失败。
+// 处理上下文超时后仍需持久化失败状态，因此不复用已取消的处理 context。
+func (h *KnowledgeBaseHandler) markDocumentFailed(knowledgeID string, cause error) {
+	updateCtx, cancel := context.WithTimeout(context.Background(), documentFailureUpdateTimeout)
+	defer cancel()
+
+	if err := updateDocumentFailureStatus(updateCtx, h.knowledgeBaseService, knowledgeID, cause); err != nil {
 		log.Printf("[KnowledgeBaseHandler] Failed to mark document failed: %v", err)
 	}
+}
+
+func updateDocumentFailureStatus(ctx context.Context, updater parseStatusUpdater, knowledgeID string, cause error) error {
+	if knowledgeID == "" {
+		return nil
+	}
+
+	errorMessage := "文档处理失败"
+	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
+		errorMessage = cause.Error()
+	}
+	return updater.UpdateParseStatus(ctx, knowledgeID, domain_knowledge.ParseStatusFailed, errorMessage)
 }
 
 // processDocumentWithUseCase 使用 UseCase 处理文档
@@ -533,7 +560,7 @@ func (h *KnowledgeBaseHandler) processDocumentWithUseCase(ctx context.Context, k
 	kb, err := h.knowledgeBaseService.FindByID(ctx, knowledgeBaseID, tenantID)
 	if err != nil {
 		log.Printf("[KnowledgeBaseHandler] Failed to get KB: %v", err)
-		h.markDocumentFailed(ctx, documentID)
+		h.markDocumentFailed(documentID, err)
 		return
 	}
 
@@ -556,7 +583,7 @@ func (h *KnowledgeBaseHandler) processDocumentWithUseCase(ctx context.Context, k
 	resp, err := h.documentProcessor.ProcessDocument(ctx, tenantID, userID, req)
 	if err != nil {
 		log.Printf("[KnowledgeBaseHandler] Document processing failed: %v", err)
-		h.markDocumentFailed(ctx, documentID)
+		h.markDocumentFailed(documentID, err)
 		return
 	}
 
@@ -643,6 +670,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeDetail(c *gin.Context) {
 		"description":   knowledge.Description,
 		"source":        knowledge.Source,
 		"parse_status":  knowledge.ParseStatus,
+		"error_message": knowledge.ErrorMessage,
 		"enable_status": knowledge.EnableStatus,
 		"storage_size":  knowledge.StorageSize,
 		"chunk_count": func() int {
@@ -687,6 +715,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeStatus(c *gin.Context) {
 	OK(c, map[string]interface{}{
 		"knowledge_id":  knowledge.ID,
 		"parse_status":  knowledge.ParseStatus,
+		"error_message": knowledge.ErrorMessage,
 		"enable_status": knowledge.EnableStatus,
 		"chunk_count": func() int {
 			if knowledge.ChunkCount == nil {
@@ -729,6 +758,7 @@ func (h *KnowledgeBaseHandler) GetPendingKnowledgeList(c *gin.Context) {
 			"description":   k.Description,
 			"source":        k.Source,
 			"parse_status":  k.ParseStatus,
+			"error_message": k.ErrorMessage,
 			"enable_status": k.EnableStatus,
 			"chunk_count": func() int {
 				if k.ChunkCount == nil {

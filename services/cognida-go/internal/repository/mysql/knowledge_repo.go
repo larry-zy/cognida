@@ -147,14 +147,12 @@ func (r *knowledgeRepository) Update(ctx context.Context, knowledge *domain_know
 // UpdateParseStatus 更新解析状态
 func (r *knowledgeRepository) UpdateParseStatus(ctx context.Context, id string, parseStatus string, errorMessage string) error {
 	updates := map[string]interface{}{
-		"parse_status": parseStatus,
+		"parse_status":  parseStatus,
+		"error_message": errorMessage,
 	}
 	// 如果状态为 completed，同时设置 processed_at 时间戳
 	if parseStatus == domain_knowledge.ParseStatusCompleted {
 		updates["processed_at"] = time.Now()
-	}
-	if errorMessage != "" {
-		updates["error_message"] = errorMessage
 	}
 	return r.db.WithContext(ctx).Model(&KnowledgeModel{}).
 		Where("id = ?", id).
