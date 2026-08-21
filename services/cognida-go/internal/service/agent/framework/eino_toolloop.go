@@ -31,6 +31,10 @@ const (
 	// 这并非有效最终答复：观察结果已在手，模型却过早停口，用户只能看到开场思考＋若干工具步骤、
 	// 拿不到任何结论/数据（前端表现为"卡在半句话"）。转 wind-down 从已有观察合成一份自洽答复。
 	TerminatedByEmptyFinish = "empty_finish"
+	// TerminatedByNoResponse 表示已跑过工具轮后，某轮生成既未返回消息也未报错/中止
+	// （部分供应商/适配器在异常时会产出 (nil, nil) 而非 error）。观察结果已在手，
+	// 若按自然结束放行会交付空答；视作异常终止转 wind-down 从已有观察合成答复。
+	TerminatedByNoResponse = "no_response"
 )
 
 // maxTruncationRetries 是「finish_reason=length 截断且无工具调用」时注入精简提示后的最大重试轮数。
@@ -147,8 +151,9 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	// 迭代处理（可能需要多轮工具调用）。
 	// ReAct 循环受 maxIter 与 token 预算共同约束：任一到达上限即终止并收尾。
 	var res execResult
-	naturalFinish := false // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
-	truncationRetries := 0 // finish_reason=length 截断且无工具调用时的已重试次数（有界）
+	naturalFinish := false  // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
+	hasObservation := false // 是否已产生工具观察（工具轮真正执行过）；i>0 不是可靠代理——截断重试轮也消耗迭代但无观察
+	truncationRetries := 0  // finish_reason=length 截断且无工具调用时的已重试次数（有界）
 	// 挂钟护栏起点：仅在配置了 wallClock 时计时；time.Since(loopStart) 到点即终止并 wind-down。
 	loopStart := time.Now()
 	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
@@ -181,10 +186,21 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		}
 		res.tokensUsed += usageTotalTokens(msg)
 
-		// sink 未返回消息也未报错/中止：视作自然结束，避免下面解引用 msg 崩溃。
+		// sink 未返回消息也未报错/中止：避免下面解引用 msg 崩溃。
 		if msg == nil {
+			// 尚未产生任何工具观察（首轮，或仅经历过截断重试轮）：无观察可合成，
+			// wind-down 的「从观察给出结论」无从谈起，仍按自然结束放行。
+			if !hasObservation {
+				res.iterations = i + 1
+				naturalFinish = true
+				break
+			}
+			// 已有工具观察在手，sink 却未返回消息：工具已执行，若按自然结束放行
+			// 会交付空答（用户只看到思考＋工具步骤、拿不到任何结论）。视作异常终止，
+			// 转 wind-down 从已有观察合成一份自洽答复，而非静默交白卷。
+			log.Printf("[agent:%s] 第%d步 生成未返回消息（已跑过工具轮），转 wind-down 从观察合成收尾", a.name, i+1)
+			res.terminatedBy = TerminatedByNoResponse
 			res.iterations = i + 1
-			naturalFinish = true
 			break
 		}
 
@@ -237,6 +253,8 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 			}
 			messages = append(messages, obs)
 		}
+		// 工具轮真正执行过：此后任何异常终止（含 msg==nil）都有观察可供 wind-down 合成。
+		hasObservation = true
 
 		// 自我修复护栏：同一失败签名达阈值 → 注入一次再规划提示（引导换路径，非盲目重试）。
 		if note := guard.replanNote(); note != "" {
@@ -281,10 +299,19 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		if aborted {
 			return execResult{aborted: true}, nil
 		}
+		if ferr != nil {
+			log.Printf("[agent:%s] wind-down 收尾生成失败: %v", a.name, ferr)
+		}
 		if ferr == nil && final != nil {
 			res.content = final.Content
 			res.role = string(final.Role)
 			res.tokensUsed += usageTotalTokens(final)
+		}
+		// 收尾生成也未能产出内容（失败/空响应/空正文）：交付诚实的降级说明而非空白回复，
+		// 否则用户面对静默空答无从得知运行已终止及原因。
+		if strings.TrimSpace(res.content) == "" {
+			res.content = fmt.Sprintf("本次运行已执行 %d 轮但未能生成最终答复（终止原因：%s），建议重试或缩小问题范围。",
+				res.iterations, res.terminatedBy)
 		}
 		res.partial = true
 	}
