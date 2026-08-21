@@ -24,14 +24,30 @@
           { label: 'QA', value: 'qa' },
           { label: 'Agent', value: 'agent' }
         ]"
-        @update:modelValue="handleFilterChange"
+        @update:modelValue="handleSearch"
       />
+      <UiInput
+        v-model="filterName"
+        placeholder="数据集名称"
+        clearable
+        style="width: 200px"
+        @keyup.enter="handleSearch"
+      />
+      <UiInput
+        v-model="filterId"
+        placeholder="数据集 ID"
+        clearable
+        style="width: 220px"
+        @keyup.enter="handleSearch"
+      />
+      <UiButton variant="primary" @click="handleSearch">查询</UiButton>
+      <UiButton variant="ghost" @click="resetFilters">重置</UiButton>
     </div>
 
     <!-- 数据集列表 -->
     <div v-loading="loading" class="dataset-grid">
       <div
-        v-for="dataset in filteredDatasets"
+        v-for="dataset in datasets"
         :key="dataset.id"
         class="dataset-card"
         @click="viewDataset(dataset)"
@@ -71,7 +87,7 @@
       </div>
     </div>
 
-    <UiEmpty v-if="!loading && filteredDatasets.length === 0" description="暂无数据集">
+    <UiEmpty v-if="!loading && datasets.length === 0" description="暂无数据集">
       <UiButton variant="primary" @click="showCreateDialog = true">创建第一个数据集</UiButton>
     </UiEmpty>
 
@@ -372,8 +388,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import toast from '@/utils/toast'
 import { ElMessageBox } from '@/utils/confirm'
 import {
@@ -417,6 +433,7 @@ import type {
 } from '@/types'
 
 const router = useRouter()
+const route = useRoute()
 
 // State
 const loading = ref(false)
@@ -446,8 +463,10 @@ const samplePage = ref(1)
 const samplePageSize = ref(20)
 const sampleTotal = ref(0)
 
-// Filter
+// Filter：优先从 URL query 初始化（测评详情跳转带入）
 const filterType = ref('')
+const filterName = ref(typeof route.query.name === 'string' ? route.query.name : '')
+const filterId = ref(typeof route.query.id === 'string' ? route.query.id : '')
 
 // Form refs
 const uploadFormRef = ref()
@@ -517,14 +536,6 @@ const addSampleForm = ref({
 
 const relevantPIDsInput = ref('')
 
-// Computed
-const filteredDatasets = computed(() => {
-  if (!filterType.value) return datasets.value
-  return datasets.value.filter(d =>
-    (d.type || d.eval_type) === filterType.value
-  )
-})
-
 // Methods
 function getTypeColor(type: string) {
   const colors: Record<string, any> = {
@@ -538,8 +549,11 @@ function getTypeColor(type: string) {
 async function loadDatasets() {
   loading.value = true
   try {
-    const params = filterType.value ? { type: filterType.value } : undefined
-    const res = await evaluationApi.listDatasets(params)
+    const res = await evaluationApi.listDatasets({
+      type: filterType.value || undefined,
+      name: filterName.value.trim() || undefined,
+      id: filterId.value.trim() || undefined
+    })
     if (res.data) {
       datasets.value = res.data.datasets || []
     }
@@ -550,8 +564,32 @@ async function loadDatasets() {
   }
 }
 
-function handleFilterChange() {
+function handleSearch() {
   loadDatasets()
+}
+
+function resetFilters() {
+  filterType.value = ''
+  filterName.value = ''
+  filterId.value = ''
+  // 清掉 URL 查询参数，避免再次进入又被回填
+  if (route.query.name || route.query.id) {
+    router.replace({ name: 'DatasetList', query: {} })
+  }
+  loadDatasets()
+}
+
+/** 从路由 query 回填名称 / ID 筛选（测评详情跳转带入） */
+function queryStr(v: unknown): string {
+  if (Array.isArray(v)) return String(v[0] ?? '').trim()
+  return typeof v === 'string' ? v.trim() : ''
+}
+
+function applyQueryFilters() {
+  const name = queryStr(route.query.name)
+  const id = queryStr(route.query.id)
+  if (name) filterName.value = name
+  if (id) filterId.value = id
 }
 
 // Upload dataset (file system)
@@ -883,8 +921,18 @@ function createEvaluationWithDataset() {
 }
 
 onMounted(() => {
+  applyQueryFilters()
   loadDatasets()
 })
+
+// 同页再次带 query 跳入时也回填并刷新
+watch(
+  () => [route.query.name, route.query.id],
+  () => {
+    applyQueryFilters()
+    loadDatasets()
+  }
+)
 </script>
 
 <style scoped>
@@ -914,6 +962,10 @@ onMounted(() => {
 }
 
 .filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
   margin-bottom: 24px;
 }
 

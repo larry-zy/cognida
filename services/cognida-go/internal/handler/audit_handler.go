@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"cognida/internal/model/audit"
+	"cognida/internal/model/trace"
 )
 
 // AuditHandler 请求审计查询处理器。
@@ -15,12 +16,13 @@ import (
 // 仅提供只读查询/统计接口——写入由 AuditMiddleware + 异步 Writer 负责，
 // 不经此 handler，保证写路径与查询路径解耦。
 type AuditHandler struct {
-	repo audit.Repository
+	repo   audit.Repository
+	traces trace.Repository
 }
 
 // NewAuditHandler 创建审计查询处理器
-func NewAuditHandler(repo audit.Repository) *AuditHandler {
-	return &AuditHandler{repo: repo}
+func NewAuditHandler(repo audit.Repository, traces trace.Repository) *AuditHandler {
+	return &AuditHandler{repo: repo, traces: traces}
 }
 
 // ListAuditLogs 分页查询审计日志。
@@ -71,6 +73,7 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 			RespondError(c, err)
 			return
 		}
+		h.markHasTrace(c, logs)
 		OK(c, gin.H{
 			"list":        logs,
 			"next_cursor": nextCursor,
@@ -85,6 +88,7 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 		InternalError(c, err.Error())
 		return
 	}
+	h.markHasTrace(c, logs)
 
 	OK(c, gin.H{
 		"list":      logs,
@@ -128,7 +132,29 @@ func (h *AuditHandler) GetAuditLog(c *gin.Context) {
 		NotFound(c, err.Error())
 		return
 	}
+	h.markHasTrace(c, []*audit.AuditLog{entry})
 	OK(c, entry)
+}
+
+func (h *AuditHandler) markHasTrace(c *gin.Context, logs []*audit.AuditLog) {
+	if h.traces == nil || len(logs) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(logs))
+	for _, log := range logs {
+		if log != nil && log.RequestID != nil && *log.RequestID != "" {
+			ids = append(ids, *log.RequestID)
+		}
+	}
+	found, err := h.traces.HasRequestIDs(c.Request.Context(), GetTenantID(c), ids)
+	if err != nil || found == nil {
+		return
+	}
+	for _, log := range logs {
+		if log != nil && log.RequestID != nil {
+			log.HasTrace = found[*log.RequestID]
+		}
+	}
 }
 
 // parseTimeQuery 解析时间查询参数，支持 RFC3339 与常见日期时间格式。

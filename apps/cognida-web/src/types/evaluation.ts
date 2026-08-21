@@ -113,6 +113,8 @@ export interface EvaluationTask {
   id?: string
   task_id: string
   dataset_id: string
+  /** 数据集显示名称（列表接口按 dataset_id 解析） */
+  dataset_name?: string
   type: string
   status: EvaluationStatus
   total_count: number
@@ -139,6 +141,8 @@ export interface EvaluationTaskDetail extends EvaluationTask {
 export interface EvaluationDetail {
   task_id: string
   dataset_id: string
+  /** 数据集显示名称（后端按 dataset_id 解析，缺失时可能为空） */
+  dataset_name?: string
   type: string
   status: EvaluationStatus
   qa_results: any[]

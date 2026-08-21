@@ -1,6 +1,6 @@
 module cognida
 
-go 1.25.12
+go 1.25.13
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -151,13 +151,13 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.etcd.io/bbolt v1.3.12 // indirect
-	go.etcd.io/etcd/api/v3 v3.5.30 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.5.30 // indirect
-	go.etcd.io/etcd/client/v2 v2.305.30 // indirect
-	go.etcd.io/etcd/client/v3 v3.5.30 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.5.30 // indirect
-	go.etcd.io/etcd/raft/v3 v3.5.30 // indirect
-	go.etcd.io/etcd/server/v3 v3.5.30 // indirect
+	go.etcd.io/etcd/api/v3 v3.5.33 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.5.33 // indirect
+	go.etcd.io/etcd/client/v2 v2.305.33 // indirect
+	go.etcd.io/etcd/client/v3 v3.5.33 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.5.33 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.33 // indirect
+	go.etcd.io/etcd/server/v3 v3.5.33 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.29.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.20.0 // indirect

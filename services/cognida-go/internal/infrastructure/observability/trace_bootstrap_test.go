@@ -27,6 +27,9 @@ func (f *fakeTraceRepo) ListTraces(context.Context, *domaintrace.Query) ([]*doma
 func (f *fakeTraceRepo) GetSpansByTraceID(context.Context, string) ([]*domaintrace.Span, error) {
 	return nil, nil
 }
+func (f *fakeTraceRepo) HasRequestIDs(context.Context, int64, []string) (map[string]bool, error) {
+	return map[string]bool{}, nil
+}
 
 func (f *fakeTraceRepo) snapshot() []*domaintrace.Span {
 	f.mu.Lock()

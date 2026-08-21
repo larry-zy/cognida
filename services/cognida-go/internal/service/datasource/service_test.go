@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	model "cognida/internal/model/datasource"
 )
 
 type seqIDGen struct{ n int }
@@ -146,5 +148,38 @@ func TestDeleteNotFound(t *testing.T) {
 	s, _ := newTestService(t)
 	if err := s.Delete(context.Background(), 1, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("删除不存在数据源应返回 ErrNotFound, got %v", err)
+	}
+}
+
+func TestListFiltersByNameTypeDatabase(t *testing.T) {
+	s, _ := newTestService(t)
+	ctx := context.Background()
+
+	mysqlIn := validInput("订单-MySQL")
+	mysqlIn.DatabaseName = "orders"
+	if _, err := s.Create(ctx, 1, 10, mysqlIn); err != nil {
+		t.Fatalf("Create mysql: %v", err)
+	}
+	pgIn := validInput("分析-PG")
+	pgIn.Type = "postgres"
+	pgIn.Port = 5432
+	pgIn.DatabaseName = "analytics"
+	if _, err := s.Create(ctx, 1, 10, pgIn); err != nil {
+		t.Fatalf("Create postgres: %v", err)
+	}
+
+	byName, total, err := s.List(ctx, model.ListFilter{TenantID: 1, Name: "订单", Limit: 20})
+	if err != nil || total != 1 || len(byName) != 1 || byName[0].Name != "订单-MySQL" {
+		t.Fatalf("按名称筛选失败: total=%d items=%+v err=%v", total, byName, err)
+	}
+
+	byType, total, err := s.List(ctx, model.ListFilter{TenantID: 1, Type: "postgres", Limit: 20})
+	if err != nil || total != 1 || len(byType) != 1 || byType[0].Type != "postgres" {
+		t.Fatalf("按类型筛选失败: total=%d items=%+v err=%v", total, byType, err)
+	}
+
+	byDB, total, err := s.List(ctx, model.ListFilter{TenantID: 1, DatabaseName: "analy", Limit: 20})
+	if err != nil || total != 1 || len(byDB) != 1 || byDB[0].DatabaseName != "analytics" {
+		t.Fatalf("按数据库筛选失败: total=%d items=%+v err=%v", total, byDB, err)
 	}
 }

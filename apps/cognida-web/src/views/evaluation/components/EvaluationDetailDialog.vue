@@ -6,7 +6,19 @@
         <h4>任务信息</h4>
         <UiDescriptions :column="2" border>
           <UiDescriptionsItem label="任务ID">{{ detail.task_id }}</UiDescriptionsItem>
-          <UiDescriptionsItem label="数据集">{{ detail.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集id">{{ detail.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集名称" :mono="false">
+            <button
+              v-if="detail.dataset_name || detail.dataset_id"
+              type="button"
+              class="dataset-name-link"
+              title="查看数据集"
+              @click.stop="goToDataset(detail.dataset_name, detail.dataset_id)"
+            >
+              {{ detail.dataset_name || detail.dataset_id }}
+            </button>
+            <span v-else>-</span>
+          </UiDescriptionsItem>
           <UiDescriptionsItem label="评测类型">{{ detail.type?.toUpperCase() }}</UiDescriptionsItem>
           <UiDescriptionsItem label="状态">
             <UiTag :variant="EvaluationStatusType[detail.status]">
@@ -72,6 +84,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   UiModal,
   UiDescriptions,
@@ -100,6 +113,8 @@ const emit = defineEmits<{
   (e: 'refresh'): void
 }>()
 
+const router = useRouter()
+
 const visible = computed({
   get: () => props.modelValue,
   set: (v: boolean) => emit('update:modelValue', v)
@@ -123,9 +138,36 @@ function handleClose() {
   emit('close')
   visible.value = false
 }
+
+/** 跳转数据集管理，并把名称 / ID 写入筛选条件 */
+async function goToDataset(name?: string, id?: string) {
+  const query: Record<string, string> = {}
+  if (name?.trim()) query.name = name.trim()
+  if (id?.trim()) query.id = id.trim()
+  // 先跳转再关弹窗，避免关闭动画打断路由
+  await router.push({ path: '/datasets', query })
+  handleClose()
+}
 </script>
 
 <style scoped>
+.dataset-name-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary, #22d3ee);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.dataset-name-link:hover {
+  opacity: 0.85;
+}
+
 .detail-section {
   margin-bottom: 24px;
 }

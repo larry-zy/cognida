@@ -55,8 +55,14 @@ type DataSource struct {
 // ListFilter 数据源列表查询过滤
 type ListFilter struct {
 	TenantID int64
-	Limit    int
-	Offset   int
+	// Name 按名称模糊匹配（空则不限）
+	Name string
+	// Type 按类型精确匹配，如 mysql / postgres（空则不限）
+	Type string
+	// DatabaseName 按数据库名模糊匹配（空则不限）
+	DatabaseName string
+	Limit        int
+	Offset       int
 }
 
 // Repository 数据源仓储接口

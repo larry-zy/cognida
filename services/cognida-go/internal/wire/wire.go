@@ -768,8 +768,8 @@ func ProvideAuditWriter(repo domain_audit.Repository) *auditsvc.Writer {
 	return auditsvc.NewWriter(repo, auditsvc.DefaultWriterConfig())
 }
 
-func ProvideAuditHandler(repo domain_audit.Repository) *handler.AuditHandler {
-	return handler.NewAuditHandler(repo)
+func ProvideAuditHandler(repo domain_audit.Repository, traces domaintrace.Repository) *handler.AuditHandler {
+	return handler.NewAuditHandler(repo, traces)
 }
 
 func ProvideTraceRepository(db *gorm.DB) domaintrace.Repository {

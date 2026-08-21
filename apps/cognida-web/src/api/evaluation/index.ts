@@ -39,9 +39,18 @@ export const evaluationApi = {
   },
 
   /**
-   * 列出测评任务
+   * 列出测评任务。
+   * 可选筛选：status（running/failed…）、task_id、dataset_id、dataset_name、type。
    */
-  list(params?: { page?: number; page_size?: number }) {
+  list(params?: {
+    page?: number
+    page_size?: number
+    status?: string
+    type?: string
+    task_id?: string
+    dataset_id?: string
+    dataset_name?: string
+  }) {
     return http.get<DatasetListResponse>('/evaluation/tasks', { params })
   },
 
@@ -89,7 +98,7 @@ export const evaluationApi = {
   /**
    * 列出数据集
    */
-  listDatasets(params?: { type?: string }) {
+  listDatasets(params?: { type?: string; name?: string; id?: string }) {
     return http.get<{ datasets: DatasetInfo[] }>('/evaluation/datasets', { params })
   },
 

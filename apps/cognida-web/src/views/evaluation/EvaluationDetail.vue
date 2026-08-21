@@ -28,7 +28,19 @@
         </template>
         <UiDescriptions v-if="detail.task" :column="3" border>
           <UiDescriptionsItem label="任务ID">{{ detail.task.task_id.substring(0, 8) }}...</UiDescriptionsItem>
-          <UiDescriptionsItem label="数据集">{{ detail.task.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集id">{{ detail.task.dataset_id || detail.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集名称" :mono="false">
+            <button
+              v-if="detail.dataset_name || detail.task.dataset_id || detail.dataset_id"
+              type="button"
+              class="dataset-name-link"
+              title="查看数据集"
+              @click.stop="goToDataset(detail.dataset_name, detail.task.dataset_id || detail.dataset_id)"
+            >
+              {{ detail.dataset_name || detail.task.dataset_id || detail.dataset_id }}
+            </button>
+            <span v-else>-</span>
+          </UiDescriptionsItem>
           <UiDescriptionsItem label="进度">
             {{ detail.task.success_count }} / {{ detail.task.total_count }}
           </UiDescriptionsItem>
@@ -38,6 +50,22 @@
           </UiDescriptionsItem>
           <UiDescriptionsItem v-if="detail.task.error_message" label="错误信息" :span="3">
             <UiText type="danger">{{ detail.task.error_message }}</UiText>
+          </UiDescriptionsItem>
+        </UiDescriptions>
+        <UiDescriptions v-else :column="3" border>
+          <UiDescriptionsItem label="任务ID">{{ detail.task_id?.substring(0, 8) }}...</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集id">{{ detail.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="数据集名称" :mono="false">
+            <button
+              v-if="detail.dataset_name || detail.dataset_id"
+              type="button"
+              class="dataset-name-link"
+              title="查看数据集"
+              @click.stop="goToDataset(detail.dataset_name, detail.dataset_id)"
+            >
+              {{ detail.dataset_name || detail.dataset_id }}
+            </button>
+            <span v-else>-</span>
           </UiDescriptionsItem>
         </UiDescriptions>
       </UiCard>
@@ -348,6 +376,14 @@ function getScoreType(score: number): 'success' | 'warning' | 'danger' | 'info' 
   return 'danger'
 }
 
+/** 跳转数据集管理，并把名称 / ID 写入筛选条件 */
+async function goToDataset(name?: string, id?: string) {
+  const query: Record<string, string> = {}
+  if (name?.trim()) query.name = name.trim()
+  if (id?.trim()) query.id = id.trim()
+  await router.push({ path: '/datasets', query })
+}
+
 function goBack() {
   router.push({ name: 'EvaluationList' })
 }
@@ -505,6 +541,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.dataset-name-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary, #22d3ee);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dataset-name-link:hover {
+  opacity: 0.85;
+}
+
 .evaluation-detail-container {
   padding: 24px;
   max-width: 1400px;

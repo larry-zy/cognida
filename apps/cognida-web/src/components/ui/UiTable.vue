@@ -71,8 +71,8 @@
     <div v-if="showPagination && pagination" class="ui-table__pagination">
       <slot name="pagination">
         <UiPagination
-          v-model:page="pagination.page"
-          v-model:page-size="pagination.pageSize"
+          :page="pagination.page"
+          :page-size="pagination.pageSize"
           :total="pagination.total"
           @change="handlePageChange"
         />
@@ -202,6 +202,11 @@ function formatCellValue(row: any, column: Column) {
 }
 
 function handleRowClick(row: any, index: number) {
+  // 拖选/长按选中文字时，mouseup 也会触发 click；有选区则不当作行点击，避免误开详情。
+  const sel = window.getSelection()
+  if (sel && !sel.isCollapsed && sel.toString().trim()) {
+    return
+  }
   emit('row-click', row, index)
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -180,9 +181,18 @@ func (s *Service) GetEvaluationResult(ctx context.Context, taskID string) (*Eval
 		return nil, err
 	}
 
+	// 尽力解析数据集名称（缺失时不影响详情返回）
+	datasetName := ""
+	if s.datasetService != nil && task.DatasetID != "" {
+		if info, err := s.datasetService.GetDatasetInfo(ctx, task.DatasetID); err == nil && info != nil {
+			datasetName = info.Name
+		}
+	}
+
 	return &EvaluationResultDetail{
 		TaskID:       task.ID,
 		DatasetID:    task.DatasetID,
+		DatasetName:  datasetName,
 		Type:         task.Type,
 		Status:       task.Status,
 		Metrics:      task.Metrics,
@@ -199,6 +209,7 @@ func (s *Service) GetEvaluationResult(ctx context.Context, taskID string) (*Eval
 type EvaluationResultDetail struct {
 	TaskID       string                      `json:"task_id"`
 	DatasetID    string                      `json:"dataset_id"`
+	DatasetName  string                      `json:"dataset_name,omitempty"`
 	Type         domeval.EvaluationType      `json:"type"`
 	Status       domeval.TaskStatus          `json:"status"`
 	Metrics      *domeval.TaskMetrics        `json:"metrics,omitempty"` // 任务级聚合指标
@@ -210,10 +221,19 @@ type EvaluationResultDetail struct {
 	UpdatedAt    time.Time                   `json:"updated_at"`
 }
 
+// ListEvaluationFilter 评测任务列表筛选条件（空字段表示不过滤）。
+type ListEvaluationFilter struct {
+	Status      string // running / failed / completed …
+	EvalType    string // rag / qa / agent …
+	TaskID      string // 任务 ID 模糊
+	DatasetID   string // 数据集 ID 模糊
+	DatasetName string // 数据集名称模糊（先解析为 dataset_id 列表再下推）
+}
+
 // ListEvaluationResults 列出评测结果。
-// status/evalType 为可选过滤条件（空字符串表示不过滤），会下推到仓储层由
-// DB 统一过滤+分页+返回真实 Total，避免「先分页再内存过滤」导致的 Total 失真与跨页命中丢失。
-func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, page, pageSize int, status, evalType string) (*EvaluationResultList, error) {
+// 过滤条件下推到仓储层由 DB 统一过滤+分页+返回真实 Total，
+// 避免「先分页再内存过滤」导致的 Total 失真与跨页命中丢失。
+func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, page, pageSize int, f ListEvaluationFilter) (*EvaluationResultList, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -224,19 +244,51 @@ func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, pag
 		pageSize = 100
 	}
 
+	// 数据集名称字典：既用于列表回填 dataset_name，也用于名称筛选解析 ID
+	nameByID := map[string]string{}
+	if s.datasetService != nil {
+		if all, err := s.datasetService.ListDatasets(ctx); err == nil {
+			for _, ds := range all {
+				if ds == nil {
+					continue
+				}
+				nameByID[ds.ID] = ds.Name
+			}
+		}
+	}
+
 	filter := &domeval.TaskFilter{
 		TenantID: &tenantID,
 		Page:     page,
 		PageSize: pageSize,
+		TaskID:   strings.TrimSpace(f.TaskID),
 	}
-	// 状态/类型过滤下推到 DB（与旧内存过滤一致，按存储值精确匹配）。
-	if status != "" {
+	if status := strings.TrimSpace(f.Status); status != "" {
 		st := domeval.TaskStatus(status)
 		filter.Status = &st
 	}
-	if evalType != "" {
+	if evalType := strings.TrimSpace(f.EvalType); evalType != "" {
 		et := domeval.EvaluationType(evalType)
 		filter.Type = &et
+	}
+	if dsID := strings.TrimSpace(f.DatasetID); dsID != "" {
+		filter.DatasetID = &dsID
+	}
+	if nameQ := strings.TrimSpace(f.DatasetName); nameQ != "" {
+		needle := strings.ToLower(nameQ)
+		ids := make([]string, 0)
+		for id, name := range nameByID {
+			if strings.Contains(strings.ToLower(name), needle) {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) == 0 {
+			return &EvaluationResultList{
+				Items: []*EvaluationTaskSummary{}, Total: 0,
+				Page: page, PageSize: pageSize, TotalPages: 0,
+			}, nil
+		}
+		filter.DatasetIDs = ids
 	}
 
 	tasks, total, err := s.taskRepo.List(ctx, filter)
@@ -244,12 +296,12 @@ func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, pag
 		return nil, err
 	}
 
-	// 转换为 DTO
 	items := make([]*EvaluationTaskSummary, len(tasks))
 	for i, task := range tasks {
 		items[i] = &EvaluationTaskSummary{
 			TaskID:       task.ID,
 			DatasetID:    task.DatasetID,
+			DatasetName:  nameByID[task.DatasetID],
 			Type:         task.Type,
 			Status:       task.Status,
 			TotalCount:   task.TotalCount,
@@ -273,6 +325,7 @@ func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, pag
 type EvaluationTaskSummary struct {
 	TaskID       string                 `json:"task_id"`
 	DatasetID    string                 `json:"dataset_id"`
+	DatasetName  string                 `json:"dataset_name,omitempty"`
 	Type         domeval.EvaluationType `json:"type"`
 	Status       domeval.TaskStatus     `json:"status"`
 	TotalCount   int                    `json:"total_count"`

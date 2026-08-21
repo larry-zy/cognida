@@ -258,8 +258,9 @@ async function loadTraces() {
       traces.value = res.data.list || []
       total.value = res.data.total || 0
     }
-  } catch (error: any) {
-    toast.error(error.message || '加载调用链失败')
+  } catch {
+    traces.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }

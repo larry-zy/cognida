@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,10 +22,10 @@ import (
 
 // EvaluationHandler 评测处理器
 type EvaluationHandler struct {
-	service         *evaluation.Service
-	datasetManager  *evaluation.DatasetManager
-	progressCache   domeval.ProgressReader
-	agentRegistry   domagent.AgentRegistry
+	service        *evaluation.Service
+	datasetManager *evaluation.DatasetManager
+	progressCache  domeval.ProgressReader
+	agentRegistry  domagent.AgentRegistry
 }
 
 // NewEvaluationHandler 创建评测处理器
@@ -48,17 +49,19 @@ func NewEvaluationHandler(
 
 // CreateEvaluationTaskRequest 创建评测任务请求
 type CreateEvaluationTaskRequest struct {
-	DatasetID string                 `json:"dataset_id" binding:"required"`
-	Type      string                 `json:"type" binding:"required"`
-	KnowledgeBaseID      string                 `json:"kb_id,omitempty"`
-	AgentID   string                 `json:"agent_id,omitempty"`
-	ModelID   string                 `json:"model_id,omitempty"`
-	Config    map[string]interface{} `json:"config,omitempty"`
+	DatasetID       string                 `json:"dataset_id" binding:"required"`
+	Type            string                 `json:"type" binding:"required"`
+	KnowledgeBaseID string                 `json:"kb_id,omitempty"`
+	AgentID         string                 `json:"agent_id,omitempty"`
+	ModelID         string                 `json:"model_id,omitempty"`
+	Config          map[string]interface{} `json:"config,omitempty"`
 }
 
 // ListDatasetsRequest 列出数据集请求参数
 type ListDatasetsRequest struct {
-	Type string `form:"type"` // 数据集类型过滤
+	Type string `form:"type"` // 评测类型过滤：rag / qa / agent
+	Name string `form:"name"` // 名称模糊匹配
+	ID   string `form:"id"`   // 数据集 ID 精确或模糊匹配
 }
 
 // ========================================
@@ -101,12 +104,12 @@ func (h *EvaluationHandler) CreateTask(c *gin.Context) {
 
 	// 构建配置
 	evalConfig := &evaluation.CreateEvaluationTaskRequest{
-		DatasetID: req.DatasetID,
-		Type:      evaluation.EvaluationType(req.Type),
-		KnowledgeBaseID:      req.KnowledgeBaseID,
-		AgentID:   req.AgentID,
-		ModelID:   req.ModelID,
-		Config:    req.Config,
+		DatasetID:       req.DatasetID,
+		Type:            evaluation.EvaluationType(req.Type),
+		KnowledgeBaseID: req.KnowledgeBaseID,
+		AgentID:         req.AgentID,
+		ModelID:         req.ModelID,
+		Config:          req.Config,
 	}
 
 	// 创建任务
@@ -161,12 +164,17 @@ func (h *EvaluationHandler) ListTasks(c *gin.Context) {
 	}
 
 	// 解析查询参数
-	status := c.Query("status")
-	evalType := c.Query("type")
 	page, pageSize := GetPageParams(c)
+	f := evaluation.ListEvaluationFilter{
+		Status:      strings.TrimSpace(c.Query("status")),
+		EvalType:    strings.TrimSpace(c.Query("type")),
+		TaskID:      strings.TrimSpace(c.Query("task_id")),
+		DatasetID:   strings.TrimSpace(c.Query("dataset_id")),
+		DatasetName: strings.TrimSpace(c.Query("dataset_name")),
+	}
 
-	// 调用服务：status/type 过滤下推到 DB 层，保证 Total 真实、跨页命中不丢失。
-	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantIDInt, page, pageSize, status, evalType)
+	// 调用服务：过滤条件下推到 DB 层，保证 Total 真实、跨页命中不丢失。
+	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantIDInt, page, pageSize, f)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -356,12 +364,17 @@ func (h *EvaluationHandler) ListResults(c *gin.Context) {
 
 	// 解析查询参数
 	page, pageSize := GetPageParams(c)
-	status := c.Query("status")
-	evalType := c.Query("type")
+	f := evaluation.ListEvaluationFilter{
+		Status:      strings.TrimSpace(c.Query("status")),
+		EvalType:    strings.TrimSpace(c.Query("type")),
+		TaskID:      strings.TrimSpace(c.Query("task_id")),
+		DatasetID:   strings.TrimSpace(c.Query("dataset_id")),
+		DatasetName: strings.TrimSpace(c.Query("dataset_name")),
+	}
 
-	// 调用服务：status/type 过滤下推到 DB 层，保证 Total 真实、跨页命中不丢失。
-	// 注：评测「结果」列表按任务维度组织，与任务共享 status/type 过滤维度，故同样下推。
-	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantID.(int64), page, pageSize, status, evalType)
+	// 调用服务：过滤条件下推到 DB 层，保证 Total 真实、跨页命中不丢失。
+	// 注：评测「结果」列表按任务维度组织，与任务共享过滤维度，故同样下推。
+	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantID.(int64), page, pageSize, f)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -417,6 +430,8 @@ func (h *EvaluationHandler) ListDatasets(c *gin.Context) {
 	// 并把内部字段映射为前端字段名——eval_type=评测类型、dataset_type=存储类型
 	// （内部 DatasetMetadata 用 type=存储/evaluation_type=评测，与前端命名相反，
 	// 直接透传会导致类型徽标、过滤、及「数据库集才显示的样本管理按钮」全部失效）。
+	nameQ := strings.TrimSpace(req.Name)
+	idQ := strings.TrimSpace(req.ID)
 	items := make([]gin.H, 0, len(datasets))
 	for _, ds := range datasets {
 		// 反归一到前端类型词表（rag/qa/agent）：后端 llm 是 qa 的历史别名，
@@ -426,6 +441,12 @@ func (h *EvaluationHandler) ListDatasets(c *gin.Context) {
 			evalType = string(evaluation.EvaluationTypeQA)
 		}
 		if req.Type != "" && evalType != req.Type {
+			continue
+		}
+		if nameQ != "" && !strings.Contains(strings.ToLower(ds.Name), strings.ToLower(nameQ)) {
+			continue
+		}
+		if idQ != "" && !strings.Contains(strings.ToLower(ds.ID), strings.ToLower(idQ)) {
 			continue
 		}
 		items = append(items, gin.H{
@@ -484,7 +505,6 @@ func (h *EvaluationHandler) handleError(c *gin.Context, err error) {
 		InternalError(c, err.Error())
 	}
 }
-
 
 // ========================================
 // 数据集管理 HTTP Handlers

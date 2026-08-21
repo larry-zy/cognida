@@ -95,7 +95,7 @@ jobs:
     name: 漏洞扫描 (govulncheck)
     runs-on: ubuntu-latest
     # 存量可达漏洞已清零: 升级 grpc / x/text / excelize / quic-go / etcd 等依赖并将 go 版本钉到
-    # 1.25.12(修复 crypto/tls ECH 漏洞 GO-2026-5856)后, govulncheck 对"可达"漏洞报告为空。
+    # 1.25.13(覆盖 crypto/tls 等 stdlib 补丁 + etcd server ≥3.5.33)后, govulncheck 对"可达"漏洞报告为空。
     # govulncheck 只报告调用链真正触及的漏洞, 误报极低; 故转为硬门禁,
     # 与本仓库 golangci-lint / ruff / mypy / safety / bandit 的"存量先反馈、清零后转门禁"一致。
     steps:

@@ -22,6 +22,20 @@
     row-key="task_id"
     @row-click="(row: EvaluationTask) => emit('view', row)"
   >
+    <!-- 数据集名称：点击跳转数据集管理并带筛选 -->
+    <template #cell-dataset_name="{ row }: { row: EvaluationTask }">
+      <button
+        v-if="row.dataset_name || row.dataset_id"
+        type="button"
+        class="dataset-name-link"
+        title="查看数据集"
+        @click.stop="goToDataset(row)"
+      >
+        {{ row.dataset_name || row.dataset_id }}
+      </button>
+      <span v-else>-</span>
+    </template>
+
     <!-- 状态 -->
     <template #cell-status="{ row }: { row: EvaluationTask }">
       <UiTag :variant="EvaluationStatusType[row.status]">
@@ -56,7 +70,7 @@
       <UiButton
         variant="danger"
         size="sm"
-        @click.stop="row.id && emit('remove', row.id)"
+        @click.stop="(row.id || row.task_id) && emit('remove', row.id || row.task_id)"
       >
         删除
       </UiButton>
@@ -65,6 +79,7 @@
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { UiTable, UiTag, UiProgress, UiButton, UiEmpty, UiLoader } from '@/components'
 import {
   EvaluationStatusType,
@@ -85,9 +100,19 @@ const emit = defineEmits<{
   (e: 'create'): void
 }>()
 
+const router = useRouter()
+
+function goToDataset(row: EvaluationTask) {
+  const query: Record<string, string> = {}
+  if (row.dataset_name?.trim()) query.name = row.dataset_name.trim()
+  if (row.dataset_id?.trim()) query.id = row.dataset_id.trim()
+  router.push({ path: '/datasets', query })
+}
+
 const columns = [
   { key: 'task_id', title: '任务ID', width: 200 },
-  { key: 'dataset_id', title: '数据集', width: 150 },
+  { key: 'dataset_id', title: '数据集id', width: 140 },
+  { key: 'dataset_name', title: '数据集名称', width: 160 },
   { key: 'status', title: '状态', width: 100 },
   { key: 'progress', title: '进度', width: 200 },
   { key: 'created_at', title: '创建时间', width: 180 },
@@ -96,6 +121,21 @@ const columns = [
 </script>
 
 <style scoped>
+.dataset-name-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary, #22d3ee);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dataset-name-link:hover {
+  opacity: 0.85;
+}
+
 .evaluation-table {
   cursor: pointer;
 }

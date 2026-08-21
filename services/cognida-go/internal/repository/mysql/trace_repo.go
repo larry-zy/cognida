@@ -70,7 +70,7 @@ func (r *traceRepository) GetSpansByTraceID(ctx context.Context, traceID string)
 // ListTraces 按 trace_id 聚合分页查询：每行是一整棵调用链的摘要。
 //   - 过滤（request_id/session_id/agent_name/tenant/时间/trace_id）走 span 级 WHERE；
 //   - only_error（是否含错误 span）是聚合条件，走 HAVING；
-//   - 根信息（root_name / duration）取根 span（parent_span_id='' ）的值，缺根则回落总跨度。
+//   - 根信息（root_name / duration）取根 span（parent_span_id=” ）的值，缺根则回落总跨度。
 func (r *traceRepository) ListTraces(ctx context.Context, q *domaintrace.Query) ([]*domaintrace.TraceSummary, int64, error) {
 	if q == nil {
 		q = &domaintrace.Query{}
@@ -177,4 +177,39 @@ func (r *traceRepository) ListTraces(ctx context.Context, q *domaintrace.Query) 
 		})
 	}
 	return out, total, nil
+}
+
+// HasRequestIDs 批量判断哪些 request_id 在本租户下有 span。
+func (r *traceRepository) HasRequestIDs(ctx context.Context, tenantID int64, ids []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	seen := make([]string, 0, len(ids))
+	uniq := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := uniq[id]; ok {
+			continue
+		}
+		uniq[id] = struct{}{}
+		seen = append(seen, id)
+	}
+	if len(seen) == 0 {
+		return out, nil
+	}
+	db := r.db.WithContext(ctx).Table("trace_spans").Select("DISTINCT request_id").Where("request_id IN ?", seen)
+	if tenantID > 0 {
+		db = db.Where("tenant_id = ?", tenantID)
+	}
+	var found []string
+	if err := db.Scan(&found).Error; err != nil {
+		return nil, fmt.Errorf("查询 request_id 是否有调用链失败: %w", err)
+	}
+	for _, id := range found {
+		out[id] = true
+	}
+	return out, nil
 }
