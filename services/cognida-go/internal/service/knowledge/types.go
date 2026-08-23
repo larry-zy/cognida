@@ -304,10 +304,11 @@ type ProcessDocumentResponse struct {
 
 // RebuildGraphResponse 知识库图谱补建结果
 type RebuildGraphResponse struct {
-	TotalDocuments     int `json:"total_documents"`     // 已完成解析的文档总数
-	ProcessedDocuments int `json:"processed_documents"` // 成功重建图谱的文档数
-	SkippedDocuments   int `json:"skipped_documents"`   // 无可用分块而跳过的文档数
-	FailedDocuments    int `json:"failed_documents"`    // 重建失败的文档数
-	TotalNodes         int `json:"total_nodes"`         // 提取的节点总数
-	TotalRelations     int `json:"total_relations"`     // 提取的关系总数
+	TotalDocuments     int  `json:"total_documents"`     // 已完成解析的文档总数
+	ProcessedDocuments int  `json:"processed_documents"` // 成功重建图谱的文档数
+	SkippedDocuments   int  `json:"skipped_documents"`   // 无可用分块而跳过的文档数
+	FailedDocuments    int  `json:"failed_documents"`    // 重建失败的文档数
+	TotalNodes         int  `json:"total_nodes"`         // 实际写入的节点总数（跨文档合并去重后；未替换时为 0）
+	TotalRelations     int  `json:"total_relations"`     // 实际写入的关系总数（跨文档合并去重后；未替换时为 0）
+	GraphReplaced      bool `json:"graph_replaced"`      // 图谱是否实际替换；存在失败文档或合并结果为空时为 false，旧图保留
 }

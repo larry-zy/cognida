@@ -26,16 +26,17 @@ import (
 
 // documentProcessorService 文档处理服务实现
 type documentProcessorService struct {
-	kbRepo        domain_knowledge.KnowledgeBaseRepository
-	knowledgeRepo domain_knowledge.KnowledgeRepository
-	chunkRepo     domain_knowledge.ChunkRepository
-	graphRepo     domain_knowledge.GraphRepository
-	vectorRepo    domain_knowledge.VectorRepository
-	grpcClient    docreader.DocumentReader
-	embedder      embedding.Embedder   // Embedding 生成器
-	llmClient     domain_llm.LLMClient // LLM 客户端（用于图谱提取）
-	idGenerator   id.IDGenerator
-	vectorInitMu  sync.Mutex
+	kbRepo                 domain_knowledge.KnowledgeBaseRepository
+	knowledgeRepo          domain_knowledge.KnowledgeRepository
+	chunkRepo              domain_knowledge.ChunkRepository
+	graphRepo              domain_knowledge.GraphRepository
+	vectorRepo             domain_knowledge.VectorRepository
+	grpcClient             docreader.DocumentReader
+	embedder               embedding.Embedder   // Embedding 生成器
+	llmClient              domain_llm.LLMClient // LLM 客户端（用于图谱提取）
+	idGenerator            id.IDGenerator
+	vectorInitMu           sync.Mutex
+	vectorCollectionsReady sync.Map // key: kbID int64，已初始化的 collection；热路径免锁免 HasCollection RPC
 }
 
 // NewDocumentProcessorService 创建文档处理服务
@@ -604,15 +605,13 @@ func (s *documentProcessorService) vectorizeChunks(
 	}
 
 	// kbID 转换为 int64，如果为空则使用 0（统一 collection）。首次写入时根据真实
-	// embedding 维度初始化 collection；锁内检查保证并发上传不会重复建表/建索引。
+	// embedding 维度初始化 collection；已初始化的 collection 走内存缓存，只有真正的
+	// 首次建表串行在全局锁内，避免并发上传重复建表/建索引，同时不让后续上传排队。
 	var kbIDInt64 int64
 	if kbID != "" {
 		_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt64) // 解析失败保持零值
 	}
-	s.vectorInitMu.Lock()
-	err = ensureVectorCollection(ctx, s.vectorRepo, kbIDInt64, len(embeddings[0]))
-	s.vectorInitMu.Unlock()
-	if err != nil {
+	if err := s.ensureVectorCollectionCached(ctx, s.vectorRepo, kbIDInt64, len(embeddings[0])); err != nil {
 		return fmt.Errorf("failed to initialize vector collection: %w", err)
 	}
 
@@ -666,6 +665,31 @@ func (s *documentProcessorService) vectorizeChunks(
 	}
 
 	log.Printf("[DocumentProcessor] Vectorization completed: %d chunks inserted", len(chunks))
+	return nil
+}
+
+// ensureVectorCollectionCached 是 ensureVectorCollection 的双检缓存入口：
+// collection 建成后热路径只查一次内存标记，不再持全局锁、不再发 HasCollection RPC。
+// VectorRepository 没有 DropCollection，进程内不会删除 collection，故缓存无需失效；
+// 若 collection 被外部手工删除，由后续 Insert 报错暴露。
+func (s *documentProcessorService) ensureVectorCollectionCached(
+	ctx context.Context,
+	repo vectorCollectionStore,
+	kbID int64,
+	dimension int,
+) error {
+	if _, ready := s.vectorCollectionsReady.Load(kbID); ready {
+		return nil
+	}
+	s.vectorInitMu.Lock()
+	defer s.vectorInitMu.Unlock()
+	if _, ready := s.vectorCollectionsReady.Load(kbID); ready {
+		return nil
+	}
+	if err := ensureVectorCollection(ctx, repo, kbID, dimension); err != nil {
+		return err
+	}
+	s.vectorCollectionsReady.Store(kbID, struct{}{})
 	return nil
 }
 
@@ -946,8 +970,6 @@ func (s *documentProcessorService) RebuildKnowledgeBaseGraph(
 			}
 			graphs = append(graphs, graph)
 			resp.ProcessedDocuments++
-			resp.TotalNodes += len(graph.Node)
-			resp.TotalRelations += len(graph.Relation)
 		}
 
 		if page*pageSize >= int(total) {
@@ -958,26 +980,45 @@ func (s *documentProcessorService) RebuildKnowledgeBaseGraph(
 		TenantID:        fmt.Sprintf("%d", tenantID),
 		KnowledgeBaseID: kbID,
 	}
-	if err := s.replaceRebuiltGraph(ctx, namespace, graphs, resp.FailedDocuments); err != nil {
+	// 计数必须来自合并去重后的最终写入结果，逐文档累加会在跨文档重复实体时虚高
+	merged := mergeGraphExtractionResults(graphs)
+	replaced, err := s.replaceRebuiltGraph(ctx, namespace, merged, resp.FailedDocuments)
+	if err != nil {
 		return nil, fmt.Errorf("replace graph failed: %w", err)
 	}
+	resp.GraphReplaced = replaced
+	if replaced {
+		resp.TotalNodes = len(merged.Node)
+		resp.TotalRelations = len(merged.Relation)
+	}
 
-	log.Printf("[DocumentProcessor] Rebuild graph completed for KB %s: total=%d processed=%d skipped=%d failed=%d nodes=%d relations=%d",
-		kbID, resp.TotalDocuments, resp.ProcessedDocuments, resp.SkippedDocuments, resp.FailedDocuments, resp.TotalNodes, resp.TotalRelations)
+	log.Printf("[DocumentProcessor] Rebuild graph completed for KB %s: total=%d processed=%d skipped=%d failed=%d replaced=%t nodes=%d relations=%d",
+		kbID, resp.TotalDocuments, resp.ProcessedDocuments, resp.SkippedDocuments, resp.FailedDocuments, resp.GraphReplaced, resp.TotalNodes, resp.TotalRelations)
 	return resp, nil
 }
 
+// replaceRebuiltGraph 在无失败文档且合并结果非空时原子替换旧图并返回 true；
+// 否则保留旧图返回 false，调用方不得把抽取结果当作已写入数据上报。
 func (s *documentProcessorService) replaceRebuiltGraph(
 	ctx context.Context,
 	namespace domain_knowledge.NameSpace,
-	graphs []*domain_knowledge.GraphData,
+	merged *domain_knowledge.GraphData,
 	failedDocuments int,
-) error {
+) (bool, error) {
 	if failedDocuments > 0 {
 		log.Printf("[DocumentProcessor] Rebuild graph skipped replacement for KB %s after %d document failures", namespace.KnowledgeBaseID, failedDocuments)
-		return nil
+		return false, nil
 	}
-	return s.graphRepo.ReplaceGraph(ctx, namespace, []*domain_knowledge.GraphData{mergeGraphExtractionResults(graphs)})
+	// 合并逻辑要求关系的两端节点必须存在，纯关系空节点的图实际不会出现，
+	// 这里同时检查两者只是对"没有任何抽取结果"的防御性判定。
+	if len(merged.Node) == 0 && len(merged.Relation) == 0 {
+		log.Printf("[DocumentProcessor] Rebuild graph skipped replacement for KB %s: merged graph is empty", namespace.KnowledgeBaseID)
+		return false, nil
+	}
+	if err := s.graphRepo.ReplaceGraph(ctx, namespace, []*domain_knowledge.GraphData{merged}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // parseGraphExtraction 解析 LLM 返回的图谱提取结果

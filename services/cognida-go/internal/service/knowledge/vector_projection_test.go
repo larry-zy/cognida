@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/cloudwego/eino/components/embedding"
@@ -153,5 +154,81 @@ func TestEmbedTextsInBatchesRespectsLimitAndOrder(t *testing.T) {
 		if len(vector) != 1 || vector[0] != float64(i) {
 			t.Fatalf("第 %d 个结果顺序错误: %v", i, vector)
 		}
+	}
+}
+
+// 并发安全且计数原子的 fake，配合 -race 验证双检缓存的并发行为
+type concurrentVectorCollectionStore struct {
+	mu          sync.Mutex
+	exists      bool
+	hasCalls    int
+	createCalls int
+}
+
+func (f *concurrentVectorCollectionStore) HasCollection(context.Context, int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hasCalls++
+	return f.exists, nil
+}
+
+func (f *concurrentVectorCollectionStore) CreateCollection(context.Context, int64, int, *domain_knowledge.CollectionOptions) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createCalls++
+	f.exists = true // 建表后 HasCollection 才返回 true，模拟真实 Milvus 行为
+	return nil
+}
+
+func (f *concurrentVectorCollectionStore) CreateIndex(context.Context, int64, string, domain_knowledge.IndexType, domain_knowledge.MetricType, map[string]string) error {
+	return nil
+}
+
+func (f *concurrentVectorCollectionStore) LoadCollection(context.Context, int64, bool) error {
+	return nil
+}
+
+func TestEnsureVectorCollectionCachedSkipsRPCAfterFirstInit(t *testing.T) {
+	repo := &fakeVectorCollectionStore{}
+	service := &documentProcessorService{}
+
+	if err := service.ensureVectorCollectionCached(context.Background(), repo, 7, 1536); err != nil {
+		t.Fatalf("首次初始化失败: %v", err)
+	}
+	if repo.hasCalls != 1 || repo.createCalls != 1 {
+		t.Fatalf("首次初始化调用不正确: has=%d create=%d", repo.hasCalls, repo.createCalls)
+	}
+
+	if err := service.ensureVectorCollectionCached(context.Background(), repo, 7, 1536); err != nil {
+		t.Fatalf("缓存命中路径失败: %v", err)
+	}
+	if repo.hasCalls != 1 {
+		t.Fatalf("缓存命中后不应再发 HasCollection RPC，实际 %d 次", repo.hasCalls)
+	}
+}
+
+func TestEnsureVectorCollectionCachedConcurrentSingleCreation(t *testing.T) {
+	repo := &concurrentVectorCollectionStore{}
+	service := &documentProcessorService{}
+
+	const goroutines = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := service.ensureVectorCollectionCached(context.Background(), repo, 7, 1536); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("并发初始化失败: %v", err)
+	}
+	if repo.createCalls != 1 {
+		t.Fatalf("并发下 CreateCollection 应只调用 1 次，实际 %d 次", repo.createCalls)
 	}
 }

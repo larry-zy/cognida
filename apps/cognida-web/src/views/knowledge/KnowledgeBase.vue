@@ -458,8 +458,10 @@ import type {
   KnowledgeBaseStats,
   Knowledge,
   Chunk,
-  UpdateKnowledgeBaseRequest
+  UpdateKnowledgeBaseRequest,
+  RebuildGraphResult
 } from '@/types'
+import { rebuildSuccessMessage } from './rebuild'
 
 const router = useRouter()
 const route = useRoute()
@@ -566,7 +568,7 @@ let chunkLoadSeq = 0
 const settingsLoading = ref(false)
 const settingsSaving = ref(false)
 // 补建图谱状态机：idle→pending→success|error，就地由 <UiAsyncStatus> 常驻展示
-const rebuildTask = useAsyncTask()
+const rebuildTask = useAsyncTask<RebuildGraphResult | undefined>()
 // 后端 UpdateKnowledgeBase 接受 name/description/status，以及库级图谱开关 graph_enabled。
 // 分块/BM25 等其余数据处理配置仅在创建时生效，故不在此维护。
 const settingsForm = reactive<UpdateKnowledgeBaseRequest>({
@@ -1004,14 +1006,7 @@ async function rebuildGraph() {
     },
     {
       pendingMessage: '补建中…（文档较多时耗时较长，请勿关闭页面）',
-      successMessage: (r: any) => {
-        if (!r) return '补建完成'
-        // 有失败文档时如实标注，避免把「部分失败」伪装成完全成功
-        const failed = r.failed_documents ? `，失败 ${r.failed_documents} 篇` : ''
-        const skipped = r.skipped_documents ? `，跳过 ${r.skipped_documents} 篇` : ''
-        return `补建完成：处理 ${r.processed_documents}/${r.total_documents} 篇，` +
-          `新增 ${r.total_nodes} 节点、${r.total_relations} 关系${skipped}${failed}`
-      },
+      successMessage: rebuildSuccessMessage,
       errorMessage: (e: any) => e?.message || '补建失败',
     }
   )
