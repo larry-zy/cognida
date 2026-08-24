@@ -47,6 +47,10 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 		}) {
 			return nil, false
 		}
+		// 参数不可解析同样是「该工具的一次失败」，须计入自我修复护栏（与下方执行失败路径一致）：
+		// 否则模型反复以畸形参数调用同一工具时，护栏对此视而不见——既不触发再规划、也不触发
+		// 提前收尾，恰好绕过护栏要打破的「原地打转」。
+		guard.recordFailure(tc.Function.Name, "")
 		toolCall.Output = fmt.Sprintf("Error: 参数解析失败: %v", toolCall.Error)
 		response.ToolCalls = append(response.ToolCalls, toolCall)
 		return schema.ToolMessage(compactObservation(toolCall.Output), tc.ID), true

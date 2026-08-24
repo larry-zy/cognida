@@ -19,11 +19,13 @@ type scriptedToolModel struct {
 	script        []*schema.Message
 	idx           int
 	calls         int
+	lastInput     []*schema.Message // 最近一次 Generate 收到的输入（供断言注入的提示/观察）
 	perCallTokens int
 }
 
 func (m *scriptedToolModel) Generate(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
 	m.calls++
+	m.lastInput = input
 	var out *schema.Message
 	if m.idx < len(m.script) {
 		out = m.script[m.idx]
