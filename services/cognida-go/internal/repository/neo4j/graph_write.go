@@ -15,7 +15,6 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
 
-	// Use transaction for atomicity
 	tx, err := session.BeginTransaction(ctx)
 	if err != nil {
 		return fmt.Errorf("开始事务失败: %w", err)
@@ -29,6 +28,60 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 		}
 	}()
 
+	if err := r.writeGraphs(ctx, tx, namespace, graphs); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("提交事务失败: %w", err)
+	}
+
+	return nil
+}
+
+// ReplaceGraph atomically replaces graph data scoped by tenant and knowledge base.
+func (r *Neo4jRepository) ReplaceGraph(ctx context.Context, namespace knowledge.NameSpace, graphs []*knowledge.GraphData) error {
+	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
+	defer session.Close(ctx)
+
+	tx, err := session.BeginTransaction(ctx)
+	if err != nil {
+		return fmt.Errorf("开始替换图谱事务失败: %w", err)
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			_ = tx.Rollback(ctx)
+			panic(recovered)
+		}
+	}()
+
+	if _, err := tx.Run(ctx, `
+		MATCH (n:Entity {tenant_id: $tenantId, kb_id: $kbId})
+		DETACH DELETE n
+	`, map[string]interface{}{
+		"tenantId": namespace.TenantID,
+		"kbId":     namespace.KnowledgeBaseID,
+	}); err != nil {
+		_ = tx.Rollback(ctx)
+		return fmt.Errorf("删除旧图谱失败: %w", err)
+	}
+	if err := r.writeGraphs(ctx, tx, namespace, graphs); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("提交替换图谱事务失败: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Neo4jRepository) writeGraphs(
+	ctx context.Context,
+	tx neo4j.ExplicitTransaction,
+	namespace knowledge.NameSpace,
+	graphs []*knowledge.GraphData,
+) error {
 	// 批量写入 Cypher：每个 graphData 一次 UNWIND 节点 + 一次 UNWIND 关系（PF-3），
 	// 取代逐节点/逐关系 tx.Run。语义与逐条版本保持完全一致：
 	//   - MERGE 键、ON CREATE/ON MATCH 的 SET 字段完全相同；
@@ -94,7 +147,6 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 				"kbId":     namespace.KnowledgeBaseID,
 			})
 			if err != nil {
-				_ = tx.Rollback(ctx)
 				return fmt.Errorf("添加节点失败: %w", err)
 			}
 		}
@@ -125,15 +177,9 @@ func (r *Neo4jRepository) AddGraph(ctx context.Context, namespace knowledge.Name
 				"kbId":     namespace.KnowledgeBaseID,
 			})
 			if err != nil {
-				_ = tx.Rollback(ctx)
 				return fmt.Errorf("添加关系失败: %w", err)
 			}
 		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("提交事务失败: %w", err)
 	}
 
 	return nil

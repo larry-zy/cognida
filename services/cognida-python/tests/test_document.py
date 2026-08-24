@@ -3,12 +3,13 @@
 import asyncio
 
 import pytest
-
+import services.document as document_service
 from services.document import (
-    parse_document,
-    chunk_text,
     ChunkStrategy,
+    chunk_text,
+    parse_document,
 )
+from services.document.parsers.base import ParseResult
 
 
 @pytest.mark.asyncio
@@ -92,6 +93,45 @@ async def test_parse_csv():
     assert result["success"] is True
     assert "Alice" in result["text"]
     assert "Bob" in result["text"]
+
+
+@pytest.mark.asyncio
+async def test_parse_pdf_from_file_path(tmp_path):
+    """PDF 文件句柄在延迟读取页面时必须保持可用。"""
+    pypdf = pytest.importorskip("pypdf")
+
+    pdf_path = tmp_path / "sample.pdf"
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with pdf_path.open("wb") as pdf_file:
+        writer.write(pdf_file)
+
+    result = await parse_document(source=str(pdf_path), format="pdf")
+
+    assert result["success"] is True
+    assert result["metadata"]["page_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_parse_document_preserves_parser_failure(monkeypatch):
+    """底层解析失败时，不应被包装成空文档成功。"""
+
+    class FailingParser:
+        async def parse_from_bytes(self, source, **kwargs):
+            return ParseResult(
+                success=False,
+                text="",
+                metadata={},
+                error="模拟解析失败",
+            )
+
+    monkeypatch.setattr(document_service, "get_parser", lambda _format: FailingParser())
+
+    result = await document_service.parse_document(source=b"invalid", format="pdf")
+
+    assert result["success"] is False
+    assert result["text"] == ""
+    assert result["error"] == "模拟解析失败"
 
 
 # @pytest.mark.asyncio

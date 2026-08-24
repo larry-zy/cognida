@@ -6,10 +6,7 @@
 from typing import Any
 
 from core import get_logger
-from .parsers import get_parser
-from .parsers.base import BaseParser, ParseResult
-from .ocr import get_ocr_engine
-from .ocr.base import BaseOCR, OCRResult
+
 from .chunking import ChunkStrategy, chunk_document
 from .formats import (
     DocumentFormat,
@@ -17,7 +14,10 @@ from .formats import (
     OCRLanguage,
     normalize_document_format,
 )
-
+from .ocr import get_ocr_engine
+from .ocr.base import BaseOCR, OCRResult
+from .parsers import get_parser
+from .parsers.base import BaseParser, ParseResult
 
 __all__ = [
     "BaseParser",
@@ -90,19 +90,26 @@ async def parse_document(
             )
 
         response = {
-            "success": True,
+            "success": result.success,
             "text": result.text,
             "metadata": result.metadata if include_metadata else None,
             "tables": result.tables or [],
             "images": result.images or [],
-            "error": None,
+            "error": result.error,
         }
 
-        logger.info(
-            "文档解析完成",
-            format=format,
-            char_count=len(result.text),
-        )
+        if result.success:
+            logger.info(
+                "文档解析完成",
+                format=format,
+                char_count=len(result.text),
+            )
+        else:
+            logger.error(
+                "文档解析失败",
+                format=format,
+                error=result.error,
+            )
         return response
 
     except Exception as e:

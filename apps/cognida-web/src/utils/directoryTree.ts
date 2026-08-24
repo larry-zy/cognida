@@ -5,7 +5,7 @@
 
 /** 与后端知识库上传接口保持一致的文件类型/大小限制 */
 export const ACCEPTED_KNOWLEDGE_EXTENSIONS = ['.txt', '.md', '.pdf', '.doc', '.docx']
-export const MAX_KNOWLEDGE_FILE_SIZE = 50 * 1024 * 1024 // 50MB
+export const MAX_KNOWLEDGE_FILE_SIZE = 10 * 1024 * 1024 // 10 MiB
 
 export interface FileTreeNode {
   /** 该层级的文件/目录名 */

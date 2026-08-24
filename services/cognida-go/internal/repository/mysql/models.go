@@ -85,25 +85,26 @@ func (m *KnowledgeBaseModel) FromDomain(entity *domain_knowledge.KnowledgeBase) 
 
 // KnowledgeModel 知识条目数据库模型
 type KnowledgeModel struct {
-	ID           string     `gorm:"primaryKey;type:varchar(36)"`
-	TenantID     int64      `gorm:"not null;index:idx_tenant_kb,priority:1"`
-	TagID        *int64     `gorm:"default:NULL"`
-	KnowledgeBaseID   string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id;index:idx_kb_filehash,priority:1"`
-	UserID       int64      `gorm:"not null;index:idx_user_id"`
-	Type         string     `gorm:"type:varchar(50);not null"`
-	Title        string     `gorm:"type:varchar(255);not null"`
-	Description  string     `gorm:"type:text"`
-	Source       string     `gorm:"type:varchar(128);not null"`
-	ParseStatus  string     `gorm:"type:varchar(50);default:'unprocessed';index:idx_status"`
-	EnableStatus string     `gorm:"type:varchar(50);default:'enabled';index:idx_status"`
-	FilePath     string     `gorm:"type:text"`
-	FileHash     string     `gorm:"type:varchar(64);index:idx_kb_filehash,priority:2"`
-	StorageSize  int64      `gorm:"default:0"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
-	DeletedAt    *time.Time `gorm:"index"`
-	ProcessedAt  *time.Time
-	ChunkCount   *int `gorm:"default:NULL"`
+	ID              string     `gorm:"primaryKey;type:varchar(36)"`
+	TenantID        int64      `gorm:"not null;index:idx_tenant_kb,priority:1"`
+	TagID           *int64     `gorm:"default:NULL"`
+	KnowledgeBaseID string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id;index:idx_kb_filehash,priority:1"`
+	UserID          int64      `gorm:"not null;index:idx_user_id"`
+	Type            string     `gorm:"type:varchar(50);not null"`
+	Title           string     `gorm:"type:varchar(255);not null"`
+	Description     string     `gorm:"type:text"`
+	Source          string     `gorm:"type:varchar(128);not null"`
+	ParseStatus     string     `gorm:"type:varchar(50);default:'unprocessed';index:idx_status"`
+	ErrorMessage    string     `gorm:"type:text"`
+	EnableStatus    string     `gorm:"type:varchar(50);default:'enabled';index:idx_status"`
+	FilePath        string     `gorm:"type:text"`
+	FileHash        string     `gorm:"type:varchar(64);index:idx_kb_filehash,priority:2"`
+	StorageSize     int64      `gorm:"default:0"`
+	CreatedAt       time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
+	DeletedAt       *time.Time `gorm:"index"`
+	ProcessedAt     *time.Time
+	ChunkCount      *int `gorm:"default:NULL"`
 }
 
 // TableName 指定表名
@@ -114,25 +115,26 @@ func (KnowledgeModel) TableName() string {
 // ToDomain 转换为领域实体
 func (m *KnowledgeModel) ToDomain() *domain_knowledge.Knowledge {
 	return &domain_knowledge.Knowledge{
-		ID:           m.ID,
-		TenantID:     m.TenantID,
-		TagID:        m.TagID,
-		KnowledgeBaseID:         m.KnowledgeBaseID,
-		UserID:       m.UserID,
-		Type:         m.Type,
-		Title:        m.Title,
-		Description:  m.Description,
-		Source:       m.Source,
-		ParseStatus:  m.ParseStatus,
-		EnableStatus: m.EnableStatus,
-		FilePath:     m.FilePath,
-		FileHash:     m.FileHash,
-		StorageSize:  m.StorageSize,
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
-		DeletedAt:    m.DeletedAt,
-		ProcessedAt:  m.ProcessedAt,
-		ChunkCount:   m.ChunkCount,
+		ID:              m.ID,
+		TenantID:        m.TenantID,
+		TagID:           m.TagID,
+		KnowledgeBaseID: m.KnowledgeBaseID,
+		UserID:          m.UserID,
+		Type:            m.Type,
+		Title:           m.Title,
+		Description:     m.Description,
+		Source:          m.Source,
+		ParseStatus:     m.ParseStatus,
+		ErrorMessage:    m.ErrorMessage,
+		EnableStatus:    m.EnableStatus,
+		FilePath:        m.FilePath,
+		FileHash:        m.FileHash,
+		StorageSize:     m.StorageSize,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+		DeletedAt:       m.DeletedAt,
+		ProcessedAt:     m.ProcessedAt,
+		ChunkCount:      m.ChunkCount,
 	}
 }
 
@@ -148,6 +150,7 @@ func (m *KnowledgeModel) FromDomain(entity *domain_knowledge.Knowledge) *Knowled
 	m.Description = entity.Description
 	m.Source = entity.Source
 	m.ParseStatus = entity.ParseStatus
+	m.ErrorMessage = entity.ErrorMessage
 	m.EnableStatus = entity.EnableStatus
 	m.FilePath = entity.FilePath
 	m.FileHash = entity.FileHash
@@ -172,6 +175,7 @@ func (m *KnowledgeModel) FromDomainForCreate(entity *domain_knowledge.Knowledge)
 	m.Description = entity.Description
 	m.Source = entity.Source
 	m.ParseStatus = entity.ParseStatus
+	m.ErrorMessage = entity.ErrorMessage
 	m.EnableStatus = entity.EnableStatus
 	m.FilePath = entity.FilePath
 	m.FileHash = entity.FileHash
@@ -202,7 +206,7 @@ type ChunkModel struct {
 	ID                     string     `gorm:"primaryKey;type:varchar(36)"`
 	TenantID               int64      `gorm:"not null;index:idx_tenant_kb,priority:1"`
 	TagID                  *int64     `gorm:"default:NULL"`
-	KnowledgeBaseID   string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id"`
+	KnowledgeBaseID        string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id"`
 	KnowledgeID            string     `gorm:"not null;type:varchar(36);index:idx_knowledge_id"`
 	Content                string     `gorm:"type:text;not null"`
 	ChunkIndex             int        `gorm:"not null"`
@@ -235,7 +239,7 @@ func (m *ChunkModel) ToDomain() *domain_knowledge.Chunk {
 		ID:                     m.ID,
 		TenantID:               m.TenantID,
 		TagID:                  m.TagID,
-		KnowledgeBaseID:                   m.KnowledgeBaseID,
+		KnowledgeBaseID:        m.KnowledgeBaseID,
 		KnowledgeID:            m.KnowledgeID,
 		Content:                m.Content,
 		ChunkIndex:             m.ChunkIndex,
@@ -327,14 +331,14 @@ func (m *ChunkModel) FromDomainForCreate(entity *domain_knowledge.Chunk) *ChunkM
 
 // KnowledgeBaseSettingModel 知识库设置数据库模型
 type KnowledgeBaseSettingModel struct {
-	ID                int64      `gorm:"primaryKey;autoIncrement"`
-	KnowledgeBaseID   string     `gorm:"not null;type:varchar(36);uniqueIndex:uk_knowledge_base_id;column:knowledge_base_id"`
-	GraphEnabled      bool       `gorm:"type:tinyint(1);default:0"`
-	BM25Enabled       *bool      `gorm:"type:tinyint(1)"`
-	ChunkingConfig    *string    `gorm:"type:json"`
-	SettingsJSON      *string    `gorm:"type:json"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
+	ID              int64     `gorm:"primaryKey;autoIncrement"`
+	KnowledgeBaseID string    `gorm:"not null;type:varchar(36);uniqueIndex:uk_knowledge_base_id;column:knowledge_base_id"`
+	GraphEnabled    bool      `gorm:"type:tinyint(1);default:0"`
+	BM25Enabled     *bool     `gorm:"type:tinyint(1)"`
+	ChunkingConfig  *string   `gorm:"type:json"`
+	SettingsJSON    *string   `gorm:"type:json"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
@@ -426,9 +430,9 @@ func (m *TagModel) FromDomain(entity *domain_knowledge.Tag) *TagModel {
 
 // RetrievalSettingModel 检索设置数据库模型
 type RetrievalSettingModel struct {
-	ID        int64      `gorm:"primaryKey;autoIncrement"`
-	TenantID  int64      `gorm:"not null;index:idx_tenant_id"`
-	SessionID *string    `gorm:"type:varchar(36);index:idx_session_id"`
+	ID        int64   `gorm:"primaryKey;autoIncrement"`
+	TenantID  int64   `gorm:"not null;index:idx_tenant_id"`
+	SessionID *string `gorm:"type:varchar(36);index:idx_session_id"`
 	// 向量检索配置
 	VectorTopK      *int     `gorm:"default:5"`
 	VectorThreshold *float64 `gorm:"default:0.7"`
@@ -442,13 +446,13 @@ type RetrievalSettingModel struct {
 	GraphMinStrength *float64 `gorm:"default:1"`
 	// 混合检索配置
 	HybridAlpha         *domain_knowledge.Number `gorm:"default:0.5"`
-	HybridRerankEnabled *bool             `gorm:"type:tinyint(1);default:0"`
+	HybridRerankEnabled *bool                    `gorm:"type:tinyint(1);default:0"`
 	// 网络搜索配置
 	WebEnabled     *bool `gorm:"type:tinyint(1);default:0"`
 	WebSearchDepth *int  `gorm:"default:1"`
 	// 重排序配置
-	RerankEnabled *bool   `gorm:"type:tinyint(1);default:0"`
-	AdvancedConfig *string `gorm:"type:json"`
+	RerankEnabled  *bool     `gorm:"type:tinyint(1);default:0"`
+	AdvancedConfig *string   `gorm:"type:json"`
 	CreatedAt      time.Time `gorm:"autoCreateTime"`
 	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
 }
@@ -881,16 +885,16 @@ func (m *TenantUserModel) FromDomain(entity *domain_tenant.TenantUser) *TenantUs
 
 // GraphNodeModel 图谱节点数据库模型
 type GraphNodeModel struct {
-	ID         string    `gorm:"primaryKey;type:varchar(36)"`
-	Name       string    `gorm:"type:varchar(255);not null;index:idx_node_name"`
-	EntityType string    `gorm:"type:varchar(100);not null;index:idx_entity_type"`
-	Attributes string    `gorm:"type:json"`
-	Chunks     string    `gorm:"type:json"`
-	Properties string    `gorm:"type:json"`
-	TenantID   string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
-	KnowledgeBaseID       string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
-	CreatedAt  time.Time `gorm:"autoCreateTime"`
-	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
+	ID              string    `gorm:"primaryKey;type:varchar(36)"`
+	Name            string    `gorm:"type:varchar(255);not null;index:idx_node_name"`
+	EntityType      string    `gorm:"type:varchar(100);not null;index:idx_entity_type"`
+	Attributes      string    `gorm:"type:json"`
+	Chunks          string    `gorm:"type:json"`
+	Properties      string    `gorm:"type:json"`
+	TenantID        string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
+	KnowledgeBaseID string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
@@ -927,20 +931,20 @@ func (m *GraphNodeModel) FromDomain(entity *domain_knowledge.GraphNode) *GraphNo
 
 // GraphRelationModel 图谱关系数据库模型
 type GraphRelationModel struct {
-	ID             string    `gorm:"primaryKey;type:varchar(36)"`
-	Source         string    `gorm:"type:varchar(255);not null;index:idx_source"`
-	Target         string    `gorm:"type:varchar(255);not null;index:idx_target"`
-	Type           string    `gorm:"type:varchar(100);not null"`
-	Strength       float64   `gorm:"type:double;default:0"`
-	Weight         float64   `gorm:"type:double;default:0"`
-	ChunkIDs       string    `gorm:"type:json"`
-	Properties     string    `gorm:"type:json"`
-	CombinedDegree int       `gorm:"default:0"`
-	PMI            float64   `gorm:"type:double;default:0"`
-	TenantID       string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
-	KnowledgeBaseID           string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
-	CreatedAt      time.Time `gorm:"autoCreateTime"`
-	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
+	ID              string    `gorm:"primaryKey;type:varchar(36)"`
+	Source          string    `gorm:"type:varchar(255);not null;index:idx_source"`
+	Target          string    `gorm:"type:varchar(255);not null;index:idx_target"`
+	Type            string    `gorm:"type:varchar(100);not null"`
+	Strength        float64   `gorm:"type:double;default:0"`
+	Weight          float64   `gorm:"type:double;default:0"`
+	ChunkIDs        string    `gorm:"type:json"`
+	Properties      string    `gorm:"type:json"`
+	CombinedDegree  int       `gorm:"default:0"`
+	PMI             float64   `gorm:"type:double;default:0"`
+	TenantID        string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
+	KnowledgeBaseID string    `gorm:"type:varchar(36);index:idx_tenant_kb"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
@@ -1103,4 +1107,3 @@ func stringifyAgentConfig(cfg *agent.AgentConfig) string {
 	}
 	return string(data)
 }
-

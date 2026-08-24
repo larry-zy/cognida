@@ -295,6 +295,8 @@ export interface RebuildGraphResult {
   failed_documents: number
   total_nodes: number
   total_relations: number
+  /** 图谱是否实际替换；存在失败文档或抽取结果为空时为 false，旧图保留 */
+  graph_replaced: boolean
 }
 
 // 知识条目相关
@@ -306,6 +308,7 @@ export interface Knowledge {
   storage_size: number
   file_path: string
   parse_status: 'unprocessed' | 'pending' | 'processing' | 'completed' | 'failed'
+  error_message?: string
   enable_status: 'enabled' | 'disabled'
   chunk_count: number
   created_at: string
@@ -323,6 +326,7 @@ export interface UploadKnowledgeFileRequest {
 export interface KnowledgeStatus {
   knowledge_id: string
   parse_status: 'pending' | 'processing' | 'completed' | 'failed'
+  error_message?: string
   enable_status: 'enabled' | 'disabled'
   chunk_count: number
   created_at: string

@@ -61,6 +61,10 @@ describe('directoryTree/buildFileTree', () => {
 })
 
 describe('directoryTree/filterAcceptableFiles', () => {
+  it('默认文件大小上限为 10 MiB', () => {
+    expect(MAX_KNOWLEDGE_FILE_SIZE).toBe(10 * 1024 * 1024)
+  })
+
   it('按扩展名过滤不支持的文件类型', () => {
     const files = [makeFile('a.md'), makeFile('b.exe'), makeFile('c.pdf')]
     const result = filterAcceptableFiles(files)

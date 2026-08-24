@@ -98,9 +98,20 @@
               {{ row.chunk_count || 0 }}
             </template>
             <template #cell-parse_status="{ row }">
-              <UiTag :variant="getParseStatusType(row.parse_status)">
-                {{ getParseStatusText(row.parse_status) }}
-              </UiTag>
+              <div class="parse-status-cell">
+                <UiTag :variant="getParseStatusType(row.parse_status)">
+                  {{ getParseStatusText(row.parse_status) }}
+                </UiTag>
+                <UiText
+                  v-if="row.parse_status === 'failed' && row.error_message"
+                  class="parse-error-message"
+                  type="danger"
+                  size="sm"
+                  :title="row.error_message"
+                >
+                  {{ row.error_message }}
+                </UiText>
+              </div>
             </template>
             <template #cell-created_at="{ row }">
               {{ formatDateTime(row.created_at) }}
@@ -447,8 +458,10 @@ import type {
   KnowledgeBaseStats,
   Knowledge,
   Chunk,
-  UpdateKnowledgeBaseRequest
+  UpdateKnowledgeBaseRequest,
+  RebuildGraphResult
 } from '@/types'
+import { rebuildSuccessMessage } from './rebuild'
 
 const router = useRouter()
 const route = useRoute()
@@ -555,7 +568,7 @@ let chunkLoadSeq = 0
 const settingsLoading = ref(false)
 const settingsSaving = ref(false)
 // 补建图谱状态机：idle→pending→success|error，就地由 <UiAsyncStatus> 常驻展示
-const rebuildTask = useAsyncTask()
+const rebuildTask = useAsyncTask<RebuildGraphResult | undefined>()
 // 后端 UpdateKnowledgeBase 接受 name/description/status，以及库级图谱开关 graph_enabled。
 // 分块/BM25 等其余数据处理配置仅在创建时生效，故不在此维护。
 const settingsForm = reactive<UpdateKnowledgeBaseRequest>({
@@ -732,11 +745,11 @@ function handleFileChange(e: Event) {
   if (!files.length) return
 
   // accept 属性只是文件选择器的过滤提示（用户可切到「所有文件」绕过），且完全不管大小，
-  // 故这里与文件夹流程走同一套过滤，避免超过 50MB 或不支持格式的文件直接打到后端
+  // 故这里与文件夹流程走同一套过滤，避免超过 10 MiB 或不支持格式的文件直接打到后端
   const { accepted, rejectedByType, rejectedBySize } = filterAcceptableFiles(files)
   const skipped = rejectedByType.length + rejectedBySize.length
   if (skipped > 0) {
-    toast.warning(`已过滤 ${skipped} 个不支持格式或超过 50MB 大小限制的文件`)
+    toast.warning(`已过滤 ${skipped} 个不支持格式或超过 10 MiB 大小限制的文件`)
   }
   if (!accepted.length) return
 
@@ -993,14 +1006,7 @@ async function rebuildGraph() {
     },
     {
       pendingMessage: '补建中…（文档较多时耗时较长，请勿关闭页面）',
-      successMessage: (r: any) => {
-        if (!r) return '补建完成'
-        // 有失败文档时如实标注，避免把「部分失败」伪装成完全成功
-        const failed = r.failed_documents ? `，失败 ${r.failed_documents} 篇` : ''
-        const skipped = r.skipped_documents ? `，跳过 ${r.skipped_documents} 篇` : ''
-        return `补建完成：处理 ${r.processed_documents}/${r.total_documents} 篇，` +
-          `新增 ${r.total_nodes} 节点、${r.total_relations} 关系${skipped}${failed}`
-      },
+      successMessage: rebuildSuccessMessage,
       errorMessage: (e: any) => e?.message || '补建失败',
     }
   )
@@ -1076,6 +1082,20 @@ onUnmounted(() => {
 .hint {
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+.parse-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.parse-error-message {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .search-input {

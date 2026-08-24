@@ -33,18 +33,17 @@ class PDFParser(BaseParser):
             解析结果
         """
         try:
-            import pypdf
             from io import BytesIO
 
+            import pypdf
+
             if isinstance(source, str):
-                # 从文件路径读取
-                with open(source, "rb") as f:
-                    pdf_reader = pypdf.PdfReader(f)
-                    pages = pdf_reader.pages
+                # 直接传入路径，让 pypdf 管理延迟读取所需的文件生命周期。
+                pdf_reader = pypdf.PdfReader(source)
             else:
                 # 从字节内容读取
                 pdf_reader = pypdf.PdfReader(BytesIO(source))
-                pages = pdf_reader.pages
+            pages = pdf_reader.pages
 
             # 提取文本
             text_parts = []

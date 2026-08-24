@@ -366,6 +366,9 @@ type GraphRepository interface {
 	// AddGraph add graph data (with single transaction and rollback support)
 	AddGraph(ctx context.Context, namespace NameSpace, graphs []*GraphData) error
 
+	// ReplaceGraph atomically replaces all graph data in a knowledge base namespace.
+	ReplaceGraph(ctx context.Context, namespace NameSpace, graphs []*GraphData) error
+
 	// AddRelation add single relation
 	AddRelation(ctx context.Context, namespace NameSpace, relation *GraphRelation) (*GraphRelation, error)
 
