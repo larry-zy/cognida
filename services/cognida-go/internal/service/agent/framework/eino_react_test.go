@@ -34,7 +34,9 @@ func (m *scriptedToolModel) Generate(ctx context.Context, input []*schema.Messag
 		out = &schema.Message{Role: schema.Assistant, Content: "final"}
 	}
 	if m.perCallTokens > 0 {
-		out.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{TotalTokens: m.perCallTokens}}
+		// TotalTokens 是「累计用量」口径（prompt 含全部历史 + 本轮补全），真实 provider 下逐轮递增。
+		// 以 perCallTokens×calls 模拟这一增长，供 issue #5「取最新累计值而非逐轮求和」的记账断言。
+		out.ResponseMeta = &schema.ResponseMeta{Usage: &schema.TokenUsage{TotalTokens: m.perCallTokens * m.calls}}
 	}
 	return out, nil
 }
@@ -400,7 +402,7 @@ func TestReAct_TokenBudgetTermination(t *testing.T) {
 	var order []string
 	loopTool := &recordingTool{name: "query", calls: &order}
 
-	// 每次生成消耗 100 tokens；预算 150 → 第 1 轮后（100）继续，第 2 轮后（200≥150）终止。
+	// 累计用量按 100×轮次递增（真实 provider 口径）；预算 150 → 第 1 轮累计 100 继续，第 2 轮累计 200≥150 终止。
 	tm := &scriptedToolModel{
 		script: []*schema.Message{
 			toolCallMsg("1", "query"),

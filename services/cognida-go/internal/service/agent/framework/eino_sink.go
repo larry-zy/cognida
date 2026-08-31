@@ -73,9 +73,20 @@ func (s *bufferedSink) finish(ctx context.Context, response *Response) error {
 }
 
 // streamSink 是 Stream 的输出侧：把每一步即时下发为 *Chunk 事件。
+//
+// liveContent 决定正文（content）的下发时机（issue #3）：
+//   - true（无工具的单轮生成）：正文分块即时下发，保留纯聊天的逐 token 流式 UX；
+//     该路径只有一次生成、无截断重试/wind-down，流上的正文恒等于最终 response.Content，不会被污染。
+//   - false（ReAct 工具循环）：正文不逐块下发，仅在 finish 时把最终 response.Content 一次性下发。
+//     工具循环里，截断重试轮的半句话、中间工具轮的过程性叙述、以及随后 wind-down 的真正答复会被
+//     客户端顺序拼接，导致流式累计文本 = [截断残句]+[过程叙述]+[wind-down 答复]，与落库的
+//     response.Content（仅 wind-down）不一致——Chat 与 Stream 对同一次运行给出截然不同的答复。
+//     缓冲到 finish 一次性下发可保证「流式累计文本 == 最终答复」，与 bufferedStreamSink 行为一致。
+//     工具调用/结果等进度事件仍即时下发，时间线 UX 不受影响。
 type streamSink struct {
-	a  *agentImpl
-	ch chan *Chunk
+	a           *agentImpl
+	ch          chan *Chunk
+	liveContent bool
 }
 
 func (s *streamSink) start(ctx context.Context) bool {
@@ -106,7 +117,9 @@ func (s *streamSink) generate(ctx context.Context, m model.BaseChatModel, msgs [
 		chunks = append(chunks, chunk)
 
 		// 内容分块即时下发以保证流式 UX；reasoning/tool_call 分块留待整流合并。
-		if chunk.Content != "" {
+		// 仅 liveContent（无工具单轮）路径逐块下发正文；工具循环路径缓冲正文、由 finish 统一下发，
+		// 避免截断残句/过程叙述与 wind-down 答复在客户端拼接污染（issue #3）。
+		if s.liveContent && chunk.Content != "" {
 			if !sendChunk(ctx, s.ch, &Chunk{
 				Content: chunk.Content,
 				Metadata: map[string]interface{}{
@@ -165,6 +178,20 @@ func (s *streamSink) fail(ctx context.Context, err error) {
 
 // finish 发送 end 事件，并从 response.Metadata 透传 iterations/terminated_by/partial。
 func (s *streamSink) finish(ctx context.Context, response *Response) error {
+	// 缓冲正文路径（工具循环，见 liveContent 说明）：此处一次性下发最终 response.Content，
+	// 保证流式累计文本恒等于最终答复（issue #3）。liveContent 路径正文已逐块下发，不再重复。
+	if !s.liveContent && response.Content != "" {
+		if !sendChunk(ctx, s.ch, &Chunk{
+			Content: response.Content,
+			Metadata: map[string]interface{}{
+				"event":    string(EventContent),
+				"buffered": true,
+			},
+		}) {
+			return nil // 客户端已断开
+		}
+	}
+
 	meta := map[string]interface{}{"event": string(EventEnd)}
 	if it, ok := response.Metadata["iterations"]; ok {
 		meta["iterations"] = it

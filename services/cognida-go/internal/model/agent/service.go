@@ -170,6 +170,9 @@ const (
 	StreamEventToolResult StreamEventType = "tool_result"
 	// StreamEventError 执行错误
 	StreamEventError StreamEventType = "error"
+	// StreamEventEnd 运行终态：携带降级信号（terminated_by/partial/max_reached/iterations），
+	// 使流式客户端能像 buffered Response.Metadata 一样得知答复是否为截断/触顶的降级结果。
+	StreamEventEnd StreamEventType = "end"
 )
 
 // StreamEvent 表示 Agent 执行过程中的一个结构化事件。
@@ -186,6 +189,12 @@ type StreamEvent struct {
 	Output    string          // 工具输出（JSON 字符串，Type=tool_result 时有效）
 	Status    string          // 工具状态: "calling" | "success" | "error"
 	Error     string          // 错误信息
+
+	// 以下字段仅 Type=end 时有效，透传运行终态与降级信号（issue #7）。
+	TerminatedBy string // 终止原因: max_iter | token_budget | deadline | output_truncated | empty_finish | no_response
+	Partial      bool   // 是否为被动收尾（wind-down）产出的部分/降级答复
+	MaxReached   bool   // 是否因达到最大迭代次数而终止
+	Iterations   int    // 实际执行的迭代轮数
 }
 
 // ========================================

@@ -154,6 +154,7 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	naturalFinish := false  // 模型主动收尾（返回无工具调用的回复）；区别于达上限被动终止
 	hasObservation := false // 是否已产生工具观察（工具轮真正执行过）；i>0 不是可靠代理——截断重试轮也消耗迭代但无观察
 	truncationRetries := 0  // finish_reason=length 截断且无工具调用时的已重试次数（有界）
+	usageWarned := false    // 配置了 token 预算却拿不到 usage 时只告警一次，避免刷屏（issue #6）
 	// 挂钟护栏起点：仅在配置了 wallClock 时计时；time.Since(loopStart) 到点即终止并 wind-down。
 	loopStart := time.Now()
 	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
@@ -184,7 +185,20 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		if aborted {
 			return execResult{aborted: true}, nil
 		}
-		res.tokensUsed += usageTotalTokens(msg)
+		// token 记账（issue #5）：ResponseMeta.Usage.TotalTokens 是「本轮请求的累计用量」——
+		// prompt 已含全部历史 + 本轮补全，其值本身随对话增长。若逐轮相加，会把同一段历史反复计入，
+		// 使 tokensUsed 远超真实占用、预算过早触顶（长对话被迫频繁 wind-down）。因此取「最新一次的
+		// 累计用量」作为运行时 token 占用，而非逐轮求和。
+		// usage 缺失（返回 0）时保留上次值而非用 0 覆盖；并在配置了预算却始终拿不到 usage 时给出
+		// 一次显式告警（issue #6）：否则 token 预算会被静默旁路，只剩 maxIter/wallClock 兜底。
+		if tokens := usageTotalTokens(msg); tokens > 0 {
+			res.tokensUsed = tokens
+		} else if a.tokenBudget > 0 && !usageWarned {
+			usageWarned = true
+			log.Printf("[agent:%s] 已配置 token 预算(%d) 但本轮生成未返回 usage，token 预算将无法生效——"+
+				"请确认所用 provider 已开启用量上报（如 OpenAI stream_options.include_usage=true）",
+				a.name, a.tokenBudget)
+		}
 
 		// sink 未返回消息也未报错/中止：避免下面解引用 msg 崩溃。
 		if msg == nil {
@@ -305,7 +319,10 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		if ferr == nil && final != nil {
 			res.content = final.Content
 			res.role = string(final.Role)
-			res.tokensUsed += usageTotalTokens(final)
+			// 与循环内一致：wind-down 收尾生成的 TotalTokens 同样是累计口径，取最新值而非累加（issue #5）。
+			if tokens := usageTotalTokens(final); tokens > 0 {
+				res.tokensUsed = tokens
+			}
 		}
 		// 收尾生成也未能产出内容（失败/空响应/空正文）：交付诚实的降级说明而非空白回复，
 		// 否则用户面对静默空答无从得知运行已终止及原因。

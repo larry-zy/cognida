@@ -105,6 +105,22 @@ func (s *ExecuteService) ExecuteStream(ctx context.Context, req *AgenticRAGReque
 				}
 				continue
 			}
+			// 终态降级信号（issue #7）：把 terminated_by/partial/max_reached/iterations 透传给上层，
+			// 供 handler 写入终局 done 事件；使流式客户端与 buffered Response.Metadata 得知同样的降级信息。
+			if ev.Type == agent.StreamEventEnd {
+				if !send(&ChatChunkDTO{
+					Metadata: map[string]interface{}{
+						"type":          string(ev.Type),
+						"terminated_by": ev.TerminatedBy,
+						"partial":       ev.Partial,
+						"max_reached":   ev.MaxReached,
+						"iterations":    ev.Iterations,
+					},
+				}) {
+					return
+				}
+				continue
+			}
 			// 结构化事件（tool_call / tool_result / error）
 			if !send(&ChatChunkDTO{
 				Metadata: map[string]interface{}{

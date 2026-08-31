@@ -211,6 +211,7 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkCh
 	var steps []map[string]interface{}
 	var uiSurfaces []*genui.UISpec
 	var sqlOutputs, analysisOutputs []string // 捕获本次全部真实工具输出，供旧路径 genUI 兜底融合
+	var endMeta map[string]interface{}       // 运行终态降级信号（issue #7），随 done 事件回传
 
 	// 客户端断开（request ctx 取消）即停止消费与下发；上游发送端同样以该 ctx 终止生成。
 	ctx := c.Request.Context()
@@ -229,13 +230,21 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkCh
 				sw.Send("ui", spec)
 			}
 		}
-		sw.Send("done", gin.H{
+		payload := gin.H{
 			"event":  "done",
 			"answer": sb.String(),
 			// 回传归属会话 ID：新会话首轮时前端据此绑定 currentSessionId，
 			// 使后续轮次复用同一会话（否则每轮都以空 session_id 新建会话，对话被拆散）。
 			"session_id": genUI.sessionID,
-		})
+		}
+		// 附带运行终态降级信号（issue #7）：截断/触顶/超时等被动收尾时，前端据此提示答复可能不完整。
+		if endMeta != nil {
+			payload["terminated_by"] = endMeta["terminated_by"]
+			payload["partial"] = endMeta["partial"]
+			payload["max_reached"] = endMeta["max_reached"]
+			payload["iterations"] = endMeta["iterations"]
+		}
+		sw.Send("done", payload)
 	}
 
 	for {
@@ -281,6 +290,12 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkCh
 		}
 		stepType := metaString(chunk.Metadata["type"])
 		if stepType == "" {
+			continue
+		}
+
+		// 终态降级信号（issue #7）：不作为时间线 step 下发，捕获后随终局 done 事件一并回传。
+		if stepType == "end" {
+			endMeta = chunk.Metadata
 			continue
 		}
 

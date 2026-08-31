@@ -185,7 +185,10 @@ func (a *agentImpl) runStream(ctx context.Context, req runRequest, ch chan *Chun
 		_, _ = a.run(ctx, req, &bufferedStreamSink{a: a, ch: ch})
 		return
 	}
-	_, _ = a.run(ctx, req, &streamSink{a: a, ch: ch})
+	// 无工具单轮生成才逐 token 流式下发正文；有工具的 ReAct 循环缓冲正文、由 finish 统一下发，
+	// 避免截断残句/过程叙述与 wind-down 答复在客户端拼接污染（issue #3）。
+	hasTools := len(a.tools) > 0 && a.toolModel != nil
+	_, _ = a.run(ctx, req, &streamSink{a: a, ch: ch, liveContent: !hasTools})
 }
 
 // run 是唯一执行主干：pre-processing 已在入口完成。

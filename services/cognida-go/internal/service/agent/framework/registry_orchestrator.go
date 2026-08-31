@@ -203,6 +203,26 @@ func (o *registryAgentOrchestrator) ExecuteStream(ctx context.Context, agentID s
 								return
 							}
 						}
+					case "end":
+						// 终态元数据透传（issue #7）：streamSink.finish 把 terminated_by/partial/
+						// max_reached/iterations 打进 end chunk 的 Metadata，此前 switch 无 "end" 分支
+						// 导致降级信号被丢弃——流式客户端拿到截断/触顶的降级答复却毫不知情。
+						endEv := &agent.StreamEvent{Type: agent.StreamEventEnd}
+						if tb, ok := chunk.Metadata["terminated_by"].(string); ok {
+							endEv.TerminatedBy = tb
+						}
+						if p, ok := chunk.Metadata["partial"].(bool); ok {
+							endEv.Partial = p
+						}
+						if mr, ok := chunk.Metadata["max_reached"].(bool); ok {
+							endEv.MaxReached = mr
+						}
+						if it, ok := chunk.Metadata["iterations"].(int); ok {
+							endEv.Iterations = it
+						}
+						if !o.emit(ctx, eventChan, endEv) {
+							return
+						}
 					}
 				}
 			}
