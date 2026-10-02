@@ -150,7 +150,7 @@
             </UiButton>
           </div>
 
-          <div class="search-options">
+          <div class="search-options"><label>检索模式<select v-model="searchMode"><option value="hybrid">混合</option><option value="vector">向量</option><option value="bm25">关键词</option><option value="auto">自动（有界选择与一次回退）</option></select></label>
             <UiText>Top K:</UiText>
             <UiInputNumber v-model="searchTopK" :min="1" :max="20" size="sm" />
             <UiText>相似度阈值:</UiText>
@@ -542,6 +542,7 @@ const batchUpload = useBatchUpload(kbId)
 
 // 检索相关
 const searchQuery = ref('')
+const searchMode = ref<'auto'|'vector'|'bm25'|'hybrid'>('hybrid')
 const searchTopK = ref(5)
 const searchThreshold = ref(0.6)
 const searchLoading = ref(false)
@@ -904,6 +905,7 @@ async function handleSearch() {
   try {
     const res = await knowledgeApi.search({
       query: searchQuery.value,
+      retrieval_mode: searchMode.value,
       kb_ids: [kbId.value],
       top_k: searchTopK.value,
       min_score: searchThreshold.value

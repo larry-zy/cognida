@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/redis/go-redis/v9"
@@ -20,6 +21,7 @@ import (
 	agent "cognida/internal/model/agent"
 	domain_audit "cognida/internal/model/audit"
 	domain_collection "cognida/internal/model/collection"
+	domain_objectstore "cognida/internal/model/objectstore"
 	domaintrace "cognida/internal/model/trace"
 	appAccount "cognida/internal/service/account"
 	agentuc "cognida/internal/service/agent"
@@ -28,6 +30,7 @@ import (
 	auditsvc "cognida/internal/service/audit"
 	app_chat "cognida/internal/service/chat"
 	collectionsvc "cognida/internal/service/collection"
+	"cognida/internal/service/collection/politeness"
 	app_evaluation "cognida/internal/service/evaluation"
 	evalexecutor "cognida/internal/service/evaluation/executor"
 	app_kb "cognida/internal/service/knowledge"
@@ -77,6 +80,8 @@ import (
 //go:generate wire
 func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	wire.Build(
+		NewFeatureServices,
+		ProvideObjectStore,
 		// 配置：*config.Config 由 InitializeApp 入参提供（启动时 LoadConfig 一次），
 		// 各 Provide*Config 只从其上取子字段，不再各自 Load（避免重复读 env/文件）。
 		ProvideJWTConfig,
@@ -288,7 +293,9 @@ func ProvideCollectionRepository(db *gorm.DB) domain_collection.Repository {
 	return mysql.NewCollectionRepository(db)
 }
 
-func ProvideCollectionFetcher() domain_collection.Fetcher { return collectionsvc.SafeFetcherAdapter{} }
+func ProvideCollectionFetcher() domain_collection.Fetcher {
+	return collectionsvc.SafeFetcherAdapter{Gate: politeness.NewGate(politeness.Policy{MaxConcurrentPerDomain: 1, MinRequestInterval: time.Second})}
+}
 
 func ProvideCollectionIngestor(processor app_kb.DocumentProcessorService) domain_collection.DocumentIngestor {
 	return collectionsvc.NewKnowledgeIngestorAdapter(processor)
@@ -304,8 +311,9 @@ func ProvideCollectionJobQueue(redisClient *redis.Client) *CollectionJobQueue {
 	return &CollectionJobQueue{RedisQueue: jobinfra.NewRedisQueueWithPrefix(redisClient, "collection:jobs")}
 }
 
-func ProvideCollectionService(repo domain_collection.Repository, fetcher domain_collection.Fetcher, ingestor domain_collection.DocumentIngestor, queue *CollectionJobQueue) *collectionsvc.Service {
+func ProvideCollectionService(repo domain_collection.Repository, fetcher domain_collection.Fetcher, ingestor domain_collection.DocumentIngestor, queue *CollectionJobQueue, store domain_objectstore.Store) *collectionsvc.Service {
 	service := collectionsvc.NewService(repo, fetcher, ingestor, collectionsvc.TextNormalizer{})
+	service.SetArtifactStore(store)
 	if queue != nil && queue.RedisQueue != nil {
 		service.SetRunSubmitter(collectionsvc.JobSubmitter{Queue: queue.RedisQueue})
 	}
@@ -1274,6 +1282,7 @@ func ProvideMiddlewares(
 
 // App 应用程序实例
 type App struct {
+	Features             *FeatureServices
 	Router               *router.Router
 	Middlewares          *Middlewares
 	AgentRegistry        *agentframework.SpecRegistry
@@ -1307,6 +1316,7 @@ type App struct {
 }
 
 func ProvideApp(
+	features *FeatureServices,
 	r *router.Router,
 	m *Middlewares,
 	agentRegistry *agentframework.SpecRegistry,
@@ -1326,7 +1336,14 @@ func ProvideApp(
 	agentHandler *handler.AgentHandler,
 	embedder embedding.Embedder,
 ) *App {
+	r.AddTenantRoutes(features.CatalogHandler.Register)
+	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
+	r.AddTenantRoutes(features.GovernanceHandler.Register)
+	if features.LineageHandler != nil {
+		r.AddTenantRoutes(features.LineageHandler.Register)
+	}
 	return &App{
+		Features:                features,
 		Router:                  r,
 		Middlewares:             m,
 		AgentRegistry:           agentRegistry,
@@ -1350,6 +1367,9 @@ func ProvideApp(
 
 // Shutdown 关闭应用程序：flush 审计写入器，确保积压审计落库不丢。
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.Features != nil {
+		a.Features.Stop()
+	}
 	if a.AuditWriter != nil {
 		return a.AuditWriter.Close(ctx)
 	}

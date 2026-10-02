@@ -60,32 +60,30 @@ type UserResponse struct {
 
 // Permission 权限实体
 type Permission struct {
-	ID          int64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	ResourceType string   `json:"resource_type" gorm:"type:varchar(50);not null;index:idx_resource_type"` // kb/session/document/user/role/tenant
-	Action      string    `json:"action" gorm:"type:varchar(50);not null;index:idx_action"`               // create/read/update/delete/assign
-	Description string    `json:"description" gorm:"type:varchar(255)"`
-	IsSystem    bool      `json:"is_system" gorm:"default:false"`
-	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	ID           int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ResourceType string    `json:"resource_type" gorm:"type:varchar(50);not null;index:idx_resource_type"` // kb/session/document/user/role/tenant
+	Action       string    `json:"action" gorm:"type:varchar(50);not null;index:idx_action"`               // create/read/update/delete/assign
+	Description  string    `json:"description" gorm:"type:varchar(255)"`
+	IsSystem     bool      `json:"is_system" gorm:"default:false"`
+	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
-
 
 // Role 角色实体
 type Role struct {
 	ID          int64      `json:"id" gorm:"primaryKey;autoIncrement"`
 	TenantID    int64      `json:"tenant_id" gorm:"not null;index:idx_tenant_id"`
 	Name        string     `json:"name" gorm:"type:varchar(100);not null"`
-	Code        string     `json:"code" gorm:"type:varchar(50);not null;index:idx_code"`         // owner/admin/user
+	Code        string     `json:"code" gorm:"type:varchar(50);not null;index:idx_code"` // owner/admin/user
 	Description string     `json:"description" gorm:"type:varchar(255)"`
 	IsSystem    bool       `json:"is_system" gorm:"default:false"`
 	IsDefault   bool       `json:"is_default" gorm:"default:false"`
-	Level       int        `json:"level" gorm:"default:0"`                       // 角色层级，数字越大权限越高
+	Level       int        `json:"level" gorm:"default:0"`                          // 角色层级，数字越大权限越高
 	Status      string     `json:"status" gorm:"type:varchar(20);default:'active'"` // active/inactive
 	CreatedAt   time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 	DeletedAt   *time.Time `json:"deleted_at,omitempty" gorm:"index"`
 }
-
 
 // UserRole 用户角色关联
 type UserRole struct {
@@ -98,7 +96,6 @@ type UserRole struct {
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 }
 
-
 // RolePermission 角色权限关联
 type RolePermission struct {
 	ID           int64     `json:"id" gorm:"primaryKey;autoIncrement"`
@@ -106,7 +103,6 @@ type RolePermission struct {
 	PermissionID int64     `json:"permission_id" gorm:"not null;index:idx_permission_id"`
 	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
-
 
 // ResourcePermission 资源级权限
 type ResourcePermission struct {
@@ -121,7 +117,6 @@ type ResourcePermission struct {
 	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
 }
 
-
 // PermissionAuditLog 权限变更审计日志
 type PermissionAuditLog struct {
 	ID            int64     `json:"id" gorm:"primaryKey;autoIncrement"`
@@ -129,15 +124,14 @@ type PermissionAuditLog struct {
 	UserID        *int64    `json:"user_id,omitempty" gorm:"index"`
 	OperatorID    int64     `json:"operator_id" gorm:"not null"`
 	OperationType string    `json:"operation_type" gorm:"type:varchar(50);not null"` // grant_role/revoke_role/modify_role
-	TargetType    string    `json:"target_type" gorm:"type:varchar(50);not null"`        // role/resource
+	TargetType    string    `json:"target_type" gorm:"type:varchar(50);not null"`    // role/resource
 	TargetID      string    `json:"target_id" gorm:"type:varchar(100);not null"`
 	BeforeValue   string    `json:"before_value,omitempty" gorm:"type:text"` // JSON
-	AfterValue    string    `json:"after_value,omitempty" gorm:"type:text"`   // JSON
+	AfterValue    string    `json:"after_value,omitempty" gorm:"type:text"`  // JSON
 	Reason        string    `json:"reason,omitempty" gorm:"type:text"`
 	IPAddress     string    `json:"ip_address,omitempty" gorm:"type:varchar(50)"`
 	CreatedAt     time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
-
 
 // ========================================
 // RBAC DTO
@@ -147,14 +141,14 @@ type PermissionAuditLog struct {
 type CreateRoleRequest struct {
 	Name        string `json:"name" binding:"required,min=1,max=100"`
 	Code        string `json:"code" binding:"required,min=1,max=50"`
-	Description string `json:"description" binding:"max:500"`
+	Description string `json:"description" binding:"max=500"`
 	Level       int    `json:"level" binding:"min=0,max=100"`
 }
 
 // UpdateRoleRequest 更新角色请求
 type UpdateRoleRequest struct {
 	Name        string `json:"name" binding:"required,min=1,max=100"`
-	Description string `json:"description" binding:"max:500"`
+	Description string `json:"description" binding:"max=500"`
 	Level       int    `json:"level" binding:"min=0,max=100"`
 	Status      string `json:"status" binding:"oneof=active inactive"`
 }
@@ -164,7 +158,7 @@ type AssignRoleRequest struct {
 	TenantID  int64  `json:"tenant_id" binding:"required"` // 租户ID
 	UserID    int64  `json:"user_id" binding:"required"`
 	RoleID    int64  `json:"role_id" binding:"required"`
-	Reason    string `json:"reason" binding:"max:500"`
+	Reason    string `json:"reason" binding:"max=500"`
 	ExpiresAt *int64 `json:"expires_at,omitempty"` // Unix timestamp
 }
 

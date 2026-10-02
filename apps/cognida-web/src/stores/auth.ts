@@ -129,11 +129,13 @@ export const useAuthStore = defineStore('auth', () => {
   // 实际执行刷新
   async function doRefreshAccessToken() {
     if (!refreshToken.value) return false
+    const originalRefresh = refreshToken.value
 
     try {
       const res = await http.post<AuthResponse>('/auth/refresh', {
-        refresh_token: refreshToken.value
+        refresh_token: originalRefresh
       })
+      if (refreshToken.value !== originalRefresh) return false
       if (res.data) {
         const { access_token: accessToken, refresh_token } = res.data
         token.value = accessToken
@@ -148,7 +150,7 @@ export const useAuthStore = defineStore('auth', () => {
       return false
     } catch (error) {
       console.error('Refresh token error:', error)
-      clearAuth()
+      if (refreshToken.value === originalRefresh) clearAuth()
       return false
     }
   }
@@ -166,23 +168,39 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 加载租户列表
+  // Only memberships verified by the server belong in the switcher.
   async function fetchTenants() {
-    try {
-      const res = await http.get<Tenant[]>('/tenants')
-      if (res.data) {
-        tenants.value = res.data
-        storage.set('tenants', res.data)
-      }
-    } catch (error) {
-      console.error('Fetch tenants error:', error)
-    }
+    const identity = user.value?.id
+    const items: Tenant[] = []
+    let cursor = ''
+    do {
+      const res = await http.get<{items: Tenant[]; next_cursor: string}>('/user/tenants', { params: {cursor, page_size: 100} })
+      if (identity !== user.value?.id) return
+      items.push(...(res.data?.items || []))
+      cursor = res.data?.next_cursor || ''
+    } while (cursor)
+    tenants.value = items
+    const current = items.find(item => item.id === currentTenant.value?.id)
+    if (current) currentTenant.value = current
+    storage.set('tenants', items)
   }
 
-  // 切换租户
-  function setCurrentTenant(tenant: Tenant) {
+  async function setCurrentTenant(tenant: Tenant) {
+    if (tenant.id === currentTenant.value?.id) return
+    const identity = token.value
+    const res = await http.post<AuthResponse>('/auth/switch-tenant', {tenant_id: tenant.id})
+    if (identity !== token.value || !res.data) throw new Error('登录状态已改变，请重试')
+    const data = res.data
+    if (data.tenant_id !== tenant.id) throw new Error('租户切换结果不匹配')
+    token.value = data.access_token
+    refreshToken.value = data.refresh_token
+    user.value = data.user
     currentTenant.value = tenant
+    storage.set('token', token.value)
+    storage.set('refresh_token', refreshToken.value)
+    storage.set('user', user.value)
     storage.set('current_tenant', tenant)
+    resetAuthFailure()
   }
 
   // 清除认证信息

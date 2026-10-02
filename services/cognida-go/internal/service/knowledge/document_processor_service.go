@@ -371,13 +371,25 @@ func (s *documentProcessorService) chunkDocument(
 	}
 
 	chunkOverlap := req.ChunkOverlap
-	if chunkOverlap == 0 {
+	if chunkOverlap == 0 && !req.ChunkOverlapSet {
 		chunkOverlap = 200 // 默认值
 	}
 
+	strategy := req.ChunkStrategy
+	if strategy == "auto" {
+		var size, overlap int
+		strategy, size, overlap = adaptiveChunkPlan(text)
+		if req.ChunkSize == 0 {
+			chunkSize = size
+		}
+		if req.ChunkOverlap == 0 && !req.ChunkOverlapSet {
+			chunkOverlap = overlap
+		}
+		log.Printf("[DocumentProcessor] adaptive chunk strategy=%s size=%d overlap=%d", strategy, chunkSize, chunkOverlap)
+	}
 	chunkReq := &docreader.ChunkDocumentRequest{
 		Text:     text,
-		Strategy: s.mapChunkStrategy(req.ChunkStrategy),
+		Strategy: s.mapChunkStrategy(strategy),
 		Options: &docreader.ChunkOptions{
 			ChunkSize:    chunkSize,
 			ChunkOverlap: chunkOverlap,
@@ -393,9 +405,6 @@ func (s *documentProcessorService) chunkDocument(
 	}
 
 	log.Printf("[DocumentProcessor] ChunkDocument succeeded, got %d chunks", len(resp.Chunks))
-	if len(resp.Chunks) > 0 {
-		log.Printf("[DocumentProcessor] First chunk text (first 200 chars): %s", truncateString(resp.Chunks[0].Text, 200))
-	}
 
 	return resp.Chunks, nil
 }

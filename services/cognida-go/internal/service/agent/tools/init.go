@@ -139,7 +139,7 @@ func (r *ToolRegistry) registerSemanticTools() error {
 			return err
 		}
 	}
-	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder, r.deps.CoverageSink, r.deps.DatasourceProvider)
+	queryTool := NewSemanticQueryTool(r.deps.SemanticRepo, r.deps.SemanticCache, grounder, r.deps.CoverageSink, r.deps.DatasourceProvider, r.deps.LineageObserver)
 	if queryTool != nil {
 		if err := r.Register("semantic", queryTool); err != nil {
 			return err
@@ -148,6 +148,11 @@ func (r *ToolRegistry) registerSemanticTools() error {
 	groundTool := NewGroundTermsTool(r.deps.SemanticRepo, grounder)
 	if groundTool != nil {
 		if err := r.Register("semantic", groundTool); err != nil {
+			return err
+		}
+	}
+	if r.deps.CatalogContext != nil {
+		if err := r.Register("semantic", NewCatalogSearchTool(r.deps.CatalogContext)); err != nil {
 			return err
 		}
 	}

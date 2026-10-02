@@ -32,6 +32,7 @@ import (
 	evaluation2 "cognida/internal/model/evaluation"
 	"cognida/internal/model/knowledge"
 	"cognida/internal/model/llm"
+	"cognida/internal/model/objectstore"
 	quality3 "cognida/internal/model/quality"
 	"cognida/internal/model/rag"
 	"cognida/internal/model/semantic"
@@ -49,6 +50,7 @@ import (
 	"cognida/internal/service/audit"
 	"cognida/internal/service/chat"
 	collection2 "cognida/internal/service/collection"
+	"cognida/internal/service/collection/politeness"
 	datasource2 "cognida/internal/service/datasource"
 	"cognida/internal/service/evaluation"
 	"cognida/internal/service/evaluation/executor"
@@ -60,6 +62,7 @@ import (
 	"fmt"
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/gin-gonic/gin"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -71,18 +74,29 @@ import (
 
 //go:generate wire
 func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
-	userRepository := ProvideUserRepository(db)
-	refreshTokenRepository := ProvideRefreshTokenRepository(db)
-	jwtConfig := ProvideJWTConfig(cfg)
-	tenantRepository := ProvideTenantRepository(db)
-	transactionManager := ProvideTransactionManager(db)
-	accountService := ProvideAccountService(userRepository, refreshTokenRepository, jwtConfig, tenantRepository, transactionManager)
-	authHandler := ProvideAuthHandler(accountService)
+	repository := ProvideDataSourceRepository(db)
+	idGenerator := ProvideIDGenerator()
+	service := ProvideDataSourceService(repository, idGenerator)
+	neo4jConfig := ProvideNeo4jConfig(cfg)
+	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
+	if err != nil {
+		return nil, err
+	}
+	auditRepository := ProvideAuditRepository(db)
+	writer := ProvideAuditWriter(auditRepository)
+	store, err := ProvideObjectStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	redisConfig := ProvideRedisConfig(cfg)
+	client, err := ProvideRedisClient(redisConfig)
+	if err != nil {
+		return nil, err
+	}
 	knowledgeBaseRepository := ProvideKnowledgeBaseRepository(db)
 	knowledgeBaseSettingRepository := ProvideKnowledgeBaseSettingRepository(db)
 	knowledgeRepository := ProvideKnowledgeRepository(db)
 	chunkRepository := ProvideChunkRepository(db)
-	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
 	embeddingConfig := ProvideEmbeddingConfig(cfg)
 	embedder, err := ProvideEmbedder(embeddingConfig)
 	if err != nil {
@@ -93,25 +107,36 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 	vectorRepository := ProvideVectorRepository(vectorRetriever)
-	neo4jConfig := ProvideNeo4jConfig(cfg)
-	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
-	if err != nil {
-		return nil, err
-	}
 	graphRepository, err := ProvideNeo4jGraphRepository(driverWithContext, neo4jConfig)
 	if err != nil {
 		return nil, err
 	}
-	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
 	pythonGrpcConfig := ProvidePythonGrpcConfig(cfg)
-	client, err := ProvideDocReaderClient(pythonGrpcConfig)
+	docreaderClient, err := ProvideDocReaderClient(pythonGrpcConfig)
 	if err != nil {
 		return nil, err
 	}
 	chatConfig := ProvideChatConfig(cfg)
 	llmClient := ProvideLLMClient(chatConfig)
-	idGenerator := ProvideIDGenerator()
-	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, llmClient, idGenerator)
+	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, docreaderClient, embedder, llmClient, idGenerator)
+	fetcher := ProvideCollectionFetcher()
+	collectionRepository := ProvideCollectionRepository(db)
+	documentIngestor := ProvideCollectionIngestor(documentProcessorService)
+	collectionJobQueue := ProvideCollectionJobQueue(client)
+	collectionService := ProvideCollectionService(collectionRepository, fetcher, documentIngestor, collectionJobQueue, store)
+	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, client, documentProcessorService, fetcher, collectionService, collectionRepository)
+	if err != nil {
+		return nil, err
+	}
+	userRepository := ProvideUserRepository(db)
+	refreshTokenRepository := ProvideRefreshTokenRepository(db)
+	jwtConfig := ProvideJWTConfig(cfg)
+	tenantRepository := ProvideTenantRepository(db)
+	transactionManager := ProvideTransactionManager(db)
+	accountService := ProvideAccountService(userRepository, refreshTokenRepository, jwtConfig, tenantRepository, transactionManager)
+	authHandler := ProvideAuthHandler(accountService)
+	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
+	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
 	milvusRetriever := ProvideMilvusRetriever(embedder)
 	ragGraphRepository := ProvideRAGGraphRepository()
 	graphQueryRepository := ProvideGraphQueryRepository(db)
@@ -145,20 +170,10 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	modelService := ProvideModelService(modelRepository, modelFactory)
 	modelHandler := ProvideModelHandler(modelService, chatService)
 	taskRepository := ProvideTaskRepository(db)
-	redisConfig := ProvideRedisConfig(cfg)
-	redisClient, err := ProvideRedisClient(redisConfig)
-	if err != nil {
-		return nil, err
-	}
-	taskQueue := ProvideTaskQueue(redisClient)
+	taskQueue := ProvideTaskQueue(client)
 	taskService := ProvideTaskService(taskRepository, taskQueue)
 	taskHandler := ProvideTaskHandler(taskService)
-	repository := ProvideCollectionRepository(db)
-	fetcher := ProvideCollectionFetcher()
-	documentIngestor := ProvideCollectionIngestor(documentProcessorService)
-	collectionJobQueue := ProvideCollectionJobQueue(redisClient)
-	service := ProvideCollectionService(repository, fetcher, documentIngestor, collectionJobQueue)
-	collectionHandler := ProvideCollectionHandler(service, repository, knowledgeBaseService)
+	collectionHandler := ProvideCollectionHandler(collectionService, collectionRepository, knowledgeBaseService)
 	baseChatModel := ProvideChatModel(chatConfig)
 	ragOptimizerHandler := ProvideRAGOptimizerHandler(baseChatModel, retriever)
 	guardrailHandler := ProvideGuardrailHandler(baseChatModel)
@@ -167,8 +182,8 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	datasetService := ProvideDatasetService(datasetLoader)
 	evaluationTaskRepository := ProvideEvaluationTaskRepository(db)
 	evaluationResultRepository := ProvideEvaluationResultRepository(db)
-	progressCache := ProvideEvaluationProgressCache(redisClient)
-	redisQueue := ProvideEvaluationJobQueue(redisClient)
+	progressCache := ProvideEvaluationProgressCache(client)
+	redisQueue := ProvideEvaluationJobQueue(client)
 	taskEnqueuer := ProvideEvaluationJobEnqueuer(redisQueue)
 	evaluationConfig := ProvideEvaluationConfig(cfg)
 	evaluationService := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, taskEnqueuer, evaluationConfig)
@@ -176,24 +191,20 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	evaluationHandler := ProvideEvaluationHandler(evaluationService, datasetManager, progressCache, specRegistry)
 	gateway := ProvideQualityGateway(pythonGrpcConfig)
 	checkRecordRepository := ProvideQualityCheckRecordRepository(db)
-	datasourceRepository := ProvideDataSourceRepository(db)
-	datasourceService := ProvideDataSourceService(datasourceRepository, idGenerator)
-	qualityService := ProvideQualityService(gateway, checkRecordRepository, idGenerator, pythonGrpcConfig, datasourceService)
+	qualityService := ProvideQualityService(gateway, checkRecordRepository, idGenerator, pythonGrpcConfig, service)
 	qualityHandler := ProvideQualityHandler(qualityService)
-	dataSourceHandler := ProvideDataSourceHandler(datasourceService)
+	dataSourceHandler := ProvideDataSourceHandler(service)
 	semanticRepository := ProvideSemanticRepository(db)
 	coverageReporter := ProvideSemanticCoverageReporter(db)
 	profileReader := ProvideSemanticProfileReader(db)
 	semanticService := ProvideSemanticModelService(semanticRepository, idGenerator, coverageReporter, profileReader)
 	semanticHandler := ProvideSemanticHandler(semanticService)
-	auditRepository := ProvideAuditRepository(db)
 	traceRepository := ProvideTraceRepository(db)
 	auditHandler := ProvideAuditHandler(auditRepository, traceRepository)
 	traceHandler := ProvideTraceHandler(traceRepository)
 	handler := ProvideWebHandler()
 	authMiddleware := ProvideAuthMiddleware(accountService)
 	tenantMiddleware := ProvideTenantMiddleware()
-	writer := ProvideAuditWriter(auditRepository)
 	auditMiddleware := ProvideAuditMiddleware(writer)
 	router := ProvideRouter(authHandler, knowledgeBaseHandler, sessionHandler, messageHandler, tenantHandler, agentHandler, registryAgentHandler, graphHandler, modelHandler, taskHandler, collectionHandler, ragOptimizerHandler, guardrailHandler, evaluationHandler, qualityHandler, dataSourceHandler, semanticHandler, auditHandler, traceHandler, handler, authMiddleware, tenantMiddleware, auditMiddleware)
 	corsMiddleware := ProvideCORSMiddleware()
@@ -201,10 +212,10 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	loggerMiddleware := ProvideLoggerMiddleware()
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
-	evaluationWorker := ProvideEvaluationWorker(progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, datasourceService)
+	evaluationWorker := ProvideEvaluationWorker(progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, service)
 	worker := ProvideEvaluationJobWorker(redisQueue, evaluationWorker, evaluationTaskRepository, evaluationConfig)
-	collectionJobWorker := ProvideCollectionJobWorker(collectionJobQueue, service, repository)
-	app := ProvideApp(router, middlewares, specRegistry, chatConfig, evaluationConfig, worker, collectionJobWorker, service, repository, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, datasourceService, agentHandler, embedder)
+	collectionJobWorker := ProvideCollectionJobWorker(collectionJobQueue, collectionService, collectionRepository)
+	app := ProvideApp(featureServices, router, middlewares, specRegistry, chatConfig, evaluationConfig, worker, collectionJobWorker, collectionService, collectionRepository, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, service, agentHandler, embedder)
 	return app, nil
 }
 
@@ -246,7 +257,9 @@ func ProvideCollectionRepository(db *gorm.DB) collection.Repository {
 	return mysql.NewCollectionRepository(db)
 }
 
-func ProvideCollectionFetcher() collection.Fetcher { return collection2.SafeFetcherAdapter{} }
+func ProvideCollectionFetcher() collection.Fetcher {
+	return collection2.SafeFetcherAdapter{Gate: politeness.NewGate(politeness.Policy{MaxConcurrentPerDomain: 1, MinRequestInterval: time.Second})}
+}
 
 func ProvideCollectionIngestor(processor knowledge2.DocumentProcessorService) collection.DocumentIngestor {
 	return collection2.NewKnowledgeIngestorAdapter(processor)
@@ -263,8 +276,9 @@ func ProvideCollectionJobQueue(redisClient *redis.Client) *CollectionJobQueue {
 	return &CollectionJobQueue{RedisQueue: job.NewRedisQueueWithPrefix(redisClient, "collection:jobs")}
 }
 
-func ProvideCollectionService(repo collection.Repository, fetcher collection.Fetcher, ingestor collection.DocumentIngestor, queue *CollectionJobQueue) *collection2.Service {
+func ProvideCollectionService(repo collection.Repository, fetcher collection.Fetcher, ingestor collection.DocumentIngestor, queue *CollectionJobQueue, store objectstore.Store) *collection2.Service {
 	service := collection2.NewService(repo, fetcher, ingestor, collection2.TextNormalizer{})
+	service.SetArtifactStore(store)
 	if queue != nil && queue.RedisQueue != nil {
 		service.SetRunSubmitter(collection2.JobSubmitter{Queue: queue.RedisQueue})
 	}
@@ -1157,6 +1171,7 @@ func ProvideMiddlewares(
 
 // App 应用程序实例
 type App struct {
+	Features             *FeatureServices
 	Router               *router.Router
 	Middlewares          *Middlewares
 	AgentRegistry        *framework.SpecRegistry
@@ -1190,6 +1205,7 @@ type App struct {
 }
 
 func ProvideApp(
+	features *FeatureServices,
 	r *router.Router,
 	m *Middlewares,
 	agentRegistry *framework.SpecRegistry,
@@ -1209,7 +1225,14 @@ func ProvideApp(
 	agentHandler *handler.AgentHandler,
 	embedder embedding.Embedder,
 ) *App {
+	r.AddTenantRoutes(features.CatalogHandler.Register)
+	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
+	r.AddTenantRoutes(features.GovernanceHandler.Register)
+	if features.LineageHandler != nil {
+		r.AddTenantRoutes(features.LineageHandler.Register)
+	}
 	return &App{
+		Features:                features,
 		Router:                  r,
 		Middlewares:             m,
 		AgentRegistry:           agentRegistry,
@@ -1233,6 +1256,9 @@ func ProvideApp(
 
 // Shutdown 关闭应用程序：flush 审计写入器，确保积压审计落库不丢。
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.Features != nil {
+		a.Features.Stop()
+	}
 	if a.AuditWriter != nil {
 		return a.AuditWriter.Close(ctx)
 	}

@@ -82,7 +82,11 @@ func (h *KnowledgeBaseHandler) CreateKnowledgeBase(c *gin.Context) {
 	// 通过 Use Case 创建知识库（ID 在服务层生成）
 	knowledgeBaseEntity, err := h.knowledgeBaseService.CreateFromRequest(c.Request.Context(), &req, tenantID, userID)
 	if err != nil {
-		InternalError(c, err.Error())
+		if app_kb.IsValidationError(err) {
+			BadRequest(c, err.Error())
+		} else {
+			InternalError(c, err.Error())
+		}
 		return
 	}
 
@@ -127,7 +131,11 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 
 	result, total, err := h.knowledgeBaseService.FindByTenantID(c.Request.Context(), tenantID, page, pageSize)
 	if err != nil {
-		InternalError(c, err.Error())
+		if app_kb.IsValidationError(err) {
+			BadRequest(c, err.Error())
+		} else {
+			InternalError(c, err.Error())
+		}
 		return
 	}
 
@@ -156,7 +164,11 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 	// 通过 Use Case 更新知识库
 	updatedKB, err := h.knowledgeBaseService.UpdateFromRequest(c.Request.Context(), id, GetTenantID(c), &req)
 	if err != nil {
-		InternalError(c, err.Error())
+		if app_kb.IsValidationError(err) {
+			BadRequest(c, err.Error())
+		} else {
+			InternalError(c, err.Error())
+		}
 		return
 	}
 
@@ -575,6 +587,7 @@ func (h *KnowledgeBaseHandler) processDocumentWithUseCase(ctx context.Context, k
 		Title:           fileName,
 		ChunkSize:       chunkingConfig.ChunkSize,
 		ChunkOverlap:    chunkingConfig.ChunkOverlap,
+		ChunkOverlapSet: chunkingConfig.Strategy != "auto" || chunkingConfig.ChunkOverlap != 0,
 		ChunkStrategy:   chunkingConfig.Strategy,
 		GraphEnabled:    graphEnabled,
 	}
@@ -628,7 +641,7 @@ func getChunkingConfig(kb *domain_knowledge.KnowledgeBase) ChunkingConfig {
 	if parsedConfig.Strategy == "" {
 		parsedConfig.Strategy = "paragraph"
 	}
-	if parsedConfig.ChunkSize <= 0 {
+	if parsedConfig.ChunkSize <= 0 && parsedConfig.Strategy != "auto" {
 		parsedConfig.ChunkSize = 500
 	}
 	if parsedConfig.ChunkOverlap < 0 {
@@ -969,7 +982,7 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 	}
 
 	// 设置默认值
-	if req.TopK <= 0 {
+	if req.TopK <= 0 && req.RetrievalMode != "auto" {
 		req.TopK = 10
 	}
 
@@ -1008,8 +1021,9 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 	}
 
 	OK(c, map[string]interface{}{
-		"total":      int64(len(items)),
-		"items":      items,
-		"has_answer": result.HasAnswer,
+		"total":             int64(len(items)),
+		"items":             items,
+		"has_answer":        result.HasAnswer,
+		"strategy_attempts": result.Attempts,
 	})
 }

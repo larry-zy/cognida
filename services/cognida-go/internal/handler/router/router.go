@@ -48,6 +48,7 @@ type Router struct {
 	auditMiddleware      *middleware.AuditMiddleware
 	rateLimiter          *middleware.RateLimiter
 	idempotency          *middleware.Idempotency
+	tenantExtensions     []func(*gin.RouterGroup)
 
 	mu  sync.Mutex   // 保护 srv 在 Run/Shutdown 间的并发访问
 	srv *http.Server // 由 Run 构造并持有，供 Shutdown 优雅关闭
@@ -179,6 +180,9 @@ func (r *Router) Setup(rateLimiter *middleware.RateLimiter, idempotency *middlew
 			r.setupKBRoutes(tenant)
 			r.setupGraphRoutes(tenant)
 			r.setupCollectionRoutes(tenant)
+			for _, register := range r.tenantExtensions {
+				register(tenant)
+			}
 
 			// 知识库搜索（在 tenant 组内，但不需要 kb_id 参数）
 			tenant.POST("/knowledge/search", r.knowledgeBaseHandler.SearchKnowledge)
@@ -190,6 +194,12 @@ func (r *Router) Setup(rateLimiter *middleware.RateLimiter, idempotency *middlew
 
 	// 静态文件服务（生产环境）
 	r.setupWebRoutes()
+}
+
+// AddTenantRoutes installs domain routes before Setup, under the same auth,
+// tenant and idempotency middleware as the existing knowledge routes.
+func (r *Router) AddTenantRoutes(register func(*gin.RouterGroup)) {
+	r.tenantExtensions = append(r.tenantExtensions, register)
 }
 
 func (r *Router) setupCollectionRoutes(api *gin.RouterGroup) {
@@ -221,9 +231,12 @@ func (r *Router) setupAuthRoutes(api *gin.RouterGroup) {
 
 // setupUserRoutes 设置用户路由
 func (r *Router) setupUserRoutes(api *gin.RouterGroup) {
+	api.POST("/auth/switch-tenant", r.authHandler.SwitchTenant)
 	user := api.Group("/user")
 	{
 		user.GET("/profile", r.authHandler.GetProfile)
+		user.GET("/tenants", r.authHandler.MemberTenants)
+		user.POST("/tenants", r.authHandler.CreateWorkspace)
 	}
 }
 
@@ -464,6 +477,7 @@ func (r *Router) setupGuardrailRoutes(api *gin.RouterGroup) {
 // setupEvaluationRoutes 设置评测路由
 func (r *Router) setupEvaluationRoutes(api *gin.RouterGroup) {
 	eval := api.Group("/evaluation")
+	eval.POST("/compare", r.evaluationHandler.Compare)
 	{
 		// 数据集管理
 		datasets := eval.Group("/datasets")

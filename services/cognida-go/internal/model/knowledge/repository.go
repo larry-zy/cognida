@@ -554,3 +554,8 @@ type Neo4jGraphRepository interface {
 	// Close close connection
 	Close(ctx context.Context) error
 }
+
+// ConfigurationRepository persists a KB and its processing settings atomically.
+type ConfigurationRepository interface {
+	SaveConfiguration(context.Context, *KnowledgeBase, *KnowledgeBaseSetting, bool) error
+}

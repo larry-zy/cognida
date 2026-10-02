@@ -96,6 +96,12 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(InternalHTTPAuthMiddleware)
 
 
+from services.lifecycle.router import LifecycleBodyLimitMiddleware, router as lifecycle_router
+
+app.include_router(lifecycle_router)
+app.add_middleware(LifecycleBodyLimitMiddleware)
+
+
 # ============================================================
 # 健康检查
 # ============================================================

@@ -17,14 +17,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/model/agent/operations"
-	"cognida/internal/service/agent/pendingaction"
 	mysqlrepo "cognida/internal/repository/mysql"
+	"cognida/internal/service/agent/pendingaction"
 )
 
 // setupOperationIntegration 连接真实 DB，准备源表并装配 *opTools 依赖载体。
@@ -39,10 +40,16 @@ func setupOperationIntegration(t *testing.T) (*opTools, *gorm.DB, *mysqlrepo.Ope
 		t.Fatalf("connect: %v", err)
 	}
 
-	// 确保审计表存在（migrate-db 同步的表；这里兜底建表以便独立运行）
-	if err := db.AutoMigrate(&mysqlrepo.OperationAuditModel{}); err != nil {
-		t.Fatalf("automigrate audit table: %v", err)
+	if !db.Migrator().HasTable(&mysqlrepo.OperationAuditModel{}) {
+		t.Fatal("apply versioned migrations before integration tests")
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+	tenant := time.Now().UnixNano() & 0x1fffffffffffff
+	t.Cleanup(func() { db.Where("tenant_id=?", tenant).Delete(&mysqlrepo.OperationAuditModel{}) })
 
 	// 源表：固定 3 行数据
 	source := "it_op_source"
@@ -67,7 +74,7 @@ func setupOperationIntegration(t *testing.T) (*opTools, *gorm.DB, *mysqlrepo.Ope
 		ExportDir:          t.TempDir(),
 	}}
 
-	ctx := agentctx.WithTenantID(context.Background(), 990)
+	ctx := agentctx.WithTenantID(context.Background(), tenant)
 	ctx = agentctx.WithSessionID(ctx, "sess-op-it")
 	return o, db, auditRepo, ctx
 }
@@ -83,10 +90,10 @@ func countSourceRows(t *testing.T, db *gorm.DB) int64 {
 }
 
 // lastAuditRow 该租户最近一条审计。
-func lastAuditRow(t *testing.T, db *gorm.DB) *mysqlrepo.OperationAuditModel {
+func lastAuditRow(t *testing.T, db *gorm.DB, ctx context.Context) *mysqlrepo.OperationAuditModel {
 	t.Helper()
 	var m mysqlrepo.OperationAuditModel
-	if err := db.Where("tenant_id = ?", 990).Order("id DESC").First(&m).Error; err != nil {
+	if err := db.Where("tenant_id = ?", agentctx.MustGetTenantID(ctx)).Order("id DESC").First(&m).Error; err != nil {
 		t.Fatalf("load last audit: %v", err)
 	}
 	return &m
@@ -111,7 +118,7 @@ func TestOperationIntegration_MutateDryRunSuspendsAndResumes(t *testing.T) {
 	if gmv != 100 {
 		t.Fatalf("dry-run must rollback, gmv=%v", gmv)
 	}
-	if a := lastAuditRow(t, db); a.Status != operations.StatusPendingConfirm {
+	if a := lastAuditRow(t, db, ctx); a.Status != operations.StatusPendingConfirm {
 		t.Fatalf("audit should be pending_confirm, got %s", a.Status)
 	}
 
@@ -132,7 +139,7 @@ func TestOperationIntegration_MutateDryRunSuspendsAndResumes(t *testing.T) {
 	if gmv != 200 {
 		t.Fatalf("confirmed mutation should be committed, gmv=%v", gmv)
 	}
-	if a := lastAuditRow(t, db); a.Status != operations.StatusSuccess {
+	if a := lastAuditRow(t, db, ctx); a.Status != operations.StatusSuccess {
 		t.Fatalf("audit should be success, got %s", a.Status)
 	}
 
@@ -171,7 +178,7 @@ func TestOperationIntegration_MutateSafeCommit(t *testing.T) {
 	if region != "华中" {
 		t.Fatalf("safe mutation should commit, region=%s", region)
 	}
-	if a := lastAuditRow(t, db); a.Status != operations.StatusSuccess || a.IdempotencyKey != "it-safe-1" {
+	if a := lastAuditRow(t, db, ctx); a.Status != operations.StatusSuccess || a.IdempotencyKey != "it-safe-1" {
 		t.Fatalf("audit mismatch: %+v", a)
 	}
 }
@@ -205,7 +212,7 @@ func TestOperationIntegration_ETLDerivesWithoutTouchingSource(t *testing.T) {
 	if after := countSourceRows(t, db); after != before {
 		t.Fatalf("source table must be untouched: before=%d after=%d", before, after)
 	}
-	if a := lastAuditRow(t, db); a.OperationType != operations.OpETL || a.Status != operations.StatusSuccess {
+	if a := lastAuditRow(t, db, ctx); a.OperationType != operations.OpETL || a.Status != operations.StatusSuccess {
 		t.Fatalf("etl audit mismatch: %+v", a)
 	}
 
@@ -217,7 +224,7 @@ func TestOperationIntegration_ETLDerivesWithoutTouchingSource(t *testing.T) {
 	if rej.Status != operations.StatusRejected {
 		t.Fatalf("expected prefix rejection, got %+v", rej)
 	}
-	if a := lastAuditRow(t, db); a.Status != operations.StatusRejected {
+	if a := lastAuditRow(t, db, ctx); a.Status != operations.StatusRejected {
 		t.Fatalf("prefix violation must be audited, got %s", a.Status)
 	}
 }
@@ -235,7 +242,7 @@ func TestOperationIntegration_RedlineRejectedAndAudited(t *testing.T) {
 	if res.Status != operations.StatusRejected || !strings.Contains(res.Message, "红线") {
 		t.Fatalf("expected redline rejection, got %+v", res)
 	}
-	if a := lastAuditRow(t, db); a.Status != operations.StatusRejected {
+	if a := lastAuditRow(t, db, ctx); a.Status != operations.StatusRejected {
 		t.Fatalf("redline rejection must be audited, got %s", a.Status)
 	}
 }

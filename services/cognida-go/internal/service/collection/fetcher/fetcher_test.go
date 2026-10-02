@@ -165,3 +165,39 @@ func TestReadBounded(t *testing.T) {
 		t.Fatalf("readBounded overflow error = %v", err)
 	}
 }
+
+type recordingGate struct {
+	hosts  []string
+	active int
+	t      *testing.T
+}
+
+func (g *recordingGate) Acquire(_ context.Context, url string) (func(), error) {
+	if g.active != 0 {
+		g.t.Fatal("previous HTTP hop must release before acquiring next hop")
+	}
+	g.active++
+	g.hosts = append(g.hosts, url)
+	return func() { g.active-- }, nil
+}
+func TestFetcherPolitenessCoversRedirectHopsAndReleasesBodies(t *testing.T) {
+	gate := &recordingGate{t: t}
+	client := New(Options{Resolver: resolverFunc(publicResolver), Gate: gate, Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if gate.active != 1 {
+			t.Fatal("request ran without a permit")
+		}
+		if req.URL.Host == "example.com" {
+			resp := response(req, 302, "text/plain", "")
+			resp.Header.Set("Location", "https://other.example/final")
+			return resp, nil
+		}
+		return response(req, 200, "text/plain", "done"), nil
+	})})
+	result, err := client.Fetch(context.Background(), "https://example.com/start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result.Body) != "done" || len(gate.hosts) != 2 || gate.active != 0 {
+		t.Fatalf("gate state: %+v", gate)
+	}
+}

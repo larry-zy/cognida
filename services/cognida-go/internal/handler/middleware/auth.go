@@ -95,6 +95,12 @@ func (m *AuthMiddleware) Apply() gin.HandlerFunc {
 			return
 		}
 
+		if claims.TokenType != "access" || m.accountService.AuthorizeTenant(c.Request.Context(), claims.UserID, claims.TenantID) != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权访问该租户"})
+			c.Abort()
+			return
+		}
+
 		// 将用户信息存入上下文
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)

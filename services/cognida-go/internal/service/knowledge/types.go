@@ -210,6 +210,7 @@ type KBRetrieveResultDTO struct {
 
 // CreateKnowledgeBaseRequest 创建知识库请求
 type CreateKnowledgeBaseRequest struct {
+	ChunkStrategy *string  `json:"chunk_strategy"`
 	Name          string   `json:"name" binding:"required"`
 	Description   string   `json:"description"`
 	Avatar        string   `json:"avatar"`
@@ -227,11 +228,14 @@ type CreateKnowledgeBaseRequest struct {
 
 // UpdateKnowledgeBaseRequest 更新知识库请求
 type UpdateKnowledgeBaseRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	Avatar      *string `json:"avatar"`
-	IsPublic    *bool   `json:"is_public"`
-	Status      *int8   `json:"status"`
+	ChunkStrategy *string `json:"chunk_strategy"`
+	ChunkSize     *int    `json:"chunk_size"`
+	ChunkOverlap  *int    `json:"chunk_overlap"`
+	Name          *string `json:"name"`
+	Description   *string `json:"description"`
+	Avatar        *string `json:"avatar"`
+	IsPublic      *bool   `json:"is_public"`
+	Status        *int8   `json:"status"`
 	// GraphEnabled 库级图谱提取开关：非 nil 时更新到 kb_settings，允许建库后在设置页开关
 	GraphEnabled *bool `json:"graph_enabled"`
 }
@@ -257,6 +261,9 @@ type KnowledgeBaseResponse struct {
 
 // KnowledgeBaseSettingResponse 知识库设置响应
 type KnowledgeBaseSettingResponse struct {
+	ChunkStrategy   string `json:"chunk_strategy"`
+	ChunkSize       int    `json:"chunk_size"`
+	ChunkOverlap    int    `json:"chunk_overlap"`
 	ID              int64  `json:"id"`
 	KnowledgeBaseID string `json:"kb_id"`
 	GraphEnabled    bool   `json:"graph_enabled"`
@@ -272,6 +279,7 @@ type KnowledgeBaseSettingResponse struct {
 
 // ProcessDocumentRequest 文档处理请求
 type ProcessDocumentRequest struct {
+	ChunkOverlapSet bool   `json:"-"`
 	IdempotencyKey  string `json:"idempotency_key,omitempty"`
 	creationID      string
 	contentHash     string

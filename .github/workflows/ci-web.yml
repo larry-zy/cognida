@@ -5,10 +5,14 @@ on:
     branches: [main, develop]
     paths:
       - 'apps/cognida-web/**'
+      - 'services/cognida-go/internal/model/**'
+      - 'services/cognida-go/cmd/frontend-contracts/**'
       - '.github/workflows/ci-web.yml'
   pull_request:
     paths:
       - 'apps/cognida-web/**'
+      - 'services/cognida-go/internal/model/**'
+      - 'services/cognida-go/cmd/frontend-contracts/**'
       - '.github/workflows/ci-web.yml'
 
 defaults:
@@ -21,6 +25,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/cognida-go/go.mod
+          cache-dependency-path: services/cognida-go/go.sum
+
+      - name: 检查生成的前端契约
+        working-directory: services/cognida-go
+        run: go run ./cmd/frontend-contracts -check
 
       - name: 设置 Node
         uses: actions/setup-node@v5

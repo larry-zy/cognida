@@ -2,6 +2,7 @@
 package framework
 
 import (
+	lifecycle "cognida/internal/model/lifecycle"
 	"fmt"
 	"sync"
 
@@ -29,6 +30,7 @@ type AgentInfo struct {
 // AgentGovernance 子代理治理元数据（Phase 7）：构成活体 agent 目录，
 // 供审计留痕（agent_operation_audit 串联）与最小权限校验。
 type AgentGovernance struct {
+	Contract *lifecycle.AgentContract `json:"contract,omitempty"`
 	// Purpose 用途描述（该子代理解决什么问题）。
 	Purpose string `json:"purpose"`
 	// DataScope 数据访问级（如 "业务库只读" / "agent_etl_* 派生表读写"）。

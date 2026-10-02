@@ -97,10 +97,10 @@ func (postgresDriver) ListTables(ctx context.Context, db *sql.DB, dbName string)
 	rows, err := db.QueryContext(ctx, `
 		SELECT c.relname AS name,
 		       COALESCE(obj_description(c.oid), '') AS comment,
-		       COALESCE(c.reltuples, 0)::bigint AS rows
+		       COALESCE(c.reltuples, 0)::bigint AS rows, CASE WHEN c.relkind IN ('v','m') THEN 'view' ELSE 'table' END
 		FROM pg_catalog.pg_class c
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-		WHERE c.relkind IN ('r', 'p') AND n.nspname = $1
+		WHERE c.relkind IN ('r', 'p', 'v', 'm') AND n.nspname = $1
 		ORDER BY c.relname`, schema)
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func (postgresDriver) ListTables(ctx context.Context, db *sql.DB, dbName string)
 	var tables []TableInfo
 	for rows.Next() {
 		var t TableInfo
-		if err := rows.Scan(&t.Name, &t.Comment, &t.Rows); err != nil {
+		if err := rows.Scan(&t.Name, &t.Comment, &t.Rows, &t.Type); err != nil {
 			return nil, err
 		}
 		if t.Rows < 0 { // reltuples 未 ANALYZE 时可能为 -1
@@ -129,7 +129,7 @@ func (postgresDriver) DescribeTable(ctx context.Context, db *sql.DB, dbName, tab
 		SELECT COALESCE(obj_description(c.oid), '')
 		FROM pg_catalog.pg_class c
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p')`,
+		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p', 'v', 'm')`,
 		schema, table).Scan(&result.Comment)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -143,7 +143,8 @@ func (postgresDriver) DescribeTable(ctx context.Context, db *sql.DB, dbName, tab
 		       pg_catalog.format_type(a.atttypid, a.atttypmod) AS type,
 		       CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS nullable,
 		       CASE WHEN pk.attnum IS NOT NULL THEN 'PRI' ELSE '' END AS key,
-		       COALESCE(pg_catalog.col_description(a.attrelid, a.attnum), '') AS comment
+		       COALESCE(pg_catalog.col_description(a.attrelid, a.attnum), '') AS comment,
+ EXISTS(SELECT 1 FROM pg_catalog.pg_constraint fk WHERE fk.contype='f' AND fk.conrelid=a.attrelid AND a.attnum=ANY(fk.conkey))
 		FROM pg_catalog.pg_attribute a
 		JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
 		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -161,7 +162,7 @@ func (postgresDriver) DescribeTable(ctx context.Context, db *sql.DB, dbName, tab
 	for rows.Next() {
 		var col ColumnInfo
 		var nullable string
-		if err := rows.Scan(&col.Name, &col.Type, &nullable, &col.Key, &col.Comment); err != nil {
+		if err := rows.Scan(&col.Name, &col.Type, &nullable, &col.Key, &col.Comment, &col.IsFK); err != nil {
 			return nil, err
 		}
 		col.Nullable = nullable == "YES"

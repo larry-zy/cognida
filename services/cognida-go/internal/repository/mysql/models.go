@@ -712,6 +712,7 @@ func (m *UserModel) FromDomain(entity *domain_user.User) *UserModel {
 
 // RefreshTokenModel 刷新令牌数据库模型
 type RefreshTokenModel struct {
+	TenantID  int64     `gorm:"not null"`
 	ID        int64     `gorm:"primaryKey;autoIncrement"`
 	UserID    int64     `gorm:"not null;index"`
 	TokenHash string    `gorm:"type:varchar(64);not null;uniqueIndex"`
@@ -727,6 +728,7 @@ func (RefreshTokenModel) TableName() string {
 // ToDomain 转换为领域实体
 func (m *RefreshTokenModel) ToDomain() *domain_user.RefreshToken {
 	return &domain_user.RefreshToken{
+		TenantID:  m.TenantID,
 		ID:        m.ID,
 		UserID:    m.UserID,
 		TokenHash: m.TokenHash,
@@ -737,6 +739,7 @@ func (m *RefreshTokenModel) ToDomain() *domain_user.RefreshToken {
 
 // FromDomain 从领域实体转换
 func (m *RefreshTokenModel) FromDomain(entity *domain_user.RefreshToken) *RefreshTokenModel {
+	m.TenantID = entity.TenantID
 	m.ID = entity.ID
 	m.UserID = entity.UserID
 	m.TokenHash = entity.TokenHash

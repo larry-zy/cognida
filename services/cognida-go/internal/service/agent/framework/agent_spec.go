@@ -1,7 +1,9 @@
 package framework
 
 import (
+	lifecycle "cognida/internal/model/lifecycle"
 	"context"
+	"encoding/json"
 	"strings"
 
 	"cognida/internal/model/agent"
@@ -20,6 +22,7 @@ type AgentBuildFunc func(ctx context.Context) (Agent, error)
 // 简单 Agent 的 Build 直接用共享装配逻辑；复杂预设（委派/记忆/PER 管道）在 Build 里
 // 保留其 bespoke 装配——「混合式」在声明式描述之外给复杂预设留逃生口。
 type AgentSpec struct {
+	Contract    *lifecycle.AgentContract
 	ID          string
 	Name        string
 	Description string
@@ -43,6 +46,10 @@ func (s AgentSpec) definition() *agent.AgentDefinition {
 	}
 	if _, ok := meta["tools"]; !ok {
 		meta["tools"] = strings.Join(s.ToolNames, ",")
+	}
+	if s.Contract != nil {
+		body, _ := json.Marshal(s.Contract)
+		meta["lifecycle_contract"] = string(body)
 	}
 	return &agent.AgentDefinition{
 		ID:          s.ID,

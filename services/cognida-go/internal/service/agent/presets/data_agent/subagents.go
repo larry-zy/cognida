@@ -49,8 +49,8 @@ var leafSubAgentSpecs = []subAgentSpec{
 		description: "表结构探查专家：按业务问题定位相关表并解读结构，只读元数据",
 		prompt: `你是表结构探查专家（SchemaExplorer）。
 职责：根据委派任务定位相关业务表，解读字段含义、主外键与关联关系，给出选表建议。
-你只有 get_schema 一个工具，不能查询业务数据，也不能修改任何东西。`,
-		toolNames: []string{"get_schema"},
+先用 catalog_search（配置时可用）查找已治理目录与业务术语，再用 get_schema 验证物理结构；不能查询业务数据，也不能修改任何东西。`,
+		toolNames: []string{"catalog_search", "get_schema"},
 		maxIter:   4,
 		mode:      domainagent.ContextModeIsolated,
 		purpose:   "探查表结构与选表建议",
@@ -80,7 +80,7 @@ var leafSubAgentSpecs = []subAgentSpec{
 - 委派输入未给出 result_id 时，不要因此停下或反问——直接不带 result_id 调用 data_analysis 即可，
   工具会自动回退到本会话最近一次取数结果（上游 SQLAuthor 刚取的数）。
 你不能执行 SQL，只能基于既有结果分析。`,
-		toolNames: []string{"data_analysis"},
+		toolNames: []string{"data_analysis", "verify_results", "decision_synthesize"},
 		maxIter:   6,
 		mode:      domainagent.ContextModeSummary,
 		purpose:   "对既有结果做统计分析",
@@ -212,6 +212,14 @@ func RegisterDataSubAgents(
 	toolModel model.ToolCallingChatModel,
 	registry *toolregistry.ToolRegistry,
 ) error {
+	return registerDataSubAgents(ctx, collabRegistry, toolModel, registry, true)
+}
+
+func RegisterDataAnalysisSubAgents(ctx context.Context, collabRegistry *infraagent.CollaborationRegistry, toolModel model.ToolCallingChatModel, registry *toolregistry.ToolRegistry) error {
+	return registerDataSubAgents(ctx, collabRegistry, toolModel, registry, false)
+}
+
+func registerDataSubAgents(ctx context.Context, collabRegistry *infraagent.CollaborationRegistry, toolModel model.ToolCallingChatModel, registry *toolregistry.ToolRegistry, allowOperation bool) error {
 	if collabRegistry == nil {
 		return fmt.Errorf("数据域子代理需要协作注册表")
 	}
@@ -239,6 +247,9 @@ func RegisterDataSubAgents(
 
 	for i := range leafSubAgentSpecs {
 		spec := &leafSubAgentSpecs[i]
+		if spec.id == "Operation" && !allowOperation {
+			continue
+		}
 		if err := register(spec); err != nil {
 			// 叶子工具分组可能未初始化（如渲染/操作组未注入）：跳过该子代理，
 			// 不阻断其余子代理注册（与 commander present-if-registered 同策略）。

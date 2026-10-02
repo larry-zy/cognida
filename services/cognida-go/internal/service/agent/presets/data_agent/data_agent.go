@@ -37,7 +37,7 @@ const (
 	defaultMaxIter = 24
 	// defaultTokenBudget 默认 token 预算。设为 0（不限）：react 循环不再因累计计费 token 达标而被动终止，
 	// 上下文规模改由三级压缩（就地折叠，见下）治理，避免长对话被过早掐断。
-	defaultTokenBudget = 0
+	defaultTokenBudget = 32000
 
 	// defaultWallClock 默认挂钟预算：一次运行累计耗时达到该值即终止并 wind-down，交付基于现有观察的
 	// 部分结论。收敛「步数/计费 token 都没到上限、却因推理模型某几步极慢或工具阻塞（长 SQL/子代理委派）
@@ -84,7 +84,7 @@ func toolTimeoutFromEnv() time.Duration {
 // capabilityGroups 是四类能力对应的工具分组（present-if-registered）：
 // 查(sql/semantic/graph) / 析(analytics) / 渲(render) / 操(operation)，外加 skill 供 playbook 调用。
 // render、operation 分组由后续 Phase 3/4 落地；此处按分组收集，工具就位后自动并入编排（通用/拓展）。
-var capabilityGroups = []string{"sql", "semantic", "graph", "analytics", "render", "operation", "skill"}
+var capabilityGroups = []string{"sql", "semantic", "graph", "analytics", "render", "skill"}
 
 // collectCapabilityTools 按能力分组收集全部已注册工具并按名去重。
 func collectCapabilityTools(ctx context.Context, registry *toolregistry.ToolRegistry) []tool.BaseTool {
@@ -131,8 +131,8 @@ func Spec(
 	}
 	return infraagent.AgentSpec{
 		ID:          DataAgentID,
-		Name:        "data_agent",
-		Description: "Data Agent：单一 ReAct 内核，承载查/析/渲/操四类能力，入口意图路由 + maxIter/token 预算约束",
+		Name:        "data_analysis",
+		Description: "Data Analysis Agent：只读查询、分析和可视化，保留历史 Data Agent API 兼容",
 		Type:        domainagent.AgentTypeAgenticRAG,
 		ToolNames:   capabilityGroups,
 		Metadata: map[string]string{
@@ -167,7 +167,7 @@ func buildDataAgent(
 
 	// 子代理协作注册表：注册数据域子代理，供指挥官委派（每次委派授予最小 scope）。
 	collabRegistry := infraagent.NewCollaborationRegistry()
-	if err := RegisterDataSubAgents(ctx, collabRegistry, toolModel, registry); err != nil {
+	if err := RegisterDataAnalysisSubAgents(ctx, collabRegistry, toolModel, registry); err != nil {
 		return nil, fmt.Errorf("注册 Data 子代理失败: %w", err)
 	}
 

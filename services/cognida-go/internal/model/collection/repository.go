@@ -14,9 +14,8 @@ type Repository interface {
 	FindTaskByIdempotencyKey(ctx context.Context, tenantID int64, key string) (*Task, error)
 	ListSources(ctx context.Context, tenantID int64, taskID string) ([]*Source, error)
 	UpdateTask(ctx context.Context, task *Task) error
-	// ClaimDueTasks atomically advances the schedule for due tasks. The caller
-	// owns dispatch of the returned tasks; advancing before dispatch prevents
-	// duplicate triggers when several scheduler instances are running.
+	// ClaimDueTasks atomically creates each durable run and advances its schedule.
+	// Queue recovery can recover the run even if dispatch never happens.
 	ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]*Task, error)
 
 	// CreateRun atomically starts the task and creates its sole active run.

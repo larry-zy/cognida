@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"context"
 	"gorm.io/gorm"
 
 	collectionmodel "cognida/internal/model/collection"
@@ -9,6 +10,7 @@ import (
 	model_datasource "cognida/internal/model/datasource"
 	domain_knowledge "cognida/internal/model/knowledge"
 	"cognida/internal/model/semantic"
+	"cognida/internal/service/agent/metricsql"
 	"cognida/internal/service/agent/resultstore"
 	"cognida/internal/service/agent/semanticcache"
 	"cognida/internal/service/agent/termgrounding"
@@ -21,6 +23,11 @@ import (
 // 必需依赖缺失 → 构造失败；可选依赖缺失 → 对应工具仍注册，但 Run 时返回既定降级提示
 // （宁拒不闯，行为与旧全局注入路径逐字节保持一致）。
 type ToolDeps struct {
+	DecisionAssets DecisionAssetResolver
+	CatalogContext interface {
+		Context(context.Context, int64, string) (string, error)
+	}
+	LineageObserver metricsql.Observer
 	// CollectionService and CollectionRepository back the standalone Collection
 	// Agent task tools. They are intentionally separate from generic web tools.
 	CollectionService    *collectionsvc.Service

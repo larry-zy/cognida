@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	domain "cognida/internal/model/collection"
+	"cognida/internal/model/objectstore"
 )
 
 // Service is an in-process asynchronous Runner. Durable task/run/item state,
@@ -24,6 +25,7 @@ type Service struct {
 	fetcher    domain.Fetcher
 	ingestor   domain.DocumentIngestor
 	normalize  Normalizer
+	artifacts  objectstore.Store
 	submitter  interface {
 		Submit(context.Context, *domain.Run) error
 	}
@@ -40,6 +42,8 @@ type Normalizer interface {
 func NewService(repository domain.Repository, fetcher domain.Fetcher, ingestor domain.DocumentIngestor, normalize Normalizer) *Service {
 	return &Service{repository: repository, fetcher: fetcher, ingestor: ingestor, normalize: normalize, cancels: make(map[string]context.CancelFunc)}
 }
+
+func (s *Service) SetArtifactStore(store objectstore.Store) { s.artifacts = store }
 
 func (s *Service) SetRunSubmitter(submitter interface {
 	Submit(context.Context, *domain.Run) error
@@ -71,9 +75,10 @@ func (s *Service) Start(ctx context.Context, tenantID int64, taskID string) erro
 		return err
 	}
 	if task.Status == domain.TaskStatusRunning {
-		_, err = s.repository.FindActiveRun(ctx, tenantID, taskID)
+		active, activeErr := s.repository.FindActiveRun(ctx, tenantID, taskID)
+		err = activeErr
 		if err == nil {
-			return nil
+			return s.dispatchRun(ctx, task, active)
 		}
 		if !errors.Is(err, domain.ErrRunNotFound) {
 			return err
@@ -90,19 +95,23 @@ func (s *Service) Start(ctx context.Context, tenantID int64, taskID string) erro
 		}
 		return err
 	}
+	return s.dispatchRun(ctx, task, run)
+}
+
+func (s *Service) dispatchRun(ctx context.Context, task *domain.Task, run *domain.Run) error {
 	if s.submitter != nil {
-		if err := s.submitter.Submit(ctx, run); err != nil {
-			if finishErr := s.finish(task, run, domain.RunStatusFailed, err.Error()); finishErr != nil {
-				return errors.Join(err, finishErr)
-			}
-			return err
-		}
-		return nil
+		// Keep the durable run recoverable when Redis is temporarily unavailable.
+		return s.submitter.Submit(ctx, run)
 	}
 	// Compatibility for focused tests and deployments that have not enabled
 	// Redis yet. Production composition injects a durable submitter.
 	workerCtx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
+	if _, exists := s.cancels[run.ID]; exists {
+		s.mu.Unlock()
+		cancel()
+		return nil
+	}
 	s.cancels[run.ID] = cancel
 	s.mu.Unlock()
 	go func() {
@@ -204,7 +213,10 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 				return err
 			}
 		}
-		response, fetchErr := s.fetcher.Fetch(ctx, domain.FetchRequest{URL: source.URL, MaxResponseBytes: task.Limits.MaxResponseBytes})
+		response, fetchErr := s.fetchOrRestore(ctx, task, item, source)
+		if fetchErr != nil && (item.RawObjectKey != "" || errors.Is(fetchErr, errArtifact)) {
+			return fetchErr
+		}
 		// Cancellation may happen during an outbound request. Never ingest its
 		// response after the task has been cancelled, including the final source.
 		cancelled, err = s.cancelled(ctx, task)
@@ -220,7 +232,13 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 		if fetchErr != nil {
 			item.Status, item.ErrorReason = domain.ItemStatusFailed, fetchErr.Error()
 		} else {
+			if response == nil {
+				return fmt.Errorf("fetcher returned no response")
+			}
 			item.CanonicalURL, item.HTTPStatus, item.ContentType = response.CanonicalURL, response.StatusCode, response.ContentType
+			if err := s.persistRaw(ctx, item, response); err != nil {
+				return err
+			}
 			content, err := s.normalize.Normalize(response.ContentType, response.Body)
 			if err != nil || content == "" {
 				item.Status, item.ErrorReason = domain.ItemStatusRejected, "empty or invalid normalized content"
@@ -230,6 +248,9 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 			} else {
 				sum := sha256.Sum256([]byte(content))
 				item.ContentHash = hex.EncodeToString(sum[:])
+				if err := s.persistNormalized(ctx, item, content); err != nil {
+					return err
+				}
 				knowledgeID, duplicate := seen[item.ContentHash]
 				if !duplicate {
 					accepted, err := s.repository.FindAcceptedContent(ctx, task.TenantID, task.ID, item.ContentHash)
@@ -316,3 +337,23 @@ func (s *Service) ExhaustRun(ctx context.Context, payload RunJobPayload, cause e
 }
 
 var _ domain.Runner = (*Service)(nil)
+
+// RecoverPendingRuns replays durable runs on every scheduler tick, including
+// queue submissions interrupted while Redis was unavailable. Queue IDs fence duplicates.
+func (s *Service) RecoverPendingRuns(ctx context.Context, limit int) error {
+	runs, err := s.repository.ListRunningRuns(ctx, limit)
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, run := range runs {
+		task, err := s.repository.FindTask(ctx, run.TenantID, run.TaskID)
+		if err == nil {
+			err = s.dispatchRun(ctx, task, run)
+		}
+		if err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}

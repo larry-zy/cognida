@@ -2,6 +2,8 @@ package collection
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	domain "cognida/internal/model/collection"
@@ -30,15 +32,25 @@ func NewScheduleDispatcher(repository dueTaskClaimer, runner domain.Runner, cloc
 // Tick claims due collection tasks and submits every claim independently.
 // Dispatch retry is deliberately owned by the configured durable queue runner.
 func (s *ScheduleDispatcher) Tick(ctx context.Context) error {
+	var failures []error
+	if recovery, ok := s.runner.(interface {
+		RecoverPendingRuns(context.Context, int) error
+	}); ok {
+		if err := recovery.RecoverPendingRuns(ctx, s.batchSize); err != nil {
+			failures = append(failures, err)
+		}
+	}
 	tasks, err := s.repository.ClaimDueTasks(ctx, s.clock.Now().UTC(), s.batchSize)
 	if err != nil {
-		return err
+		return errors.Join(append(failures, err)...)
 	}
 	for _, task := range tasks {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		_ = s.runner.Start(ctx, task.TenantID, task.ID)
+		if err := s.runner.Start(ctx, task.TenantID, task.ID); err != nil {
+			failures = append(failures, fmt.Errorf("dispatch collection %s: %w", task.ID, err))
+		}
 	}
-	return nil
+	return errors.Join(failures...)
 }

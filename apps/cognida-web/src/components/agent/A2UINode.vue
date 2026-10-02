@@ -61,7 +61,7 @@
       <!-- 预测折线（虚线） -->
       <polyline v-if="chart.forecastPoints" :points="chart.forecastPoints" class="a2ui-chart__line a2ui-chart__line--forecast" />
       <!-- 数据点 -->
-      <circle v-for="(p, i) in chart.actualDots" :key="'a' + i" :cx="p.x" :cy="p.y" r="2.5" class="a2ui-chart__dot" />
+      <circle v-for="(p, i) in chart.actualDots" :key="'a' + i" :cx="p.x" :cy="p.y" r="3.5" class="a2ui-chart__dot a2ui-drill" role="button" tabindex="0" :aria-label="drillLabel(i)" @click="drillDown(i)" @keydown.enter="drillDown(i)" @keydown.space.prevent="drillDown(i)" />
       <circle v-for="(p, i) in chart.forecastDots" :key="'f' + i" :cx="p.x" :cy="p.y" r="2.5" class="a2ui-chart__dot a2ui-chart__dot--forecast" />
     </svg>
     <div v-if="chart" class="a2ui-chart__legend">
@@ -82,7 +82,7 @@
         :y="b.y"
         :width="bars.barW"
         :height="b.h"
-        class="a2ui-chart__bar"
+        class="a2ui-chart__bar a2ui-drill" role="button" tabindex="0" :aria-label="drillLabel(i)" @click="drillDown(i)" @keydown.enter="drillDown(i)" @keydown.space.prevent="drillDown(i)"
       />
     </svg>
     <div v-if="bars" class="a2ui-chart__xlabels">
@@ -108,7 +108,7 @@
     <div v-if="prop('title')" class="a2ui-block-title">{{ prop('title') }}</div>
     <div v-if="pie" class="a2ui-pie">
       <svg :viewBox="`0 0 ${pie.w} ${pie.h}`" class="a2ui-pie__svg">
-        <path v-for="(s, i) in pie.slices" :key="'ps' + i" :d="s.d" :fill="s.color" class="a2ui-pie__slice" />
+        <path v-for="(s, i) in pie.slices" :key="'ps' + i" :d="s.d" :fill="s.color" class="a2ui-pie__slice a2ui-drill" role="button" tabindex="0" :aria-label="drillLabel(i)" @click="drillDown(i)" @keydown.enter="drillDown(i)" @keydown.space.prevent="drillDown(i)" />
       </svg>
       <div class="a2ui-pie__legend">
         <span v-for="(s, i) in pie.slices" :key="'pl' + i" class="a2ui-pie__legend-item">
@@ -302,6 +302,18 @@ function fireAction(action: any) {
   const a = resolve(action)
   if (!a || typeof a.name !== 'string') return
   ctx.onAction({ name: a.name, params: a.params || {} })
+}
+
+// A chart click carries only the selected point and existing result handle.
+function drillLabel(index: number) {
+  const series = prop('series') || {}
+  return `下钻 ${String(series.labels?.[index] ?? index + 1)}：${String(series.actual?.[index] ?? '')}`
+}
+function drillDown(index: number) {
+  const series = prop('series') || {}
+  const value = series.actual?.[index]
+  if (typeof value !== 'number' || !Number.isFinite(value)) return
+  ctx.onAction({name:'drill_down',params:{component_id:props.id,title:String(prop('title') || series.name || ''),label:String(series.labels?.[index] ?? index + 1),value,result_id:ctx.dataModel.value.meta?.result_id}})
 }
 
 // fireConfirm：确认卡两个分支都带完整回调三元组（Phase 5 确认续跑消费）：
@@ -563,6 +575,8 @@ function fireDate() {
 </script>
 
 <style scoped>
+.a2ui-drill {cursor:pointer;}
+.a2ui-drill:hover,.a2ui-drill:focus {filter:brightness(1.25);stroke:var(--primary);stroke-width:2;outline:none;}
 .a2ui-col { display: flex; flex-direction: column; gap: 12px; }
 .a2ui-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
 .a2ui-row > * { flex: 1 1 120px; }

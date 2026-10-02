@@ -41,8 +41,8 @@ func TestScheduleDispatcherClaimsDueTasksAndDispatchesEveryTask(t *testing.T) {
 	repo := &dueTasksStub{tasks: []*domain.Task{{ID: "a", TenantID: 1}, {ID: "b", TenantID: 2}}}
 	runner := &runnerStub{errFor: map[string]error{"a": errors.New("queue unavailable")}}
 	dispatcher := NewScheduleDispatcher(repo, runner, schedulerClock{now: now}, 12)
-	if err := dispatcher.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
+	if err := dispatcher.Tick(context.Background()); !errors.Is(err, runner.errFor["a"]) {
+		t.Fatalf("dispatch failure must be returned: %v", err)
 	}
 	if !repo.now.Equal(now) || repo.limit != 12 {
 		t.Fatalf("claim arguments = %s, %d", repo.now, repo.limit)
@@ -57,5 +57,25 @@ func TestScheduleDispatcherReturnsClaimError(t *testing.T) {
 	dispatcher := NewScheduleDispatcher(&dueTasksStub{err: want}, &runnerStub{}, schedulerClock{}, 1)
 	if err := dispatcher.Tick(context.Background()); !errors.Is(err, want) {
 		t.Fatalf("tick error = %v, want %v", err, want)
+	}
+}
+
+type recoveringRunner struct {
+	runnerStub
+	recoveries int
+}
+
+func (r *recoveringRunner) RecoverPendingRuns(context.Context, int) error { r.recoveries++; return nil }
+func TestScheduleTickPerformsRecoveryEveryTime(t *testing.T) {
+	runner := &recoveringRunner{}
+	dispatcher := NewScheduleDispatcher(&dueTasksStub{}, runner, schedulerClock{}, 10)
+	if err := dispatcher.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatcher.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if runner.recoveries != 2 {
+		t.Fatalf("recoveries=%d", runner.recoveries)
 	}
 }

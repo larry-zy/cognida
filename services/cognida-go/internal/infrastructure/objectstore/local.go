@@ -61,7 +61,7 @@ func (s *LocalStore) Put(ctx context.Context, request domain.PutRequest) (domain
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("create temporary object: %w", err)
 	}
-	defer root.Remove(tempPath)
+	defer func() { _ = root.Remove(tempPath) }() // best-effort cleanup; successful rename already removed the temporary path
 
 	hash := sha256.New()
 	written, copyErr := io.Copy(io.MultiWriter(temp, hash), &contextReader{ctx: ctx, reader: request.Body})

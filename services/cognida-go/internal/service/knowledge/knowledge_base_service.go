@@ -3,6 +3,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -121,6 +122,9 @@ func (s *knowledgeBaseService) CreateFromRequest(
 	req *CreateKnowledgeBaseRequest,
 	tenantID, userID int64,
 ) (*domain_knowledge.KnowledgeBase, error) {
+	if _, err := mergeChunkConfig("", req.ChunkStrategy, req.ChunkSize, req.ChunkOverlap); err != nil {
+		return nil, err
+	}
 	// 生成 ID
 	now := time.Now()
 	kb := &domain_knowledge.KnowledgeBase{
@@ -139,13 +143,8 @@ func (s *knowledgeBaseService) CreateFromRequest(
 		UpdatedAt:     now,
 	}
 
-	// 创建知识库
-	if err := s.kbRepo.Create(ctx, kb); err != nil {
-		return nil, err
-	}
-
 	// 如果有检索配置，创建设置记录
-	if req.ChunkSize != nil || req.ChunkOverlap != nil || req.GraphEnabled != nil ||
+	if req.ChunkStrategy != nil || req.ChunkSize != nil || req.ChunkOverlap != nil || req.GraphEnabled != nil ||
 		req.BM25Enabled != nil || req.RetrievalMode != nil || req.TopK != nil || req.Alpha != nil {
 		bm25Enabled := false
 		if req.BM25Enabled != nil {
@@ -158,10 +157,11 @@ func (s *knowledgeBaseService) CreateFromRequest(
 			BM25Enabled:     &bm25Enabled,
 			ChunkingConfig:  &chunkingConfig,
 		}
-		if err := s.kbSettingRepo.Create(ctx, setting); err != nil {
-			return nil, err
-		}
 		kb.Setting = setting
+	}
+
+	if err := s.saveConfiguration(ctx, kb, kb.Setting, true); err != nil {
+		return nil, err
 	}
 
 	return kb, nil
@@ -169,8 +169,8 @@ func (s *knowledgeBaseService) CreateFromRequest(
 
 // buildChunkingConfig 构建分块配置 JSON
 func (s *knowledgeBaseService) buildChunkingConfig(req *CreateKnowledgeBaseRequest) string {
-	// TODO: 构建 JSON 配置
-	return "{}"
+	value, _ := mergeChunkConfig("", req.ChunkStrategy, req.ChunkSize, req.ChunkOverlap)
+	return value
 }
 
 // requireKB 强制校验知识库归属（防跨租户 IDOR）：
@@ -215,20 +215,31 @@ func (s *knowledgeBaseService) Update(ctx context.Context, kb *domain_knowledge.
 }
 
 // UpdateFromRequest 从 DTO 更新知识库（tenantID 强制归属校验）
-func (s *knowledgeBaseService) UpdateFromRequest(
-	ctx context.Context,
-	id string,
-	tenantID int64,
-	req *UpdateKnowledgeBaseRequest,
-) (*domain_knowledge.KnowledgeBase, error) {
-	// 获取现有实体（强制归属校验）
+func (s *knowledgeBaseService) UpdateFromRequest(ctx context.Context, id string, tenantID int64, req *UpdateKnowledgeBaseRequest) (*domain_knowledge.KnowledgeBase, error) {
 	kb, err := s.requireKB(ctx, id, tenantID)
 	if err != nil {
 		return nil, err
 	}
-
-	// 应用更新
 	now := time.Now()
+	var setting *domain_knowledge.KnowledgeBaseSetting
+	if req.GraphEnabled != nil || req.ChunkStrategy != nil || req.ChunkSize != nil || req.ChunkOverlap != nil {
+		setting, err = s.kbSettingRepo.FindByKnowledgeBaseID(ctx, id)
+		if err != nil && !errors.Is(err, domain_knowledge.ErrSettingNotFound) {
+			return nil, err
+		}
+		if setting == nil {
+			setting = &domain_knowledge.KnowledgeBaseSetting{KnowledgeBaseID: id, CreatedAt: now}
+		}
+		value, err := mergeChunkConfig(setting.GetChunkingConfig(), req.ChunkStrategy, req.ChunkSize, req.ChunkOverlap)
+		if err != nil {
+			return nil, err
+		}
+		setting.ChunkingConfig = &value
+		setting.UpdatedAt = now
+		if req.GraphEnabled != nil {
+			setting.GraphEnabled = *req.GraphEnabled
+		}
+	}
 	if req.Name != nil {
 		kb.Name = *req.Name
 	}
@@ -245,42 +256,27 @@ func (s *knowledgeBaseService) UpdateFromRequest(
 		kb.Status = *req.Status
 	}
 	kb.UpdatedAt = now
-
-	// 保存更新
-	if err := s.kbRepo.Update(ctx, kb); err != nil {
+	if err = s.saveConfiguration(ctx, kb, setting, false); err != nil {
 		return nil, err
 	}
-
-	// 图谱开关属于库级数据处理配置，允许建库后在设置页开关，持久化到 kb_settings
-	if req.GraphEnabled != nil {
-		if err := s.applyGraphEnabled(ctx, id, *req.GraphEnabled, now); err != nil {
-			return nil, err
-		}
-	}
-
-	// 回填最新设置，保证响应包含 setting（图谱开关等），供前端设置页回显
-	if setting, ferr := s.kbSettingRepo.FindByKnowledgeBaseID(ctx, id); ferr == nil {
+	if setting != nil {
 		kb.Setting = setting
+	} else if current, e := s.kbSettingRepo.FindByKnowledgeBaseID(ctx, id); e == nil {
+		kb.Setting = current
 	}
-
 	return kb, nil
 }
-
-// applyGraphEnabled 更新（或在缺失时创建）知识库的图谱提取开关
-func (s *knowledgeBaseService) applyGraphEnabled(ctx context.Context, kbID string, enabled bool, now time.Time) error {
-	setting, err := s.kbSettingRepo.FindByKnowledgeBaseID(ctx, kbID)
-	if err == nil && setting != nil {
-		setting.GraphEnabled = enabled
-		setting.UpdatedAt = now
-		return s.kbSettingRepo.Update(ctx, setting)
+func (s *knowledgeBaseService) saveConfiguration(ctx context.Context, kb *domain_knowledge.KnowledgeBase, setting *domain_knowledge.KnowledgeBaseSetting, create bool) error {
+	if writer, ok := s.kbRepo.(domain_knowledge.ConfigurationRepository); ok {
+		return writer.SaveConfiguration(ctx, kb, setting, create)
 	}
-	// 设置不存在则创建
-	return s.kbSettingRepo.Create(ctx, &domain_knowledge.KnowledgeBaseSetting{
-		KnowledgeBaseID: kbID,
-		GraphEnabled:    enabled,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	})
+	if setting != nil {
+		return fmt.Errorf("atomic knowledge configuration repository unavailable")
+	}
+	if create {
+		return s.kbRepo.Create(ctx, kb)
+	}
+	return s.kbRepo.Update(ctx, kb)
 }
 
 // UpdateWithSettings updates a knowledge base and its settings
@@ -845,7 +841,16 @@ func (s *knowledgeBaseService) ToSettingResponse(setting *domain_knowledge.Knowl
 		settingsJSON = *setting.SettingsJSON
 	}
 
+	chunk := map[string]any{}
+	_ = json.Unmarshal([]byte(chunkingConfig), &chunk)
+	strategy, _ := chunk["strategy"].(string)
+	if strategy == "" {
+		strategy = "paragraph"
+	}
+	size, _ := chunk["chunk_size"].(float64)
+	overlap, _ := chunk["chunk_overlap"].(float64)
 	return &KnowledgeBaseSettingResponse{
+		ChunkStrategy: strategy, ChunkSize: int(size), ChunkOverlap: int(overlap),
 		ID:              setting.ID,
 		KnowledgeBaseID: setting.KnowledgeBaseID,
 		GraphEnabled:    setting.GraphEnabled,

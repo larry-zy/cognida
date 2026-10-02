@@ -1,358 +1,42 @@
 # cognida-python 功能进度
 
-> 更新时间: 2026-05-03  
-> 版本: v0.1.0  
-> 架构: MCP + gRPC 混合模式
-
----
-
-## 一、项目概述
-
-cognida-python 是 Python 工具服务，通过 **MCP + gRPC 混合模式**为 Go 服务提供能力增强。
-
-**核心理念**: Go 是 Agent 的大脑，Python 是能力工具箱。
-
----
-
-## 二、整体进度
-
-```
-总体进度: ████████░░░░░░░░░░░  40%
-
-├── 基础设施    ████████████████████  100%
-├── MCP 协议    ████████████████░░░░   80%
-├── gRPC 协议   ██████░░░░░░░░░░░░░░   30%
-├── 工具实现    ████████░░░░░░░░░░░░   40%
-└── 测试覆盖    ████████░░░░░░░░░░░░   40%
-```
-
----
-
-## 三、已完成功能 ✅
-
-### 3.1 基础设施 (100%)
-
-| 模块 | 文件 | 状态 |
-|------|------|------|
-| 项目结构 | 标准目录结构 | ✅ |
-| 包管理 | `pyproject.toml` (uv) | ✅ |
-| 配置管理 | `config/settings.py` (pydantic) | ✅ |
-| 日志系统 | `core/logger.py` (structlog) | ✅ |
-| 异常处理 | `core/exceptions.py` | ✅ |
-| 代码质量 | ruff + mypy 配置 | ✅ |
-| 测试框架 | pytest + pytest-cov + pytest-asyncio | ✅ |
-| CI/CD | GitHub Actions workflow | ✅ |
-| 容器化 | Dockerfile + docker-compose.yml | ✅ |
-| 开发工具 | VS Code 配置 + scripts | ✅ |
-
-### 3.2 MCP 协议层 (80%)
-
-| 功能 | 文件 | 状态 |
-|------|------|------|
-| MCP Server | `mcp/server.py` | ✅ |
-| 请求处理器 | `mcp/handlers.py` | ✅ |
-| `tools/list` | MCP 标准方法 | ✅ |
-| `tools/call` | MCP 标准方法 | ✅ |
-| stdio 模式 | 子进程通信 | ✅ |
-| HTTP 模式 | 待实现 | ⏳ |
-
-### 3.3 gRPC 协议层 (30%)
-
-| 功能 | 文件 | 状态 |
-|------|------|------|
-| gRPC Server | `grpc/server.py` | ✅ |
-| Servicer 框架 | `grpc/servicer.py` | ✅ |
-| Proto 定义 | `proto/python_tools.proto` | ✅ |
-| 协议生成 | 需运行 `grpc_tools.protoc` | ⏳ |
-| 具体服务实现 | 待完成 | ⏳ |
-
-### 3.4 服务层 (60%)
-
-| 服务 | 文件 | 状态 |
-|------|------|------|
-| LLM 客户端基类 | `services/llm/base.py` | ✅ |
-| OpenAI 实现 | `services/llm/openai.py` | ✅ |
-| 其他 LLM | litellm 集成 | ⏳ |
-| 存储客户端 | 待实现 | ⏳ |
-
-### 3.5 工具实现 (40%)
-
-#### 评测工具 (MCP)
-
-| 工具 | 文件 | 状态 |
-|------|------|------|
-| 工具基类 | `tools/base.py` | ✅ |
-| 工具注册 | `tools/registry.py` | ✅ |
-| LLM 裁判 | `tools/evaluation/llm_judge.py` | ✅ |
-| 自定义指标 | 待实现 | ⏳ |
-| 语义相似度 | 待实现 | ⏳ |
-| 忠实度评估 | 待实现 | ⏳ |
-
-#### 文档工具 (MCP)
-
-| 工具 | 状态 | 优先级 |
-|------|------|--------|
-| OCR 处理 | ⏳ | 高 |
-| PDF 解析 | ⏳ | 高 |
-| 表格解析 | ⏳ | 中 |
-| 图像提取 | ⏳ | 中 |
-
-#### 图像工具 (gRPC)
-
-| 工具 | 状态 | 优先级 |
-|------|------|--------|
-| 图像向量化 | ⏳ | 高 |
-| 以图搜图 | ⏳ | 中 |
-| 批量处理 | ⏳ | 中 |
-
-#### 数据工具 (gRPC)
-
-| 工具 | 状态 | 优先级 |
-|------|------|--------|
-| 批量收集 | ⏳ | 高 |
-| 流式导出 | ⏳ | 高 |
-| 向量检索 | ⏳ | 中 |
-
-### 3.6 HTTP API (调试用) (100%)
-
-| 功能 | 文件 | 状态 |
-|------|------|------|
-| FastAPI 应用 | `core/app.py` | ✅ |
-| 健康检查 | `api/routes/health.py` | ✅ |
-| 示例接口 | `api/routes/example.py` | ✅ |
-| 自动文档 | `/docs` | ✅ |
-| 异常处理 | 统一错误响应 | ✅ |
-
-### 3.7 测试 (40%)
-
-| 测试 | 文件 | 状态 |
-|------|------|------|
-| 测试配置 | `tests/conftest.py` | ✅ |
-| API 测试 | `tests/test_api.py`, `tests/test_health.py` | ✅ |
-| 工具测试 | `tests/test_llm_judge.py` | ✅ |
-| 注册中心测试 | `tests/test_registry.py` | ✅ |
-| MCP 测试 | `tests/test_mcp_server.py` | ✅ |
-| gRPC 测试 | 待实现 | ⏳ |
-
----
-
-## 四、待实现功能 ⏳
-
-### 4.1 高优先级
-
-#### MCP 工具
-
-```
-⏳ semantic_similarity  - 语义相似度计算
-⏳ ocr_processor       - OCR 文字识别
-⏳ pdf_parser          - PDF 文档解析
-```
-
-#### gRPC 工具
-
-```
-⏳ image_embedder      - 图像向量化
-⏳ batch_collector     - 批量数据收集（流式）
-```
-
-### 4.2 中优先级
-
-#### MCP 工具
-
-```
-⏳ custom_metric       - 自定义评测指标
-⏳ faithfulness       - 忠实度评估
-⏳ data_cleaner       - 数据清洗
-⏳ dataset_recommender - 数据集推荐
-```
-
-#### gRPC 工具
-
-```
-⏳ image_search        - 以图搜图
-⏳ vector_search       - 高性能向量检索
-⏳ streaming_export    - 流式数据导出
-```
-
-### 4.3 低优先级
-
-```
-⏳ dataset_merger      - 数据集合并
-⏳ batch_inference     - 批量模型推理
-⏳ batch_resize        - 批量图像处理
-```
-
----
-
-## 五、技术债务 🔧
-
-| 项目 | 说明 | 优先级 |
-|------|------|--------|
-| Proto 生成 | 需要生成 Python gRPC 代码 | 高 |
-| 类型标注 | 部分 module 缺少类型标注 | 中 |
-| 错误处理 | 需要细化异常分类 | 中 |
-| 文档 | API 文档需要补充 | 低 |
-
----
-
-## 六、开发计划 📅
-
-### Phase 1: 完善 MCP 工具 (1-2周)
-
-- [ ] 实现 `semantic_similarity` 工具
-- [ ] 实现 `ocr_processor` 工具
-- [ ] 实现 `pdf_parser` 工具
-- [ ] 添加 MCP HTTP 模式
-
-### Phase 2: 实现 gRPC 工具 (2-3周)
-
-- [ ] 生成 gRPC Python 代码
-- [ ] 实现 `image_embedder` 工具
-- [ ] 实现 `batch_collector` 工具（流式）
-- [ ] 实现 `vector_search` 工具
-
-### Phase 3: 集成测试 (1周)
-
-- [ ] Go 端 MCP 客户端集成
-- [ ] Go 端 gRPC 客户端集成
-- [ ] 端到端测试
-- [ ] 性能测试
-
-### Phase 4: 生产部署 (1周)
-
-- [ ] Docker 镜像优化
-- [ ] 监控和日志
-- [ ] 健康检查完善
-- [ ] 文档完善
-
----
-
-## 七、文件清单
-
-### 核心文件
-
-```
-cognida-python/
-├── config/
-│   ├── __init__.py           ✅ 配置模块
-│   └── settings.py           ✅ 配置定义
-│
-├── core/
-│   ├── __init__.py           ✅ 核心模块
-│   ├── app.py                ✅ FastAPI 应用
-│   ├── exceptions.py         ✅ 异常处理
-│   └── logger.py             ✅ 日志配置
-│
-├── mcp/
-│   ├── __init__.py           ✅ MCP 模块
-│   ├── server.py             ✅ MCP Server
-│   └── handlers.py           ✅ MCP 处理器
-│
-├── grpc/
-│   ├── __init__.py           ✅ gRPC 模块
-│   ├── server.py             ✅ gRPC Server
-│   └── servicer.py           ✅ gRPC Servicer
-│
-├── tools/
-│   ├── __init__.py           ✅ 工具模块
-│   ├── base.py               ✅ 工具基类
-│   ├── registry.py           ✅ 工具注册
-│   └── evaluation/
-│       ├── __init__.py       ✅ 评测模块
-│       └── llm_judge.py      ✅ LLM 裁判
-│
-├── services/
-│   ├── __init__.py           ✅ 服务模块
-│   └── llm/
-│       ├── __init__.py       ✅ LLM 模块
-│       ├── base.py           ✅ LLM 基类
-│       └── openai.py         ✅ OpenAI 实现
-│
-├── api/routes/
-│   ├── __init__.py           ✅ 路由模块
-│   ├── health.py             ✅ 健康检查
-│   └── example.py            ✅ 示例接口
-│
-├── tests/
-│   ├── __init__.py           ✅ 测试模块
-│   ├── conftest.py           ✅ 测试配置
-│   ├── test_api.py           ✅ API 测试
-│   ├── test_health.py        ✅ 健康检查测试
-│   ├── test_llm_judge.py     ✅ LLM 评测测试
-│   ├── test_mcp_server.py    ✅ MCP 测试
-│   └── test_registry.py      ✅ 注册中心测试
-│
-├── src/
-│   ├── __init__.py           ✅ 源码模块
-│   └── main.py               ✅ 入口文件
-│
-├── proto/
-│   └── python_tools.proto    ✅ gRPC 协议定义
-│
-├── models/
-│   └── __init__.py           ✅ 数据模型
-│
-├── pyproject.toml            ✅ 项目配置
-├── README.md                 ✅ 项目文档
-├── .env.example              ✅ 环境变量模板
-├── Dockerfile                ✅ 容器定义
-├── docker-compose.yml        ✅ 编排配置
-└── .github/workflows/ci.yml  ✅ CI/CD
-```
-
----
-
-## 八、快速参考
-
-### 启动命令
+更新：2026-10-03。本文件按可执行代码和测试记录状态，替换旧版百分比与过时目录清单。
+
+Go 负责租户授权、资产引用、版本、任务持久化和调度；Python 提供有界计算能力。生命周期详细契约、配置和验收见 [LIFECYCLE.md](LIFECYCLE.md)。
+
+| 能力 | 状态与实现 |
+|---|---|
+| MCP stdio/HTTP | 已实现，`mcp_service/server.py`；tools/list、tools/call、共享内部认证、request_id。 |
+| gRPC | 已实现，`grpc_service/servicer.py`、生成 proto；文档解析、URL 获取、分块、清洗、质量评估；共享认证、租户和 request_id 上下文。 |
+| 评测 HTTP | 已实现，`services/evaluation/fastapi_app.py`；批指标、自定义 grader、SQL/RAG/Agent 评测。模型类指标需要模型配置。 |
+| 质量 | 已实现，`services/quality`；结构化及文本维度、清洗注册、质量报告；生命周期 `/profile` 真正复用 evaluator。 |
+| 清洗 | 已实现，生命周期 `/clean` 复用 trim/normalize_ws/drop_empty/dedup/text_cleaner/pii_masker，输出来源行索引。 |
+| 增强 | 已实现可用首版，生命周期 `/enrich`；文本与表结构保留的规则标签/关键词/抽取摘要/类别/PII/情感和可选真实 LLM；返回方法、置信度、来源证据、发布建议。 |
+| 数据集合并 | 已实现 `/merge`；严格/联合 schema、去重、逐行来源映射。 |
+| 候选推荐 | 已实现 `/recommend`；仅在 Go 提供的授权候选中做元数据分词相似度排名。 |
+| 批量推理 | 已实现 `/batch-inference`；复用 OpenAI 兼容 provider，限制并发/时限，单项失败可见。未配置时 503。 |
+| 文档格式 | TXT/Markdown/PDF/DOCX/CSV/XLSX 已有；新增离线 HTML/HTM、PPTX，文字/表格/图片提取按格式支持。旧二进制 Office 明确要求转 OOXML。 |
+| OCR/URL 采集 | 已有 OCR、HTTP/浏览器提取与动态页面处理；URL 公网 HTTPS 默认策略、重定向/DNS 校验、文件访问根限制。OCR 需安装对应依赖。 |
+| 图像 resize | 已实现 `/images/resize`；实际 Pillow 变换、去 EXIF、返回内容与摘要。 |
+| 图像向量/搜索 | 已实现 CLIP→Milvus 可执行链路：embed/index/search、独立模型空间、租户与授权候选过滤。需要训练模型和 Milvus 配置；缺配置 503。 |
+| 分析 | `services/analytics` 已实现统计、相关性、趋势、归因与 MCP 工具。 |
+| 通用向量搜索/Collection/流式导出 | 由 Go 持有权限与存储访问；Python 不重复实现资产控制面。 |
+| 特征/版本/编排/通知 | Go 生命周期、资产及 Feature Store 控制面；Python 仅返回计算载荷。 |
+
+## 验证记录
+
+- 第一阶段缺陷修复基线：618 项通过。
+- 本阶段全套：646 passed、1 skipped（显式 opt-in Milvus 测试），包含新增 ASGI API、转换真实性、格式、认证、请求限制、超时/断开取消回归。
+- 显式真实图像集成：1 passed；本地 CLIP 数学计算与本机 Milvus 的入库、幂等重试、搜索、跨租户/候选隔离，随机命名测试集合已删除。
+- 图像测试使用微型随机权重，仅证明管线正确。生产语义质量必须另用训练模型和业务集验收，未配置能力不标为已可用。
 
 ```bash
-# MCP Server
+uv sync --extra all
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 uv run pytest tests -q
+RUN_IMAGE_MILVUS_INTEGRATION=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 uv run pytest tests/lifecycle/test_image_milvus_integration.py -q
 uv run python -m mcp_service.server
-
-# gRPC Server  
-uv run python -m grpc.server
-
-# HTTP API (调试)
-uv run uvicorn img.main:app --reload
-
-# 测试
-uv run pytest --cov=.
-
-# 代码检查
-./scripts/lint.sh
+uv run python -m grpc_service.server
+uv run uvicorn services.evaluation.fastapi_app:app --host 127.0.0.1 --port 18888
 ```
 
-### 端口分配
-
-| 服务 | 端口 | 协议 |
-|------|------|------|
-| MCP HTTP | 3000 | HTTP |
-| gRPC | 50051 | gRPC |
-| HTTP API | 8000 | HTTP |
-
-### 环境变量
-
-```bash
-# 应用
-APP_NAME=cognida-python-tools
-APP_ENV=dev
-LOG_LEVEL=INFO
-
-# MCP
-MCP_MODE=stdio
-MCP_PORT=3000
-
-# gRPC
-GRPC_ENABLED=true
-GRPC_PORT=50051
-
-# LLM
-LLM_PROVIDER=openai
-LLM_API_KEY=your-key
-LLM_MODEL=gpt-4
-```
-
----
-
-**文档维护**: 请在每次功能更新后同步更新本文档。
+MCP 默认 3000、gRPC 默认 50051、评测/生命周期 HTTP 使用 18888。运行前设置必要依赖和内部密钥；任务完成后停止自己启动的服务。依赖配置见 `.env.example`，不用示例密钥代替真实凭据。

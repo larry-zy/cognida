@@ -66,8 +66,8 @@ func (s Schedule) Validate() error {
 	if !s.Enabled {
 		return nil
 	}
-	if s.IntervalSeconds <= 0 || s.NextRunAt == nil {
-		return fmt.Errorf("%w: enabled schedule requires interval_seconds and next_run_at", ErrInvalidTask)
+	if s.IntervalSeconds <= 0 || s.IntervalSeconds > 31536000 || s.NextRunAt == nil {
+		return fmt.Errorf("%w: enabled schedule requires interval_seconds in 1..31536000 and next_run_at", ErrInvalidTask)
 	}
 	return nil
 }
@@ -192,19 +192,24 @@ type Run struct {
 
 // Item is the durable outcome for one source URL in a run.
 type Item struct {
-	ID           string     `json:"id"`
-	TenantID     int64      `json:"tenant_id"`
-	TaskID       string     `json:"task_id"`
-	RunID        string     `json:"run_id"`
-	SourceID     string     `json:"source_id"`
-	SourceURL    string     `json:"source_url"`
-	CanonicalURL string     `json:"canonical_url,omitempty"`
-	Status       ItemStatus `json:"status"`
-	ContentHash  string     `json:"content_hash,omitempty"`
-	KnowledgeID  string     `json:"knowledge_id,omitempty"`
-	HTTPStatus   int        `json:"http_status,omitempty"`
-	ContentType  string     `json:"content_type,omitempty"`
-	ErrorReason  string     `json:"error_reason,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID                  string     `json:"id"`
+	TenantID            int64      `json:"tenant_id"`
+	TaskID              string     `json:"task_id"`
+	RunID               string     `json:"run_id"`
+	SourceID            string     `json:"source_id"`
+	SourceURL           string     `json:"source_url"`
+	CanonicalURL        string     `json:"canonical_url,omitempty"`
+	Status              ItemStatus `json:"status"`
+	ContentHash         string     `json:"content_hash,omitempty"`
+	RawObjectKey        string     `json:"raw_object_key,omitempty"`
+	NormalizedObjectKey string     `json:"normalized_object_key,omitempty"`
+	RawHash             string     `json:"raw_hash,omitempty"`
+	RawSize             int64      `json:"raw_size,omitempty"`
+	NormalizedSize      int64      `json:"normalized_size,omitempty"`
+	KnowledgeID         string     `json:"knowledge_id,omitempty"`
+	HTTPStatus          int        `json:"http_status,omitempty"`
+	ContentType         string     `json:"content_type,omitempty"`
+	ErrorReason         string     `json:"error_reason,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }

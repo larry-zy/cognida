@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"cognida/internal/model/tenant"
 	"cognida/internal/model/user"
@@ -37,7 +38,12 @@ func (r *userRepository) dbCtx(ctx context.Context) *gorm.DB {
 func (r *userRepository) Create(ctx context.Context, u *user.User) error {
 	var model UserModel
 	model.FromDomain(u)
-	return r.dbCtx(ctx).Create(&model).Error
+	if err := r.dbCtx(ctx).Create(&model).Error; err != nil {
+		return err
+	}
+	u.ID = model.ID
+	u.CreatedAt = model.CreatedAt
+	return nil
 }
 
 // FindByID 根据ID查找用户
@@ -251,6 +257,7 @@ func (r *refreshTokenRepository) Create(ctx context.Context, token *user.Refresh
 func (r *refreshTokenRepository) FindByHash(ctx context.Context, tokenHash string) (*user.RefreshToken, error) {
 	var model RefreshTokenModel
 	err := r.dbCtx(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("token_hash = ?", tokenHash).
 		First(&model).Error
 
@@ -329,7 +336,13 @@ func (r *tenantRepository) dbCtx(ctx context.Context) *gorm.DB {
 func (r *tenantRepository) Create(ctx context.Context, t *tenant.Tenant) error {
 	var model TenantModel
 	model.FromDomainForCreate(t)
-	return r.dbCtx(ctx).Create(&model).Error
+	if err := r.dbCtx(ctx).Create(&model).Error; err != nil {
+		return err
+	}
+	t.ID = model.ID
+	t.CreatedAt = model.CreatedAt
+	t.UpdatedAt = model.UpdatedAt
+	return nil
 }
 
 // FindByID 根据ID查找租户

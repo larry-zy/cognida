@@ -72,6 +72,17 @@ async def parse_document(
             else:
                 format = "txt"
 
+        if format.lower() in {"doc", "xls", "ppt"}:
+            from pathlib import Path
+            magic = Path(source).open("rb") if isinstance(source, str) else None
+            try:
+                header = magic.read(8) if magic else source[:8]
+            finally:
+                if magic:
+                    magic.close()
+            if header.startswith(b"\xd0\xcf\x11\xe0"):
+                raise ValueError("Legacy binary Office documents must be converted to DOCX/XLSX/PPTX before parsing")
+            format = {"doc": "docx", "xls": "xlsx", "ppt": "pptx"}[format.lower()]
         parser = get_parser(format)
 
         # 解析文档

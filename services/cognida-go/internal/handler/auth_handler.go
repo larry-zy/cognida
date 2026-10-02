@@ -15,6 +15,8 @@ import (
 // 也只暴露安全文案、不泄漏包裹链中的内部细节。
 func respondAuthError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, appAccount.ErrTenantAccessDenied):
+		Forbidden(c, appAccount.ErrTenantAccessDenied.Error())
 	case errors.Is(err, appAccount.ErrEmailExists):
 		Conflict(c, appAccount.ErrEmailExists.Error(), nil)
 	case errors.Is(err, appAccount.ErrUsernameExists):

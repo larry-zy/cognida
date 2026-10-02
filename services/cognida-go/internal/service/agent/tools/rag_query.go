@@ -20,7 +20,7 @@ type RAGQueryRequest struct {
 	TopK int `json:"top_k" jsonschema:"description=返回结果数量，默认5，范围1-20"`
 
 	// RetrievalMode 检索模式：vector(向量)、bm25(关键词)、hybrid(混合)
-	RetrievalMode string `json:"retrieval_mode" jsonschema:"description=检索模式：vector/bm25/hybrid，默认hybrid"`
+	RetrievalMode string `json:"retrieval_mode" jsonschema:"description=检索模式：vector/bm25/hybrid/auto，默认hybrid"`
 
 	// MinScore 最小相似度阈值，默认0.5（与系统检索默认一致）。
 	// 用指针区分「未传」与「显式 0」：nil=未传→回落 0.5；显式 0=主动关闭分数过滤，不再被静默改成 0.5。
@@ -146,10 +146,10 @@ func ragQuery(ctx context.Context, req *RAGQueryRequest, ragService RAGQueryServ
 	validModes := map[string]bool{
 		"vector": true,
 		"bm25":   true,
-		"hybrid": true,
+		"hybrid": true, "auto": true,
 	}
 	if !validModes[req.RetrievalMode] {
-		return nil, fmt.Errorf("invalid retrieval_mode: %s, must be one of: vector, bm25, hybrid", req.RetrievalMode)
+		return nil, fmt.Errorf("invalid retrieval_mode: %s, must be one of: vector, bm25, hybrid, auto", req.RetrievalMode)
 	}
 
 	// 2. 检查 RAG 服务是否已初始化

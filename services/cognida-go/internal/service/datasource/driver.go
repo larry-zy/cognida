@@ -14,6 +14,7 @@ import (
 
 // TableInfo 外部数据源表清单条目（轻量：不含列）
 type TableInfo struct {
+	Type    string `json:"type"`
 	Name    string `json:"name"`
 	Comment string `json:"comment"`
 	Rows    int64  `json:"rows"` // information_schema 估算行数
@@ -21,6 +22,7 @@ type TableInfo struct {
 
 // ColumnInfo 列结构
 type ColumnInfo struct {
+	IsFK     bool   `json:"is_fk"`
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Nullable bool   `json:"nullable"`
@@ -111,9 +113,9 @@ func (mysqlDriver) QuoteIdent(ident string) string {
 
 func (mysqlDriver) ListTables(ctx context.Context, db *sql.DB, dbName string) ([]TableInfo, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT TABLE_NAME, IFNULL(TABLE_COMMENT, ''), IFNULL(TABLE_ROWS, 0)
+		SELECT TABLE_NAME, IFNULL(TABLE_COMMENT, ''), IFNULL(TABLE_ROWS, 0), CASE WHEN TABLE_TYPE='VIEW' THEN 'view' ELSE 'table' END
 		FROM information_schema.TABLES
-		WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+		WHERE TABLE_SCHEMA = ? AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
 		ORDER BY TABLE_NAME`, dbName)
 	if err != nil {
 		return nil, err
@@ -123,7 +125,7 @@ func (mysqlDriver) ListTables(ctx context.Context, db *sql.DB, dbName string) ([
 	var tables []TableInfo
 	for rows.Next() {
 		var t TableInfo
-		if err := rows.Scan(&t.Name, &t.Comment, &t.Rows); err != nil {
+		if err := rows.Scan(&t.Name, &t.Comment, &t.Rows, &t.Type); err != nil {
 			return nil, err
 		}
 		tables = append(tables, t)
@@ -146,8 +148,9 @@ func (mysqlDriver) DescribeTable(ctx context.Context, db *sql.DB, dbName, table 
 	}
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, IFNULL(COLUMN_KEY, ''), IFNULL(COLUMN_COMMENT, '')
-		FROM information_schema.COLUMNS
+		SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, IFNULL(COLUMN_KEY, ''), IFNULL(COLUMN_COMMENT, ''),
+ EXISTS(SELECT 1 FROM information_schema.KEY_COLUMN_USAGE fk WHERE fk.TABLE_SCHEMA=c.TABLE_SCHEMA AND fk.TABLE_NAME=c.TABLE_NAME AND fk.COLUMN_NAME=c.COLUMN_NAME AND fk.REFERENCED_TABLE_NAME IS NOT NULL)
+		FROM information_schema.COLUMNS c
 		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 		ORDER BY ORDINAL_POSITION`, dbName, table)
 	if err != nil {
@@ -158,7 +161,7 @@ func (mysqlDriver) DescribeTable(ctx context.Context, db *sql.DB, dbName, table 
 	for rows.Next() {
 		var c ColumnInfo
 		var nullable string
-		if err := rows.Scan(&c.Name, &c.Type, &nullable, &c.Key, &c.Comment); err != nil {
+		if err := rows.Scan(&c.Name, &c.Type, &nullable, &c.Key, &c.Comment, &c.IsFK); err != nil {
 			return nil, err
 		}
 		c.Nullable = nullable == "YES"

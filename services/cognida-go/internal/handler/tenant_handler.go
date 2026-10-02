@@ -32,7 +32,7 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 
-	result, err := h.accountService.CreateTenant(c.Request.Context(), &req)
+	result, err := h.accountService.CreateWorkspace(c.Request.Context(), GetUserID(c), &req)
 	if err != nil {
 		InternalError(c, err.Error())
 		return
@@ -43,32 +43,13 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 
 // ListTenants 列出租户
 func (h *TenantHandler) ListTenants(c *gin.Context) {
-	page, pageSize := GetPageParams(c)
-
-	// 游标（keyset）分页〔M5〕：仅当请求携带 cursor 时启用；不带 cursor 时行为与响应结构与原状一致。
-	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
-		result, nextCursor, err := h.accountService.ListTenantsByCursor(c.Request.Context(), c.Query("cursor"), pageSize)
-		if err != nil {
-			// 畸形 cursor → 400，其余 → 500（RespondError 统一映射，不回显内部细节）。
-			RespondError(c, err)
-			return
-		}
-		OK(c, gin.H{
-			"list":        result,
-			"next_cursor": nextCursor,
-			"has_more":    nextCursor != "",
-			"page_size":   pageSize,
-		})
-		return
-	}
-
-	result, total, err := h.accountService.ListTenants(c.Request.Context(), page, pageSize)
+	_, pageSize := GetPageParams(c)
+	items, next, err := h.accountService.MemberTenants(c.Request.Context(), GetUserID(c), c.Query("cursor"), pageSize)
 	if err != nil {
-		InternalError(c, err.Error())
+		respondAuthError(c, err)
 		return
 	}
-
-	PageSuccessJSON(c, total, result, page, pageSize)
+	OK(c, gin.H{"items": items, "next_cursor": next, "has_more": next != ""})
 }
 
 // GetTenant 获取租户详情
@@ -77,6 +58,10 @@ func (h *TenantHandler) GetTenant(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		BadRequest(c, "无效的租户ID")
+		return
+	}
+	if err := h.accountService.AuthorizeTenant(c.Request.Context(), GetUserID(c), id); err != nil {
+		respondAuthError(c, err)
 		return
 	}
 
@@ -95,6 +80,10 @@ func (h *TenantHandler) UpdateTenant(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		BadRequest(c, "无效的租户ID")
+		return
+	}
+	if err := h.accountService.AuthorizeTenantManagement(c.Request.Context(), GetUserID(c), id); err != nil {
+		respondAuthError(c, err)
 		return
 	}
 
@@ -120,6 +109,10 @@ func (h *TenantHandler) DeleteTenant(c *gin.Context) {
 		BadRequest(c, "无效的租户ID")
 		return
 	}
+	if err := h.accountService.AuthorizeTenantManagement(c.Request.Context(), GetUserID(c), id); err != nil {
+		respondAuthError(c, err)
+		return
+	}
 
 	if err := h.accountService.DeleteTenant(c.Request.Context(), id); err != nil {
 		InternalError(c, err.Error())
@@ -135,6 +128,10 @@ func (h *TenantHandler) GetTenantStats(c *gin.Context) {
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		BadRequest(c, "无效的租户ID")
+		return
+	}
+	if err := h.accountService.AuthorizeTenant(c.Request.Context(), GetUserID(c), id); err != nil {
+		respondAuthError(c, err)
 		return
 	}
 

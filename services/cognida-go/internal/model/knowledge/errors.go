@@ -8,6 +8,7 @@ import "errors"
 // ========================================
 
 var (
+	ErrSettingNotFound = errors.New("knowledge base setting not found")
 	// ErrKnowledgeBaseNotFound knowledge base not found
 	ErrKnowledgeBaseNotFound = errors.New("knowledge base not found")
 
@@ -214,13 +215,13 @@ func StorageLimitExceededError(tenantID int64, current, limit int64) *KnowledgeE
 // ========================================
 
 const (
-	ErrorCodeKBNotFound            = "KB_NOT_FOUND"
+	ErrorCodeKBNotFound             = "KB_NOT_FOUND"
 	ErrorCodeKnowledgeNotFound      = "KNOWLEDGE_NOT_FOUND"
 	ErrorCodeChunkNotFound          = "CHUNK_NOT_FOUND"
 	ErrorCodeTagNotFound            = "TAG_NOT_FOUND"
 	ErrorCodeKBAlreadyExists        = "KB_ALREADY_EXISTS"
 	ErrorCodeInvalidKBName          = "INVALID_KB_NAME"
-	ErrorCodeInvalidKnowledgeBaseID            = "INVALID_KB_ID"
+	ErrorCodeInvalidKnowledgeBaseID = "INVALID_KB_ID"
 	ErrorCodeKBInUse                = "KB_IN_USE"
 	ErrorCodeKBLimitExceeded        = "KB_LIMIT_EXCEEDED"
 	ErrorCodeStorageLimitExceeded   = "STORAGE_LIMIT_EXCEEDED"

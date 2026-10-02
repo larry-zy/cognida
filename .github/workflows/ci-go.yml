@@ -36,6 +36,9 @@ jobs:
       - name: 下载依赖
         run: go mod download
 
+      - name: 检查生成的前端契约
+        run: go run ./cmd/frontend-contracts -check
+
       - name: go vet
         run: go vet ./...
 

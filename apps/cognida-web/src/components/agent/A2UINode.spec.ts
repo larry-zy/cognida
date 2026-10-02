@@ -27,3 +27,12 @@ describe('bar chart signed values', () => {
     wrapper.unmount()
   })
 })
+
+it('emits bounded chart evidence for mouse and keyboard drill-down', async () => {
+  const onAction=vi.fn()
+  const wrapper=mount(A2UINode,{props:{id:'root'},global:{provide:{[A2UI_CTX as symbol]:{nodes:ref({root:{id:'root',type:'BarChart',props:{series:{path:'/series'},title:'Revenue'}}}),dataModel:ref({series:{labels:['East','West'],actual:[12,20]},meta:{result_id:'result-1'}}),onAction}}}})
+  await wrapper.findAll('rect')[0].trigger('click')
+  expect(onAction).toHaveBeenLastCalledWith({name:'drill_down',params:{component_id:'root',title:'Revenue',label:'East',value:12,result_id:'result-1'}})
+  await wrapper.findAll('rect')[1].trigger('keydown',{key:'Enter'})
+  expect(onAction.mock.lastCall?.[0].params.label).toBe('West')
+})

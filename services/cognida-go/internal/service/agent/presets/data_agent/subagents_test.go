@@ -27,9 +27,9 @@ var writeToolNames = map[string]bool{
 // 写类工具仅 Operation 持有（任务 8.2），编排者不持任何直接数据工具（任务 8.1a）。
 func TestSubAgentSpecs_MinimalToolsets(t *testing.T) {
 	expected := map[string][]string{
-		"SchemaExplorer": {"get_schema"},
+		"SchemaExplorer": {"catalog_search", "get_schema"},
 		"SQLAuthor":      {"get_schema", "sql_execute"},
-		"Analysis":       {"data_analysis"},
+		"Analysis":       {"data_analysis", "verify_results", "decision_synthesize"},
 		"Operation":      {"sql_mutate", "etl_run", "data_export"},
 		"Viz":            {"render_ui"},
 	}
@@ -187,5 +187,41 @@ func TestRegisterDataSubAgents_RequiresDeps(t *testing.T) {
 	}
 	if err := RegisterDataSubAgents(context.Background(), infraagent.NewCollaborationRegistry(), &stubToolModel{}, nil); err == nil {
 		t.Fatalf("缺工具注册表应报错")
+	}
+}
+
+type catalogContextFixture struct{}
+
+func (catalogContextFixture) Context(context.Context, int64, string) (string, error) {
+	return "authorized catalog metadata", nil
+}
+func TestDataAnalysisCatalogAndOperationIsolation(t *testing.T) {
+	ctx := context.Background()
+	registry := newTestRegistry(t)
+	if e := registry.Register("semantic", toolregistry.NewCatalogSearchTool(catalogContextFixture{})); e != nil {
+		t.Fatal(e)
+	}
+	found := false
+	for _, tool := range collectCapabilityTools(ctx, registry) {
+		info, e := tool.Info(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if info.Name == "catalog_search" {
+			found = true
+		}
+		if writeToolNames[info.Name] {
+			t.Fatalf("default analysis exposes operation %s", info.Name)
+		}
+	}
+	if !found {
+		t.Fatal("catalog_search missing from default analysis tools")
+	}
+	collab := infraagent.NewCollaborationRegistry()
+	if e := RegisterDataAnalysisSubAgents(ctx, collab, &stubToolModel{}, registry); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := collab.GetByName("Operation"); e == nil {
+		t.Fatal("Operation should require explicit registration")
 	}
 }

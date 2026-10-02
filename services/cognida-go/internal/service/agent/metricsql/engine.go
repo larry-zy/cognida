@@ -94,9 +94,10 @@ type Coverage struct {
 
 // Result 是引擎产物：治理口径下的 SQL + 覆盖报告 + 说明。
 type Result struct {
-	SQL      string   `json:"sql"`
-	Coverage Coverage `json:"coverage"`
-	Notes    []string `json:"notes,omitempty"`
+	SQL          string       `json:"sql"`
+	Coverage     Coverage     `json:"coverage"`
+	Notes        []string     `json:"notes,omitempty"`
+	Dependencies []Dependency `json:"dependencies,omitempty"`
 }
 
 // selectItem 是一个待装配的 SELECT 项（维度或指标解析后的统一形态）。
@@ -110,7 +111,7 @@ type selectItem struct {
 
 // Build 依据语义模型 bundle 装配 SQL。任一名称未覆盖时返回 Covered=false（SQL 为空），
 // 调用方据此回退词法 NL2SQL。
-func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
+func Build(bundle *semantic.ModelBundle, q Query, observers ...Observer) (*Result, error) {
 	if bundle == nil || bundle.Model == nil {
 		return nil, fmt.Errorf("metricsql: 语义模型为空")
 	}
@@ -261,6 +262,8 @@ func Build(bundle *semantic.ModelBundle, q Query) (*Result, error) {
 	}
 	res.SQL = sql
 	res.Coverage = Coverage{Covered: true, ResolvedMetrics: resolvedMetrics, ResolvedDimensions: resolvedDims}
+	res.Dependencies = physicalDependencies(idx, metricItems, dimItems, filters, fromSQL)
+	dispatchObservers(bundle, q, res, observers)
 	return res, nil
 }
 

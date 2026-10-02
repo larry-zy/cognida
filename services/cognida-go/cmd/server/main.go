@@ -182,9 +182,18 @@ func main() {
 	// 这是一段 env 门控、构造有序的运行时装配，与 Wire 静态图正交，独立成函数
 	// （见 assembleAgentRuntime）；返回的经验 Worker 供后续启动/停止。
 	experienceWorker := assembleAgentRuntime(cfg, db, app, neo4jDriver)
+	if err := app.Features.RegisterAgents(context.Background(), app.AgentRegistry); err != nil {
+		log.Fatalf("Lifecycle agent registration failed: %v", err)
+	}
+	workersEnabled := os.Getenv("BACKGROUND_WORKERS_ENABLED") != "false"
+	if workersEnabled {
+		if err := app.Features.Start(); err != nil {
+			log.Fatalf("Feature workers failed to start: %v", err)
+		}
+	}
 
 	// 启动评测 Worker（如果启用）
-	if app.EvaluationConfig != nil && app.EvaluationConfig.WorkerEnabled && app.EvaluationWorker != nil {
+	if workersEnabled && app.EvaluationConfig != nil && app.EvaluationConfig.WorkerEnabled && app.EvaluationWorker != nil {
 		log.Println("🔧 启动评测 Worker...")
 		go func() {
 			defer safego.Recover("server-bg")
@@ -195,7 +204,7 @@ func main() {
 		log.Println("✅ 评测 Worker 已启动")
 	}
 
-	if app.CollectionWorker != nil {
+	if workersEnabled && app.CollectionWorker != nil {
 		log.Println("🔧 启动数据收集 Worker...")
 		if err := app.CollectionWorker.Run(); err != nil {
 			log.Printf("❌ 数据收集 Worker 启动失败: %v", err)
@@ -205,7 +214,7 @@ func main() {
 	}
 
 	// 启动会话经验自动沉淀 Worker（EXPERIENCE_DISTILL_ENABLED=true 时装配）
-	if experienceWorker != nil {
+	if workersEnabled && experienceWorker != nil {
 		log.Println("🔧 启动会话经验沉淀 Worker...")
 		if err := experienceWorker.Run(); err != nil {
 			log.Printf("❌ 经验沉淀 Worker 启动失败: %v", err)
@@ -431,6 +440,8 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			sessionResults := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
 
 			deps := ragtool.ToolDeps{
+				CatalogContext:       app.Features.Catalog,
+				DecisionAssets:       app.Features.Lifecycle,
 				SQLDB:                db,
 				CollectionService:    app.CollectionService,
 				CollectionRepository: app.CollectionRepository,
@@ -459,6 +470,9 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 						"audit_logs", "agent_operation_audit",
 					},
 				},
+			}
+			if os.Getenv("LINEAGE_ENABLED") == "true" && app.Features.Lineage != nil {
+				deps.LineageObserver = app.Features.Lineage.Observer
 			}
 
 			// 外部数据源路由：查询类工具 database_id 非空时经 ConnectionManager

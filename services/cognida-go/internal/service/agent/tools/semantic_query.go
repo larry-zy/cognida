@@ -213,9 +213,9 @@ type SemanticQueryResult struct {
 
 // NewSemanticQueryTool 创建结构化取数工具；repo 语义仓储、cache 受信缓存、grounder 术语接地器、
 // sink 覆盖埋点端口经参数注入（均可为 nil）。
-func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder, sink semantic.CoverageSink, dsp model_datasource.ConnectionProvider) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
+func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, grounder *termgrounding.Grounder, sink semantic.CoverageSink, dsp model_datasource.ConnectionProvider, observers ...metricsql.Observer) *TypedBaseTool[SemanticQueryRequest, SemanticQueryResult] {
 	handler := func(ctx context.Context, req *SemanticQueryRequest) (*SemanticQueryResult, error) {
-		return semanticQuery(ctx, req, repo, cache, sink, dsp)
+		return semanticQuery(ctx, req, repo, cache, sink, dsp, observers...)
 	}
 	return NewTypedBaseTool("semantic_query",
 		`按受治理的指标语义模型生成 SQL（NL2Semantics 查询主路径）。
@@ -243,7 +243,7 @@ func NewSemanticQueryTool(repo semantic.Repository, cache semanticcache.Cache, g
 	)
 }
 
-func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache, sink semantic.CoverageSink, dsp model_datasource.ConnectionProvider) (*SemanticQueryResult, error) {
+func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo semantic.Repository, semanticQueryCache semanticcache.Cache, sink semantic.CoverageSink, dsp model_datasource.ConnectionProvider, observers ...metricsql.Observer) (*SemanticQueryResult, error) {
 	if semanticRepo == nil {
 		return &SemanticQueryResult{
 			Covered:      false,
@@ -310,7 +310,7 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 		}
 	}
 
-	out, err := metricsql.Build(bundle, query)
+	out, err := metricsql.Build(bundle, query, observers...)
 	if err != nil {
 		return nil, err
 	}

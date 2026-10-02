@@ -29,13 +29,13 @@ type User struct {
 // RefreshToken 刷新令牌实体
 // 对应 refresh_tokens 表
 type RefreshToken struct {
+	TenantID  int64
 	ID        int64
 	UserID    int64
 	TokenHash string
 	ExpiresAt time.Time
 	CreatedAt time.Time
 }
-
 
 // RefreshTokenEntity 别名，保持兼容性
 type RefreshTokenEntity = RefreshToken
@@ -56,7 +56,6 @@ type UserPreference struct {
 	UpdatedAt           time.Time
 }
 
-
 // ========================================
 // APIKey API密钥实体
 // ========================================
@@ -74,7 +73,6 @@ type APIKey struct {
 	Status     int8
 	CreatedAt  time.Time
 }
-
 
 // ========================================
 // TokenClaims JWT令牌声明

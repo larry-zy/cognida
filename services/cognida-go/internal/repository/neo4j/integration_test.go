@@ -1,3 +1,5 @@
+//go:build integration
+
 // Package neo4j 图谱仓储集成测试
 package neo4j
 
@@ -6,20 +8,12 @@ import (
 	"os"
 	"testing"
 
-	_ "github.com/joho/godotenv"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"cognida/internal/model/knowledge"
 )
-
-func init() {
-	// 加载 .env 文件
-	_ = os.Setenv("NEO4J_URI", "bolt://localhost:7687")
-	_ = os.Setenv("NEO4J_USERNAME", "neo4j")
-	_ = os.Setenv("NEO4J_PASSWORD", "larry12345")
-	_ = os.Setenv("NEO4J_DATABASE", "neo4j")
-}
 
 // getTestConfig 从环境变量获取测试配置
 func getTestConfig() (uri, username, password, dbName string) {
@@ -48,7 +42,7 @@ func setupTestRepo(t *testing.T) *Neo4jRepository {
 
 	repo, err := NewNeo4jRepository(uri, username, password, dbName)
 	if err != nil {
-		t.Skipf("Neo4j not available or connection failed: %v", err)
+		t.Fatalf("Neo4j integration connection failed: %v", err)
 		return nil
 	}
 
@@ -100,7 +94,7 @@ func TestRealAddGraph(t *testing.T) {
 	ctx := context.Background()
 	namespace := knowledge.NameSpace{
 		TenantID:        "test-tenant",
-		KnowledgeBaseID: "test-kb-" + t.Name(),
+		KnowledgeBaseID: "test-kb-" + t.Name() + uuid.NewString(),
 	}
 
 	// 清理可能存在的旧数据

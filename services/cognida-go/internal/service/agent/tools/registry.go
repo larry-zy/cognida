@@ -54,6 +54,7 @@ func NewToolRegistry(deps ToolDeps) (*ToolRegistry, error) {
 		r.registerSemanticTools,
 		r.registerGraphTools,
 		r.registerAnalyticsTools,
+		r.registerDecisionTools,
 		r.registerRenderTools,
 		r.registerOperationTools,
 		r.registerSkillTools,

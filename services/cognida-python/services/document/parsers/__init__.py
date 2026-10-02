@@ -7,6 +7,8 @@ from .excel_parser import ExcelParser
 from .csv_parser import CSVParser
 from .markdown_parser import MarkdownParser
 from .text_parser import TextParser
+from .html_parser import HTMLParser
+from .pptx_parser import PPTXParser
 from ..formats import DocumentFormat
 
 __all__ = [
@@ -17,6 +19,8 @@ __all__ = [
     "CSVParser",
     "MarkdownParser",
     "TextParser",
+    "HTMLParser",
+    "PPTXParser",
 ]
 
 
@@ -34,7 +38,7 @@ def get_parser(format: str) -> BaseParser:
     """
     # key 引用 DocumentFormat.value（format wire 契约〔M13-P4〕），字面结果不变。
     # 别名 doc/xls/markdown 用字面量归入对应解析器；"text" 为 Python 侧内部别名，
-    # 不属跨服务 wire 契约。Python 暂无 pptx/html 解析器（契约集合以 Go 侧为准）。
+    # 不属跨服务 wire 契约。旧二进制 Office 格式不能仅改后缀冒充 OOXML。
     parsers = {
         DocumentFormat.PDF.value: PDFParser,
         DocumentFormat.DOCX.value: DocxParser,
@@ -46,6 +50,9 @@ def get_parser(format: str) -> BaseParser:
         "markdown": MarkdownParser,
         DocumentFormat.TXT.value: TextParser,
         "text": TextParser,
+        DocumentFormat.HTML.value: HTMLParser,
+        "htm": HTMLParser,
+        DocumentFormat.PPTX.value: PPTXParser,
     }
 
     parser_class = parsers.get(format.lower())

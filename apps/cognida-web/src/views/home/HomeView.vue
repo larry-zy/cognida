@@ -5,7 +5,7 @@
     <div class="topbar">
       <span class="topbar__title">Cognida</span>
       <div class="topbar__right">
-        <span class="status-dot"><i></i>agent · online</span>
+        <span class="status-dot"><i></i>工作空间</span>
       </div>
     </div>
 
@@ -28,41 +28,13 @@
       </div>
     </section>
 
-    <!-- ============ 2. KPI 横带 ============ -->
     <section>
-      <div class="section-label">PLATFORM OVERVIEW</div>
+      <div class="section-label">WORKSPACE</div>
       <div class="kpi-band">
-
-        <div class="kpi-col">
-          <div class="kpi__label">知识库文档</div>
-          <div class="kpi__value">128<span class="kpi__unit">篇</span></div>
-          <div class="kpi__sub">已建索引</div>
-          <svg class="kpi__spark" viewBox="0 0 60 24" aria-hidden="true">
-            <polyline
-              points="2,20 10,16 18,18 26,14 34,12 42,9 54,5"
-              fill="none" stroke="var(--text-secondary)" stroke-width="1.3"
-              stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-
-        <div class="kpi-col">
-          <div class="kpi__label">向量条目</div>
-          <div class="kpi__value">246,318</div>
-          <div class="kpi__sub">Milvus</div>
-        </div>
-
-        <div class="kpi-col">
-          <div class="kpi__label">图谱实体</div>
-          <div class="kpi__value">3,204</div>
-          <div class="kpi__sub">Neo4j</div>
-        </div>
-
-        <div class="kpi-col">
-          <div class="kpi__label">评测任务</div>
-          <div class="kpi__value">47</div>
-          <div class="kpi__sub">已完成 / 总计</div>
-        </div>
-
+        <router-link class="kpi-col workspace-entry" to="/catalog"><div class="kpi__label">发现与治理</div><div class="workspace-entry__title">数据目录</div><div class="kpi__sub">资产、术语与血缘</div></router-link>
+        <router-link class="kpi-col workspace-entry" to="/pipelines"><div class="kpi__label">处理与发布</div><div class="workspace-entry__title">数据流水线</div><div class="kpi__sub">质量门禁与人工审批</div></router-link>
+        <router-link class="kpi-col workspace-entry" to="/analysis"><div class="kpi__label">证据与决策</div><div class="workspace-entry__title">数据分析</div><div class="kpi__sub">已发布资产的分析与验证</div></router-link>
+        <router-link class="kpi-col workspace-entry" to="/subscriptions"><div class="kpi__label">持续观察</div><div class="workspace-entry__title">报告与看护</div><div class="kpi__sub">执行历史与站内通知</div></router-link>
       </div>
     </section>
 
@@ -103,7 +75,7 @@
       <div class="section-label">CORE CAPABILITIES</div>
       <div class="cap-grid">
 
-        <!-- DaDa 数据智能体 -->
+        <!-- 可组合数据专家 -->
         <div class="cap-cell">
           <div class="cap-cell__icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
@@ -114,11 +86,11 @@
               <circle cx="14.5" cy="16" r="1" fill="currentColor" stroke="none"/>
             </svg>
           </div>
-          <div class="cap-cell__title">DaDa 数据智能体</div>
+          <div class="cap-cell__title">可组合数据专家</div>
           <div class="cap-cell__desc">
-            单一 ReAct 内核自主取数、分析、操作：自动获取 Schema、构造并执行 SQL，边推理边把图表与结论以 A2UI 生成式 UI 实时画到结果画布；写操作需二次确认。
+            独立运行质量、清洗、增强、发布和分析专家，或通过注册的流水线组合执行。每一步保留资产版本、证据、门禁与人工审批记录。
           </div>
-          <div class="cap-cell__note">REACT · A2UI · CANVAS</div>
+          <div class="cap-cell__note">ASSETS · GATES · EVIDENCE</div>
         </div>
 
         <!-- RAG 知识问答 -->
@@ -309,6 +281,9 @@
 </script>
 
 <style scoped>
+.workspace-entry { text-decoration:none; color:inherit; }
+.workspace-entry:hover { background:var(--bg-hover); }
+.workspace-entry__title { font-size:22px; margin:12px 0; color:var(--text-primary); }
 /* ── 页面骨架：抵消父层 .content-wrapper { padding: 24px }，
    顶栏固定 + 内容独立滚动（对齐 mockup 面板结构） ── */
 .home-page {

@@ -704,7 +704,11 @@ func NewKnowledgeBaseSettingRepository(db *gorm.DB) domain_knowledge.KnowledgeBa
 func (r *kbSettingRepository) Create(ctx context.Context, setting *domain_knowledge.KnowledgeBaseSetting) error {
 	var model KnowledgeBaseSettingModel
 	model.FromDomain(setting)
-	return r.db.WithContext(ctx).Create(&model).Error
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		return err
+	}
+	*setting = *model.ToDomain()
+	return nil
 }
 
 // FindByKnowledgeBaseID 根据知识库ID查找设置
@@ -715,7 +719,7 @@ func (r *kbSettingRepository) FindByKnowledgeBaseID(ctx context.Context, knowled
 		First(&model).Error
 
 	if err == gorm.ErrRecordNotFound {
-		return nil, fmt.Errorf("知识库设置不存在")
+		return nil, domain_knowledge.ErrSettingNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("查询知识库设置失败: %w", err)

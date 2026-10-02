@@ -75,6 +75,7 @@ type GovernedChunk struct {
 
 // GovernedResult 是一次受治理检索的结果。
 type GovernedResult struct {
+	Attempts  []RetrievalAttempt `json:"attempts,omitempty"`
 	Chunks    []GovernedChunk
 	HasAnswer bool // 是否有通过质量阈值的命中；false 时调用方应向 LLM 明示「无可靠证据」
 }
@@ -106,6 +107,9 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 	if len(kbIDs) == 0 || strings.TrimSpace(q.Query) == "" {
 		return &GovernedResult{Chunks: []GovernedChunk{}, HasAnswer: false}, nil
 	}
+	if q.Mode == "auto" {
+		return c.retrieveAdaptive(ctx, tenantID, kbIDs, q)
+	}
 	tenantStr := strconv.FormatInt(tenantID, 10)
 
 	// TopK 兜底集中在此处：≤0 一律回落硬上限，既用于底层逐库检索的 opts.TopK（否则
@@ -113,6 +117,9 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 	limit := q.TopK
 	if limit <= 0 {
 		limit = capDefaultMaxChunks
+	}
+	if limit > 100 {
+		limit = 100
 	}
 
 	// 底层逐库检索强制关闭重排：重排改由本能力在跨库合并后单次执行（对完整候选集重排，
@@ -212,9 +219,7 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 // filterByEnabled 用 MySQL 权威启用状态过滤命中：收集去重后的 knowledge_id，回查启用子集，
 // 剔除停用/已删条目。未注入过滤器或无有效 id 时原样返回。
 //
-// 容错取向：回查失败时保守放行（记日志、不过滤），与本函数上游「单库失败不阻断整体」的可用性
-// 基调一致——启用状态是业务治理而非租户安全边界（租户隔离在底层 filter 已强制），偶发 DB 抖动
-// 下短暂放行停用内容优于整体检索归零。
+// 回查失败时不返回内容，避免停用知识在数据库故障期间重新进入模型上下文。
 func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.Document) []*rag.Document {
 	if c.enabledFilter == nil || len(docs) == 0 {
 		return docs
@@ -234,8 +239,8 @@ func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.D
 	}
 	enabled, err := c.enabledFilter.FilterEnabledKnowledgeIDs(ctx, ids)
 	if err != nil {
-		log.Printf("[RetrievalCapability] 启用状态过滤回查失败，本轮不过滤: %v", err)
-		return docs
+		log.Printf("[RetrievalCapability] 启用状态过滤回查失败，本轮不返回内容: %v", err)
+		return nil
 	}
 	kept := docs[:0]
 	for _, d := range docs {

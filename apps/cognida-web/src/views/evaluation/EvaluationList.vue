@@ -8,6 +8,8 @@
       </UiButton>
     </div>
 
+    <EvaluationCompare />
+
     <!-- 统计卡片 -->
     <EvaluationStatsCards :stats="stats" />
 
@@ -84,6 +86,7 @@ import { Plus } from '@element-plus/icons-vue'
 import { UiButton, UiInput, UiSelect } from '@/components'
 import type { CreateEvaluationRequest } from '@/types'
 import { useEvaluationList } from './composables/useEvaluationList'
+import EvaluationCompare from './components/EvaluationCompare.vue'
 import EvaluationStatsCards from './components/EvaluationStatsCards.vue'
 import EvaluationTable from './components/EvaluationTable.vue'
 import CreateEvaluationDialog from './components/CreateEvaluationDialog.vue'

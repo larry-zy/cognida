@@ -6,6 +6,7 @@ package handler
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,6 +27,20 @@ func NewSemanticHandler(service *app_semantic.Service) *SemanticHandler {
 // List 生效语义模型列表（仅模型头）。
 // @Router /api/v1/semantic-models [get]
 func (h *SemanticHandler) List(c *gin.Context) {
+	if _, paged := c.GetQuery("cursor"); paged || c.Query("status") != "" {
+		limit, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+		items, next, err := h.service.ListManaged(c.Request.Context(), GetTenantID(c), c.Query("status"), c.Query("cursor"), limit)
+		if err != nil {
+			if errors.Is(err, app_semantic.ErrValidation) {
+				BadRequest(c, err.Error())
+			} else {
+				RespondError(c, err)
+			}
+			return
+		}
+		OK(c, gin.H{"items": items, "next_cursor": next, "has_more": next != ""})
+		return
+	}
 	items, err := h.service.List(c.Request.Context(), GetTenantID(c))
 	if err != nil {
 		InternalError(c, err.Error())

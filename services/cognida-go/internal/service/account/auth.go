@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"cognida/internal/config"
@@ -85,6 +86,9 @@ func (s *authService) withTx(ctx context.Context, fn func(ctx context.Context) e
 // 租户创建、用户落库、刷新令牌落库三步写入包裹在同一事务中：任一环节失败则整体回滚，
 // 避免出现「建了租户却没建用户」「建了用户却没存令牌」等半写脏状态。
 func (s *authService) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
+	if req.TenantID != 0 {
+		return nil, ErrTenantAccessDenied
+	}
 	var resp *AuthResponse
 
 	err := s.withTx(ctx, func(ctx context.Context) error {
@@ -133,6 +137,12 @@ func (s *authService) Register(ctx context.Context, req *RegisterRequest) (*Auth
 		err = s.userRepo.Create(ctx, newUser)
 		if err != nil {
 			return fmt.Errorf("创建用户失败 (tenantID=%d, username=%s): %w", tenantID, req.Username, err)
+		}
+
+		if memberships, ok := s.userRepo.(user.MembershipRepository); ok {
+			if err := memberships.AddMembership(ctx, newUser.ID, tenantID, "owner"); err != nil {
+				return err
+			}
 		}
 
 		// 生成Token（包含租户ID）
@@ -265,67 +275,34 @@ func (s *authService) Logout(ctx context.Context, userID int64) error {
 
 // RefreshToken refreshes an authentication token
 func (s *authService) RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*AuthResponse, error) {
-	// 验证刷新Token
 	claims, err := s.ValidateToken(req.RefreshToken)
-	if err != nil {
+	if err != nil || claims.TokenType != "refresh" {
 		return nil, ErrInvalidToken
 	}
-
-	if claims.TokenType != "refresh" {
-		return nil, ErrInvalidToken
-	}
-
-	// 获取用户信息（令牌指向的用户已不存在 → 视作令牌失效，归 401 而非 404）
-	usr, err := s.userRepo.FindByID(ctx, claims.UserID)
-	if err != nil {
-		return nil, ErrInvalidToken
-	}
-
-	// 检查用户状态
-	if usr.Status != 1 {
-		return nil, ErrAccountDisabled
-	}
-
-	// 验证刷新Token是否在数据库中
-	tokenHash := s.hashToken(req.RefreshToken)
-	_, err = s.refreshTokenRepo.FindByHash(ctx, tokenHash)
-	if err != nil {
-		return nil, ErrInvalidToken
-	}
-
-	// 生成新的Token（包含租户ID）
-	accessToken, refreshToken, expiresAt, err := s.generateTokens(usr)
-	if err != nil {
-		return nil, fmt.Errorf("生成Token失败: %w", err)
-	}
-
-	// 删除旧的刷新Token
-	err = s.refreshTokenRepo.DeleteByUserID(ctx, usr.ID)
-	if err != nil {
-		return nil, fmt.Errorf("删除旧Token失败: %w", err)
-	}
-
-	// 存储新的刷新Token
-	err = s.saveRefreshToken(ctx, usr.ID, refreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("保存刷新Token失败: %w", err)
-	}
-
-	return &AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresAt:    expiresAt,
-		TenantID:     usr.TenantID,
-		User: user.UserInfo{
-			ID:        usr.ID,
-			Username:  usr.Username,
-			Email:     usr.Email,
-			Avatar:    usr.Avatar,
-			Status:    usr.Status,
-			CreatedAt: usr.CreatedAt,
-			TenantID:  usr.TenantID,
-		},
-	}, nil
+	var result *AuthResponse
+	err = s.withTx(ctx, func(ctx context.Context) error {
+		stored, err := s.refreshTokenRepo.FindByHash(ctx, s.hashToken(req.RefreshToken))
+		if err != nil || stored == nil || stored.UserID != claims.UserID || stored.TenantID != claims.TenantID || !stored.ExpiresAt.After(time.Now()) {
+			return ErrInvalidToken
+		}
+		usr, err := s.userRepo.FindByID(ctx, claims.UserID)
+		if err != nil {
+			return ErrInvalidToken
+		}
+		if usr.Status != 1 {
+			return ErrAccountDisabled
+		}
+		if err := s.authorizeTenant(ctx, usr.ID, claims.TenantID); err != nil {
+			return err
+		}
+		// Rotate this device's refresh token atomically; other sessions remain valid.
+		if err := s.refreshTokenRepo.Delete(ctx, stored.ID); err != nil {
+			return err
+		}
+		result, err = s.issueForTenant(ctx, usr, claims.TenantID)
+		return err
+	})
+	return result, err
 }
 
 // ValidateToken validates an authentication token
@@ -399,6 +376,7 @@ func (s *authService) generateTokens(usr *user.User) (string, string, int64, err
 		"username":   usr.Username,
 		"email":      usr.Email,
 		"token_type": "refresh",
+		"jti":        uuid.NewString(),
 		"exp":        refreshExpiresAt.Unix(),
 		"iat":        now.Unix(),
 	})
@@ -413,11 +391,16 @@ func (s *authService) generateTokens(usr *user.User) (string, string, int64, err
 
 // saveRefreshToken 保存刷新Token到数据库
 func (s *authService) saveRefreshToken(ctx context.Context, userID int64, token string) error {
+	claims, err := s.ValidateToken(token)
+	if err != nil {
+		return err
+	}
 	tokenHash := s.hashToken(token)
 	expiresAt := time.Now().Add(time.Duration(s.jwtConfig.RefreshTokenExpire) * time.Second)
 
 	refreshToken := &user.RefreshToken{
 		UserID:    userID,
+		TenantID:  claims.TenantID,
 		TokenHash: tokenHash,
 		ExpiresAt: expiresAt,
 	}

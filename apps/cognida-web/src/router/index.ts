@@ -15,6 +15,15 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     redirect: '/home',
     children: [
+      {path: "/analysis", name: "AnalysisWorkspace", component: () => import("@/views/lifecycle/LifecycleWorkbench.vue"), meta: {title: "数据分析"}},
+      {path: "/suggestions", name: "Suggestions", component: () => import("@/views/governance/SuggestionsView.vue"), meta: {title: "反馈与改进"}},
+      {path: '/catalog', name: 'CatalogWorkbench', component: () => import('@/views/catalog/CatalogWorkbench.vue'), meta: {title: '数据目录'}},
+      {path: '/pipelines', name: 'PipelineWorkbench', component: () => import('@/views/lifecycle/LifecycleWorkbench.vue'), meta: {title: '数据流水线'}},
+      {path: '/experts', name: 'ExpertWorkbench', component: () => import('@/views/lifecycle/LifecycleWorkbench.vue'), meta: {title: '专家工作台'}},
+      {path: '/subscriptions', name: 'Subscriptions', component: () => import('@/views/governance/SubscriptionsView.vue'), meta: {title: '报告与指标看护'}},
+      {path: '/labeling', name: 'Labeling', component: () => import('@/views/governance/LabelingWorkbench.vue'), meta: {title: '标注与打标'}},
+      {path: '/features', name: 'Features', component: () => import('@/views/governance/FeaturesView.vue'), meta: {title: '特征存储'}},
+      {path: "/semantic-models", name: "SemanticModels", component: () => import("@/views/semantic/SemanticModels.vue"), meta: {title: "语义建模"}},
       {
         path: '/home',
         name: 'Home',
@@ -58,10 +67,11 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '知识库助手' }
       },
       {
-        path: '/data-agent/:conversationId?',
+        path: '/analysis/chat/:conversationId?',
+        alias: '/data-agent/:conversationId?',
         name: 'DataAgent',
         component: () => import('@/views/ai/DataAgentView.vue'),
-        meta: { title: 'DaDa 数据智能体' }
+        meta: { title: '数据分析' }
       },
       {
         path: '/collection-tasks',

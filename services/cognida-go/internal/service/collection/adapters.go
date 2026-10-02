@@ -14,10 +14,10 @@ import (
 
 // SafeFetcherAdapter makes the safe fetcher conform to the collection-domain
 // port while applying the task's response budget per request.
-type SafeFetcherAdapter struct{}
+type SafeFetcherAdapter struct{ Gate fetcher.RequestGate }
 
-func (SafeFetcherAdapter) Fetch(ctx context.Context, request domain.FetchRequest) (*domain.FetchResponse, error) {
-	client := fetcher.New(fetcher.Options{MaxBytes: request.MaxResponseBytes})
+func (a SafeFetcherAdapter) Fetch(ctx context.Context, request domain.FetchRequest) (*domain.FetchResponse, error) {
+	client := fetcher.New(fetcher.Options{MaxBytes: request.MaxResponseBytes, Gate: a.Gate})
 	result, err := client.Fetch(ctx, request.URL)
 	if err != nil {
 		return nil, err

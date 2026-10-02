@@ -153,3 +153,46 @@ func TestCollectionIngestionRejectsFailedVectorization(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 }
+
+type submitFunc func(context.Context, *domain.Run) error
+
+func (f submitFunc) Submit(ctx context.Context, run *domain.Run) error { return f(ctx, run) }
+func TestCollectionQueueFailureKeepsPersistedRunRecoverable(t *testing.T) {
+	repo := workflowFixture()
+	svc := NewService(repo, nil, nil, TextNormalizer{})
+	want := errors.New("redis unavailable")
+	calls := 0
+	svc.SetRunSubmitter(submitFunc(func(_ context.Context, run *domain.Run) error {
+		calls++
+		require.Equal(t, "run", run.ID)
+		if calls == 1 {
+			return want
+		}
+		return nil
+	}))
+	require.ErrorIs(t, svc.Start(context.Background(), 1, "task"), want)
+	require.Empty(t, repo.finished)
+	require.NoError(t, svc.Start(context.Background(), 1, "task"))
+	require.Equal(t, 2, calls)
+}
+
+func (r *workflowRepo) ListRunningRuns(context.Context, int) ([]*domain.Run, error) {
+	return []*domain.Run{&r.run}, nil
+}
+func TestCollectionPeriodicRecoveryResubmitsPersistedRun(t *testing.T) {
+	repo := workflowFixture()
+	svc := NewService(repo, nil, nil, TextNormalizer{})
+	calls := 0
+	want := errors.New("redis unavailable")
+	svc.SetRunSubmitter(submitFunc(func(context.Context, *domain.Run) error {
+		calls++
+		if calls == 1 {
+			return want
+		}
+		return nil
+	}))
+	require.ErrorIs(t, svc.RecoverPendingRuns(context.Background(), 100), want)
+	require.NoError(t, svc.RecoverPendingRuns(context.Background(), 100))
+	require.Equal(t, 2, calls)
+	require.Empty(t, repo.finished)
+}

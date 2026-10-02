@@ -142,6 +142,14 @@ class Settings(BaseSettings):
         default=[], description="Explicit HTTP/private-network URL hostname exceptions"
     )
 
+    lifecycle_timeout_seconds: int = Field(default=90, ge=1, le=300)
+    image_model_id: str = Field(default="", description="Explicit local or Hugging Face CLIP model")
+    image_model_revision: str = Field(default="main")
+    image_allow_model_download: bool = Field(default=False)
+    image_milvus_uri: str = Field(default="")
+    image_milvus_token: str = Field(default="")
+    image_collection_prefix: str = Field(default="cognida_image_features", pattern=r"^[A-Za-z][A-Za-z0-9_]{0,79}$")
+
     # 数据库配置（可选）
     database_url: str | None = Field(default=None, description="数据库连接字符串")
 

@@ -91,6 +91,11 @@ func TestCollectionRepositoryUpdatesAndAtomicLifecycle(t *testing.T) {
 	require.NoError(t, repo.UpdateRun(ctx, active))
 	item := &collection.Item{ID: prefix + "_item", TenantID: 7001, TaskID: prefix, RunID: active.ID, SourceID: source.ID, SourceURL: source.URL, Status: collection.ItemStatusPending, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, repo.CreateItem(ctx, item))
+	item.RawObjectKey = "collection/7001/fixture/raw"
+	item.NormalizedObjectKey = "collection/7001/fixture/normalized"
+	item.RawHash = "rawhash"
+	item.RawSize = 22
+	item.NormalizedSize = 16
 	item.Status = collection.ItemStatusAccepted
 	item.ContentHash = "hash"
 	item.KnowledgeID = uuid.NewString()
@@ -100,6 +105,11 @@ func TestCollectionRepositoryUpdatesAndAtomicLifecycle(t *testing.T) {
 	found, err := repo.FindAcceptedContent(ctx, 7001, prefix, "hash")
 	require.NoError(t, err)
 	require.Equal(t, item.KnowledgeID, found.KnowledgeID)
+	require.Equal(t, item.RawObjectKey, found.RawObjectKey)
+	require.Equal(t, item.NormalizedObjectKey, found.NormalizedObjectKey)
+	require.Equal(t, item.RawSize, found.RawSize)
+	require.Equal(t, item.NormalizedSize, found.NormalizedSize)
+	require.Equal(t, item.RawHash, found.RawHash)
 	_, err = repo.FindAcceptedContent(ctx, 7002, prefix, "hash")
 	require.ErrorIs(t, err, collection.ErrItemNotFound)
 	require.NoError(t, db.Exec("UPDATE knowledge SET parse_status = 'failed' WHERE id = ?", item.KnowledgeID).Error)

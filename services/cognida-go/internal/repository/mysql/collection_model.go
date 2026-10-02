@@ -68,27 +68,32 @@ func fromCollectionRun(r *collection.Run) *CollectionRunModel {
 }
 
 type CollectionItemModel struct {
-	ID           string    `gorm:"column:id;type:varchar(64);primaryKey"`
-	TenantID     int64     `gorm:"column:tenant_id"`
-	TaskID       string    `gorm:"column:task_id;type:varchar(64)"`
-	RunID        string    `gorm:"column:run_id;type:varchar(64)"`
-	SourceID     string    `gorm:"column:source_id;type:varchar(64)"`
-	SourceURL    string    `gorm:"column:source_url;type:text"`
-	CanonicalURL string    `gorm:"column:canonical_url;type:text"`
-	Status       string    `gorm:"column:status;type:varchar(16)"`
-	ContentHash  string    `gorm:"column:content_hash;type:char(64)"`
-	KnowledgeID  string    `gorm:"column:knowledge_id;type:varchar(64)"`
-	HTTPStatus   int       `gorm:"column:http_status"`
-	ContentType  string    `gorm:"column:content_type;type:varchar(255)"`
-	ErrorReason  string    `gorm:"column:error_reason;type:text"`
-	CreatedAt    time.Time `gorm:"column:created_at;type:datetime(3)"`
-	UpdatedAt    time.Time `gorm:"column:updated_at;type:datetime(3)"`
+	ID                  string    `gorm:"column:id;type:varchar(64);primaryKey"`
+	TenantID            int64     `gorm:"column:tenant_id"`
+	TaskID              string    `gorm:"column:task_id;type:varchar(64)"`
+	RunID               string    `gorm:"column:run_id;type:varchar(64)"`
+	SourceID            string    `gorm:"column:source_id;type:varchar(64)"`
+	SourceURL           string    `gorm:"column:source_url;type:text"`
+	CanonicalURL        string    `gorm:"column:canonical_url;type:text"`
+	Status              string    `gorm:"column:status;type:varchar(16)"`
+	ContentHash         string    `gorm:"column:content_hash;type:char(64)"`
+	RawObjectKey        string    `gorm:"column:raw_object_key;type:varchar(512)"`
+	NormalizedObjectKey string    `gorm:"column:normalized_object_key;type:varchar(512)"`
+	RawHash             string    `gorm:"column:raw_hash;type:char(64)"`
+	RawSize             int64     `gorm:"column:raw_size"`
+	NormalizedSize      int64     `gorm:"column:normalized_size"`
+	KnowledgeID         string    `gorm:"column:knowledge_id;type:varchar(64)"`
+	HTTPStatus          int       `gorm:"column:http_status"`
+	ContentType         string    `gorm:"column:content_type;type:varchar(255)"`
+	ErrorReason         string    `gorm:"column:error_reason;type:text"`
+	CreatedAt           time.Time `gorm:"column:created_at;type:datetime(3)"`
+	UpdatedAt           time.Time `gorm:"column:updated_at;type:datetime(3)"`
 }
 
 func (CollectionItemModel) TableName() string { return "collection_items" }
 func (m *CollectionItemModel) ToDomain() *collection.Item {
-	return &collection.Item{ID: m.ID, TenantID: m.TenantID, TaskID: m.TaskID, RunID: m.RunID, SourceID: m.SourceID, SourceURL: m.SourceURL, CanonicalURL: m.CanonicalURL, Status: collection.ItemStatus(m.Status), ContentHash: m.ContentHash, KnowledgeID: m.KnowledgeID, HTTPStatus: m.HTTPStatus, ContentType: m.ContentType, ErrorReason: m.ErrorReason, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
+	return &collection.Item{ID: m.ID, TenantID: m.TenantID, TaskID: m.TaskID, RunID: m.RunID, SourceID: m.SourceID, SourceURL: m.SourceURL, CanonicalURL: m.CanonicalURL, Status: collection.ItemStatus(m.Status), ContentHash: m.ContentHash, RawObjectKey: m.RawObjectKey, NormalizedObjectKey: m.NormalizedObjectKey, RawHash: m.RawHash, RawSize: m.RawSize, NormalizedSize: m.NormalizedSize, KnowledgeID: m.KnowledgeID, HTTPStatus: m.HTTPStatus, ContentType: m.ContentType, ErrorReason: m.ErrorReason, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}
 }
 func fromCollectionItem(i *collection.Item) *CollectionItemModel {
-	return &CollectionItemModel{ID: i.ID, TenantID: i.TenantID, TaskID: i.TaskID, RunID: i.RunID, SourceID: i.SourceID, SourceURL: i.SourceURL, CanonicalURL: i.CanonicalURL, Status: string(i.Status), ContentHash: i.ContentHash, KnowledgeID: i.KnowledgeID, HTTPStatus: i.HTTPStatus, ContentType: i.ContentType, ErrorReason: i.ErrorReason, CreatedAt: i.CreatedAt, UpdatedAt: i.UpdatedAt}
+	return &CollectionItemModel{ID: i.ID, TenantID: i.TenantID, TaskID: i.TaskID, RunID: i.RunID, SourceID: i.SourceID, SourceURL: i.SourceURL, CanonicalURL: i.CanonicalURL, Status: string(i.Status), ContentHash: i.ContentHash, RawObjectKey: i.RawObjectKey, NormalizedObjectKey: i.NormalizedObjectKey, RawHash: i.RawHash, RawSize: i.RawSize, NormalizedSize: i.NormalizedSize, KnowledgeID: i.KnowledgeID, HTTPStatus: i.HTTPStatus, ContentType: i.ContentType, ErrorReason: i.ErrorReason, CreatedAt: i.CreatedAt, UpdatedAt: i.UpdatedAt}
 }

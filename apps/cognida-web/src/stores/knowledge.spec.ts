@@ -20,7 +20,7 @@ describe('knowledge cache identity isolation', () => {
   it('clears cached data immediately on logout and fetches for the next tenant', async () => {
     const auth = useAuthStore()
     auth.token = 'token'
-    auth.setCurrentTenant({ id: 1, name: 'A', created_at: '', updated_at: '' })
+    auth.currentTenant = { id: 1, name: 'A', created_at: '', updated_at: '' }
     const store = useKnowledgeStore()
     getList.mockResolvedValueOnce({ data: [{ id: 'private-A' }] }).mockResolvedValueOnce({ data: [{ id: 'private-B' }] })
     await store.loadKnowledgeBases()
@@ -29,20 +29,20 @@ describe('knowledge cache identity isolation', () => {
     auth.clearAuth()
     expect(store.knowledgeBases).toEqual([])
     auth.token = 'new-token'
-    auth.setCurrentTenant({ id: 2, name: 'B', created_at: '', updated_at: '' })
+    auth.currentTenant = { id: 2, name: 'B', created_at: '', updated_at: '' }
     await store.loadKnowledgeBases()
     expect(store.knowledgeBases.map(kb => kb.id)).toEqual(['private-B'])
   })
 
   it('ignores old tenant responses and keeps the new request in flight', async () => {
     const auth = useAuthStore()
-    auth.setCurrentTenant({ id: 1, name: 'A', created_at: '', updated_at: '' })
+    auth.currentTenant = { id: 1, name: 'A', created_at: '', updated_at: '' }
     const store = useKnowledgeStore()
     const old = deferred<{ data: { id: string }[] }>()
     const current = deferred<{ data: { id: string }[] }>()
     getList.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
     const oldLoad = store.loadKnowledgeBases()
-    auth.setCurrentTenant({ id: 2, name: 'B', created_at: '', updated_at: '' })
+    auth.currentTenant = { id: 2, name: 'B', created_at: '', updated_at: '' }
     const newLoad = store.loadKnowledgeBases()
     old.resolve({ data: [{ id: 'private-A' }] })
     await oldLoad

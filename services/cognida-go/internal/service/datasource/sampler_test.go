@@ -39,8 +39,8 @@ func (sampleConn) QueryContext(_ context.Context, query string, _ []driver.Named
 	case strings.Contains(query, "information_schema.TABLES"):
 		// mysqlDriver.ListTables
 		return &sampleRows{
-			cols: []string{"TABLE_NAME", "TABLE_COMMENT", "TABLE_ROWS"},
-			data: [][]driver.Value{{[]byte("orders"), []byte("订单表"), int64(100)}},
+			cols: []string{"TABLE_NAME", "TABLE_COMMENT", "TABLE_ROWS", "TYPE"},
+			data: [][]driver.Value{{[]byte("orders"), []byte("订单表"), int64(100), "table"}},
 		}, nil
 	case strings.Contains(query, "SELECT * FROM"):
 		// SampleCSV 抽样查询：含 NULL、中文，验证 RawBytes → CSV

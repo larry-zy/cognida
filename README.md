@@ -516,3 +516,9 @@ cd apps/cognida-web && npm install && npm run dev
 **让数据与知识具备智能 · Build Intelligence into Data & Knowledge**
 
 </div>
+
+## 数据生命周期首版
+
+已补齐资产目录与血缘、可组合数据专家与流水线、语义建模、工作空间切换、站内报告看护、标注打标、特征与反馈审核入口。运行与界面说明见 [Web功能说明](apps/cognida-web/FEATURES.md)、[生命周期运行手册](services/cognida-go/internal/service/lifecycle/README.md)、[采集运行手册](services/cognida-go/internal/service/collection/README.md)、[Python计算服务](services/cognida-python/LIFECYCLE.md)。上线前按 [迁移手册](services/cognida-go/migrations/README.md) 应用版本化迁移；未配置的外部能力会明确失败。
+
+新模块后端配置、权限与回滚说明见 [Go 功能运行手册](services/cognida-go/FEATURES.md)。

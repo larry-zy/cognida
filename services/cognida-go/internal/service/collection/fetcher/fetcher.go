@@ -42,7 +42,12 @@ type Resolver interface {
 // Options configures a Fetcher. Zero values choose conservative defaults.
 // Transport is intended for controlled tests or specialised deployments; a nil
 // transport installs the validating production transport.
+type RequestGate interface {
+	Acquire(context.Context, string) (func(), error)
+}
+
 type Options struct {
+	Gate         RequestGate
 	Resolver     Resolver
 	Transport    http.RoundTripper
 	TLSConfig    *tls.Config
@@ -98,6 +103,9 @@ func New(opts Options) *Fetcher {
 	transport := opts.Transport
 	if transport == nil {
 		transport = f.safeTransport(opts.TLSConfig)
+	}
+	if opts.Gate != nil {
+		transport = gateTransport{delegate: transport, gate: opts.Gate}
 	}
 	f.client = &http.Client{
 		Transport: transport,

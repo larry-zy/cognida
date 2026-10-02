@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -126,24 +127,49 @@ func (r *CollectionRepository) UpdateTask(ctx context.Context, task *collection.
 }
 
 func (r *CollectionRepository) ClaimDueTasks(ctx context.Context, now time.Time, limit int) ([]*collection.Task, error) {
+	return r.claimDueTasks(ctx, now, limit, "")
+}
+
+// taskID narrows integration probes to their own fixture; production claims all due tasks.
+func (r *CollectionRepository) claimDueTasks(ctx context.Context, now time.Time, limit int, taskID string) ([]*collection.Task, error) {
 	if limit <= 0 {
 		return nil, collection.ErrInvalidTask
 	}
 	var claimed []*collection.Task
 	err := r.getDB(ctx).Transaction(func(tx *gorm.DB) error {
 		var models []*CollectionTaskModel
-		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+		scope := tx
+		if taskID != "" {
+			scope = scope.Where("id=?", taskID)
+		}
+		query := scope.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("schedule_enabled = ? AND next_run_at IS NOT NULL AND next_run_at <= ?", true, now.UTC()).
+			Where("status IN ?", []string{string(collection.TaskStatusDraft), string(collection.TaskStatusCompleted), string(collection.TaskStatusFailed)}).
 			Order("next_run_at ASC").Limit(limit).Find(&models)
 		if query.Error != nil {
 			return repositoryError(query.Error)
 		}
 		for _, model := range models {
-			next := now.UTC().Add(time.Duration(model.ScheduleIntervalSeconds) * time.Second)
-			if err := tx.Model(&CollectionTaskModel{}).Where("id = ? AND tenant_id = ?", model.ID, model.TenantID).
-				Updates(map[string]any{"next_run_at": next, "last_scheduled_at": now.UTC(), "updated_at": now.UTC()}).Error; err != nil {
+			if err := model.ToDomain().Schedule.Validate(); err != nil {
+				return err
+			}
+			var active int64
+			if err := tx.Model(&CollectionRunModel{}).Where("task_id=? AND tenant_id=? AND status=?", model.ID, model.TenantID, collection.RunStatusRunning).Count(&active).Error; err != nil {
+				return err
+			}
+			if active > 0 {
+				continue
+			}
+			run := &collection.Run{ID: uuid.NewString(), TaskID: model.ID, TenantID: model.TenantID, Status: collection.RunStatusRunning, StartedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+			if err := tx.Create(fromCollectionRun(run)).Error; err != nil {
 				return repositoryError(err)
 			}
+			next := now.UTC().Add(time.Duration(model.ScheduleIntervalSeconds) * time.Second)
+			if err := tx.Model(&CollectionTaskModel{}).Where("id = ? AND tenant_id = ?", model.ID, model.TenantID).
+				Updates(map[string]any{"status": string(collection.TaskStatusRunning), "error_message": "", "next_run_at": next, "last_scheduled_at": now.UTC(), "updated_at": now.UTC()}).Error; err != nil {
+				return repositoryError(err)
+			}
+			model.Status = string(collection.TaskStatusRunning)
 			model.NextRunAt, model.LastScheduledAt, model.UpdatedAt = &next, timePtr(now.UTC()), now.UTC()
 			claimed = append(claimed, model.ToDomain())
 		}
@@ -250,7 +276,7 @@ func (r *CollectionRepository) CreateItem(ctx context.Context, item *collection.
 }
 
 func (r *CollectionRepository) UpdateItem(ctx context.Context, item *collection.Item) error {
-	result := r.scoped(ctx, item.TenantID).Model(&CollectionItemModel{}).Where("id = ? AND run_id = ?", item.ID, item.RunID).Updates(map[string]any{"canonical_url": item.CanonicalURL, "status": string(item.Status), "content_hash": item.ContentHash, "knowledge_id": item.KnowledgeID, "http_status": item.HTTPStatus, "content_type": item.ContentType, "error_reason": item.ErrorReason, "updated_at": item.UpdatedAt})
+	result := r.scoped(ctx, item.TenantID).Model(&CollectionItemModel{}).Where("id = ? AND run_id = ?", item.ID, item.RunID).Updates(map[string]any{"canonical_url": item.CanonicalURL, "status": string(item.Status), "content_hash": item.ContentHash, "raw_object_key": item.RawObjectKey, "normalized_object_key": item.NormalizedObjectKey, "raw_hash": item.RawHash, "raw_size": item.RawSize, "normalized_size": item.NormalizedSize, "knowledge_id": item.KnowledgeID, "http_status": item.HTTPStatus, "content_type": item.ContentType, "error_reason": item.ErrorReason, "updated_at": item.UpdatedAt})
 	if result.Error != nil {
 		return repositoryError(result.Error)
 	}

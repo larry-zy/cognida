@@ -237,3 +237,36 @@ func (r *knowledgeBaseRepository) GetStorageStats(ctx context.Context, tenantID 
 
 	return totalSize, kbCount, nil
 }
+
+func (r *knowledgeBaseRepository) SaveConfiguration(ctx context.Context, kb *domain_knowledge.KnowledgeBase, setting *domain_knowledge.KnowledgeBaseSetting, create bool) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var model KnowledgeBaseModel
+		model.FromDomain(kb)
+		if create {
+			if err := tx.Create(&model).Error; err != nil {
+				return err
+			}
+		} else {
+			result := tx.Model(&KnowledgeBaseModel{}).Where("id=? AND tenant_id=?", kb.ID, kb.TenantID).Select("name", "description", "avatar", "is_public", "status", "updated_at").Updates(&model)
+			if result.Error != nil {
+				return result.Error
+			}
+		}
+		if setting == nil {
+			return nil
+		}
+		var config KnowledgeBaseSettingModel
+		config.FromDomain(setting)
+		var err error
+		if setting.ID == 0 {
+			err = tx.Create(&config).Error
+		} else {
+			err = tx.Model(&KnowledgeBaseSettingModel{}).Where("id=? AND knowledge_base_id=?", setting.ID, kb.ID).Select("graph_enabled", "bm25_enabled", "chunking_config", "settings_json", "updated_at").Updates(&config).Error
+		}
+		if err != nil {
+			return err
+		}
+		*setting = *config.ToDomain()
+		return nil
+	})
+}

@@ -1,5 +1,5 @@
 <!--
-  DaDa 数据智能体 —— 对话驱动 + 结果画布（Layout B）。
+  数据分析 —— 对话驱动 + 结果画布（Layout B）。
 
   只绑定 Data Agent：不选智能体、不选知识库。请求走 /agent/text2sql/stream
   （preset agent-data-agent，会话落库 agent_type=text2sql），流中除 step/done
@@ -80,7 +80,7 @@
     <!-- ================= 对话线（窄栏） ================= -->
     <section class="thread">
       <div class="topbar">
-        <span class="topbar__title">DaDa 数据智能体</span>
+        <span class="topbar__title">数据分析 · 历史数据源对话</span>
         <span class="status-dot">
           <i></i>data-agent · {{ isStreaming ? 'streaming' : 'online' }}
         </span>
@@ -99,7 +99,7 @@
                 <path d="M8 12h8M8 8h8M8 16h4"/>
               </svg>
             </div>
-            <h2 class="welcome__title">DaDa 数据智能体</h2>
+            <h2 class="welcome__title">数据分析</h2>
             <p class="welcome__desc">用自然语言提问，智能体自动取数、分析并把结果实时画到右侧画布。</p>
             <div class="welcome__suggest">
               <span
@@ -445,6 +445,16 @@ function parseUISurfaces(raw?: string): A2UISpec[] {
 // ===== A2UI 交互：confirm/cancel 走危险操作确认端点（Phase 5 confirm-resume）=====
 // 其余动作（paginate 等）由 A2UIRenderer 内部消化，不冒泡到这里。
 async function onA2UIAction(action: A2UIAction) {
+  if (action.name === 'drill_down') {
+    if (isStreaming.value) { toast.info('请等待当前分析完成后再下钻'); return }
+    const {title,label,value,result_id} = action.params || {}
+    if (typeof label !== 'string' || typeof value !== 'number') return
+    const followup = `请围绕图表中的这个数据点继续下钻，解释主要原因、相关明细和需要验证的假设。只读查询，不执行修改。数据点：${JSON.stringify({title,label,value,result_id,surface:action.surface})}`
+    if (inputMessage.value.trim()) { inputMessage.value += '\n' + followup; toast.info('下钻问题已追加到草稿，请确认后发送'); return }
+    inputMessage.value = followup
+    await sendMessage()
+    return
+  }
   if (action.name === 'cancel') {
     toast.info('已取消，该操作将自动过期')
     return
@@ -633,7 +643,7 @@ onUnmounted(() => {
 
 <style scoped>
 /* ====================================================
-   DaDa 数据智能体 —— 月夜台账样式
+   数据分析 —— 月夜台账样式
    渲染在 platform/index.vue 的 .content-wrapper 内（padding: 24px），
    抵消父层 padding 撑满面板。三栏：会话 | 对话 | 画布
    ==================================================== */

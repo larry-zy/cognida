@@ -20,6 +20,7 @@
         </button>
       </div>
 
+      <TenantSwitcher v-if="!collapsed" />
       <nav class="rail__nav">
         <router-link
           v-for="item in menuItems"
@@ -59,7 +60,7 @@
     <!-- 主内容区（顶栏由各页面自有，见 ui-preview-*.html 定稿） -->
     <main class="main-content">
       <div class="content-wrapper">
-        <router-view />
+        <router-view :key="`${authStore.user?.id}:${authStore.currentTenant?.id}:${route.fullPath}`" />
       </div>
     </main>
   </div>
@@ -67,11 +68,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import TenantSwitcher from '@/components/workbench/TenantSwitcher.vue'
+import '@/components/workbench/workbench.css'
 import { useRouter, useRoute } from 'vue-router'
 import toast from '@/utils/toast'
 import { ElMessageBox } from '@/utils/confirm'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
+import { wt } from '@/i18n/workbench'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -108,7 +112,14 @@ const ICONS = {
 const menuItems = computed(() => [
   { path: '/home', title: t('menu.home'), icon: ICONS.home },
   { path: '/kb-assistant', title: t('menu.kb'), icon: ICONS.kb },
-  { path: '/data-agent', title: t('menu.dataAgent'), icon: ICONS.ai },
+  { path: '/analysis', title: wt('数据分析'), icon: ICONS.ai },
+  {path:'/catalog',title:wt('数据目录'),icon:ICONS.datasource},
+  {path:'/pipelines',title:wt('数据流水线'),icon:ICONS.trace},
+  {path:'/experts',title:wt('专家工作台'),icon:ICONS.quality},
+  {path:'/subscriptions',title:wt('报告与看护'),icon:ICONS.evaluation},
+  {path:'/labeling',title:wt('标注与打标'),icon:ICONS.knowledge},
+  {path:'/features',title:wt('特征存储'),icon:ICONS.datasets},
+  {path:'/suggestions',title:wt('反馈与改进'),icon:ICONS.audit},
   { path: '/collection-tasks', title: t('menu.collection'), icon: ICONS.collection },
   { path: '/knowledge', title: t('menu.knowledge'), icon: ICONS.knowledge },
   { path: '/graphs', title: t('menu.graph'), icon: ICONS.graph },
@@ -116,6 +127,7 @@ const menuItems = computed(() => [
   { path: '/datasets', title: t('menu.datasets'), icon: ICONS.datasets },
   { path: '/quality', title: t('menu.quality'), icon: ICONS.quality },
   { path: '/datasource', title: t('menu.datasource'), icon: ICONS.datasource },
+  { path: '/semantic-models', title: wt('语义建模'), icon: ICONS.graph },
   { path: '/audit-logs', title: t('menu.audit'), icon: ICONS.audit },
   { path: '/traces', title: t('menu.trace'), icon: ICONS.trace },
   { path: '/settings', title: t('menu.settings'), icon: ICONS.settings }
@@ -243,6 +255,8 @@ async function handleLogout() {
 }
 
 .rail__nav {
+  min-height: 0;
+  overflow-y: auto;
   flex: 1;
   display: flex;
   flex-direction: column;

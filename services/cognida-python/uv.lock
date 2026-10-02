@@ -310,6 +310,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cachetools"
+version = "7.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/2c/3f18755527b03ca9ff6be724bd5370cb777c76a87f17301377cf04a4729b/cachetools-7.2.0.tar.gz", hash = "sha256:bcac1a1b8da6909994a2957238a57b8140dab7c5c5c69a43669654fe87a33c1d", size = 41129, upload-time = "2026-09-16T20:48:27.209Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/bb/1c6e7a89b11da19f137e4ef5a5c5fe47a5bb686449ba343944ccf8fb34b2/cachetools-7.2.0-py3-none-any.whl", hash = "sha256:3045213f186b89fdd95d94441354c4bd87c570b7a38d8c3fd1d9dd37f6dc90d8", size = 16918, upload-time = "2026-09-16T20:48:25.575Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.6.17"
 source = { registry = "https://pypi.org/simple" }
@@ -527,12 +536,6 @@ wheels = [
 ]
 
 [[package]]
-name = "clip"
-version = "0.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/58/dc/12bf8888635ade4de57565dca75909a809d1da6ec341eacd546028a73ab9/clip-0.2.0.tar.gz", hash = "sha256:c0913fbb1a0eac8a20da4a5c890d454b081305f64429c0aa5b652164450253b8", size = 5453, upload-time = "2013-01-20T00:55:37.748Z" }
-
-[[package]]
 name = "cognida-python"
 version = "0.1.0"
 source = { editable = "." }
@@ -565,7 +568,6 @@ all = [
     { name = "aiohttp" },
     { name = "beautifulsoup4" },
     { name = "chardet" },
-    { name = "clip" },
     { name = "datasketch" },
     { name = "grpcio-tools" },
     { name = "httpx" },
@@ -580,11 +582,13 @@ all = [
     { name = "pillow" },
     { name = "playwright" },
     { name = "pyarrow" },
+    { name = "pymilvus" },
     { name = "pypdf" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "python-docx" },
+    { name = "python-pptx" },
     { name = "pyyaml" },
     { name = "regex" },
     { name = "rouge-chinese" },
@@ -623,6 +627,7 @@ document = [
     { name = "pillow" },
     { name = "pypdf" },
     { name = "python-docx" },
+    { name = "python-pptx" },
 ]
 evaluation = [
     { name = "jieba" },
@@ -632,8 +637,8 @@ evaluation = [
     { name = "sentence-transformers" },
 ]
 image = [
-    { name = "clip" },
     { name = "pillow" },
+    { name = "pymilvus" },
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -671,7 +676,6 @@ requires-dist = [
     { name = "beautifulsoup4", marker = "extra == 'collection'", specifier = ">=4.12.0" },
     { name = "beautifulsoup4", marker = "extra == 'document'", specifier = ">=4.12.0" },
     { name = "chardet", marker = "extra == 'quality'", specifier = ">=5.0.0" },
-    { name = "clip", marker = "extra == 'image'", specifier = ">=0.1.0" },
     { name = "cognida-python", extras = ["dev", "test", "evaluation", "document", "collection", "image", "quality", "analytics"], marker = "extra == 'all'" },
     { name = "datasets", specifier = ">=3.0.0" },
     { name = "datasketch", marker = "extra == 'quality'", specifier = ">=1.6.0" },
@@ -704,11 +708,13 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'quality'", specifier = ">=12.0.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
+    { name = "pymilvus", marker = "extra == 'image'", specifier = ">=2.5,<2.7" },
     { name = "pypdf", marker = "extra == 'document'", specifier = ">=5.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=6.0.0" },
     { name = "python-docx", marker = "extra == 'document'", specifier = ">=1.1.0" },
+    { name = "python-pptx", marker = "extra == 'document'", specifier = ">=1.0,<2" },
     { name = "pyyaml", marker = "extra == 'quality'", specifier = ">=6.0" },
     { name = "redis", specifier = ">=5.0.0" },
     { name = "regex", marker = "extra == 'quality'", specifier = ">=2023.0.0" },
@@ -3628,6 +3634,24 @@ crypto = [
 ]
 
 [[package]]
+name = "pymilvus"
+version = "2.6.17"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cachetools" },
+    { name = "grpcio" },
+    { name = "orjson" },
+    { name = "pandas" },
+    { name = "protobuf" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/22/7dad24082f7efa4bf5ff29f0d9241cec6a8c8ebeb08ad126ca7ca4793da7/pymilvus-2.6.17.tar.gz", hash = "sha256:d9f849ef177f242febc4c02ece88feea46a1a9a1d0c67688b600e7cce3b76f43", size = 306908, upload-time = "2026-07-17T06:23:32.592Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/a6/9e2824138ffe1b2932c24f836638dabff5c6fbb5a9afcc1ba5ac5cdc39d8/pymilvus-2.6.17-py3-none-any.whl", hash = "sha256:583c680bea60b5944762ae81dd577169efe3b895b579d78e60bab05c087c4f89", size = 342148, upload-time = "2026-07-17T06:23:31.188Z" },
+]
+
+[[package]]
 name = "pypdf"
 version = "6.14.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3720,6 +3744,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
+]
+
+[[package]]
+name = "python-pptx"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lxml" },
+    { name = "pillow" },
+    { name = "typing-extensions" },
+    { name = "xlsxwriter" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/a9/0c0db8d37b2b8a645666f7fd8accea4c6224e013c42b1d5c17c93590cd06/python_pptx-1.0.2.tar.gz", hash = "sha256:479a8af0eaf0f0d76b6f00b0887732874ad2e3188230315290cd1f9dd9cc7095", size = 10109297, upload-time = "2024-08-07T17:33:37.772Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/4f/00be2196329ebbff56ce564aa94efb0fbc828d00de250b1980de1a34ab49/python_pptx-1.0.2-py3-none-any.whl", hash = "sha256:160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba", size = 472788, upload-time = "2024-08-07T17:33:28.192Z" },
 ]
 
 [[package]]
@@ -5483,6 +5522,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/8f/aea9c71cc92bf9b6cc0f7f70df8f0b420636b6c96ef4feee1e16f80f75dd/websockets-16.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0298d07ee155e2e9fda5be8a9042200dd2e3bb0b8a38482156576f863a9d457c", size = 176968, upload-time = "2026-01-10T09:23:41.031Z" },
     { url = "https://files.pythonhosted.org/packages/9a/3f/f70e03f40ffc9a30d817eef7da1be72ee4956ba8d7255c399a01b135902a/websockets-16.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:a653aea902e0324b52f1613332ddf50b00c06fdaf7e92624fbf8c77c78fa5767", size = 178735, upload-time = "2026-01-10T09:23:42.259Z" },
     { url = "https://files.pythonhosted.org/packages/6f/28/258ebab549c2bf3e64d2b0217b973467394a9cea8c42f70418ca2c5d0d2e/websockets-16.0-py3-none-any.whl", hash = "sha256:1637db62fad1dc833276dded54215f2c7fa46912301a24bd94d45d46a011ceec", size = 171598, upload-time = "2026-01-10T09:23:45.395Z" },
+]
+
+[[package]]
+name = "xlsxwriter"
+version = "3.2.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/2c/c06ef49dc36e7954e55b802a8b231770d286a9758b3d936bd1e04ce5ba88/xlsxwriter-3.2.9.tar.gz", hash = "sha256:254b1c37a368c444eac6e2f867405cc9e461b0ed97a3233b2ac1e574efb4140c", size = 215940, upload-time = "2025-09-16T00:16:21.63Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3a/0c/3662f4a66880196a590b202f0db82d919dd2f89e99a27fadef91c4a33d41/xlsxwriter-3.2.9-py3-none-any.whl", hash = "sha256:9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3", size = 175315, upload-time = "2025-09-16T00:16:20.108Z" },
 ]
 
 [[package]]

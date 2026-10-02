@@ -178,7 +178,7 @@
               <p>系统已配置向量化服务（模型：text-embedding-v4），上传的文档将自动进行向量化处理，支持语义检索。</p>
             </UiAlert>
 
-            <h4 class="section-title">分块配置</h4>
+            <h4 class="section-title">分块配置</h4><label class="form-group">分块策略<select v-model="formData.chunk_strategy"><option value="paragraph">段落</option><option value="sentence">句子</option><option value="fixed_size">固定大小</option><option value="recursive">递归</option><option value="semantic">语义</option><option value="auto">自动（根据段落、标题与长度有界选择）</option></select></label>
 
             <div class="form-group">
               <label class="form-label">分块大小</label>
@@ -333,6 +333,7 @@ const formData = reactive<CreateKnowledgeBaseRequest>({
   description: '',
   avatar: '',
   is_public: false,
+  chunk_strategy: 'paragraph',
   chunk_size: 512,
   chunk_overlap: 100,
   graph_enabled: false,
@@ -375,7 +376,8 @@ function resetForm() {
     description: '',
     avatar: '',
     is_public: false,
-    chunk_size: 512,
+    chunk_strategy: 'paragraph',
+  chunk_size: 512,
     chunk_overlap: 100,
     graph_enabled: false,
     bm25_enabled: false
@@ -411,6 +413,7 @@ async function saveKnowledgeBase() {
       description: formData.description,
       avatar: formData.avatar,
       is_public: formData.is_public,
+      chunk_strategy: formData.chunk_strategy,
       chunk_size: formData.chunk_size,
       chunk_overlap: formData.chunk_overlap,
       graph_enabled: formData.graph_enabled,
@@ -447,6 +450,7 @@ async function editKnowledgeBase(kb: KnowledgeBase) {
       formData.is_public = data.is_public || false
 
       if (data.setting) {
+        formData.chunk_strategy = data.setting.chunk_strategy ?? 'paragraph'
         formData.chunk_size = data.setting.chunk_size ?? 512
         formData.chunk_overlap = data.setting.chunk_overlap ?? 100
         formData.graph_enabled = data.setting.graph_enabled ?? false

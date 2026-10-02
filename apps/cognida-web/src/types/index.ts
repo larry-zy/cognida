@@ -33,6 +33,10 @@ export interface UserInfo {
 
 // ============ 租户相关 ============
 export interface Tenant {
+  role?: string
+  status?: string
+  business?: string
+  storage_quota?: number
   id: number
   name: string
   description?: string
@@ -244,7 +248,8 @@ export interface KnowledgeBase {
   storage_size?: number
   // 数据处理配置（从 kb_settings 表获取）
   setting?: {
-    chunk_size?: number
+    chunk_strategy?: string
+  chunk_size?: number
     chunk_overlap?: number
     graph_enabled?: boolean
     bm25_enabled?: boolean
@@ -261,6 +266,7 @@ export interface CreateKnowledgeBaseRequest {
   avatar?: string
   is_public?: boolean
   // 数据处理配置（存储到 kb_settings 表）
+  chunk_strategy?: string
   chunk_size?: number
   chunk_overlap?: number
   graph_enabled?: boolean
@@ -274,6 +280,7 @@ export interface UpdateKnowledgeBaseRequest {
   is_public?: boolean
   status?: number
   // 数据处理配置（存储到 kb_settings 表）
+  chunk_strategy?: string
   chunk_size?: number
   chunk_overlap?: number
   graph_enabled?: boolean
@@ -319,6 +326,7 @@ export interface UploadKnowledgeFileRequest {
   file: File
   title?: string
   file_type?: string
+  chunk_strategy?: string
   chunk_size?: number
   chunk_overlap?: number
 }
@@ -355,6 +363,7 @@ export interface ChunkListResponse {
 // 知识检索相关
 // 注意：字段与后端 SearchKnowledge 绑定保持一致（min_score，而非 score_threshold）
 export interface SearchRequest {
+  retrieval_mode?: 'auto' | 'vector' | 'bm25' | 'hybrid'
   query: string
   kb_ids: string[]
   top_k?: number

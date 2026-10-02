@@ -85,6 +85,9 @@ service.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const authStore = useAuthStore()
+    // A response sent under a previous identity must not retry as the new tenant.
+    const sentAuthorization = error.config?.headers?.Authorization
+    if (sentAuthorization && sentAuthorization !== `Bearer ${authStore.token}`) return Promise.reject(error)
 
     // 处理401未授权错误：先 refresh 重放一次（store 内单飞），
     // 不再无条件 logout；refresh 自身 401 或重放仍 401 才清理并跳登录
@@ -101,7 +104,9 @@ service.interceptors.response.use(
         return failAuth()
       }
 
+      const previousTenant = authStore.currentTenant?.id
       const refreshed = await authStore.refreshAccessToken()
+      if (previousTenant !== authStore.currentTenant?.id) return Promise.reject(error)
       if (!refreshed) {
         return failAuth()
       }
