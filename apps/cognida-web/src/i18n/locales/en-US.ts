@@ -116,6 +116,7 @@ export default {
     home: 'Home',
     kb: 'KB Assistant',
     dataAgent: 'Data Agent',
+    collection: 'Web Collection',
     knowledge: 'Knowledge',
     graph: 'Knowledge Graph',
     evaluation: 'Agent Eval',

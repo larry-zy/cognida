@@ -441,8 +441,8 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 					schemaBytes, _ := json.Marshal(jsonSchema)
 					var params map[string]interface{}
 					if err := json.Unmarshal(schemaBytes, &params); err == nil {
-						// 添加 $schema 字段（OpenAI 要求）
-						params["$schema"] = "http://json.org/draft-07/schema#"
+						// Preserve the generated schema dialect. Tool parameters do not require
+						// an injected meta-schema, and an unknown URI makes providers reject every call.
 						tool.Function.Parameters = params
 					}
 				}

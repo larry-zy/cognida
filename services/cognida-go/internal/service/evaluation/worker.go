@@ -306,6 +306,12 @@ func (w *EvaluationWorker) dequeue() (string, error) {
 
 // executeTask 执行评测任务
 func (w *EvaluationWorker) executeTask(taskID string) {
+	w.executeTaskWithContext(context.Background(), taskID)
+}
+
+// executeTaskWithContext lets the generic job runtime own cancellation while
+// preserving executeTask for focused evaluation tests and legacy callers.
+func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID string) {
 	// 注入 task 级 request_id，使本次评测的全链路（被测 Agent 运行→其 LLM/工具调用→
 	// audit_logs/Loki→跨进程调 Python 指标计算的 X-Request-ID）统一挂在同一 rid 下，
 	// 可按 rid 检索一整次评测。rid 内嵌 taskID 便于反查，尾缀 uuid 区分同一任务的多次重跑。
@@ -315,11 +321,14 @@ func (w *EvaluationWorker) executeTask(taskID string) {
 	// B4: 任务根 ctx 从 baseCtx 派生并叠加 MaxTaskTimeout（真实 30min 上限），再叠加 request_id。
 	// 此前用裸 context.Background() → MaxTaskTimeout 零引用、Stop() 无法取消在途任务。
 	// baseCtx 为空（测试直接构造 worker 字面量）时回退 Background，保持向后兼容。
-	baseCtx := w.baseCtx
-	if baseCtx == nil {
-		baseCtx = context.Background()
+	runBaseCtx := parent
+	if runBaseCtx == nil {
+		runBaseCtx = w.baseCtx
 	}
-	runCtx, cancel := context.WithTimeout(baseCtx, MaxTaskTimeout)
+	if runBaseCtx == nil {
+		runBaseCtx = context.Background()
+	}
+	runCtx, cancel := context.WithTimeout(runBaseCtx, MaxTaskTimeout)
 	defer cancel()
 	ctx := agentctx.WithRequestID(runCtx, requestID)
 	log.Printf("[Worker] task %s trace request_id=%s", taskID, requestID)

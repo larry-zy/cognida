@@ -20,8 +20,8 @@ import (
 // toolRegistryImpl implements the domain.ToolRegistry interface.
 // It manages Eino framework tools and adapts them to domain concepts.
 type ToolRegistryImpl struct {
-	mu     sync.RWMutex
-	tools  map[string]tool.BaseTool
+	mu      sync.RWMutex
+	tools   map[string]tool.BaseTool
 	enabled map[string]bool
 }
 
@@ -114,7 +114,7 @@ func (r *ToolRegistryImpl) GetEinoTool(toolName string) (tool.BaseTool, bool) {
 	defer r.mu.RUnlock()
 
 	t, exists := r.tools[name]
-	return t, exists
+	return t, exists && t != nil
 }
 
 // GetTools returns all enabled tools as Eino tools.

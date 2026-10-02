@@ -115,7 +115,7 @@ const visiblePages = computed(() => {
   const half = Math.floor(props.maxVisiblePages / 2)
 
   let start = Math.max(1, currentPage.value - half)
-  let end = Math.min(totalPages.value, start + props.maxVisiblePages - 1)
+  const end = Math.min(totalPages.value, start + props.maxVisiblePages - 1)
 
   if (end - start < props.maxVisiblePages - 1) {
     start = Math.max(1, end - props.maxVisiblePages + 1)

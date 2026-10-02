@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	neturl "net/url"
+	"os"
 	"time"
 
 	"cognida/internal/infrastructure/reliability"
@@ -56,6 +57,7 @@ func computeTimeout(itemCount int) time.Duration {
 // PythonEvaluationClient Python 评测服务客户端
 type PythonEvaluationClient struct {
 	baseURL    string
+	authToken  string
 	httpClient *http.Client
 	// breaker 与 gRPC 通路同源的统一熔断（〔X-4〕）：批量指标计算在 Python 持续不可用时
 	// 快速失败，避免逐条 8s 预算堆到 20min 上限空等。仅护重的 compute 路径，健康检查/目录查询
@@ -66,8 +68,10 @@ type PythonEvaluationClient struct {
 // NewPythonEvaluationClient 创建 Python 评测客户端
 func NewPythonEvaluationClient(baseURL string) *PythonEvaluationClient {
 	return &PythonEvaluationClient{
-		baseURL: baseURL,
+		baseURL:   baseURL,
+		authToken: os.Getenv("INTERNAL_HTTP_AUTH_TOKEN"),
 		httpClient: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			// 不设 http.Client.Timeout（0=不限）：整体超时由各方法用 context 分端点控制，
 			// 使慢的批量指标计算不被健康检查那种短上限误杀。
 			Transport: &http.Transport{
@@ -157,6 +161,7 @@ func (c *PythonEvaluationClient) computeAttempt(ctx context.Context, url string,
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	setTraceHeaders(ctx, httpReq)
+	c.authorize(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -196,6 +201,7 @@ func (c *PythonEvaluationClient) ListGraders(ctx context.Context, evalType strin
 		return nil, fmt.Errorf("create request failed: %w", err)
 	}
 	setTraceHeaders(ctx, httpReq)
+	c.authorize(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -217,6 +223,12 @@ func (c *PythonEvaluationClient) ListGraders(ctx context.Context, evalType strin
 		return nil, fmt.Errorf("unmarshal response failed: %w", err)
 	}
 	return &result, nil
+}
+
+func (c *PythonEvaluationClient) authorize(req *http.Request) {
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
 }
 
 // SetTimeout 设置 HTTP 超时

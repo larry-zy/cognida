@@ -46,10 +46,10 @@ type ExecuteRequest struct {
 
 // ExecuteResponse Agent 执行响应
 type ExecuteResponse struct {
-	Content     string                 // 响应内容
-	ToolCalls   []ToolCallInfo         // 工具调用（如果有）
-	AgentSteps  map[string]interface{} // Agent 执行步骤
-	TokenCount  int                    // Token 使用量
+	Content    string                 // 响应内容
+	ToolCalls  []ToolCallInfo         // 工具调用（如果有）
+	AgentSteps map[string]interface{} // Agent 执行步骤
+	TokenCount int                    // Token 使用量
 }
 
 // ToolCallInfo 工具调用信息
@@ -101,7 +101,7 @@ func (s *AgentPersistenceService) ExecuteWithContext(
 	// 4. 保存助手消息
 	assistantMsg := &conversation.Message{
 		ID:          generateMessageID(),
-		SessionID:    session.ID,
+		SessionID:   session.ID,
 		Role:        conversation.RoleAssistant,
 		Content:     resp.Content,
 		IsCompleted: true,
@@ -142,6 +142,9 @@ func (s *AgentPersistenceService) ExecuteWithContext(
 
 // prepareSession 准备 Session（创建新会话或验证现有会话）
 func (s *AgentPersistenceService) prepareSession(ctx context.Context, req *ExecuteRequest) (*conversation.Session, error) {
+	if req == nil || req.TenantID <= 0 || req.UserID <= 0 {
+		return nil, fmt.Errorf("authenticated tenant and user are required")
+	}
 	// 如果提供了 sessionID，验证它是否存在
 	if req.SessionID != "" {
 		session, err := s.sessionRepo.FindByID(ctx, req.SessionID)
@@ -149,8 +152,8 @@ func (s *AgentPersistenceService) prepareSession(ctx context.Context, req *Execu
 			return nil, fmt.Errorf("session not found: %w", err)
 		}
 		// 验证租户归属
-		if session.TenantID != req.TenantID {
-			return nil, fmt.Errorf("session does not belong to tenant")
+		if session == nil || session.TenantID != req.TenantID || session.UserID != req.UserID {
+			return nil, fmt.Errorf("session does not belong to tenant and user")
 		}
 		return session, nil
 	}
@@ -368,6 +371,9 @@ type PrepareSessionRequest struct {
 
 // PrepareSession prepares or validates a session for streaming
 func (s *AgentPersistenceService) PrepareSession(ctx context.Context, req *PrepareSessionRequest) (*conversation.Session, error) {
+	if req == nil {
+		return nil, fmt.Errorf("session request is required")
+	}
 	persistReq := &ExecuteRequest{
 		AgentID:   req.AgentID,
 		SessionID: req.SessionID,
@@ -406,12 +412,12 @@ func (s *AgentPersistenceService) SaveUserMessage(ctx context.Context, req *Save
 
 // SaveAssistantMessageRequest assistant message save request
 type SaveAssistantMessageRequest struct {
-	MessageID   string
-	SessionID   string
-	Content     string
-	ToolCalls   []ToolCallInfo
-	AgentSteps  map[string]interface{}
-	TokenCount  int
+	MessageID  string
+	SessionID  string
+	Content    string
+	ToolCalls  []ToolCallInfo
+	AgentSteps map[string]interface{}
+	TokenCount int
 }
 
 // SaveAssistantMessage saves an assistant message and updates session count
@@ -421,7 +427,7 @@ func (s *AgentPersistenceService) SaveAssistantMessage(ctx context.Context, req 
 	// 保存助手消息
 	assistantMsg := &conversation.Message{
 		ID:          req.MessageID,
-		SessionID:    req.SessionID,
+		SessionID:   req.SessionID,
 		Role:        conversation.RoleAssistant,
 		Content:     req.Content,
 		IsCompleted: true,

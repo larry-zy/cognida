@@ -549,7 +549,8 @@ const {
   searchTitleFallback: '新对话',
   deleteConfirmMessage: '确定要删除这个对话记录吗？',
   loadFailMessage: '加载对话失败',
-  onAfterSwitch: () => scrollToBottom()
+  onBeforeSwitch: (): void => stopStreaming(),
+  onAfterSwitch: (): void => scrollToBottom()
 })
 
 // ===== 对话发送 / 流式 =====
@@ -559,6 +560,7 @@ const {
   streamingSteps,
   composerFocused,
   sendMessage,
+  stopStreaming,
   onEnterKey,
   adjustTextareaHeight,
   scrollToBottom
@@ -593,11 +595,12 @@ const {
     ragContext: lastRagContext.value,
     created_at: new Date().toISOString()
   } as KBMessage),
-  onNewSession: () => loadSessions()
+  onNewSession: (): Promise<void> => loadSessions()
 })
 
 function clearCurrentSession() {
   if (messages.value.length === 0) return
+  stopStreaming()
   messages.value = []
   toast.success('已清空当前对话')
 }

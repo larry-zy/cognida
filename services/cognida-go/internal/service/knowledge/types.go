@@ -272,6 +272,9 @@ type KnowledgeBaseSettingResponse struct {
 
 // ProcessDocumentRequest 文档处理请求
 type ProcessDocumentRequest struct {
+	IdempotencyKey  string `json:"idempotency_key,omitempty"`
+	creationID      string
+	contentHash     string
 	KnowledgeBaseID string `json:"kb_id" binding:"required"`
 	KnowledgeID     string `json:"knowledge_id"`
 	FilePath        string `json:"file_path"`

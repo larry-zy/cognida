@@ -19,6 +19,7 @@ import (
 
 	agent "cognida/internal/model/agent"
 	domain_audit "cognida/internal/model/audit"
+	domain_collection "cognida/internal/model/collection"
 	domaintrace "cognida/internal/model/trace"
 	appAccount "cognida/internal/service/account"
 	agentuc "cognida/internal/service/agent"
@@ -26,6 +27,7 @@ import (
 	agenttools "cognida/internal/service/agent/tools"
 	auditsvc "cognida/internal/service/audit"
 	app_chat "cognida/internal/service/chat"
+	collectionsvc "cognida/internal/service/collection"
 	app_evaluation "cognida/internal/service/evaluation"
 	evalexecutor "cognida/internal/service/evaluation/executor"
 	app_kb "cognida/internal/service/knowledge"
@@ -43,6 +45,7 @@ import (
 	docreader "cognida/internal/infrastructure/grpc/docreader"
 	qualitygrpc "cognida/internal/infrastructure/grpc/quality"
 	infraid "cognida/internal/infrastructure/id"
+	jobinfra "cognida/internal/infrastructure/job"
 	"cognida/internal/infrastructure/llm"
 	llmchat "cognida/internal/infrastructure/llm/chat"
 	linkembedding "cognida/internal/infrastructure/llm/embedding"
@@ -120,6 +123,12 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		ProvideDocReaderClient,
 		ProvideIDGenerator,
 		ProvideDocumentProcessorService,
+		ProvideCollectionRepository,
+		ProvideCollectionFetcher,
+		ProvideCollectionIngestor,
+		ProvideCollectionJobQueue,
+		ProvideCollectionService,
+		ProvideCollectionJobWorker,
 
 		// LLM 组件
 		ProvideLLMClient,
@@ -161,8 +170,10 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		// 评测 Worker
 		ProvideRedisClient,
 		ProvideEvaluationProgressCache,
-		ProvideEvaluationQueue,
+		ProvideEvaluationJobQueue,
+		ProvideEvaluationJobEnqueuer,
 		ProvideEvaluationWorker,
+		ProvideEvaluationJobWorker,
 		ProvideDatasetLoader,
 		ProvideDatasetService,
 		ProvideDatasetUseCase,
@@ -186,6 +197,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		// Handler
 		ProvideAuthHandler,
 		ProvideKnowledgeBaseHandler,
+		ProvideCollectionHandler,
 		ProvideSessionHandler,
 		ProvideMessageHandler,
 		ProvideTenantHandler,
@@ -270,6 +282,43 @@ func ProvideUploadConfig(cfg *config.Config) *config.UploadConfig {
 
 func ProvideKnowledgeBaseRepository(db *gorm.DB) domain_knowledge.KnowledgeBaseRepository {
 	return mysql.NewKnowledgeBaseRepository(db, true)
+}
+
+func ProvideCollectionRepository(db *gorm.DB) domain_collection.Repository {
+	return mysql.NewCollectionRepository(db)
+}
+
+func ProvideCollectionFetcher() domain_collection.Fetcher { return collectionsvc.SafeFetcherAdapter{} }
+
+func ProvideCollectionIngestor(processor app_kb.DocumentProcessorService) domain_collection.DocumentIngestor {
+	return collectionsvc.NewKnowledgeIngestorAdapter(processor)
+}
+
+type CollectionJobQueue struct{ *jobinfra.RedisQueue }
+type CollectionJobWorker struct{ *jobinfra.Worker }
+
+func ProvideCollectionJobQueue(redisClient *redis.Client) *CollectionJobQueue {
+	if redisClient == nil {
+		return nil
+	}
+	return &CollectionJobQueue{RedisQueue: jobinfra.NewRedisQueueWithPrefix(redisClient, "collection:jobs")}
+}
+
+func ProvideCollectionService(repo domain_collection.Repository, fetcher domain_collection.Fetcher, ingestor domain_collection.DocumentIngestor, queue *CollectionJobQueue) *collectionsvc.Service {
+	service := collectionsvc.NewService(repo, fetcher, ingestor, collectionsvc.TextNormalizer{})
+	if queue != nil && queue.RedisQueue != nil {
+		service.SetRunSubmitter(collectionsvc.JobSubmitter{Queue: queue.RedisQueue})
+	}
+	return service
+}
+
+func ProvideCollectionJobWorker(queue *CollectionJobQueue, service *collectionsvc.Service, repo domain_collection.Repository) *CollectionJobWorker {
+	if queue == nil || queue.RedisQueue == nil {
+		return nil
+	}
+	dispatcher := jobinfra.NewDispatcher(queue.RedisQueue, jobinfra.RetryPolicy{MaxAttempts: 3, BaseDelay: time.Second, MaxDelay: time.Minute})
+	dispatcher.Register(collectionsvc.CollectionRunJobType, collectionsvc.RunJobHandler{Execute: service.ExecuteRun, OnExhausted: service.ExhaustRun}, collectionsvc.RunRecoverySource{Runs: repo})
+	return &CollectionJobWorker{Worker: jobinfra.NewWorker(dispatcher, 2, 5*time.Second)}
 }
 
 func ProvideKnowledgeRepository(db *gorm.DB) domain_knowledge.KnowledgeRepository {
@@ -516,7 +565,7 @@ func ProvideEvaluationService(
 	taskRepo domain_evaluation.EvaluationTaskRepository,
 	resultRepo domain_evaluation.EvaluationResultRepository,
 	progressCache *evaluationcache.ProgressCache,
-	evalQueue *evaluationcache.EvaluationQueue,
+	evalQueue domain_evaluation.TaskEnqueuer,
 	evalConfig *config.EvaluationConfig,
 ) *app_evaluation.Service {
 	// 可用指标目录代理到 Python 注册表（唯一事实来源），端点来自评测配置带默认兜底
@@ -553,6 +602,7 @@ func ProvideIDGenerator() infraid.IDGenerator {
 // ProvideDocumentProcessorService 提供文档处理服务（解析→分块→向量化→图谱提取）
 func ProvideDocumentProcessorService(
 	kbRepo domain_knowledge.KnowledgeBaseRepository,
+	settingRepo domain_knowledge.KnowledgeBaseSettingRepository,
 	knowledgeRepo domain_knowledge.KnowledgeRepository,
 	chunkRepo domain_knowledge.ChunkRepository,
 	vectorRepo domain_knowledge.VectorRepository,
@@ -563,7 +613,7 @@ func ProvideDocumentProcessorService(
 	idGenerator infraid.IDGenerator,
 ) app_kb.DocumentProcessorService {
 	return app_kb.NewDocumentProcessorService(
-		kbRepo, knowledgeRepo, chunkRepo, vectorRepo, graphRepo,
+		kbRepo, settingRepo, knowledgeRepo, chunkRepo, vectorRepo, graphRepo,
 		docReaderClient, embedder, llmClient, idGenerator,
 	)
 }
@@ -634,15 +684,18 @@ func ProvideEvaluationProgressCache(redisClient *redis.Client) *evaluationcache.
 	return evaluationcache.NewProgressCache(redisClient)
 }
 
-func ProvideEvaluationQueue(redisClient *redis.Client) *evaluationcache.EvaluationQueue {
-	return evaluationcache.NewQueue(redisClient, 100)
+func ProvideEvaluationJobQueue(redisClient *redis.Client) *jobinfra.RedisQueue {
+	return jobinfra.NewRedisQueueWithPrefix(redisClient, "evaluation:jobs")
+}
+
+func ProvideEvaluationJobEnqueuer(queue *jobinfra.RedisQueue) domain_evaluation.TaskEnqueuer {
+	return app_evaluation.JobEnqueuer{Queue: queue}
 }
 
 // ProvideEvaluationWorker 装配评测 Worker：
 // 队列/进度缓存经领域端口注入，QA 评测执行器使用已装配的 LLMChat，
 // 指标计算通过 Python 评测服务客户端完成。
 func ProvideEvaluationWorker(
-	evalQueue *evaluationcache.EvaluationQueue,
 	progressCache *evaluationcache.ProgressCache,
 	llmChat domain_rag.LLMChat,
 	retriever domain_rag.Retriever,
@@ -704,7 +757,7 @@ func ProvideEvaluationWorker(
 	}
 
 	return app_evaluation.NewWorker(
-		evalQueue,
+		nil,
 		progressCache,
 		pythonClient,
 		datasetLoader,
@@ -713,6 +766,29 @@ func ProvideEvaluationWorker(
 		resultRepo,
 		workerConfig,
 	)
+}
+
+// ProvideEvaluationJobWorker binds evaluation's typed payload/status adapter
+// to the reusable durable job runtime. Evaluation itself owns no queue loop.
+func ProvideEvaluationJobWorker(
+	queue *jobinfra.RedisQueue,
+	worker *app_evaluation.EvaluationWorker,
+	taskRepo domain_evaluation.EvaluationTaskRepository,
+	evalConfig *config.EvaluationConfig,
+) *jobinfra.Worker {
+	maxConcurrent := 3
+	maxRetries := 3
+	if evalConfig != nil {
+		if evalConfig.MaxConcurrent > 0 {
+			maxConcurrent = evalConfig.MaxConcurrent
+		}
+		if evalConfig.MaxRetries > 0 {
+			maxRetries = evalConfig.MaxRetries
+		}
+	}
+	dispatcher := jobinfra.NewDispatcher(queue, jobinfra.RetryPolicy{MaxAttempts: maxRetries, BaseDelay: time.Second, MaxDelay: time.Minute})
+	dispatcher.Register(app_evaluation.EvaluationRunJobType, app_evaluation.RunJobHandler{Worker: worker}, app_evaluation.RunRecoverySource{Tasks: taskRepo})
+	return jobinfra.NewWorker(dispatcher, maxConcurrent, 5*time.Second)
 }
 
 func ProvideDatasetUseCase(
@@ -795,6 +871,10 @@ func ProvideKnowledgeBaseHandler(
 	uploadConfig *config.UploadConfig,
 ) *handler.KnowledgeBaseHandler {
 	return handler.NewKnowledgeBaseHandler(kbService, documentProcessor, retrieval, uploadConfig)
+}
+
+func ProvideCollectionHandler(service *collectionsvc.Service, repo domain_collection.Repository, kbService app_kb.KnowledgeBaseService) *handler.CollectionHandler {
+	return handler.NewCollectionHandler(service, repo, kbService)
 }
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
@@ -1019,6 +1099,7 @@ func ProvideRouter(
 	graphHandler *handler.GraphHandler,
 	modelHandler *handler.ModelHandler,
 	taskHandler *handler.TaskHandler,
+	collectionHandler *handler.CollectionHandler,
 	ragOptimizerHandler *handler.RAGOptimizerHandler,
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
@@ -1043,6 +1124,7 @@ func ProvideRouter(
 		graphHandler,
 		modelHandler,
 		taskHandler,
+		collectionHandler,
 		ragOptimizerHandler,
 		guardrailHandler,
 		evaluationHandler,
@@ -1192,12 +1274,15 @@ func ProvideMiddlewares(
 
 // App 应用程序实例
 type App struct {
-	Router           *router.Router
-	Middlewares      *Middlewares
-	AgentRegistry    *agentframework.SpecRegistry
-	ChatConfig       *config.ChatConfig
-	EvaluationConfig *config.EvaluationConfig
-	EvaluationWorker *app_evaluation.EvaluationWorker
+	Router               *router.Router
+	Middlewares          *Middlewares
+	AgentRegistry        *agentframework.SpecRegistry
+	ChatConfig           *config.ChatConfig
+	EvaluationConfig     *config.EvaluationConfig
+	EvaluationWorker     *jobinfra.Worker
+	CollectionWorker     *CollectionJobWorker
+	CollectionService    *collectionsvc.Service
+	CollectionRepository domain_collection.Repository
 	// 以下依赖暴露给组合根（main.go），用于把 Agent 工具（rag_query/graph_query/kb_list）
 	// 接线到真实检索/图谱/知识库服务，替代此前工具层的 mock/未接线状态。
 	Retriever domain_rag.Retriever
@@ -1227,7 +1312,10 @@ func ProvideApp(
 	agentRegistry *agentframework.SpecRegistry,
 	chatConfig *config.ChatConfig,
 	evalConfig *config.EvaluationConfig,
-	evalWorker *app_evaluation.EvaluationWorker,
+	evalWorker *jobinfra.Worker,
+	collectionWorker *CollectionJobWorker,
+	collectionService *collectionsvc.Service,
+	collectionRepository domain_collection.Repository,
 	retriever domain_rag.Retriever,
 	retrievalCapability *app_kb.RetrievalCapability,
 	graphService *app_kb.GraphService,
@@ -1245,6 +1333,9 @@ func ProvideApp(
 		ChatConfig:              chatConfig,
 		EvaluationConfig:        evalConfig,
 		EvaluationWorker:        evalWorker,
+		CollectionWorker:        collectionWorker,
+		CollectionService:       collectionService,
+		CollectionRepository:    collectionRepository,
 		Retriever:               retriever,
 		RetrievalCapability:     retrievalCapability,
 		GraphService:            graphService,

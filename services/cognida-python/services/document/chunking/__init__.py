@@ -4,6 +4,7 @@ from typing import Any
 
 from .strategies import (
     ChunkStrategy,
+    _validate_chunk_sizes,
     chunk_by_paragraph,
     chunk_by_sentence,
     chunk_by_fixed_size,
@@ -40,6 +41,7 @@ def chunk_document(
     Returns:
         分块结果列表
     """
+    _validate_chunk_sizes(chunk_size, chunk_overlap)
     chunkers = {
         ChunkStrategy.PARAGRAPH: chunk_by_paragraph,
         ChunkStrategy.SENTENCE: chunk_by_sentence,

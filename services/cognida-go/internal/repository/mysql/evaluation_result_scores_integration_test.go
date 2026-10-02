@@ -25,9 +25,6 @@ func f64(v float64) *float64 { return &v }
 // TestEvaluationResultScoresRoundTrip 动态 scores 与固定字段一并落库并原样回读。
 func TestEvaluationResultScoresRoundTrip(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&EvaluationResultModel{}); err != nil {
-		t.Fatalf("automigrate evaluation_qa_results: %v", err)
-	}
 
 	repo := NewEvaluationResultRepository(db)
 	ctx := context.Background()
@@ -99,9 +96,6 @@ func TestEvaluationResultScoresRoundTrip(t *testing.T) {
 // TestEvaluationResultScoresNullCompatible 未写 scores 时 NULL 列读侧兼容为空 map（非 nil）。
 func TestEvaluationResultScoresNullCompatible(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&EvaluationResultModel{}); err != nil {
-		t.Fatalf("automigrate evaluation_qa_results: %v", err)
-	}
 
 	repo := NewEvaluationResultRepository(db)
 	ctx := context.Background()

@@ -155,6 +155,11 @@ func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
 		log.Printf("⚠️  注册 Data Agent 失败: %v", err)
 	}
 
+	// 4. 注册数据收集 Agent。该 Agent 只编排受治理的采集任务，网页抓取在后台 Worker 内执行。
+	if err := init.registerCollectionAgent(ctx, chatModel); err != nil {
+		log.Printf("⚠️  注册 Collection Agent 失败: %v", err)
+	}
+
 	log.Println("[========== ✅ Agent 初始化完成 ============]")
 	return nil
 }
@@ -367,6 +372,61 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 	}
 
 	log.Printf("[Agent] ✓ Data agent registered: id=%s, pattern=single-react+delegate", dataagent.DataAgentID)
+	return nil
+}
+
+// registerCollectionAgent 注册独立的数据收集 Agent。它不暴露通用网页抓取工具，
+// 仅能通过持久化任务 API 创建、启动、检查与取消采集工作。
+func (init *Initializer) registerCollectionAgent(ctx context.Context, chatModel any) error {
+	toolModel, ok := chatModel.(model.ToolCallingChatModel)
+	if !ok {
+		return fmt.Errorf("invalid model type: expected ToolCallingChatModel")
+	}
+
+	collectionTools := init.tools.GetByGroup("collection")
+	if len(collectionTools) == 0 {
+		return fmt.Errorf("collection task tools are not configured")
+	}
+
+	spec := infraagent.AgentSpec{
+		ID:          "agent-collection-001",
+		Name:        "collection_agent",
+		Description: "数据收集 Agent：将经过确认的 URL 组织为可追踪、可取消的采集任务",
+		Type:        agent.AgentTypeNormal,
+		ToolNames: []string{
+			"collection_create_task",
+			"collection_start_task",
+			"collection_inspect_task",
+			"collection_cancel_task",
+		},
+		Metadata: map[string]string{
+			"version": "1.0.0",
+			"pattern": "governed-task-orchestrator",
+			"risk":    "controlled",
+		},
+		Build: func(ctx context.Context) (infraagent.Agent, error) {
+			builder := infraagent.New(nil).
+				Name("数据收集 Agent").
+				Prompt(`你是数据收集 Agent，负责把用户明确指定的网页来源创建为可追踪的数据收集任务。
+
+工作原则：
+- 先确认目标知识库与待采集 URL；仅在用户明确授权后创建或启动任务。
+- 使用 collection_create_task 创建任务；需要执行时再使用 collection_start_task。
+- 使用 collection_inspect_task 汇报真实的持久化状态；用户要求停止时使用 collection_cancel_task。
+- 不直接抓取、下载或解析网页；网页访问只在受限后台 Worker 中发生。
+- 如无法确认来源、范围或目标知识库，先向用户追问，不要猜测。`).
+				WithToolModel(toolModel).
+				Tools(collectionTools...).
+				WithMaxIterations(4)
+			builder = init.guardrail.Apply(builder)
+			return builder.Build(ctx)
+		},
+	}
+
+	if err := init.registry.RegisterSpec(ctx, spec); err != nil {
+		return err
+	}
+	log.Println("[Agent] ✓ Collection agent registered: id=agent-collection-001, pattern=governed-task-orchestrator")
 	return nil
 }
 

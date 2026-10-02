@@ -107,24 +107,8 @@ class RequestIDServerInterceptor(grpc.ServerInterceptor):
         if handler is None:
             return handler
 
-        # 仅包装一元-一元（本服务的 gRPC 方法均为一元）；其余原样返回。
-        if handler.unary_unary is None:
-            return handler
+        return _wrap_context_handler(handler, lambda: bind_request_id(rid), _CONTEXT_KEY)
 
-        inner = handler.unary_unary
-
-        def wrapper(request, context):
-            bind_request_id(rid)
-            try:
-                return inner(request, context)
-            finally:
-                structlog.contextvars.unbind_contextvars(_CONTEXT_KEY)
-
-        return grpc.unary_unary_rpc_method_handler(
-            wrapper,
-            request_deserializer=handler.request_deserializer,
-            response_serializer=handler.response_serializer,
-        )
 
 
 class TenantServerInterceptor(grpc.ServerInterceptor):
@@ -141,24 +125,34 @@ class TenantServerInterceptor(grpc.ServerInterceptor):
         if handler is None:
             return handler
 
-        # 仅包装一元-一元（本服务的 gRPC 方法均为一元）；其余原样返回。
-        if handler.unary_unary is None:
-            return handler
+        return _wrap_context_handler(handler, lambda: bind_tenant_id(tenant_id), _TENANT_CONTEXT_KEY)
 
-        inner = handler.unary_unary
 
-        def wrapper(request, context):
-            bind_tenant_id(tenant_id)
-            try:
-                return inner(request, context)
-            finally:
-                structlog.contextvars.unbind_contextvars(_TENANT_CONTEXT_KEY)
+def _wrap_context_handler(handler, bind, key):
+    """Keep context bound while a streaming response is actually iterated."""
+    streaming = handler.response_streaming
+    inner = (handler.stream_stream if handler.request_streaming else handler.unary_stream) if streaming else (
+        handler.stream_unary if handler.request_streaming else handler.unary_unary)
 
-        return grpc.unary_unary_rpc_method_handler(
-            wrapper,
-            request_deserializer=handler.request_deserializer,
-            response_serializer=handler.response_serializer,
-        )
+    def unary(request, context):
+        bind()
+        try:
+            return inner(request, context)
+        finally:
+            structlog.contextvars.unbind_contextvars(key)
+
+    def stream(request, context):
+        bind()
+        try:
+            yield from inner(request, context)
+        finally:
+            structlog.contextvars.unbind_contextvars(key)
+
+    factory = (grpc.stream_stream_rpc_method_handler if handler.request_streaming else grpc.unary_stream_rpc_method_handler) if streaming else (
+        grpc.stream_unary_rpc_method_handler if handler.request_streaming else grpc.unary_unary_rpc_method_handler)
+    return factory(stream if streaming else unary, request_deserializer=handler.request_deserializer,
+                   response_serializer=handler.response_serializer)
+
 
 
 def _deny_handler(request_streaming: bool, response_streaming: bool):

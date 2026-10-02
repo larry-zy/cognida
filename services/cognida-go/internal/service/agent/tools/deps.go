@@ -4,6 +4,7 @@ package tools
 import (
 	"gorm.io/gorm"
 
+	collectionmodel "cognida/internal/model/collection"
 	"cognida/internal/model/dataprofile"
 	model_datasource "cognida/internal/model/datasource"
 	domain_knowledge "cognida/internal/model/knowledge"
@@ -12,6 +13,7 @@ import (
 	"cognida/internal/service/agent/semanticcache"
 	"cognida/internal/service/agent/termgrounding"
 	"cognida/internal/service/agent/uibinding"
+	collectionsvc "cognida/internal/service/collection"
 )
 
 // ToolDeps 聚合工具注册表所需的全部依赖，由组合根一次性装配后传入 NewToolRegistry。
@@ -19,6 +21,10 @@ import (
 // 必需依赖缺失 → 构造失败；可选依赖缺失 → 对应工具仍注册，但 Run 时返回既定降级提示
 // （宁拒不闯，行为与旧全局注入路径逐字节保持一致）。
 type ToolDeps struct {
+	// CollectionService and CollectionRepository back the standalone Collection
+	// Agent task tools. They are intentionally separate from generic web tools.
+	CollectionService    *collectionsvc.Service
+	CollectionRepository collectionmodel.Repository
 	// SQLDB 业务库连接（必需）：sql_execute / get_schema 只读查询的默认目标。
 	SQLDB *gorm.DB
 	// GetSchemaDB get_schema 使用的库连接；nil 时回落 SQLDB。

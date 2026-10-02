@@ -16,14 +16,14 @@ import (
 
 // knowledgeBaseRepository 知识库仓储实现
 type knowledgeBaseRepository struct {
-	db           *gorm.DB
+	db            *gorm.DB
 	tenantEnabled bool
 }
 
 // NewKnowledgeBaseRepository 创建知识库仓储
 func NewKnowledgeBaseRepository(db *gorm.DB, tenantEnabled bool) domain_knowledge.KnowledgeBaseRepository {
 	return &knowledgeBaseRepository{
-		db:           db,
+		db:            db,
 		tenantEnabled: tenantEnabled,
 	}
 }
@@ -158,6 +158,19 @@ func (r *knowledgeBaseRepository) UpdateStats(ctx context.Context, kbID string, 
 			"chunk_count":    chunkCount,
 			"storage_size":   storageSize,
 		}).Error
+}
+
+// RefreshStats derives counters from committed rows rather than incrementing a
+// stale snapshot (which double counts reprocessing and loses concurrent uploads).
+func (r *knowledgeBaseRepository) RefreshStats(ctx context.Context, kbID string, tenantID int64) error {
+	if tenantID <= 0 {
+		return domain_knowledge.ErrInvalidTenantID
+	}
+	return r.db.WithContext(ctx).Exec(`UPDATE knowledge_bases SET
+	 document_count = (SELECT COUNT(*) FROM knowledge WHERE knowledge_base_id = ? AND tenant_id = ? AND deleted_at IS NULL),
+	 chunk_count = (SELECT COUNT(*) FROM chunks WHERE knowledge_base_id = ? AND tenant_id = ? AND deleted_at IS NULL),
+	 storage_size = (SELECT COALESCE(SUM(storage_size), 0) FROM knowledge WHERE knowledge_base_id = ? AND tenant_id = ? AND deleted_at IS NULL)
+	 WHERE id = ? AND tenant_id = ?`, kbID, tenantID, kbID, tenantID, kbID, tenantID, kbID, tenantID).Error
 }
 
 // Delete 删除知识库（软删除）

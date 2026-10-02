@@ -13,7 +13,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	domainagent "cognida/internal/model/agent"
-	"cognida/internal/pkg/safego"
 )
 
 // 编译期断言：并行委派工具必须实现 eino tool.InvokableTool（见 collab_tools.go 同类断言注释）。
@@ -21,6 +20,9 @@ var _ tool.InvokableTool = (*ParallelDelegateTool)(nil)
 
 // defaultDelegateConcurrency 并行委派默认并发上限（资源护栏，防子代理树暴涨）。
 const defaultDelegateConcurrency = 3
+
+// Bound both model input and the number of retained child results.
+const maxParallelDelegations = 32
 
 // ParallelDelegateTool implements tool.InvokableTool for fan-out delegation.
 type ParallelDelegateTool struct {
@@ -83,6 +85,13 @@ func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON
 		return "", fmt.Errorf("delegations 不能为空")
 	}
 
+	if len(args.Delegations) > maxParallelDelegations {
+		return "", fmt.Errorf("delegations 最多允许 %d 项", maxParallelDelegations)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
 	parentCollab, hasCtx := domainagent.GetCollaborationContext(ctx)
 
 	results := make([]parallelDelegationResult, len(args.Delegations))
@@ -90,14 +99,22 @@ func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON
 	var wg sync.WaitGroup
 
 	for i := range args.Delegations {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 		wg.Add(1)
 		go func(idx int) {
-			defer safego.Recover("collab-parallel")
 			defer wg.Done()
-			sem <- struct{}{} // 并发上限护栏
 			defer func() { <-sem }()
-
 			env := &args.Delegations[idx]
+			results[idx] = parallelDelegationResult{AgentName: env.AgentName, Goal: env.Goal, Status: "failed"}
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					results[idx].Error = fmt.Sprintf("delegation panic: %v", recovered)
+				}
+			}()
 			// 每个子委派持父协作上下文的独立克隆：链路/结果互不干扰（并行安全），
 			// 真实结果在全部完成后串行回写父上下文。
 			childCtx := ctx
@@ -106,10 +123,6 @@ func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON
 			}
 
 			output, err := executeDelegation(childCtx, t.registry, env)
-			results[idx] = parallelDelegationResult{
-				AgentName: env.AgentName,
-				Goal:      env.Goal,
-			}
 			if err != nil {
 				results[idx].Status = "failed"
 				results[idx].Error = err.Error()
@@ -119,7 +132,13 @@ func (t *ParallelDelegateTool) InvokableRun(ctx context.Context, argumentsInJSON
 			results[idx].Output = output
 		}(i)
 	}
-	wg.Wait()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-done:
+	}
 
 	// 串行回写父协作上下文（避免并发写共享 map）。注意不回写 DelegateChain：
 	// 循环检测按委派路径判定，父链追加并行兄弟会误伤后续对同一子代理的再委派。

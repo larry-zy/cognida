@@ -85,6 +85,23 @@ func TestEnvOverridesYAML(t *testing.T) {
 	}
 }
 
+func TestLoadObjectStorageConfig_EnvironmentOverrides(t *testing.T) {
+	t.Setenv("OBJECT_STORAGE_BACKEND", "minio")
+	t.Setenv("OBJECT_STORAGE_ENDPOINT", "minio.internal:9000")
+	t.Setenv("OBJECT_STORAGE_BUCKET", "collection-assets")
+	t.Setenv("OBJECT_STORAGE_USE_SSL", "true")
+	t.Setenv("OBJECT_STORAGE_ACCESS_KEY", "access")
+	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "secret")
+
+	cfg := LoadObjectStorageConfig()
+	if cfg.Backend != "minio" || cfg.Endpoint != "minio.internal:9000" || cfg.Bucket != "collection-assets" || !cfg.UseSSL {
+		t.Fatalf("unexpected object storage config: %+v", cfg)
+	}
+	if cfg.AccessKey != "access" || cfg.SecretKey != "secret" {
+		t.Fatal("object storage credentials were not read from environment")
+	}
+}
+
 // TestSecretsNeverInYAML 硬性要求：入库 config.yaml 不得出现任何密钥/占位密钥值。
 func TestSecretsNeverInYAML(t *testing.T) {
 	data, err := os.ReadFile(repoConfigYAMLPath)

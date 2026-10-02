@@ -20,9 +20,6 @@ import (
 
 func TestColumnProfileRepoUpsertAndList(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&ColumnProfileModel{}); err != nil {
-		t.Fatalf("automigrate column_profiles: %v", err)
-	}
 	repo := NewColumnProfileRepository(db)
 	ctx := context.Background()
 
@@ -92,9 +89,6 @@ func TestColumnProfileRepoUpsertAndList(t *testing.T) {
 
 func TestColumnProfileRepoCoordinateIsolation(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&ColumnProfileModel{}); err != nil {
-		t.Fatalf("automigrate: %v", err)
-	}
 	repo := NewColumnProfileRepository(db)
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Second)
@@ -108,9 +102,9 @@ func TestColumnProfileRepoCoordinateIsolation(t *testing.T) {
 	// 同表名但坐标不同（租户/数据源/库各异），互不覆盖，各成一行。
 	all := []*dataprofile.ColumnProfile{
 		mk(1, "", "iso_a", "t"),
-		mk(2, "", "iso_a", "t"),   // 不同租户
+		mk(2, "", "iso_a", "t"),    // 不同租户
 		mk(1, "ext", "iso_a", "t"), // 不同数据源
-		mk(1, "", "iso_b", "t"),   // 不同库
+		mk(1, "", "iso_b", "t"),    // 不同库
 	}
 	if err := repo.Upsert(ctx, all); err != nil {
 		t.Fatalf("Upsert: %v", err)
@@ -133,9 +127,6 @@ func TestColumnProfileRepoCoordinateIsolation(t *testing.T) {
 // 语义层不知具体库名，故同一数据源下同名表的多库画像应一并返回；数据源隔离仍生效。
 func TestColumnProfileRepoListByDatasourceTable(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&ColumnProfileModel{}); err != nil {
-		t.Fatalf("automigrate: %v", err)
-	}
 	repo := NewColumnProfileRepository(db)
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Second)

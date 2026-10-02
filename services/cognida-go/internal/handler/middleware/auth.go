@@ -156,7 +156,7 @@ func NewCORSMiddleware() *CORSMiddleware {
 	return &CORSMiddleware{
 		AllowedOrigins: origins,
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-API-Key", "X-Tenant-ID", "X-Request-ID"},
+		AllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-API-Key", "X-Tenant-ID", "X-Request-ID", "Idempotency-Key"},
 	}
 }
 

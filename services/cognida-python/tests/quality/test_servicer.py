@@ -47,13 +47,15 @@ class TestQualityServicer:
         assert servicer.drift_detector is not None
         assert servicer.rule_engine is not None
 
-    def test_evaluate_quality_with_file(self, servicer, mock_context, tmp_path):
+    def test_evaluate_quality_with_file(self, servicer, mock_context, tmp_path, monkeypatch):
         """测试通过文件路径评估质量。"""
         # 创建测试文件
         data = pd.DataFrame({
             "id": [1, 2, 3],
             "name": ["Alice", "Bob", "Charlie"],
         })
+        from config import get_settings
+        monkeypatch.setattr(get_settings(), "allowed_paths", [str(tmp_path)])
         file_path = tmp_path / "test.csv"
         data.to_csv(file_path, index=False)
 
@@ -584,3 +586,28 @@ class TestServicerIntegration:
         assert response is not None
         if not response.success:
             assert response.error_message is not None
+
+
+def test_concurrent_drift_requests_keep_independent_baselines(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from services.quality.drift_detector import DriftDetector
+
+    barrier = Barrier(2)
+    original_set_baseline = DriftDetector.set_baseline
+
+    def set_baseline(self, data, columns=None):
+        original_set_baseline(self, data, columns)
+        barrier.wait(timeout=5)
+
+    monkeypatch.setattr(DriftDetector, 'set_baseline', set_baseline)
+    service = QualityServicer()
+
+    def call(value):
+        raw = ('x\n' + '\n'.join(str(value + i) for i in range(30))).encode()
+        return service.DetectDrift(quality_pb2.DetectDriftRequest(
+            baseline_data=raw, current_data=raw, columns=['x']), None)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(call, [0, 1000]))
+    assert all(response.success and not response.has_drift for response in responses)

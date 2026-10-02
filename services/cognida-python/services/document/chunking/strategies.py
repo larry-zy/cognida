@@ -117,7 +117,8 @@ def chunk_by_sentence(
 
     # 简单的句子分割（中英文）
     sentences = re.split(r'([。！？.!?]+)', text)
-    sentences = ["".join(pair) for pair in zip(sentences[::2], sentences[1::2])]
+    sentences = [sentences[i] + (sentences[i + 1] if i + 1 < len(sentences) else "")
+                 for i in range(0, len(sentences), 2)]
 
     chunks = []
     current_chunk = ""
@@ -173,6 +174,7 @@ def chunk_by_fixed_size(
     Returns:
         分块结果列表
     """
+    _validate_chunk_sizes(chunk_size, chunk_overlap)
     chunks = []
     index = 0
     pos = 0
@@ -304,16 +306,15 @@ def chunk_recursive(
     Returns:
         分块结果列表
     """
+    _validate_chunk_sizes(chunk_size, chunk_overlap)
     chunks = _recursive_split(text, _RECURSIVE_SEPARATORS, chunk_size, chunk_overlap)
 
-    # 过滤太小的块（但保留第一个）
-    filtered = []
-    for i, chunk in enumerate(chunks):
-        if len(chunk["text"]) >= min_chunk_size or i == 0:
-            filtered.append(chunk)
+    # 小尾块仍包含原文，不能因长度阈值直接丢弃。
+    for index, chunk in enumerate(chunks):
+        chunk["index"] = index
+    logger.info("按递归策略分块完成", chunk_count=len(chunks))
+    return chunks
 
-    logger.info("按递归策略分块完成", chunk_count=len(filtered))
-    return filtered
 
 
 def _recursive_split(
@@ -336,7 +337,7 @@ def _recursive_split(
     if not text:
         return []
 
-    if not separators:
+    if not separators or separators[0] == "":
         # 没有更多分隔符，直接按大小分割
         return _split_by_size(text, chunk_size, chunk_overlap)
 
@@ -403,6 +404,7 @@ def _split_by_size(
     Returns:
         分块列表
     """
+    _validate_chunk_sizes(chunk_size, chunk_overlap)
     chunks = []
     index = 0
     pos = 0
@@ -484,4 +486,11 @@ def _split_long_text(
     if current:
         chunks.append(current)
 
-    return chunks
+    return [piece[i:i + max_size] for piece in chunks for i in range(0, len(piece), max_size)]
+
+
+def _validate_chunk_sizes(chunk_size: int, chunk_overlap: int) -> None:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if chunk_overlap < 0 or chunk_overlap >= chunk_size:
+        raise ValueError("chunk_overlap must be nonnegative and smaller than chunk_size")

@@ -103,3 +103,26 @@ class TestMCPHttpTransport:
         parsed = json.loads(body["result"][0]["text"])
         assert parsed["success"] is False
         assert parsed["error_type"] == "missing_param"
+
+
+@pytest.mark.parametrize('payload,code', [
+    ([], -32600), (None, -32600), ('text', -32600),
+    ({'jsonrpc': '1.0', 'method': 'tools/list'}, -32600),
+    ({'jsonrpc': '2.0', 'method': 'tools/call', 'params': []}, -32602),
+    ({'jsonrpc': '2.0', 'method': 'tools/call', 'params': {'name': 'data_describe', 'arguments': []}}, -32602),
+])
+async def test_malformed_rpc_returns_json_error(client, payload, code):
+    response = await client.post('/mcp', data=json.dumps(payload), headers={'Content-Type': 'application/json'})
+    body = await response.json()
+    assert response.status == 400
+    assert body['error']['code'] == code
+
+
+async def test_mcp_requires_configured_shared_token(client, monkeypatch):
+    from config import get_settings
+    monkeypatch.setattr(get_settings(), 'internal_http_auth_token', 'test-shared-token')
+    payload = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}
+    assert (await client.post('/mcp', json=payload)).status == 401
+    assert (await client.post('/mcp', json=payload, headers={'Authorization': 'Bearer wrong'})).status == 401
+    assert (await client.post('/mcp', json=payload, headers={'Authorization': 'Bearer test-shared-token'})).status == 200
+    assert (await client.get('/health')).status == 200

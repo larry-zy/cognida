@@ -5,9 +5,26 @@ Scope: the agent main execution flow — the Eino engine under
 self-repair guard, parallel delegation) plus the handler/DTO boundary
 (`internal/handler/agent_handler.go`, `internal/service/agent/registry_orchestrator.go`).
 
-Status: review only — no code changed. Findings verified by cross-checking two
-independent review passes (tool-loop termination; streaming & concurrency)
-against a direct read of the source.
+Status: historical review, reconciled with code on 2026-10-03. The original
+findings below are retained as the investigation record, not a current defect list.
+
+Current status:
+- #1, #2, #4, #5, #6 were already addressed before this review: buffered tool-loop
+  content, abnormal nil-response wind-down, missing-usage warning, end metadata,
+  and malformed-argument failure accounting have regression coverage.
+- #3 now uses the latest request usage as a context-size guard. This is not a
+  measure of cumulative billable tokens; each request does incur its own cost.
+- #7 is addressed by bounded synchronous persistence before stream completion.
+- #8–#10 are addressed by a 32-delegation bound, acquiring concurrency slots before
+  spawning children, cancellation-aware dispatch/wait, and attributable panic results.
+- #11's claimed `Get` panic was not reproducible: `einoToDomainTool` already guards
+  nil. `GetEinoTool` now reports metadata-only registrations as unavailable.
+- #A has pairing regression coverage in `context_compact_test.go`, including
+  masking, summarization and reasoning eviction. No pairing defect was confirmed.
+
+Validation: framework unit tests and race tests pass. This does not assert that
+arbitrary providers or external tools honor cancellation; their own contexts still
+need to be respected to stop underlying work.
 
 ---
 

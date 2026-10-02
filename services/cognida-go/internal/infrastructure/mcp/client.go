@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +34,8 @@ type MCPClient struct {
 	cacheExpiry     time.Time         // 缓存过期时间
 	cacheTTL        time.Duration     // 缓存有效期
 	connected       bool              // 连接状态
-	reconnectConfig *ReconnectConfig  // 重连配置
+	authToken       string
+	reconnectConfig *ReconnectConfig // 重连配置
 }
 
 // ReconnectConfig 重连配置
@@ -80,7 +82,8 @@ type DefaultHTTPClient struct {
 func NewDefaultHTTPClient(timeout time.Duration) *DefaultHTTPClient {
 	return &DefaultHTTPClient{
 		client: &http.Client{
-			Timeout: timeout,
+			Timeout:       timeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
@@ -136,6 +139,7 @@ func (c *DefaultHTTPClient) PostWithHeaders(url string, body []byte, headers map
 
 // Config MCP 客户端配置
 type Config struct {
+	AuthToken  string        // defaults to INTERNAL_HTTP_AUTH_TOKEN; never a user token
 	Endpoint   string        // MCP Server 端点
 	Timeout    time.Duration // 请求超时
 	CacheTTL   time.Duration // 缓存有效期
@@ -173,6 +177,10 @@ func NewMCPClient(cfg *Config) (*MCPClient, error) {
 		logger:          logger,
 		cacheTTL:        cacheTTL,
 		reconnectConfig: DefaultReconnectConfig(),
+	}
+	client.authToken = cfg.AuthToken
+	if client.authToken == "" {
+		client.authToken = os.Getenv("INTERNAL_HTTP_AUTH_TOKEN")
 	}
 
 	// 初始化 HTTP 客户端（使用传入的或创建默认的）
@@ -375,9 +383,19 @@ func extractRequestID(ctx interface{}) string {
 // postMCP 发送 MCP HTTP 请求；有 request_id 且传输层支持带头 POST 时附带 X-Request-ID，
 // 否则回退到无头 Post，保持对既有 HTTPClient 实现的向后兼容。
 func (c *MCPClient) postMCP(url string, body []byte, requestID string) ([]byte, error) {
-	if requestID != "" {
+	if requestID != "" || c.authToken != "" {
 		if hp, ok := c.client.httpClient.(HeaderPoster); ok {
-			return hp.PostWithHeaders(url, body, map[string]string{HTTPRequestIDHeader: requestID})
+			headers := make(map[string]string)
+			if requestID != "" {
+				headers[HTTPRequestIDHeader] = requestID
+			}
+			if c.authToken != "" {
+				headers["Authorization"] = "Bearer " + c.authToken
+			}
+			return hp.PostWithHeaders(url, body, headers)
+		}
+		if c.authToken != "" {
+			return nil, fmt.Errorf("MCP transport cannot carry service authentication")
 		}
 	}
 	return c.client.httpClient.Post(url, body)
@@ -489,7 +507,7 @@ func (c *MCPClient) callMCPListTools() (interface{}, error) {
 		}
 
 		// 发送 HTTP 请求
-		respBytes, err := c.client.httpClient.Post(url, reqBytes)
+		respBytes, err := c.postMCP(url, reqBytes, "")
 		if err != nil {
 			lastErr = fmt.Errorf("HTTP request failed: %w", err)
 			c.logger.Warn("mcp list attempt failed", "attempt", attempt, "error", err)

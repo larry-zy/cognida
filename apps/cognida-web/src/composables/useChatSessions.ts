@@ -30,6 +30,8 @@ export interface UseChatSessionsOptions<M extends Message> {
   loadFailMessage: string
   /** 切换会话并加载完成后的回调（通常滚动到底部） */
   onAfterSwitch?: () => void
+  /** 离开当前会话前取消其流，防止迟到结果写入新会话。 */
+  onBeforeSwitch?: () => void
 }
 
 export function useChatSessions<M extends Message>(options: UseChatSessionsOptions<M>) {
@@ -69,6 +71,7 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
   }
 
   function createNewSession() {
+    options.onBeforeSwitch?.()
     currentSessionId.value = ''
     messages.value = []
     inputMessage.value = ''
@@ -77,6 +80,7 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
   }
 
   async function switchSession(sessionId: string) {
+    options.onBeforeSwitch?.()
     const targetId = sessionId
     currentSessionId.value = targetId
     messages.value = []

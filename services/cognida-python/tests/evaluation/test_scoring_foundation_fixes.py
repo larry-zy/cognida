@@ -146,7 +146,10 @@ def test_numeric_coverage_none_when_no_numbers():
     assert _numeric_coverage("答案完全正确", "对的") is None
 
 
-def test_answer_accuracy_floored_by_numeric_coverage():
+def test_answer_accuracy_floored_by_numeric_coverage(monkeypatch):
+    # 测试数值兜底规则，固定语义已过相关性门槛；不依赖本机模型缓存或网络下载。
+    monkeypatch.setattr("services.evaluation.metrics.agent.compute_semantic_metrics",
+                        lambda *_: {"similarity": 0.6})
     # 数值全对但语序/措辞不同：应因数值覆盖率兜底而拿到高分
     refs = ["2023 年第三季度营收为 384400 万元"]
     outs = ["三季度（2023）的营业收入是 384400 万元人民币"]

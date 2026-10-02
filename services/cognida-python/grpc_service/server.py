@@ -34,5 +34,10 @@ async def main() -> None:
     await serve_grpc(grpc_port)
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Synchronous entry point for installed console scripts."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli()

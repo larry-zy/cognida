@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	agentctx "cognida/internal/model/agent"
 	"cognida/internal/infrastructure/mcp"
+	agentctx "cognida/internal/model/agent"
 	"cognida/internal/service/agent/resultstore"
 	agenttools "cognida/internal/service/agent/tools"
 )
@@ -73,7 +73,7 @@ func runAttribution(t *testing.T, ctx context.Context, env *attributionE2EEnv, r
 		t.Fatalf("预置行集失败: %v", err)
 	}
 
-	tool, err := agenttools.NewDataAnalysisTool(env.invoker, env.store)
+	tool, err := agenttools.NewDataAnalysisTool(env.invoker, env.store, nil)
 	if err != nil {
 		t.Fatalf("NewDataAnalysisTool: %v", err)
 	}

@@ -73,6 +73,7 @@ func TestMCPClient_Invoke_ForwardsRequestID(t *testing.T) {
 }
 
 func TestMCPClient_Invoke_NoRequestID_UsesPlainPost(t *testing.T) {
+	t.Setenv("INTERNAL_HTTP_AUTH_TOKEN", "")
 	// 有 HeaderPoster 能力但 ctx 无 request_id：不应附带头，走无头 Post。
 	mock := &headerRecordingClient{response: mcpToolSuccessResponse()}
 	client, err := NewMCPClient(&Config{
@@ -89,6 +90,7 @@ func TestMCPClient_Invoke_NoRequestID_UsesPlainPost(t *testing.T) {
 }
 
 func TestMCPClient_Invoke_PlainClient_Fallback(t *testing.T) {
+	t.Setenv("INTERNAL_HTTP_AUTH_TOKEN", "")
 	// 传输层未实现 HeaderPoster：即便有 request_id 也安全回退到 Post，不报错。
 	mock := &plainClient{response: mcpToolSuccessResponse()}
 	client, err := NewMCPClient(&Config{

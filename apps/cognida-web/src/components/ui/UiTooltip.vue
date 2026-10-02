@@ -168,7 +168,8 @@ function removeEventListeners() {
 }
 
 function toggle() {
-  visible.value ? hide() : show()
+  if (visible.value) hide()
+  else show()
 }
 
 onMounted(() => {

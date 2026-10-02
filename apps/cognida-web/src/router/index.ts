@@ -64,6 +64,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'DaDa 数据智能体' }
       },
       {
+        path: '/collection-tasks',
+        name: 'CollectionTaskList',
+        component: () => import('@/views/collection/CollectionTaskList.vue'),
+        meta: { title: '网页采集任务' }
+      },
+      {
         path: '/evaluation',
         name: 'EvaluationList',
         component: () => import('@/views/evaluation/EvaluationList.vue'),

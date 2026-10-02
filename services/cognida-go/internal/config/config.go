@@ -101,6 +101,13 @@ type FileConfig struct {
 	Upload struct {
 		UploadDir string `yaml:"upload_dir"`
 	} `yaml:"upload"`
+	ObjectStorage struct {
+		Backend  string `yaml:"backend"`
+		LocalDir string `yaml:"local_dir"`
+		Endpoint string `yaml:"endpoint"`
+		Bucket   string `yaml:"bucket"`
+		UseSSL   bool   `yaml:"use_ssl"`
+	} `yaml:"object_storage"`
 }
 
 // defaultFileConfig 返回与历史代码内兜底默认完全一致的基线。
@@ -153,6 +160,11 @@ func defaultFileConfig() *FileConfig {
 	fc.Skill.CacheTTL = 60
 	fc.Skill.MaxRetries = 3
 	fc.Upload.UploadDir = "../../var/uploads"
+	fc.ObjectStorage.Backend = "local"
+	fc.ObjectStorage.LocalDir = "../../var/objects"
+	fc.ObjectStorage.Endpoint = "localhost:9000"
+	fc.ObjectStorage.Bucket = "cognida"
+	fc.ObjectStorage.UseSSL = false
 	return fc
 }
 
@@ -324,22 +336,35 @@ type UploadConfig struct {
 	UploadDir string // 文件上传目录
 }
 
+// ObjectStorageConfig configures durable binary artefact storage. Access
+// credentials deliberately exist only in environment variables.
+type ObjectStorageConfig struct {
+	Backend   string // local or minio
+	LocalDir  string // used only by the local backend
+	Endpoint  string // used only by the MinIO/S3-compatible backend
+	Bucket    string // used only by the MinIO/S3-compatible backend
+	UseSSL    bool
+	AccessKey string // secret: environment only
+	SecretKey string // secret: environment only
+}
+
 // Config 总配置
 type Config struct {
-	Database   *DatabaseConfig
-	Milvus     *MilvusConfig
-	Neo4j      *Neo4jConfig
-	JWT        *JWTConfig
-	Tenant     *TenantConfig
-	Chat       *ChatConfig
-	Search     *SearchConfig
-	Embedding  *EmbeddingConfig
-	Server     *ServerConfig
-	PythonGrpc *PythonGrpcConfig
-	Redis      *RedisConfig
-	Evaluation *EvaluationConfig // 评测系统配置
-	Skill      *SkillConfig      // Skill 系统配置
-	Upload     *UploadConfig     // 文件上传配置
+	Database      *DatabaseConfig
+	Milvus        *MilvusConfig
+	Neo4j         *Neo4jConfig
+	JWT           *JWTConfig
+	Tenant        *TenantConfig
+	Chat          *ChatConfig
+	Search        *SearchConfig
+	Embedding     *EmbeddingConfig
+	Server        *ServerConfig
+	PythonGrpc    *PythonGrpcConfig
+	Redis         *RedisConfig
+	Evaluation    *EvaluationConfig    // 评测系统配置
+	Skill         *SkillConfig         // Skill 系统配置
+	Upload        *UploadConfig        // 文件上传配置
+	ObjectStorage *ObjectStorageConfig // 对象存储配置
 }
 
 // LoadDatabaseConfig 从环境变量加载数据库配置
@@ -571,23 +596,39 @@ func LoadUploadConfig() *UploadConfig {
 	}
 }
 
+// LoadObjectStorageConfig loads the storage backend selector. Local disk is
+// the default so development does not require a MinIO service or container.
+func LoadObjectStorageConfig() *ObjectStorageConfig {
+	fc := loadFileConfig()
+	return &ObjectStorageConfig{
+		Backend:   getEnv("OBJECT_STORAGE_BACKEND", fc.ObjectStorage.Backend),
+		LocalDir:  getEnv("OBJECT_STORAGE_LOCAL_DIR", fc.ObjectStorage.LocalDir),
+		Endpoint:  getEnv("OBJECT_STORAGE_ENDPOINT", fc.ObjectStorage.Endpoint),
+		Bucket:    getEnv("OBJECT_STORAGE_BUCKET", fc.ObjectStorage.Bucket),
+		UseSSL:    getEnvAsBool("OBJECT_STORAGE_USE_SSL", fc.ObjectStorage.UseSSL),
+		AccessKey: getEnv("OBJECT_STORAGE_ACCESS_KEY", ""),
+		SecretKey: getEnv("OBJECT_STORAGE_SECRET_KEY", ""),
+	}
+}
+
 // LoadConfig 加载完整配置
 func LoadConfig() *Config {
 	return &Config{
-		Database:   LoadDatabaseConfig(),
-		Milvus:     LoadMilvusConfig(),
-		Neo4j:      LoadNeo4jConfig(),
-		JWT:        LoadJWTConfig(),
-		Tenant:     LoadTenantConfig(),
-		Chat:       LoadChatConfig(),
-		Search:     LoadSearchConfig(),
-		Embedding:  LoadEmbeddingConfig(),
-		Server:     LoadServerConfig(),
-		PythonGrpc: LoadPythonGrpcConfig(),
-		Redis:      LoadRedisConfig(),
-		Evaluation: LoadEvaluationConfig(),
-		Skill:      LoadSkillConfig(),
-		Upload:     LoadUploadConfig(),
+		Database:      LoadDatabaseConfig(),
+		Milvus:        LoadMilvusConfig(),
+		Neo4j:         LoadNeo4jConfig(),
+		JWT:           LoadJWTConfig(),
+		Tenant:        LoadTenantConfig(),
+		Chat:          LoadChatConfig(),
+		Search:        LoadSearchConfig(),
+		Embedding:     LoadEmbeddingConfig(),
+		Server:        LoadServerConfig(),
+		PythonGrpc:    LoadPythonGrpcConfig(),
+		Redis:         LoadRedisConfig(),
+		Evaluation:    LoadEvaluationConfig(),
+		Skill:         LoadSkillConfig(),
+		Upload:        LoadUploadConfig(),
+		ObjectStorage: LoadObjectStorageConfig(),
 	}
 }
 

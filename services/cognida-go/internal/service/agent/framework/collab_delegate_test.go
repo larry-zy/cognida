@@ -407,3 +407,42 @@ func TestDelegateTool_EnvelopeContract(t *testing.T) {
 		t.Fatalf("合法信封应放行: out=%q err=%v", out, err)
 	}
 }
+
+// A panic must still produce an attributable failed entry, and a cancelled
+// request must not wait on an uncooperative child or spawn queued children.
+type panickingDelegate struct{ fakeCollabAgent }
+
+func (*panickingDelegate) Chat(context.Context, string) (*Response, error) { panic("test panic") }
+func TestParallelDelegatePanicAndBounds(t *testing.T) {
+	registry := NewCollaborationRegistry()
+	registry.RegisterGoverned("Worker", &panickingDelegate{}, "worker", &AgentGovernance{RiskClass: ScopeRead}, domainagent.ContextModeIsolated)
+	out := runParallel(t, context.Background(), registry, 1, []DelegationEnvelope{*readEnvelope("Worker", "test", ScopeRead)})
+	if out.Failed != 1 || out.Results[0].Status != "failed" || out.Results[0].AgentName != "Worker" || !strings.Contains(out.Results[0].Error, "panic") {
+		t.Fatalf("panic result: %#v", out)
+	}
+	envs := make([]DelegationEnvelope, maxParallelDelegations+1)
+	body, _ := json.Marshal(map[string]any{"delegations": envs})
+	_, err := NewParallelDelegateTool(registry, 1).InvokableRun(context.Background(), string(body))
+	if err == nil {
+		t.Fatal("unbounded fan-out accepted")
+	}
+}
+func TestParallelDelegateCancelledRequestReturnsPromptly(t *testing.T) {
+	worker := &fakeCollabAgent{reply: "ok", delay: 300 * time.Millisecond}
+	registry := newDelegateTestRegistry(worker, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	body, _ := json.Marshal(map[string]any{"delegations": []DelegationEnvelope{*readEnvelope("Worker", "one", ScopeRead), *readEnvelope("Worker", "two", ScopeRead)}})
+	start := time.Now()
+	_, err := NewParallelDelegateTool(registry, 1).InvokableRun(ctx, string(body))
+	if err == nil || time.Since(start) > 200*time.Millisecond {
+		t.Fatalf("cancellation: elapsed %v err=%v", time.Since(start), err)
+	}
+	// Join the deliberately uncooperative fake so the test leaves no work behind.
+	time.Sleep(350 * time.Millisecond)
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+	if len(worker.messages) > 1 {
+		t.Fatalf("queued child executed after cancellation")
+	}
+}

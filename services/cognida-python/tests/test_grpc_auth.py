@@ -175,3 +175,26 @@ def test_tenant_absent_does_not_reject():
 
     assert result == "resp"
     assert seen["tenant"] is None
+
+
+def test_streaming_rpc_keeps_request_and_tenant_context():
+    from core.request_context import RequestIDServerInterceptor, get_request_id
+    from types import SimpleNamespace
+    import grpc
+
+    details = SimpleNamespace(invocation_metadata=[('x-request-id', 'stream-id'), ('x-tenant-id', 'tenant-a')])
+    seen = []
+
+    def stream(request, context):
+        seen.append((get_request_id(), get_tenant_id()))
+        yield 'first'
+        seen.append((get_request_id(), get_tenant_id()))
+        yield 'second'
+
+    base = grpc.unary_stream_rpc_method_handler(stream)
+    tenant = TenantServerInterceptor().intercept_service(lambda _: base, details)
+    handler = RequestIDServerInterceptor().intercept_service(lambda _: tenant, details)
+    assert list(handler.unary_stream(None, None)) == ['first', 'second']
+    assert seen == [('stream-id', 'tenant-a')] * 2
+    assert get_request_id() is None
+    assert get_tenant_id() is None

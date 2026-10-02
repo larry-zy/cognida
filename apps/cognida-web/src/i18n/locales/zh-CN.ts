@@ -116,6 +116,7 @@ export default {
     home: '首页',
     kb: '知识库助手',
     dataAgent: '数据智能体',
+    collection: '网页采集',
     knowledge: '知识库',
     graph: '知识图谱',
     evaluation: 'Agent 测评',

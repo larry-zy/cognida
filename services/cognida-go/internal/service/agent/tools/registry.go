@@ -48,6 +48,7 @@ func NewToolRegistry(deps ToolDeps) (*ToolRegistry, error) {
 		r.registerRAGTools,
 		r.registerSQLTools,
 		r.registerWebTools,
+		r.registerCollectionTools,
 		r.registerKBTools,
 		r.registerDataTools,
 		r.registerSemanticTools,

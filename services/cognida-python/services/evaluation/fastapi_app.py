@@ -69,6 +69,10 @@ def _ensure_registry():
             )
     return registry
 
+from core.http_auth import InternalHTTPAuthMiddleware, validate_http_auth_config
+
+validate_http_auth_config()
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="Evaluation Service",
@@ -89,6 +93,7 @@ app.add_middleware(
 from core.request_context import RequestIDMiddleware  # noqa: E402
 
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(InternalHTTPAuthMiddleware)
 
 
 # ============================================================

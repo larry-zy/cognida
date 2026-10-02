@@ -10,6 +10,13 @@ import (
 	"cognida/internal/service/agent/termgrounding"
 )
 
+func (r *ToolRegistry) registerCollectionTools() error {
+	if r.deps.CollectionService == nil || r.deps.CollectionRepository == nil {
+		return nil
+	}
+	return r.RegisterBatch("collection", NewCollectionTaskTools(r.deps.CollectionService, r.deps.CollectionRepository, r.deps.KnowledgeBaseRepo))
+}
+
 // registerRAGTools 注册 RAG 工具
 func (r *ToolRegistry) registerRAGTools() error {
 	ragTool := NewRAGQueryTool(r.deps.RAGService)

@@ -40,6 +40,7 @@ const getApiBaseURL = () => {
 interface AgentChatRequest {
   query: string
   session_id?: string
+  datasource_id?: string
   /** 结构化下发：限定检索的知识库 ID 列表（空数组=检索全部已启用知识库） */
   kb_ids?: string[]
   /** 结构化下发：是否开启知识图谱增强（关系推理/多跳），false 也会显式发送 */
@@ -76,6 +77,9 @@ async function* streamChat(
   const kbScopeMode = typeof request === 'string' ? undefined : request.kb_scope_mode
 
   const body: AgentChatRequest = { query }
+  if (typeof request !== 'string' && request.datasource_id) {
+    body.datasource_id = request.datasource_id
+  }
   if (sessionId) {
     body.session_id = sessionId
   }
@@ -236,4 +240,3 @@ export const agentApi = {
 }
 
 export default agentApi
-

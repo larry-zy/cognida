@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     # （接受所有调用，保留本地/开发行为，启动时告警一次）。环境变量 GRPC_AUTH_TOKEN。
     grpc_auth_token: str = Field(default="", description="内部 gRPC 共享鉴权密钥")
 
+    internal_http_auth_token: str = Field(
+        default="", description="Internal MCP/evaluation HTTP shared token"
+    )
+
     # Go 服务配置
     go_service_url: str = Field(
         default="http://localhost:8080", description="Go 服务地址"
@@ -132,6 +136,10 @@ class Settings(BaseSettings):
     upload_base_dir: str = Field(default="../../var/uploads", description="共享上传目录")
     allowed_paths: list[str] = Field(
         default=["../../var/uploads"], description="允许访问的文件路径列表"
+    )
+
+    url_allowed_hosts: list[str] = Field(
+        default=[], description="Explicit HTTP/private-network URL hostname exceptions"
     )
 
     # 数据库配置（可选）

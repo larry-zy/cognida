@@ -17,9 +17,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
@@ -31,7 +33,7 @@ import (
 
 // setupConfirmIntegration 连接真实 DB，预置源表与操作工具配置，返回 DB、待确认存储与
 // 已注入工具网关的 handler（经 SetToolGateway，替代包级默认槽位）。
-func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore, *AgentHandler) {
+func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore, *AgentHandler, string) {
 	t.Helper()
 	dsn := os.Getenv("MYSQL_DSN")
 	if dsn == "" {
@@ -43,21 +45,40 @@ func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	if err := db.AutoMigrate(&mysqlrepo.OperationAuditModel{}); err != nil {
-		t.Fatalf("automigrate audit table: %v", err)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get database connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close test connection: %v", err)
+		}
+	})
+	if !db.Migrator().HasTable(&mysqlrepo.OperationAuditModel{}) {
+		t.Fatal("agent_operation_audit is missing; apply versioned migrations before integration tests")
 	}
 
-	source := "it_confirm_src"
-	db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", source))
+	// Recreating a fixed source while retaining its successful audit makes a
+	// later test invocation correctly replay the old idempotent result. Isolate
+	// both data and keys, and remove only this fixture's audit records.
+	source := "it_confirm_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if err := db.Exec(fmt.Sprintf(
 		"CREATE TABLE `%s` (id INT PRIMARY KEY, gmv DOUBLE)", source)).Error; err != nil {
 		t.Fatalf("create source table: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := db.Where("tenant_id = ? AND target = ?", 991, source).Delete(&mysqlrepo.OperationAuditModel{}).Error; err != nil {
+			t.Errorf("clean own audit: %v", err)
+		}
+		if err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", source)).Error; err != nil {
+			t.Errorf("clean own source: %v", err)
+		}
+	})
+
 	if err := db.Exec(fmt.Sprintf(
 		"INSERT INTO `%s` (id, gmv) VALUES (1,100),(2,200),(3,300)", source)).Error; err != nil {
 		t.Fatalf("seed source table: %v", err)
 	}
-	t.Cleanup(func() { db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS `%s`", source)) })
 
 	pending := pendingaction.NewMemoryStore()
 	reg, err := ragtool.NewToolRegistry(ragtool.ToolDeps{
@@ -73,7 +94,7 @@ func setupConfirmIntegration(t *testing.T) (*gorm.DB, *pendingaction.MemoryStore
 	}
 	h := &AgentHandler{}
 	h.SetToolGateway(reg)
-	return db, pending, h
+	return db, pending, h, source
 }
 
 // callConfirmIT 以 gin 测试上下文调用 ConfirmOperation（tenant_id 固定 991）。
@@ -96,15 +117,15 @@ func callConfirmIT(t *testing.T, h *AgentHandler, payload map[string]interface{}
 }
 
 // putConfirmITAction 预置归属 991:sess-cf-it 的待确认写操作。
-func putConfirmITAction(t *testing.T, pending *pendingaction.MemoryStore, key string) *pendingaction.PendingAction {
+func putConfirmITAction(t *testing.T, pending *pendingaction.MemoryStore, source, key string) *pendingaction.PendingAction {
 	t.Helper()
 	action := &pendingaction.PendingAction{
 		Owner: "991:sess-cf-it",
 		Kind:  operations.OpMutate,
-		SQL:   "UPDATE it_confirm_src SET gmv = gmv * 2",
+		SQL:   fmt.Sprintf("UPDATE `%s` SET gmv = gmv * 2", source),
 		Params: map[string]interface{}{
 			"idempotency_key": key,
-			"target":          "it_confirm_src",
+			"target":          source,
 			"rows_affected":   int64(3),
 		},
 	}
@@ -115,10 +136,10 @@ func putConfirmITAction(t *testing.T, pending *pendingaction.MemoryStore, key st
 }
 
 // gmvOf 读取 id=1 行的 gmv。
-func gmvOf(t *testing.T, db *gorm.DB) float64 {
+func gmvOf(t *testing.T, db *gorm.DB, source string) float64 {
 	t.Helper()
 	var gmv float64
-	if err := db.Raw("SELECT gmv FROM it_confirm_src WHERE id = 1").Scan(&gmv).Error; err != nil {
+	if err := db.Raw(fmt.Sprintf("SELECT gmv FROM `%s` WHERE id = 1", source)).Scan(&gmv).Error; err != nil {
 		t.Fatalf("read gmv: %v", err)
 	}
 	return gmv
@@ -126,8 +147,9 @@ func gmvOf(t *testing.T, db *gorm.DB) float64 {
 
 // TestConfirmIntegration_CommitsAndAudits 确认后真实落库 + 审计 success。
 func TestConfirmIntegration_CommitsAndAudits(t *testing.T) {
-	db, pending, h := setupConfirmIntegration(t)
-	action := putConfirmITAction(t, pending, "cf-it-commit-1")
+	db, pending, h, source := setupConfirmIntegration(t)
+	key := uuid.NewString()
+	action := putConfirmITAction(t, pending, source, key)
 
 	w, data := callConfirmIT(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
@@ -137,24 +159,34 @@ func TestConfirmIntegration_CommitsAndAudits(t *testing.T) {
 	if w.Code != http.StatusOK || data["status"] != operations.StatusSuccess {
 		t.Fatalf("确认应成功, code=%d body=%s", w.Code, w.Body.String())
 	}
-	if gmv := gmvOf(t, db); gmv != 200 {
+	if gmv := gmvOf(t, db, source); gmv != 200 {
 		t.Fatalf("确认后应真实落库, gmv=%v", gmv)
 	}
 
 	var audit mysqlrepo.OperationAuditModel
-	if err := db.Where("tenant_id = ? AND idempotency_key = ?", 991, "cf-it-commit-1").
+	if err := db.Where("tenant_id = ? AND idempotency_key = ?", 991, key).
 		Order("id DESC").First(&audit).Error; err != nil {
 		t.Fatalf("load audit: %v", err)
 	}
 	if audit.Status != operations.StatusSuccess {
 		t.Errorf("审计应为 success, got %s", audit.Status)
 	}
+	// A fresh confirmation for the same business idempotency key must replay
+	// the committed result without applying the UPDATE a second time.
+	replay := putConfirmITAction(t, pending, source, key)
+	w, data = callConfirmIT(t, h, map[string]interface{}{"pending_action_id": replay.ID, "token": replay.Token, "session_id": "sess-cf-it"})
+	if w.Code != http.StatusOK || data["status"] != operations.StatusSuccess || data["duplicate"] != true {
+		t.Fatalf("重复确认应命中幂等结果: code=%d body=%s", w.Code, w.Body.String())
+	}
+	if gmv := gmvOf(t, db, source); gmv != 200 {
+		t.Fatalf("重复确认不能重复写库, gmv=%v", gmv)
+	}
 }
 
 // TestConfirmIntegration_TokenMismatchNoWrite token 不匹配 → 403、立即失效、库不被改。
 func TestConfirmIntegration_TokenMismatchNoWrite(t *testing.T) {
-	db, pending, h := setupConfirmIntegration(t)
-	action := putConfirmITAction(t, pending, "cf-it-mismatch-1")
+	db, pending, h, source := setupConfirmIntegration(t)
+	action := putConfirmITAction(t, pending, source, uuid.NewString())
 
 	w, _ := callConfirmIT(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
@@ -164,7 +196,7 @@ func TestConfirmIntegration_TokenMismatchNoWrite(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("token 不匹配期望 403, got %d", w.Code)
 	}
-	if gmv := gmvOf(t, db); gmv != 100 {
+	if gmv := gmvOf(t, db, source); gmv != 100 {
 		t.Fatalf("拒绝后库不应被改, gmv=%v", gmv)
 	}
 
@@ -177,7 +209,7 @@ func TestConfirmIntegration_TokenMismatchNoWrite(t *testing.T) {
 	if w2.Code != http.StatusOK || data2["status"] != "expired" {
 		t.Errorf("失效后应返回 expired, code=%d status=%v", w2.Code, data2["status"])
 	}
-	if gmv := gmvOf(t, db); gmv != 100 {
+	if gmv := gmvOf(t, db, source); gmv != 100 {
 		t.Errorf("失效后库不应被改, gmv=%v", gmv)
 	}
 }

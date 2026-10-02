@@ -195,6 +195,15 @@ func main() {
 		log.Println("✅ 评测 Worker 已启动")
 	}
 
+	if app.CollectionWorker != nil {
+		log.Println("🔧 启动数据收集 Worker...")
+		if err := app.CollectionWorker.Run(); err != nil {
+			log.Printf("❌ 数据收集 Worker 启动失败: %v", err)
+		} else {
+			log.Println("✅ 数据收集 Worker 已启动")
+		}
+	}
+
 	// 启动会话经验自动沉淀 Worker（EXPERIENCE_DISTILL_ENABLED=true 时装配）
 	if experienceWorker != nil {
 		log.Println("🔧 启动会话经验沉淀 Worker...")
@@ -281,6 +290,9 @@ func main() {
 
 	if err := app.Shutdown(ctx); err != nil {
 		log.Printf("❌ 应用关闭失败: %v", err)
+	}
+	if app.CollectionWorker != nil {
+		app.CollectionWorker.Stop()
 	}
 
 	// 停止经验沉淀 Worker（等待在途蒸馏完成）
@@ -419,10 +431,12 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			sessionResults := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
 
 			deps := ragtool.ToolDeps{
-				SQLDB:          db,
-				ResultStore:    rs,
-				SessionResults: sessionResults,
-				UIBinding:      uiBindingStore,
+				SQLDB:                db,
+				CollectionService:    app.CollectionService,
+				CollectionRepository: app.CollectionRepository,
+				ResultStore:          rs,
+				SessionResults:       sessionResults,
+				UIBinding:            uiBindingStore,
 				// 列画像（数据事实）：get_schema 精确取表时惰性附上空值率/基数/枚举分布，
 				// 写通落应用自身 MySQL；缺失时不带事实、零回归。
 				ColumnProfileStore: mysql.NewColumnProfileRepository(db),

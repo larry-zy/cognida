@@ -4,6 +4,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -130,5 +131,18 @@ func TestCORS_WildcardInConfig_Ignored(t *testing.T) {
 
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("通配符配置应被剔除, 不应回写 Allow-Origin, got %q", got)
+	}
+}
+
+func TestCORSCollectionIdempotencyHeader(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://console.example.com")
+	request := httptest.NewRequest(http.MethodOptions, "/collection", nil)
+	request.Header.Set("Origin", "https://console.example.com")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "authorization,content-type,idempotency-key")
+	response := httptest.NewRecorder()
+	newCORSTestRouter().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || !strings.Contains(strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")), "idempotency-key") {
+		t.Fatalf("preflight rejected required header: %d %v", response.Code, response.Header())
 	}
 }

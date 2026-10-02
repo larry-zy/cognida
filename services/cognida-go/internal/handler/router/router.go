@@ -33,6 +33,7 @@ type Router struct {
 	graphHandler         *handler.GraphHandler
 	modelHandler         *handler.ModelHandler
 	taskHandler          *handler.TaskHandler
+	collectionHandler    *handler.CollectionHandler
 	ragOptimizerHandler  *handler.RAGOptimizerHandler
 	guardrailHandler     *handler.GuardrailHandler
 	evaluationHandler    *handler.EvaluationHandler
@@ -65,6 +66,7 @@ func NewRouter(
 	graphHandler *handler.GraphHandler,
 	modelHandler *handler.ModelHandler,
 	taskHandler *handler.TaskHandler,
+	collectionHandler *handler.CollectionHandler,
 	ragOptimizerHandler *handler.RAGOptimizerHandler,
 	guardrailHandler *handler.GuardrailHandler,
 	evaluationHandler *handler.EvaluationHandler,
@@ -101,6 +103,7 @@ func NewRouter(
 		graphHandler:         graphHandler,
 		modelHandler:         modelHandler,
 		taskHandler:          taskHandler,
+		collectionHandler:    collectionHandler,
 		ragOptimizerHandler:  ragOptimizerHandler,
 		guardrailHandler:     guardrailHandler,
 		evaluationHandler:    evaluationHandler,
@@ -175,6 +178,7 @@ func (r *Router) Setup(rateLimiter *middleware.RateLimiter, idempotency *middlew
 		{
 			r.setupKBRoutes(tenant)
 			r.setupGraphRoutes(tenant)
+			r.setupCollectionRoutes(tenant)
 
 			// 知识库搜索（在 tenant 组内，但不需要 kb_id 参数）
 			tenant.POST("/knowledge/search", r.knowledgeBaseHandler.SearchKnowledge)
@@ -186,6 +190,20 @@ func (r *Router) Setup(rateLimiter *middleware.RateLimiter, idempotency *middlew
 
 	// 静态文件服务（生产环境）
 	r.setupWebRoutes()
+}
+
+func (r *Router) setupCollectionRoutes(api *gin.RouterGroup) {
+	if r.collectionHandler == nil {
+		return
+	}
+	collection := api.Group("/collection-tasks")
+	{
+		collection.POST("", r.collectionHandler.Create)
+		collection.GET("", r.collectionHandler.List)
+		collection.GET("/:id", r.collectionHandler.Get)
+		collection.POST("/:id/start", r.collectionHandler.Start)
+		collection.POST("/:id/cancel", r.collectionHandler.Cancel)
+	}
 }
 
 // setupAuthRoutes 设置认证路由

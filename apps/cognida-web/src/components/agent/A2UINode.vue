@@ -417,15 +417,15 @@ const bars = computed(() => {
   const h = 120
   const padX = 12
   const padY = 12
-  const baseY = h - padY
   const n = actual.length
   const slot = (w - padX * 2) / n
   const barW = Math.max(slot * 0.6, 2)
-  const toH = (val: number) => ((val - min) / span) * (h - padY * 2)
+  const toY = (val: number) => padY + ((max - val) / span) * (h - padY * 2)
+  const baseY = toY(0)
 
   const rects = actual.map((v, i) => {
-    const barH = toH(v)
-    return { x: padX + i * slot + (slot - barW) / 2, y: baseY - barH, h: Math.max(barH, 0) }
+    const valueY = toY(v)
+    return { x: padX + i * slot + (slot - barW) / 2, y: Math.min(baseY, valueY), h: Math.abs(baseY - valueY) }
   })
 
   return { w, h, padX, padY, baseY, barW, rects, labels: labels.map((l) => String(l)) }

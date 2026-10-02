@@ -507,7 +507,8 @@ const {
   searchTitleFallback: '新分析',
   deleteConfirmMessage: '确定要删除这条分析记录吗？',
   loadFailMessage: '加载分析记录失败',
-  onAfterSwitch: () => scrollToBottom()
+  onBeforeSwitch: (): void => stopStreaming(),
+  onAfterSwitch: (): void => scrollToBottom()
 })
 
 // ===== 对话发送 / 流式 =====
@@ -517,6 +518,7 @@ const {
   streamingSteps,
   composerFocused,
   sendMessage,
+  stopStreaming,
   onEnterKey,
   adjustTextareaHeight,
   scrollToBottom
@@ -562,7 +564,7 @@ const {
     ui_surfaces: streamingUISurfaces.value.length ? [...streamingUISurfaces.value] : undefined,
     created_at: new Date().toISOString()
   } as DataMessage),
-  onNewSession: () => loadSessions(),
+  onNewSession: (): Promise<void> => loadSessions(),
   onError: (err, ctx) => {
     if (err?.name === 'AbortError') {
       // 主动中断（组件卸载/新一轮发送）：保留已流式产出的部分，避免整块丢失

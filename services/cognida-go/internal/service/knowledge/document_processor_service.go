@@ -27,6 +27,7 @@ import (
 // documentProcessorService 文档处理服务实现
 type documentProcessorService struct {
 	kbRepo                 domain_knowledge.KnowledgeBaseRepository
+	settingRepo            domain_knowledge.KnowledgeBaseSettingRepository
 	knowledgeRepo          domain_knowledge.KnowledgeRepository
 	chunkRepo              domain_knowledge.ChunkRepository
 	graphRepo              domain_knowledge.GraphRepository
@@ -42,6 +43,7 @@ type documentProcessorService struct {
 // NewDocumentProcessorService 创建文档处理服务
 func NewDocumentProcessorService(
 	kbRepo domain_knowledge.KnowledgeBaseRepository,
+	settingRepo domain_knowledge.KnowledgeBaseSettingRepository,
 	knowledgeRepo domain_knowledge.KnowledgeRepository,
 	chunkRepo domain_knowledge.ChunkRepository,
 	vectorRepo domain_knowledge.VectorRepository,
@@ -53,6 +55,7 @@ func NewDocumentProcessorService(
 ) DocumentProcessorService {
 	return &documentProcessorService{
 		kbRepo:        kbRepo,
+		settingRepo:   settingRepo,
 		knowledgeRepo: knowledgeRepo,
 		chunkRepo:     chunkRepo,
 		vectorRepo:    vectorRepo,
@@ -65,13 +68,19 @@ func NewDocumentProcessorService(
 }
 
 // ProcessDocument 处理文档（解析 + 分块 + 存储）
-func (s *documentProcessorService) ProcessDocument(
+func (s *documentProcessorService) processDocument(
 	ctx context.Context,
 	tenantID int64,
 	userID int64,
 	req *ProcessDocumentRequest,
 ) (*ProcessDocumentResponse, error) {
 	startTime := time.Now()
+	if req == nil {
+		return nil, fmt.Errorf("document request is required")
+	}
+	if tenantID <= 0 || userID <= 0 {
+		return nil, fmt.Errorf("authenticated tenant and user are required")
+	}
 
 	log.Printf("[DocumentProcessor] Starting document processing: KnowledgeBaseID=%s, Title=%s", req.KnowledgeBaseID, req.Title)
 
@@ -81,9 +90,21 @@ func (s *documentProcessorService) ProcessDocument(
 	}
 
 	// 2. 获取知识库信息
-	kb, err := s.kbRepo.FindByID(ctx, req.KnowledgeBaseID)
+	kb, err := s.kbRepo.FindByIDForTenant(ctx, req.KnowledgeBaseID, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge base not found: %w", err)
+	}
+	if kb == nil || kb.TenantID != tenantID {
+		return nil, domain_knowledge.ErrKnowledgeBaseNotFound
+	}
+	if req.DocumentID != "" {
+		existing, err := s.knowledgeRepo.FindByID(ctx, req.DocumentID)
+		if err != nil {
+			return nil, err
+		}
+		if existing == nil || existing.TenantID != tenantID || existing.KnowledgeBaseID != req.KnowledgeBaseID {
+			return nil, domain_knowledge.ErrKnowledgeNotFound
+		}
 	}
 
 	// 3. 获取知识库设置（检查是否启用图谱）
@@ -122,6 +143,9 @@ func (s *documentProcessorService) ProcessDocument(
 	} else {
 		// 创建新文档
 		knowledgeID = s.idGenerator.Generate()
+		if req.creationID != "" {
+			knowledgeID = req.creationID
+		}
 		documentType := s.detectDocumentType(metadata)
 
 		// 使用工厂函数创建，确保时间戳正确设置
@@ -132,6 +156,7 @@ func (s *documentProcessorService) ProcessDocument(
 
 		// 设置额外属性
 		knowledge.Source = s.getSource(req)
+		knowledge.FileHash = req.contentHash
 		knowledge.FilePath = req.FilePath
 		knowledge.ParseStatus = domain_knowledge.ParseStatusProcessing
 		// 新入库文档默认启用，可被检索命中；停用是显式管理动作（见 SetKnowledgeEnabled）。
@@ -217,23 +242,22 @@ func (s *documentProcessorService) ProcessDocument(
 	// 更新分块数量
 	chunkCount := len(chunkEntities)
 	if err := s.knowledgeRepo.UpdateChunkCount(ctx, knowledgeID, chunkCount); err != nil {
-		log.Printf("[DocumentProcessor] Warning: failed to update chunk count: %v", err)
+		return nil, fmt.Errorf("persist document chunk count: %w", err)
+	}
+
+	// 更新知识库统计
+	if refresher, ok := s.kbRepo.(interface {
+		RefreshStats(context.Context, string, int64) error
+	}); ok {
+		if err := refresher.RefreshStats(ctx, kb.ID, tenantID); err != nil {
+			return nil, fmt.Errorf("refresh knowledge base statistics: %w", err)
+		}
 	}
 
 	// 更新解析状态
 	if err := s.knowledgeRepo.UpdateParseStatus(ctx, knowledgeID, finalStatus, statusErrMsg); err != nil {
-		log.Printf("[DocumentProcessor] Warning: failed to update parse status: %v", err)
+		return nil, fmt.Errorf("persist document parse status: %w", err)
 	}
-
-	// 更新知识库统计
-	kb.IncrementDocumentCount()
-	kb.AddChunks(chunkCount, int64(len(text)))
-	if err := s.kbRepo.Update(ctx, kb); err != nil {
-		log.Printf("[DocumentProcessor] Warning: failed to update KB stats: %v", err)
-	}
-
-	// 10. 启用分块（可选）
-	// TODO: 根据配置决定是否立即启用
 
 	processTime := time.Since(startTime).Milliseconds()
 
@@ -242,6 +266,7 @@ func (s *documentProcessorService) ProcessDocument(
 
 	return &ProcessDocumentResponse{
 		DocumentID:     knowledgeID,
+		KnowledgeID:    knowledgeID,
 		ChunkCount:     chunkCount,
 		ChunkIDs:       chunkIDs,
 		ParseStatus:    finalStatus,
@@ -268,9 +293,10 @@ func (s *documentProcessorService) validateRequest(req *ProcessDocumentRequest) 
 
 // getKnowledgeBaseSetting 获取知识库设置
 func (s *documentProcessorService) getKnowledgeBaseSetting(ctx context.Context, kbID string) (*domain_knowledge.KnowledgeBaseSetting, error) {
-	// TODO: 实现获取 KB 设置
-	// 目前返回 nil，使用请求参数
-	return nil, nil
+	if s.settingRepo == nil {
+		return nil, nil
+	}
+	return s.settingRepo.FindByKnowledgeBaseID(ctx, kbID)
 }
 
 // parseDocument 解析文档（调用 Python gRPC）
@@ -288,15 +314,16 @@ func (s *documentProcessorService) parseDocument(
 
 	// 设置数据源
 	switch {
+	case len(req.Content) > 0:
+		// URL may be provenance for already fetched and normalized content.
+		// Never re-fetch it and bypass the collection fetcher's network policy.
+		parseReq.Content = req.Content
 	case req.FilePath != "":
 		parseReq.FilePath = req.FilePath
 		log.Printf("[DocumentProcessor] Parsing file: %s", req.FilePath)
 	case req.URL != "":
 		parseReq.URL = req.URL
 		log.Printf("[DocumentProcessor] Parsing URL: %s", req.URL)
-	case len(req.Content) > 0:
-		parseReq.Content = req.Content
-		log.Printf("[DocumentProcessor] Parsing content, length: %d", len(req.Content))
 	}
 
 	// 调用 Python gRPC
@@ -306,6 +333,9 @@ func (s *documentProcessorService) parseDocument(
 		return "", nil, err
 	}
 
+	if resp == nil {
+		return "", nil, fmt.Errorf("document parser returned no response")
+	}
 	if !resp.Success {
 		log.Printf("[DocumentProcessor] ParseDocument failed: %s", resp.Error)
 		return "", nil, fmt.Errorf("parse failed: %s", resp.Error)

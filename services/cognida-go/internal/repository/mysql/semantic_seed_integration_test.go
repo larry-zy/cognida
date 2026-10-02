@@ -1,27 +1,16 @@
 //go:build integration
 // +build integration
 
-// Package mysql: cmd/seed/semantic 冷启动种子的端到端冒烟测试。
-//
-// 验证「跑过 seed-semantic 后」，tenant=1 的两套语义模型（电商销售 / 商品销售）
-// 经指标引擎能稳定生成「治理口径 SQL」且 covered=true —— 即 semantic_query 走主路径
-// 而非回退词法 NL2SQL。这是 P0「让 semantic_query 不再总是回退」的直接回归防线。
-//
-// 前置：先跑 seed（连的是 link 库）：
-//
-//	cd cognida-go && set -a && source .env && set +a && go run ./cmd/seed/semantic
-//
-// 再针对同一 link 库运行：
-//
-//	MYSQL_DSN='root:password@tcp(localhost:3306)/cognida?charset=utf8mb4&parseTime=True&loc=Local' \
-//	  go test -tags=integration ./internal/repository/mysql/ -run TestSeeded -v
-//
-// 未 seed（找不到模型）则 Skip，不误报失败。
+// Package mysql verifies the production seed definitions against a migrated MySQL
+// database. Every test inserts namespaced fixtures and cleans them up; manual
+// seeding and access to an ecommerce database are not prerequisites.
 package mysql
 
 import (
+	semanticseed "cognida/internal/seed/semantic"
 	"context"
-	"errors"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 
@@ -29,21 +18,29 @@ import (
 	"cognida/internal/service/agent/metricsql"
 )
 
-// seedTenantID 与 cmd/seed/semantic 的 seedTenant 一致（dev 用户）。
-const seedTenantID = int64(1)
-
-// getSeeded 读取已 seed 的生效模型；未 seed 则跳过测试。
+// getSeeded persists the same bundles used by cmd/seed/semantic in an isolated namespace.
 func getSeeded(t *testing.T, name string) *semantic.ModelBundle {
 	t.Helper()
-	repo := NewSemanticRepository(newIntegrationDB(t))
-	b, err := repo.GetActiveModel(context.Background(), seedTenantID, name)
-	if err != nil {
-		if errors.Is(err, semantic.ErrModelNotFound) {
-			t.Skipf("语义模型 %q 未 seed，先跑 `go run ./cmd/seed/semantic`", name)
-		}
-		t.Fatalf("GetActiveModel(%q): %v", name, err)
+	db := newIntegrationDB(t)
+	repo := NewSemanticRepository(db)
+	prefix := "it_" + uuid.NewString()[:8] + "_"
+	const tenantID = int64(990017)
+	b := semanticseed.SalesBundle(tenantID, "fixture-source", prefix)
+	if name == "商品销售" {
+		b = semanticseed.ProductBundle(tenantID, "fixture-source", prefix)
 	}
-	return b
+	// Scope the lookup name too, so concurrently running tests cannot select each other's bundle.
+	b.Model.Name = prefix + name
+	t.Cleanup(func() {
+		for _, table := range []string{"agent_semantic_dimensions", "agent_semantic_measures", "agent_semantic_metrics", "agent_semantic_relations", "agent_semantic_logical_tables"} {
+			require.NoError(t, db.Table(table).Where("model_id = ?", b.Model.ID).Delete(map[string]interface{}{}).Error)
+		}
+		require.NoError(t, db.Where("id = ?", b.Model.ID).Delete(&SemanticModelModel{}).Error)
+	})
+	require.NoError(t, repo.UpsertBundle(context.Background(), b))
+	loaded, err := repo.GetActiveModel(context.Background(), tenantID, b.Model.Name)
+	require.NoError(t, err)
+	return loaded
 }
 
 func mustBuild(t *testing.T, b *semantic.ModelBundle, q metricsql.Query) *metricsql.Result {
@@ -109,11 +106,11 @@ func TestSeededProductModel_Coverage(t *testing.T) {
 	assertContains(t, res.SQL,
 		"SUM(order_items.quantity) AS `销量`",
 		"SUM(order_items.subtotal) AS `商品销售额`",
-		"categories.name AS `品类`",
+		"categories.id AS `品类`",
 		"FROM `order_items` order_items",
 		"`products` products ON order_items.product_id = products.id",
 		"`categories` categories ON products.category_id = categories.id",
-		"GROUP BY categories.name",
+		"GROUP BY categories.id",
 	)
 
 	// 均价 by 品牌：复合口径，商品维分组。
@@ -127,11 +124,11 @@ func TestSeededProductModel_Coverage(t *testing.T) {
 // TestSeededModel_UncoveredFallback 未建模的名称应 covered=false，触发词法回退。
 func TestSeededModel_UncoveredFallback(t *testing.T) {
 	b := getSeeded(t, "电商销售")
-	res, err := metricsql.Build(b, metricsql.Query{Metrics: []string{"退货率"}, Dimensions: []string{"城市"}})
+	res, err := metricsql.Build(b, metricsql.Query{Metrics: []string{"未定义业务指标"}, Dimensions: []string{"城市"}})
 	if err != nil {
 		t.Fatalf("metricsql.Build: %v", err)
 	}
 	if res.Coverage.Covered {
-		t.Fatalf("期望未覆盖（退货率未建模），实际 covered=true：%s", res.SQL)
+		t.Fatalf("期望未覆盖（未定义业务指标未建模），实际 covered=true：%s", res.SQL)
 	}
 }

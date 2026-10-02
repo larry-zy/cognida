@@ -55,7 +55,7 @@ func (r *knowledgeRepository) FindByID(ctx context.Context, id string) (*domain_
 		First(&model).Error
 
 	if err == gorm.ErrRecordNotFound {
-		return nil, fmt.Errorf("知识条目不存在")
+		return nil, domain_knowledge.ErrKnowledgeNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("查询知识条目失败: %w", err)

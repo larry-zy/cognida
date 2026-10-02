@@ -60,7 +60,7 @@ class PDFParser(BaseParser):
                     "char_count": len(text),
                 }
                 if hasattr(pdf_reader, "metadata"):
-                    metadata.update({k: str(v) for k, v in pdf_reader.metadata.items()})
+                    metadata.update({k: str(v) for k, v in (pdf_reader.metadata or {}).items()})
 
             # TODO: 实现表格提取
             tables = None

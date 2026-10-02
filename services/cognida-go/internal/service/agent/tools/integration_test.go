@@ -30,8 +30,11 @@ func getTestDB(t *testing.T) *gorm.DB {
 	password := getEnv("DB_PASSWORD", "")
 	dbname := getEnv("DB_NAME", "cognida")
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		user, password, host, port, dbname)
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			user, password, host, port, dbname)
+	}
 
 	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -44,6 +47,7 @@ func getTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to get sql.DB: %v", err)
 	}
 
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("failed to ping mysql: %v", err)
 	}
@@ -136,7 +140,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -167,7 +171,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -183,7 +187,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -214,7 +218,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -230,7 +234,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -246,7 +250,7 @@ func TestSQLExecuteIntegration(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		_, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		_, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err == nil {
 			t.Error("expected error for DELETE SQL, got nil")
 		}
@@ -377,7 +381,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, queryReq, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, queryReq, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}
@@ -405,7 +409,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			MaxRows: 10,
 		}
 
-		result, err := sqlExecute(ctx, req, db, nil, nil, nil)
+		result, err := sqlExecute(ctx, req, db, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("sqlExecute() error = %v", err)
 		}

@@ -29,12 +29,6 @@ const itSemanticTenant = int64(990001)
 func newSemanticIT(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()
 	db := newIntegrationDB(t) // 复用同包 graph_store_integration_test 的 MYSQL_DSN 装配
-	if err := db.AutoMigrate(
-		&SemanticModelModel{}, &SemanticLogicalTableModel{}, &SemanticDimensionModel{},
-		&SemanticMeasureModel{}, &SemanticMetricModel{}, &SemanticRelationModel{},
-	); err != nil {
-		t.Fatalf("automigrate semantic tables: %v", err)
-	}
 	modelID := "it_sales_model"
 	clean := func() {
 		db.Where("model_id = ?", modelID).Delete(&SemanticLogicalTableModel{})

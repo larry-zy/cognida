@@ -71,7 +71,10 @@ class RuleEngine:
         Returns:
             规则配置对象
         """
-        file_path = Path(self.config_dir) / filename
+        root = Path(self.config_dir).resolve()
+        file_path = (root / filename).resolve()
+        if not file_path.is_relative_to(root):
+            raise ValueError("Rule file is outside the configured rules directory")
 
         if not file_path.exists():
             return QualityRules()

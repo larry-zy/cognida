@@ -26,9 +26,6 @@ const itCovTenant = int64(990002)
 func newCoverageIT(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&SemanticCoverageLogModel{}); err != nil {
-		t.Fatalf("automigrate coverage log: %v", err)
-	}
 	clean := func() {
 		db.Where("tenant_id IN ?", []int64{itCovTenant, itCovTenant + 1}).Delete(&SemanticCoverageLogModel{})
 	}

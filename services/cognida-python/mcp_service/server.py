@@ -8,6 +8,7 @@ from aiohttp import web
 from config import get_settings
 from core import get_logger, setup_logging
 from core.request_context import HTTP_HEADER, bind_request_id
+from core.http_auth import authorized_internal_request, validate_http_auth_config
 from tools.bootstrap import register_default_tools
 
 from tools import get_registry
@@ -33,6 +34,7 @@ class LinkPythonMCPServer:
         self._mode = mode
 
         if mode == "http":
+            validate_http_auth_config()
             self._server = None  # HTTP 模式不使用 stdio server
             self._app = web.Application()
             self._setup_http_handlers()
@@ -54,16 +56,20 @@ class LinkPythonMCPServer:
             # 上游未传时 bind_request_id 生成回退 ID。请求结束后清理，避免协程复用串味。
             import structlog
 
+            if not authorized_internal_request(request.headers.get("Authorization")):
+                return web.json_response({"error": "missing or invalid credentials"},
+                                         status=401, headers={"WWW-Authenticate": "Bearer"})
+
             bind_request_id(request.headers.get(HTTP_HEADER))
             try:
                 req_data = await request.json()
 
                 # 验证 JSON-RPC 请求
-                if not isinstance(req_data, dict):
+                if not isinstance(req_data, dict) or req_data.get("jsonrpc") != "2.0" or not isinstance(req_data.get("method"), str):
                     return web.json_response(
                         {
                             "jsonrpc": "2.0",
-                            "id": req_data.get("id"),
+                            "id": None,
                             "error": {"code": -32600, "message": "Invalid Request"},
                         },
                         status=400,
@@ -72,6 +78,13 @@ class LinkPythonMCPServer:
                 method = req_data.get("method")
                 req_id = req_data.get("id")
                 params = req_data.get("params", {})
+
+                if not isinstance(params, dict) or (method == "tools/call" and (
+                    not isinstance(params.get("name"), str)
+                    or not isinstance(params.get("arguments", {}), dict)
+                )):
+                    return web.json_response({"jsonrpc": "2.0", "id": req_id,
+                        "error": {"code": -32602, "message": "Invalid params"}}, status=400)
 
                 self._logger.info("收到 HTTP MCP 请求", method=method, id=req_id)
 
@@ -126,8 +139,8 @@ class LinkPythonMCPServer:
                 return web.json_response(
                     {
                         "jsonrpc": "2.0",
-                        "id": req_data.get("id") if 'req_data' in locals() else None,
-                        "error": {"code": -32603, "message": f"Internal error: {str(e)}"},
+                        "id": req_data.get("id") if isinstance(locals().get("req_data"), dict) else None,
+                        "error": {"code": -32603, "message": "Internal error"},
                     },
                     status=500,
                 )
@@ -336,5 +349,10 @@ async def main() -> None:
     await server.run(host=host, port=port)
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Synchronous entry point for installed console scripts."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli()

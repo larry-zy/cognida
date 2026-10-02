@@ -4,6 +4,7 @@ from typing import Any
 from dataclasses import dataclass
 
 from core import get_logger
+from core.url_access import download_url
 from bs4 import BeautifulSoup
 
 # Playwright 是可选依赖
@@ -53,12 +54,16 @@ class URLFetcher:
 
     async def close(self) -> None:
         """关闭浏览器并释放 Playwright 驱动子进程。"""
-        if self._browser:
-            await self._browser.close()
+        try:
+            if self._browser:
+                await self._browser.close()
+        finally:
             self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                finally:
+                    self._playwright = None
 
     async def fetch(
         self,
@@ -104,34 +109,18 @@ class URLFetcher:
 
     async def _fetch_simple(self, url: str, timeout: int) -> dict[str, Any]:
         """简单HTTP请求获取。"""
-        import httpx
-
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-
-            html = response.text
-            soup = BeautifulSoup(html, "html.parser")
-
-            # 提取文本内容
-            text = self._extract_text(soup)
-
-            # 提取标题
-            title = ""
-            title_tag = soup.find("title")
-            if title_tag:
-                title = title_tag.get_text()
-
-            # 提取链接
-            links = self._extract_links(soup, url)
-
-            return {
-                "text": text,
-                "html": html,
-                "title": title,
-                "links": links,
-                "screenshot": None,
-            }
+        result = await download_url(url, timeout)
+        soup = BeautifulSoup(result.content, "html.parser")
+        title_tag = soup.find("title")
+        title = title_tag.get_text() if title_tag else ""
+        html = result.content.decode(soup.original_encoding or "utf-8", errors="replace")
+        return {
+            "text": self._extract_text(soup),
+            "html": html,
+            "title": title,
+            "links": self._extract_links(soup, result.url),
+            "screenshot": None,
+        }
 
     async def _fetch_with_playwright(
         self,
@@ -142,14 +131,49 @@ class URLFetcher:
         screenshot: bool,
     ) -> dict[str, Any]:
         """使用Playwright获取（支持动态渲染）。"""
+        initial_response = await download_url(url, timeout)
         browser = await self._get_browser()
 
-        async with browser.new_page() as page:
+        context = await browser.new_context(service_workers="block")
+        try:
+            # All browser requests use the same pinned downloader; redirects/subresources
+            # cannot bypass the public-network policy. WebSockets are not supported.
+            async def route_request(route):
+                try:
+                    if route.request.method not in {"GET", "HEAD"}:
+                        await route.abort()
+                        return
+                    response = (initial_response if route.request.url == initial_response.url
+                                else await download_url(route.request.url, timeout))
+                    if response.url != route.request.url:
+                        # Browser redirects bypass Playwright routing after the first hop.
+                        # Only the initial document is pre-resolved; reject redirected
+                        # subresources/popups rather than expose an unguarded connection.
+                        await route.abort()
+                        return
+                    await route.fulfill(status=response.status_code, body=response.content,
+                                        headers={"content-type": response.content_type})
+                except Exception:
+                    await route.abort()
+
+            await context.route("**/*", route_request)
+            if not hasattr(context, "route_web_socket"):
+                raise RuntimeError("Dynamic fetching requires Playwright with WebSocket routing")
+            await context.route_web_socket("**/*", lambda websocket: websocket.close())
+            await context.add_init_script("""
+                Object.defineProperty(globalThis, 'RTCPeerConnection', {
+                    value: undefined, writable: false, configurable: false
+                });
+                Object.defineProperty(globalThis, 'webkitRTCPeerConnection', {
+                    value: undefined, writable: false, configurable: false
+                });
+            """)
+            page = await context.new_page()
             # 设置超时
             page.set_default_timeout(timeout * 1000)
 
             # 导航到URL
-            await page.goto(url, wait_until="domcontentloaded")
+            await page.goto(initial_response.url, wait_until="domcontentloaded")
 
             # 等待JS执行
             if wait_for_javascript:
@@ -161,7 +185,7 @@ class URLFetcher:
             # 提取文本
             text = await page.evaluate(
                 "() => { "
-                "  // 移除script和style标签 "
+                "  /* 移除script和style标签 */ "
                 "  const clone = document.body.cloneNode(true); "
                 "  clone.querySelectorAll('script, style').forEach(el => el.remove()); "
                 "  return clone.innerText || clone.textContent; "
@@ -195,6 +219,9 @@ class URLFetcher:
                 "screenshot": screenshot_bytes,
             }
 
+        finally:
+            await context.close()
+
     def _extract_text(self, soup: BeautifulSoup) -> str:
         """从BeautifulSoup对象提取纯文本。"""
         # 移除script和style标签
@@ -213,17 +240,11 @@ class URLFetcher:
 
     def _extract_links(self, soup: BeautifulSoup, base_url: str) -> list[str]:
         """提取所有链接。"""
-        links = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            # 处理相对链接
-            if href.startswith("/"):
-                from urllib.parse import urlparse
-                parsed = urlparse(base_url)
-                href = f"{parsed.scheme}://{parsed.netloc}{href}"
-            elif not href.startswith("http"):
-                continue
-            links.append(href)
+        from urllib.parse import urljoin, urlsplit
 
-        # 去重
+        links = []
+        for anchor in soup.find_all("a", href=True):
+            href = urljoin(base_url, anchor["href"])
+            if urlsplit(href).scheme in {"http", "https"}:
+                links.append(href)
         return list(dict.fromkeys(links))

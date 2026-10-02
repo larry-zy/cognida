@@ -3,6 +3,7 @@
 
 import pandas as pd
 from grpc import ServicerContext
+from core.file_access import validated_input_path
 
 # 通过 proto 命名空间包导入, 与 grpc_service/servicer.py 及生成代码保持一致
 # (裸 import quality_pb2 需要 proto/ 目录本身在 sys.path 上, 生产/测试均不成立)
@@ -142,7 +143,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
 
             # 加载数据
             if request.file_path:
-                data = self.evaluator.load_data(request.file_path)
+                data = self.evaluator.load_data(validated_input_path(request.file_path))
             elif request.csv_data:
                 data = _read_tabular_bytes(request.csv_data, data_format)
             else:
@@ -219,7 +220,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
 
             # 加载数据
             if request.file_path:
-                data = self.evaluator.load_data(request.file_path)
+                data = self.evaluator.load_data(validated_input_path(request.file_path))
             elif request.csv_data:
                 data = _read_tabular_bytes(request.csv_data, input_format)
             else:
@@ -265,7 +266,7 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
             if request.is_structured:
                 # 处理结构化数据
                 if request.file_path:
-                    data = self.evaluator.load_data(request.file_path)
+                    data = self.evaluator.load_data(validated_input_path(request.file_path))
                 elif request.csv_data:
                     data = _read_tabular_bytes(request.csv_data, input_format)
                 else:
@@ -305,13 +306,13 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
         try:
             # 加载基线数据
             if request.baseline_file:
-                baseline_data = self.evaluator.load_data(request.baseline_file)
+                baseline_data = self.evaluator.load_data(validated_input_path(request.baseline_file))
             else:
                 baseline_data = _read_csv_bytes(request.baseline_data)
 
             # 加载当前数据
             if request.current_file:
-                current_data = self.evaluator.load_data(request.current_file)
+                current_data = self.evaluator.load_data(validated_input_path(request.current_file))
             else:
                 current_data = _read_csv_bytes(request.current_data)
 
@@ -319,11 +320,11 @@ class QualityServicer(quality_pb2_grpc.QualityServiceServicer):
             columns = list(request.columns) if request.columns else None
             threshold = request.threshold if request.threshold > 0 else 0.05
 
-            self.drift_detector.threshold = threshold
-            self.drift_detector.set_baseline(baseline_data, columns)
+            detector = DriftDetector(threshold=threshold)
+            detector.set_baseline(baseline_data, columns)
 
             # 执行检测
-            result = self.drift_detector.detect_drift(current_data, columns)
+            result = detector.detect_drift(current_data, columns)
 
             return quality_pb2.DetectDriftResponse(
                 has_drift=result.has_drift,

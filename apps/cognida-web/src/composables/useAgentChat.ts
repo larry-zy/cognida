@@ -115,6 +115,16 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
   // 当前流式请求的中断控制器（组件卸载或重新发送时 abort）
   let streamAbort: AbortController | null = null
 
+  function stopStreaming() {
+    if (!streamAbort) return
+    streamAbort.abort()
+    streamAbort = null
+    isStreaming.value = false
+    streamingContent.value = ''
+    streamingSteps.value = []
+    options.onSendEnd?.()
+  }
+
   function scrollToBottom() {
     nextTick(() => {
       if (messagesContainer.value) {
@@ -165,14 +175,18 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
     const state: SendState = { assistantContent: '', newSessionId: '' }
 
     streamAbort?.abort()
-    streamAbort = new AbortController()
+    const controller = new AbortController()
+    streamAbort = controller
+    const isCurrent = () => streamAbort === controller && !controller.signal.aborted
 
     const commit = (c: string) => {
+      if (!isCurrent()) return
       messages.value.push(options.buildAssistantMessage(c, { steps: streamingSteps.value }))
     }
 
     try {
-      for await (const event of options.createStream(content, streamAbort.signal)) {
+      for await (const event of options.createStream(content, controller.signal)) {
+        if (!isCurrent()) return
         // 更新 session_id
         if (event.session_id && event.session_id !== currentSessionId.value) {
           state.newSessionId = event.session_id
@@ -205,10 +219,12 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
         scrollToBottom()
       }
 
+      if (!isCurrent()) return
       commit(state.assistantContent || '抱歉，没有收到回复内容，请稍后重试。')
 
       if (state.newSessionId) await options.onNewSession?.()
     } catch (err: any) {
+      if (!isCurrent()) return
       if (options.onError) {
         options.onError(err, {
           state,
@@ -222,17 +238,20 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
         toast.error(err?.message || '发送消息失败')
       }
     } finally {
-      isStreaming.value = false
-      streamingContent.value = ''
-      streamingSteps.value = []
-      options.onSendEnd?.()
-      nextTick(scrollToBottom)
+      if (streamAbort === controller) {
+        streamAbort = null
+        isStreaming.value = false
+        streamingContent.value = ''
+        streamingSteps.value = []
+        options.onSendEnd?.()
+        nextTick(scrollToBottom)
+      }
     }
   }
 
   onUnmounted(() => {
     // 路由离开时中断未完成的 SSE 连接
-    streamAbort?.abort()
+    stopStreaming()
   })
 
   return {
@@ -241,6 +260,7 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
     streamingSteps,
     composerFocused,
     sendMessage,
+    stopStreaming,
     onEnterKey,
     adjustTextareaHeight,
     scrollToBottom

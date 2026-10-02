@@ -55,6 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       if (res.data) {
         const { access_token: accessToken, refresh_token, user: userData, tenant_id } = res.data
+        clearAuth()
         token.value = accessToken
         refreshToken.value = refresh_token
         user.value = userData
@@ -189,10 +190,12 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = ''
     refreshToken.value = ''
     user.value = null
+    tenants.value = []
     currentTenant.value = null
     storage.remove('token')
     storage.remove('refresh_token')
     storage.remove('user')
+    storage.remove('tenants')
     storage.remove('current_tenant')
   }
 

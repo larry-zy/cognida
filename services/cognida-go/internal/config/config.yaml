@@ -104,3 +104,12 @@ skill:
 # 与 Python 侧共享同一目录。可用 UPLOAD_DIR 环境变量按机器覆盖）
 upload:
   upload_dir: ../../var/uploads
+
+# 对象存储：默认本地磁盘，不要求本机启动 MinIO 或任何容器。
+# MinIO 凭据仅走 OBJECT_STORAGE_ACCESS_KEY / OBJECT_STORAGE_SECRET_KEY 环境变量。
+object_storage:
+  backend: local                # local / minio
+  local_dir: ../../var/objects
+  endpoint: localhost:9000
+  bucket: cognida
+  use_ssl: false

@@ -15,6 +15,7 @@ from ..models import (
     UnstructuredQualityReport,
 )
 from ..dimension_names import Dimension
+from .. import cleaning as _cleaning  # noqa: F401; register built-in cleaners on cold start
 from ..registry import CleanerRegistry, EvaluatorRegistry
 from .hooks import HookManager, PipelineContext
 
@@ -69,13 +70,15 @@ class QualityPipeline:
         stage_times["quick_eval"] = (time.time() - stage_start) * 1000
 
         # 决定是否需要清洗
-        quick_threshold = config.get("quick_threshold", 90)
+        quick_threshold = float(config.get("quick_threshold", 90))
         if quick_score < quick_threshold:
             # 清洗
             stage_start = time.time()
             self.hook_manager.execute_before_cleaning(context)
             cleaning_result = self._clean_data(data, config)
-            context.cleaned_data = data  # 实际应使用清洗后的数据
+            if cleaning_result.cleaned_data is not None:
+                data = cleaning_result.cleaned_data
+            context.cleaned_data = data
             self.hook_manager.execute_after_cleaning(context, cleaning_result)
             stage_times["cleaning"] = (time.time() - stage_start) * 1000
         else:

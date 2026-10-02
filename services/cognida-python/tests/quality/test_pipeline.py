@@ -377,3 +377,25 @@ class TestPipelineIntegration:
         # 应该有元数据
         assert result.metadata is not None
         assert isinstance(result.metadata, dict)
+
+
+def test_deep_evaluation_uses_cleaned_frame(monkeypatch):
+    """A repaired record must influence the final score and pipeline hooks."""
+    from services.quality.models import CleaningResult, QualityReport
+
+    pipeline = QualityPipeline()
+    original = pd.DataFrame({'name': [None]})
+    cleaned = pd.DataFrame({'name': ['repaired']})
+    monkeypatch.setattr(pipeline, '_quick_evaluate_structured', lambda *_: 0)
+    monkeypatch.setattr(pipeline, '_clean_data', lambda *_: CleaningResult(
+        original_count=1, cleaned_count=1, removed_count=0, operations=[], cleaned_data=cleaned))
+    seen = []
+
+    def evaluate(frame, config):
+        seen.append(frame)
+        return QualityReport(overall_score=100, dimensions=[], issues=[], record_count=1)
+
+    monkeypatch.setattr(pipeline, '_deep_evaluate_structured', evaluate)
+    result = pipeline.process_structured(original, {'quick_threshold': '90'})
+    assert seen[0] is cleaned
+    assert result.deep_score == 100

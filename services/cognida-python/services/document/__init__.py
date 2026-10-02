@@ -260,13 +260,16 @@ async def fetch_url(
         from .fetcher import URLFetcher
 
         fetcher = URLFetcher()
-        result = await fetcher.fetch(
-            url,
-            timeout=timeout,
-            wait_for_javascript=wait_for_javascript,
-            wait_time=wait_time,
-            screenshot=screenshot,
-        )
+        try:
+            result = await fetcher.fetch(
+                url,
+                timeout=timeout,
+                wait_for_javascript=wait_for_javascript,
+                wait_time=wait_time,
+                screenshot=screenshot,
+            )
+        finally:
+            await fetcher.close()
 
         return {
             "success": True,

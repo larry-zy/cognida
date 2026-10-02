@@ -169,11 +169,11 @@
         <template #processing>
           <div class="form-section">
             <!-- 向量检索状态说明 -->
-            <UiAlert variant="success" class="embedding-status">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" slot="icon">
+            <UiAlert type="success" class="embedding-status">
+              <template #icon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                 <polyline points="22 4 12 14.01 9 11.01"/>
-              </svg>
+              </svg></template>
               <strong>向量检索已启用</strong>
               <p>系统已配置向量化服务（模型：text-embedding-v4），上传的文档将自动进行向量化处理，支持语义检索。</p>
             </UiAlert>

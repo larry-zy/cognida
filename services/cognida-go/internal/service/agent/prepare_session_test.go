@@ -19,6 +19,37 @@ func (r *captureSessionRepo) Create(_ context.Context, s *conversation.Session) 
 	return nil
 }
 
+func (r *captureSessionRepo) FindByID(_ context.Context, _ string) (*conversation.Session, error) {
+	return r.created, nil
+}
+
+func TestPrepareSession_RequiresBothTenantAndUserOwnership(t *testing.T) {
+	repo := &captureSessionRepo{created: &conversation.Session{ID: "private", TenantID: 1, UserID: 2}}
+	svc := NewAgentPersistenceService(repo, nil)
+	for _, tc := range []struct {
+		name         string
+		tenant, user int64
+		allowed      bool
+	}{
+		{"owner", 1, 2, true},
+		{"another user in same tenant", 1, 3, false},
+		{"another tenant", 3, 2, false},
+		{"unauthenticated", 0, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := svc.PrepareSession(context.Background(), &PrepareSessionRequest{SessionID: "private", TenantID: tc.tenant, UserID: tc.user})
+			if (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%v, error=%v", tc.allowed, err)
+			}
+		})
+	}
+	// A repository that returns no row without an error must fail closed.
+	repo.created = nil
+	if _, err := svc.PrepareSession(context.Background(), &PrepareSessionRequest{SessionID: "missing", TenantID: 1, UserID: 2}); err == nil {
+		t.Fatal("missing session accepted")
+	}
+}
+
 // TestPrepareSession_TitleFromQuery 回归：新建会话时 Query 必须透传进标题，
 // 否则所有会话退化为同名 agent 名（本次修复的 bug）。
 func TestPrepareSession_TitleFromQuery(t *testing.T) {

@@ -97,8 +97,8 @@ all = [
 ]
 
 [project.scripts]
-cognida-python-mcp = "mcp_service.server:main"
-cognida-python-grpc = "grpc_service.server:main"
+cognida-python-mcp = "mcp_service.server:cli"
+cognida-python-grpc = "grpc_service.server:cli"
 
 [build-system]
 requires = ["hatchling"]
@@ -112,6 +112,7 @@ packages = [
     "config",
     "mcp_service",
     "grpc_service",
+    "proto",
     "api",
 ]
 

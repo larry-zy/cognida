@@ -37,9 +37,6 @@ func (g *itDSIDGen) Generate() string {
 // TestDataSourceLifecycle 注册→测试连接→探查→密码变更失效重建全链路。
 func TestDataSourceLifecycle(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&DataSourceModel{}); err != nil {
-		t.Fatalf("automigrate data_sources: %v", err)
-	}
 	// 清理上次残留（按测试 ID 前缀）
 	cleanup := func() { db.Where("id LIKE ?", "it_ds_%").Delete(&DataSourceModel{}) }
 	cleanup()

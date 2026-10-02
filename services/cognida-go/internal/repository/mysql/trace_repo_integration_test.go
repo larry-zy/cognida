@@ -47,9 +47,6 @@ func mkSpan(traceID, spanID, parent, name, status string, agent string, tenant i
 
 func TestTraceRepoRoundTripAndAggregation(t *testing.T) {
 	db := newIntegrationDB(t)
-	if err := db.AutoMigrate(&TraceSpanModel{}); err != nil {
-		t.Fatalf("automigrate trace_spans: %v", err)
-	}
 	repo := NewTraceRepository(db)
 	ctx := context.Background()
 

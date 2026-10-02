@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 import grpc
 from core import get_logger
+from core.file_access import validated_input_path
+from core.url_access import download_url
 from services.document import (
     parse_document,
     ocr_image,
@@ -66,16 +68,19 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
         """异步解析文档。"""
         # 确定数据源
         source = None
+        downloaded = None
         if request.file_path:
-            source = request.file_path
+            try:
+                source = validated_input_path(request.file_path)
+            except ValueError as exc:
+                return docreader_pb2.ParseResponse(success=False, error=str(exc))
         elif request.url:
-            fetch_result = await fetch_url(request.url)
-            if not fetch_result["success"]:
-                return docreader_pb2.ParseResponse(
-                    success=False,
-                    error=f"URL获取失败: {fetch_result['error']}"
-                )
-            source = fetch_result["text"].encode("utf-8")
+            try:
+                downloaded = await download_url(request.url)
+                source = downloaded.content
+            except Exception as exc:
+                return docreader_pb2.ParseResponse(success=False, error=f"URL获取失败: {exc}")
+
         elif request.content:
             source = request.content
         else:
@@ -86,7 +91,7 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
 
         # 解析选项
         options = request.options
-        if options:
+        if request.HasField("options"):
             include_metadata = options.include_metadata
             extract_tables = options.extract_tables
             extract_images = options.extract_images
@@ -95,10 +100,23 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
             extract_tables = False
             extract_images = False
 
+        document_format = request.format or ""
+        if downloaded is not None and not document_format:
+            from pathlib import PurePosixPath
+            from urllib.parse import urlsplit
+            document_format = PurePosixPath(urlsplit(downloaded.url).path).suffix.lstrip(".")
+            if "text/html" in downloaded.content_type:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(source, "html.parser")
+                for element in soup(["script", "style"]):
+                    element.decompose()
+                source = soup.get_text("\n", strip=True).encode("utf-8")
+                document_format = "txt"
+
         # 调用解析函数
         result = await parse_document(
             source=source,
-            format=request.format or "",
+            format=document_format,
             include_metadata=include_metadata,
             extract_tables=extract_tables,
             extract_images=extract_images,
@@ -127,12 +145,12 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
         for table in result.get("tables", []):
             table_data = docreader_pb2.TableData(
                 page=table.get("page", 0),
-                table_index=table.get("table_index", 0),
+                table_index=table.get("table_index", table.get("index", 0)),
                 markdown=table.get("markdown", "")
             )
             for row_data in table.get("rows", []):
                 row = docreader_pb2.Row()
-                row.cells.extend(row_data.get("cells", []))
+                row.cells.extend(str(cell) for cell in (row_data.get("cells", []) if isinstance(row_data, dict) else row_data))
                 table_data.rows.append(row)
             response.tables.append(table_data)
 
@@ -140,7 +158,7 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
         for img in result.get("images", []):
             img_info = docreader_pb2.ImageInfo(
                 page=img.get("page", 0),
-                image_index=img.get("image_index", 0),
+                image_index=img.get("image_index", img.get("index", 0)),
                 path=img.get("path", ""),
                 width=img.get("width", 0),
                 height=img.get("height", 0)
@@ -173,14 +191,18 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
         # 确定数据源
         source = None
         if request.file_path:
-            source = request.file_path
+            try:
+                source = validated_input_path(request.file_path)
+            except ValueError as exc:
+                return docreader_pb2.OCRResponse(success=False, error=str(exc))
         elif request.image_data:
             source = request.image_data
         elif request.url:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                response = await client.get(request.url)
-                source = response.content
+            try:
+                downloaded = await download_url(request.url)
+                source = downloaded.content
+            except Exception as exc:
+                return docreader_pb2.OCRResponse(success=False, error=str(exc))
         else:
             return docreader_pb2.OCRResponse(
                 success=False,
@@ -191,7 +213,7 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
 
         # OCR选项
         options = request.options
-        if options:
+        if request.HasField("options"):
             det = options.det
             rec = options.rec
             use_cls = options.use_cls
@@ -258,7 +280,7 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
             return result
         except Exception as e:
             self._logger.error("ChunkDocument 处理失败", error=str(e))
-            raise
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
 
     async def _chunk_document_async(self, request) -> "docreader_pb2.ChunkResponse":
         """异步文档分块。"""
@@ -275,8 +297,8 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
 
         # 分块选项
         options = request.options
-        if options:
-            chunk_size = options.chunk_size
+        if request.HasField("options"):
+            chunk_size = options.chunk_size or 1000
             chunk_overlap = options.chunk_overlap
             separator = options.separator
             min_chunk_size = options.min_chunk_size
@@ -294,6 +316,9 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
             separator=separator,
             min_chunk_size=min_chunk_size,
         )
+
+        if result.get("error"):
+            raise ValueError(result["error"])
 
         # 构建响应
         response = docreader_pb2.ChunkResponse(
@@ -322,7 +347,7 @@ class DocumentReaderServicer(docreader_pb2_grpc.DocumentReaderServiceServicer):
     async def _fetch_url_async(self, request) -> "docreader_pb2.FetchURLResponse":
         """异步获取URL内容。"""
         options = request.options
-        if options:
+        if request.HasField("options"):
             # Use 30 as default if timeout is 0 (protobuf default)
             timeout = options.timeout or 30
             wait_for_javascript = options.wait_for_javascript

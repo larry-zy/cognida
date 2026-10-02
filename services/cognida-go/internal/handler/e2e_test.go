@@ -23,11 +23,11 @@ import (
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
+	"cognida/internal/infrastructure/llm/chat"
+	infraagent "cognida/internal/service/agent/framework"
 	agentinit "cognida/internal/service/agent/initializer"
 	dataagent "cognida/internal/service/agent/presets/data_agent"
 	ragtool "cognida/internal/service/agent/tools"
-	infraagent "cognida/internal/service/agent/framework"
-	"cognida/internal/infrastructure/llm/chat"
 )
 
 // TestStack 测试所需的所有组件
@@ -42,17 +42,22 @@ func setupE2ETest(t *testing.T) *TestStack {
 	loadEnvForTest(t)
 
 	// 2. 连接本地数据库
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		getEnv("DB_USER", "root"),
-		getEnv("DB_PASSWORD", ""),
-		getEnv("DB_HOST", "localhost"),
-		getEnv("DB_PORT", "3306"),
-		getEnv("DB_NAME", "cognida"))
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			getEnv("DB_USER", "root"),
+			getEnv("DB_PASSWORD", ""),
+			getEnv("DB_HOST", "localhost"),
+			getEnv("DB_PORT", "3306"),
+			getEnv("DB_NAME", "cognida"))
+	}
 
 	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err, "连接 MySQL 失败")
 
-	sqlDB, _ := db.DB()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, sqlDB.Ping(), "Ping MySQL 失败")
 
 	// 3. 创建测试表
@@ -246,9 +251,9 @@ func TestE2E_DataAgent_AgentFlow(t *testing.T) {
 		stack.Router.ServeHTTP(w, r)
 
 		// 验证 HTTP 状态
-		assert.Equal(t, http.StatusOK, w.Code)
+		require.Equal(t, http.StatusOK, w.Code, "response: %s", w.Body.String())
 
-		// 解析响应 - OK() 返回 {"success": true, "data": {...}}
+		// 解析统一响应信封：code/message/data。
 		var respWrapper map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &respWrapper)
 		require.NoError(t, err)
@@ -256,10 +261,12 @@ func TestE2E_DataAgent_AgentFlow(t *testing.T) {
 		t.Logf("完整响应: %s", w.Body.String())
 
 		// 验证响应结构
-		assert.Equal(t, float64(0), respWrapper["code"], "请求code应该为0")
+		require.Equal(t, float64(0), respWrapper["code"], "请求code应该为0")
 
-		data := respWrapper["data"].(map[string]interface{})
-		content := data["content"].(string)
+		data, ok := respWrapper["data"].(map[string]interface{})
+		require.True(t, ok, "missing response data: %s", w.Body.String())
+		content, ok := data["content"].(string)
+		require.True(t, ok, "missing response content: %s", w.Body.String())
 
 		// 验证响应内容
 		t.Logf("Agent 响应: %s", content)
@@ -314,13 +321,15 @@ func TestE2E_DataAgent_VariousQueries(t *testing.T) {
 
 			stack.Router.ServeHTTP(w, r)
 
-			assert.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, http.StatusOK, w.Code, "response: %s", w.Body.String())
 
 			var respWrapper map[string]interface{}
-			json.Unmarshal(w.Body.Bytes(), &respWrapper)
-
-			data := respWrapper["data"].(map[string]interface{})
-			content := data["content"].(string)
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &respWrapper))
+			require.Equal(t, float64(0), respWrapper["code"])
+			data, ok := respWrapper["data"].(map[string]interface{})
+			require.True(t, ok, "missing response data: %s", w.Body.String())
+			content, ok := data["content"].(string)
+			require.True(t, ok, "missing response content: %s", w.Body.String())
 
 			t.Logf("问题: %s", tc.question)
 			t.Logf("回答: %s", content)

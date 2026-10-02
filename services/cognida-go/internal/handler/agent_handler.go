@@ -9,11 +9,10 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-
-	"cognida/internal/pkg/safego"
 
 	"cognida/internal/handler/sse"
 	agentctx "cognida/internal/model/agent"
@@ -215,6 +214,21 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkCh
 
 	// 客户端断开（request ctx 取消）即停止消费与下发；上游发送端同样以该 ctx 终止生成。
 	ctx := c.Request.Context()
+	// Complete persistence before exposing done. On disconnect, preserve the partial
+	// answer under a bounded context that keeps request metadata but ignores cancellation.
+	persisted := false
+	var persistErr error
+	persist := func() {
+		if persisted {
+			return
+		}
+		persisted = true
+		persistErr = h.persistStreamResult(ctx, genUI.sessionID, agentStreamResult{Content: sb.String(), ToolCalls: toolCalls, Steps: steps, UISurfaces: uiSurfaces})
+		if persistErr != nil {
+			log.Printf("[AgentStream] persistence failed: %v", persistErr)
+		}
+	}
+	defer persist()
 
 	// emitDone 下发终局 done 标识——正常收尾（收到 Done 标记）与异常收尾（通道未发 Done
 	// 即关闭）共用同一路径，保证「每次问答必有一条 done」。含旧 preset 的 genUI 兜底拼装：
@@ -230,9 +244,11 @@ func (h *AgentHandler) streamAgentChunks(c *gin.Context, sw *sse.Writer, chunkCh
 				sw.Send("ui", spec)
 			}
 		}
+		persist()
 		payload := gin.H{
-			"event":  "done",
-			"answer": sb.String(),
+			"persistence_failed": persistErr != nil,
+			"event":              "done",
+			"answer":             sb.String(),
 			// 回传归属会话 ID：新会话首轮时前端据此绑定 currentSessionId，
 			// 使后续轮次复用同一会话（否则每轮都以空 session_id 新建会话，对话被拆散）。
 			"session_id": genUI.sessionID,
@@ -604,48 +620,7 @@ func (h *AgentHandler) Text2SQLStream(c *gin.Context) {
 	}
 
 	// 发送流式数据并收集内容（结构化 step 契约）；Text2SQL 开启生成式 UI 融合。
-	result := h.streamAgentChunks(c, sw, chunkChan, genUIOption{compose: true, question: req.Query, sessionID: session.ID})
-
-	// 持久化：保存助手消息。
-	// 注意：不能只以 Content 非空为条件——Data Agent 可能只产出画布 UI（surfaces）或工具调用而无文本，
-	// 若据此跳过落库，会话重开时画布将丢失。因此只要有文本/工具调用/UI surface 任一产出即持久化。
-	if h.persistenceService != nil && (result.Content != "" || len(result.UISurfaces) > 0 || len(result.ToolCalls) > 0) {
-		assistantMsgID := fmt.Sprintf("msg-%s", uuid.New().String()[:8])
-		// 捕获需要的变量
-		sessionID := session.ID
-		content := result.Content
-		toolCalls := result.ToolCalls
-		steps := result.Steps
-		uiSurfaces := result.UISurfaces
-		go func() {
-			defer safego.Recover("text2sql-persist")
-			// 使用新的 context，避免请求 context 被取消
-			ctx := context.Background()
-			agentSteps := map[string]interface{}{
-				"session_id": sessionID,
-				"steps":      steps,
-			}
-			// UI 持久化：A2UI 规格（含有界数据快照）随 assistant 消息落 MySQL，
-			// 会话重开从消息记录重现 surface，不依赖 SSE 重放（Phase 3 任务 4.5/4.6）。
-			if len(uiSurfaces) > 0 {
-				agentSteps["ui_surfaces"] = uiSurfaces
-			}
-			saveReq := &agentuc.SaveAssistantMessageRequest{
-				MessageID:  assistantMsgID,
-				SessionID:  sessionID,
-				Content:    content,
-				ToolCalls:  toolCalls,
-				AgentSteps: agentSteps,
-				TokenCount: 0,
-			}
-			log.Printf("[Text2SQLStream] Saving assistant message for session %s", sessionID)
-			if err := h.persistenceService.SaveAssistantMessage(ctx, saveReq); err != nil {
-				log.Printf("[Text2SQLStream] Failed to save assistant message: %v", err)
-			} else {
-				log.Printf("[Text2SQLStream] Successfully saved assistant message")
-			}
-		}()
-	}
+	h.streamAgentChunks(c, sw, chunkChan, genUIOption{compose: true, question: req.Query, sessionID: session.ID})
 }
 
 // ========================================
@@ -997,38 +972,22 @@ func (h *AgentHandler) KnowledgeStream(c *gin.Context) {
 	}
 
 	// 发送流式数据并收集内容（结构化 step 契约）；回传归属会话 ID 供前端绑定新会话。
-	result := h.streamAgentChunks(c, sw, chunkChan, genUIOption{sessionID: req.SessionID})
+	h.streamAgentChunks(c, sw, chunkChan, genUIOption{sessionID: req.SessionID})
+}
 
-	// 持久化：仅保存助手回复（用户消息已在执行前落库，避免重复）。
-	if h.persistenceService != nil && (result.Content != "" || len(result.UISurfaces) > 0 || len(result.ToolCalls) > 0) {
-		assistantMsgID := fmt.Sprintf("msg-%s", uuid.New().String()[:8])
-		sessionID := req.SessionID
-		content := result.Content
-		toolCalls := result.ToolCalls
-		steps := result.Steps
-		uiSurfaces := result.UISurfaces
-		go func() {
-			defer safego.Recover("knowledge-stream-persist")
-			// 使用独立 context，避免 SSE 响应结束后请求 context 被取消导致落库失败
-			ctx := context.Background()
-			agentSteps := map[string]interface{}{
-				"session_id": sessionID,
-				"steps":      steps,
-			}
-			if len(uiSurfaces) > 0 {
-				agentSteps["ui_surfaces"] = uiSurfaces
-			}
-			saveReq := &agentuc.SaveAssistantMessageRequest{
-				MessageID:  assistantMsgID,
-				SessionID:  sessionID,
-				Content:    content,
-				ToolCalls:  toolCalls,
-				AgentSteps: agentSteps,
-				TokenCount: 0,
-			}
-			if err := h.persistenceService.SaveAssistantMessage(ctx, saveReq); err != nil {
-				log.Printf("[KnowledgeStream] Failed to save assistant message: %v", err)
-			}
-		}()
+// persistStreamResult synchronously saves text, tool-only and UI-only responses.
+func (h *AgentHandler) persistStreamResult(ctx context.Context, sessionID string, result agentStreamResult) error {
+	if h.persistenceService == nil || sessionID == "" || (result.Content == "" && len(result.ToolCalls) == 0 && len(result.UISurfaces) == 0) {
+		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	steps := map[string]interface{}{"session_id": sessionID, "steps": result.Steps}
+	if len(result.UISurfaces) > 0 {
+		steps["ui_surfaces"] = result.UISurfaces
+	}
+	return h.persistenceService.SaveAssistantMessage(ctx, &agentuc.SaveAssistantMessageRequest{
+		MessageID: "msg-" + uuid.NewString(), SessionID: sessionID, Content: result.Content,
+		ToolCalls: result.ToolCalls, AgentSteps: steps,
+	})
 }
