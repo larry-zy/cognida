@@ -117,7 +117,7 @@ func (s *Service) profile(ctx context.Context, r d.StageRequest, ref d.DataAsset
 	if e != nil {
 		return d.DataAssetRef{}, d.GateResult{}, e
 	}
-	score, ok := result.Result["overall_score"].(float64)
+	score, ok := number(result.Result["overall_score"])
 	if !ok || score < 0 || score > 100 || math.IsNaN(score) {
 		return d.DataAssetRef{}, d.GateResult{}, fmt.Errorf("quality returned invalid score")
 	}
@@ -193,11 +193,14 @@ func (s *Service) enrich(ctx context.Context, r d.StageRequest) (d.Output, error
 	if e != nil {
 		return d.Output{}, e
 	}
-	var content map[string]any
+	var content map[string]json.RawMessage
 	if e = json.Unmarshal(payload, &content); e != nil {
 		return d.Output{}, e
 	}
-	content["enrichment"] = result
+	content["enrichment"], e = json.Marshal(result)
+	if e != nil {
+		return d.Output{}, e
+	}
 	body, e := json.Marshal(content)
 	if e != nil {
 		return d.Output{}, e
@@ -225,11 +228,14 @@ func (s *Service) publish(ctx context.Context, r d.StageRequest) (d.Output, erro
 	if len(receipt) == 0 {
 		return d.Output{}, fmt.Errorf("publication adapter returned no durable receipt")
 	}
-	var content map[string]any
+	var content map[string]json.RawMessage
 	if e = json.Unmarshal(payload, &content); e != nil {
 		return d.Output{}, e
 	}
-	content["publication"] = receipt
+	content["publication"], e = json.Marshal(receipt)
+	if e != nil {
+		return d.Output{}, e
+	}
 	body, e := json.Marshal(content)
 	if e != nil {
 		return d.Output{}, e
@@ -348,6 +354,9 @@ func (s *Service) evaluate(ctx context.Context, r d.StageRequest) (d.Output, err
 
 func number(value any) (float64, bool) {
 	switch v := value.(type) {
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil && !math.IsNaN(f) && !math.IsInf(f, 0)
 	case float64:
 		return v, true
 	case float32:

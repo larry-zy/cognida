@@ -255,3 +255,38 @@ func TestTaggingReviewKeepsEvidenceAndRequiresAdminCAS(t *testing.T) {
 	require.NoError(t, e)
 	require.Equal(t, "rejected", rejected.Status)
 }
+
+func TestGovernanceInputPreservesExactNumberTokens(t *testing.T) {
+	ref := testAsset("exact", time.Now())
+	assets := &unitAssets{refs: map[string]l.DataAssetRef{ref.AssetRefID: ref}, input: l.Input{Kind: "table", Columns: []string{"id", "amount"}, Rows: [][]any{{int64(9007199254740993), json.Number("0.1234567890123456789")}}}}
+	s := NewService(nil, assets, nil, nil, nil)
+	_, input, err := s.input(context.Background(), l.Principal{TenantID: 1, UserID: 9}, ref.AssetRefID, false)
+	require.NoError(t, err)
+	require.Equal(t, json.Number("9007199254740993"), input.Rows[0][0])
+	require.Equal(t, json.Number("0.1234567890123456789"), input.Rows[0][1])
+}
+func TestSuspensionPreservesPayloadAndClearsDue(t *testing.T) {
+	due := time.Now()
+	record := &d.Record{Meta: d.Meta{ID: "subscription", Version: 1}, Kind: "subscription", Status: "enabled", DueAt: &due, Payload: json.RawMessage(`{"enabled":true,"custom_metadata":{"exact":9007199254740993}}`)}
+	repo := &unitRepo{records: map[string]*d.Record{record.ID: record}}
+	s := NewService(repo, nil, nil, nil, nil)
+	require.ErrorContains(t, s.suspendSubscription(context.Background(), record, "invalid_schedule_configuration"), "suspended")
+	require.Nil(t, record.DueAt)
+	require.Equal(t, "disabled", record.Status)
+	var payload map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(record.Payload, &payload))
+	require.JSONEq(t, `{"exact":9007199254740993}`, string(payload["custom_metadata"]))
+	require.Equal(t, "false", string(payload["enabled"]))
+}
+
+func TestConfidenceSupportsExactComputeNumbers(t *testing.T) {
+	for _, v := range []any{0.7, json.Number("0.7")} {
+		n, ok := confidenceValue(v)
+		require.True(t, ok)
+		require.Equal(t, 0.7, n)
+	}
+	for _, v := range []any{2.0, json.Number("-1"), json.Number("1e999"), "0.7"} {
+		_, ok := confidenceValue(v)
+		require.False(t, ok)
+	}
+}

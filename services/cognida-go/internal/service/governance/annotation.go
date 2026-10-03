@@ -208,6 +208,8 @@ func (s *Service) Preannotate(ctx context.Context, p l.Principal, id string) err
 			item.Annotation.Labels = matches
 			item.Provenance = d.Provenance{Source: "rules", Method: "literal_label_match", Confidence: &confidence, Evidence: evidence}
 			item.ReviewStatus = "pending"
+			item.ReviewedBy = 0
+			item.ReviewComment = ""
 			if err = s.update(ctx, &record, item, "pending", record.Version); err != nil {
 				return err
 			}

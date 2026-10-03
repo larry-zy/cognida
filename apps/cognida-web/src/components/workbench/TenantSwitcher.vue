@@ -74,6 +74,7 @@ async function switchTo(id: number) {
   }
 }
 async function create() {
+  if (busy.value) return;
   busy.value = true;
   error.value = "";
   try {

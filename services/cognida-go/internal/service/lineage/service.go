@@ -92,6 +92,7 @@ func (s *Service) rebuildBundle(ctx context.Context, b *semantic.ModelBundle) (*
 			cursor = page.NextCursor
 		}
 	}
+	activeColumns := map[string]map[string]string{}
 	for _, q := range outputs {
 		result, err := metricsql.Build(b, q)
 		if err != nil {
@@ -112,7 +113,7 @@ func (s *Service) rebuildBundle(ctx context.Context, b *semantic.ModelBundle) (*
 			}
 			tableAsset := ""
 			for _, a := range assets[t.DatabaseID] {
-				if a.TableName == name && (schema == "" || a.Schema == schema) {
+				if !a.Deprecated && a.TableName == name && (schema == "" || a.Schema == schema) {
 					schema = a.Schema
 					tableAsset = a.ID
 					break
@@ -128,10 +129,26 @@ func (s *Service) rebuildBundle(ctx context.Context, b *semantic.ModelBundle) (*
 			edge(physical, logical, "maps_to")
 			edge(logical, output, "input")
 			if dep.Column != "" {
-				assetID, err := s.Catalog.ResolveCoordinate(ctx, b.Model.TenantID, t.DatabaseID, schema, name, dep.Column)
-				if err != nil && err != c.ErrNotFound {
-					return nil, err
+				// Resolve only active columns, loading each table once. Coordinate
+				// lookup intentionally includes tombstones for access control and
+				// must not be used to claim a retired column is still available.
+				if tableAsset != "" {
+					if _, loaded := activeColumns[tableAsset]; !loaded {
+						detail, err := s.Catalog.Get(ctx, b.Model.TenantID, tableAsset)
+						if err != nil {
+							return nil, err
+						}
+						activeColumns[tableAsset] = map[string]string{}
+						if !detail.Deprecated {
+							for _, col := range detail.Columns {
+								if !col.Deprecated {
+									activeColumns[tableAsset][col.Name] = col.ID
+								}
+							}
+						}
+					}
 				}
+				assetID := activeColumns[tableAsset][dep.Column]
 				id := stable("column", t.DatabaseID, schema, name, dep.Column)
 				add(l.Node{ID: id, Kind: "PhysicalColumn", Name: dep.Column, AssetID: assetID, DatasourceID: t.DatabaseID, Schema: schema, Table: name, Column: dep.Column, Unresolved: assetID == ""})
 				edge(physical, id, "contains")

@@ -187,7 +187,7 @@ def table_enrichment_source(table):
 async def enrich(request: EnrichRequest) -> dict:
     if request.input.kind == "table":
         text, spans, columns, truncated = await asyncio.to_thread(
-            table_enrichment_source, request.input
+            limited_cpu, table_enrichment_source, request.input
         )
         derived = EnrichRequest(input={"kind": "text", "text": text}, options=request.options)
         output = await enrich(derived)

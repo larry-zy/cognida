@@ -129,12 +129,12 @@ func (s *Service) runTagging(ctx context.Context, record *d.Record) error {
 		out.Provenance = d.Provenance{Source: "rules", Method: result.Method, Evidence: []string{}}
 		out.ReviewStatus = "pending"
 		if category, ok := result.Result["category"].(map[string]any); ok {
-			if confidence, ok := category["confidence"].(float64); ok {
+			if confidence, ok := confidenceValue(category["confidence"]); ok {
 				out.CategoryConfidence = &confidence
 			}
 		}
 		if tags, ok := result.Result["tags"].(map[string]any); ok {
-			if confidence, ok := tags["confidence"].(float64); ok {
+			if confidence, ok := confidenceValue(tags["confidence"]); ok {
 				out.TagConfidence = map[string]float64{}
 				for _, tag := range out.Tags {
 					out.TagConfidence[tag] = confidence
@@ -153,6 +153,23 @@ func (s *Service) runTagging(ctx context.Context, record *d.Record) error {
 	}
 	task.Status = "completed"
 	return s.update(ctx, record, task, "completed", record.Version)
+}
+
+func confidenceValue(value any) (float64, bool) {
+	var number float64
+	switch v := value.(type) {
+	case float64:
+		number = v
+	case json.Number:
+		var err error
+		number, err = v.Float64()
+		if err != nil {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return number, number >= 0 && number <= 1
 }
 func (s *Service) UpdateTagging(ctx context.Context, p l.Principal, taskID, id string, in d.TaggingResult, expected int) (*d.Record, error) {
 	record, err := s.Get(ctx, p, "tagging_result", id)

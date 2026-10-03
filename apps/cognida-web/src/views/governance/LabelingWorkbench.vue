@@ -10,6 +10,30 @@
     </header>
     <div v-if="error" class="wb-error" role="alert">{{ error }}</div>
     <div v-if="notice" class="wb-success" role="status">{{ notice }}</div>
+    <div
+      v-if="
+        assetOptions.state.hasMore ||
+        assetOptions.state.loading ||
+        assetOptions.state.error
+      "
+      class="wb-actions"
+      aria-live="polite"
+    >
+      <span class="wb-muted">已加载 {{ assets.length }} 个可选资产</span>
+      <button
+        type="button"
+        :disabled="assetOptions.state.loading"
+        @click="run(assetOptions.loadMore)"
+      >
+        {{
+          assetOptions.state.loading
+            ? "正在加载资产…"
+            : assetOptions.state.error
+              ? "重试加载资产"
+              : "加载更多资产"
+        }}
+      </button>
+    </div>
     <div class="wb-tabs">
       <button
         :class="{ selected: mode === 'annotation' }"
@@ -59,7 +83,7 @@
                 <option value="">选择资产</option>
                 <option
                   v-for="asset in assets"
-                  :key="asset.asset_id"
+                  :key="`${asset.asset_id}:${asset.version}`"
                   :value="`${asset.asset_id}:${asset.version}`"
                 >
                   {{ asset.name || asset.asset_id }} · {{ asset.kind }}
@@ -254,7 +278,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { collectPages } from "@/utils/cursorPages";
+import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
 import { computed, onMounted, reactive, ref } from "vue";
@@ -367,7 +391,9 @@ const split = (v: string) =>
       .filter(Boolean),
   confidence = (value: number | null | undefined) =>
     value == null ? "未评估" : `${(value * 100).toFixed(1)}%`;
+let activeOperations = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -376,16 +402,24 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
+let taskListEpoch = 0;
 async function load(append = false) {
-  const res = await api.list<Task>(base.value, append ? next.value : "");
+  const source = base.value,
+    request = ++taskListEpoch;
+  const res = await api.list<Task>(source, append ? next.value : "");
+  if (source !== base.value || request !== taskListEpoch) return;
   tasks.value = append
     ? [...tasks.value, ...(res.data?.items || [])]
     : res.data?.items || [];
   next.value = res.data?.next_cursor || "";
 }
+const assetOptions = useCursorOptions(assets, (cursor) =>
+  lifecycleApi.assets("", cursor),
+);
+
 function newTask() {
   currentID.value = "";
   currentItem.value = undefined;
@@ -399,6 +433,7 @@ async function changeMode(value: string) {
   await run(() => load());
 }
 async function create() {
+  if (busy.value) return;
   await run(async () => {
     const input =
       mode.value === "annotation"
@@ -426,12 +461,18 @@ async function selectTask(task: Task) {
   currentItem.value = undefined;
   await run(() => loadItems());
 }
+let itemsEpoch = 0;
 async function loadItems(append = false) {
+  const id = currentID.value,
+    source = base.value,
+    request = ++itemsEpoch;
   const suffix = mode.value === "annotation" ? "items" : "results";
   const res = await api.list<Item>(
     `${base.value}/${currentID.value}/${suffix}`,
     append ? itemNext.value : "",
   );
+  if (id !== currentID.value || source !== base.value || request !== itemsEpoch)
+    return;
   items.value = append
     ? [...items.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -505,12 +546,14 @@ async function persist() {
   await loadItems();
 }
 async function saveItem() {
+  if (busy.value) return;
   await run(async () => {
     await persist();
     notice.value = "人工修正已保存";
   });
 }
 async function review(decision: string) {
+  if (busy.value) return;
   await run(async () => {
     if (!currentItem.value) return;
     if (mode.value === "annotation") {
@@ -540,6 +583,7 @@ async function review(decision: string) {
   });
 }
 async function preannotate() {
+  if (busy.value) return;
   await run(async () => {
     await api.action(`${base.value}/${currentID.value}/preannotate`);
     await loadItems();
@@ -564,9 +608,7 @@ async function exportData() {
 onMounted(() =>
   run(async () => {
     await load();
-    assets.value = await collectPages((cursor) =>
-      lifecycleApi.assets("", cursor),
-    );
+    await assetOptions.reset();
   }),
 );
 </script>

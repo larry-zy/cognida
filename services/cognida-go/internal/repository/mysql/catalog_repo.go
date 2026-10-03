@@ -267,6 +267,32 @@ func (r *catalogRepository) UpdateGovernance(ctx context.Context, tenant int64, 
 		return tx.Model(&catalogColumnRow{}).Where("id=? AND tenant_id=?", id, tenant).Update("payload", catalogJSON(v)).Error
 	})
 }
+
+// ActiveColumnNames reads only the metadata needed by bounded related-asset
+// ranking. Loading full payloads here would fetch raw samples unnecessarily and
+// turn a single profile card into two SQL queries per candidate table.
+func (r *catalogRepository) ActiveColumnNames(ctx context.Context, tenant int64, ids []string) (map[string][]string, error) {
+	if tenant <= 0 || len(ids) > 100 {
+		return nil, c.ErrInvalid
+	}
+	out := make(map[string][]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct{ TableID, ColumnName string }
+	err := r.db.WithContext(ctx).Table("asset_column AS ac").
+		Select("ac.table_id, ac.column_name").
+		Joins("JOIN asset_table AS t ON t.id=ac.table_id AND t.tenant_id=ac.tenant_id").
+		Where("ac.tenant_id=? AND ac.table_id IN ? AND ac.deprecated=? AND t.deprecated=?", tenant, ids, false, false).
+		Order("ac.table_id, ac.column_name").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.TableID] = append(out[row.TableID], row.ColumnName)
+	}
+	return out, nil
+}
 func (r *catalogRepository) Glossaries(ctx context.Context, tenant int64, f c.Filter) (*c.Page[c.Glossary], error) {
 	q := r.db.WithContext(ctx).Where("tenant_id=?", tenant)
 	if f.Cursor != "" {

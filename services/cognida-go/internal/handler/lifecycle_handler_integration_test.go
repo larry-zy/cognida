@@ -92,6 +92,16 @@ func TestLifecycleHTTPIntegrationTenantIdempotencyAndSSE(t *testing.T) {
 	w = request("GET", path, nil, "", "")
 	require.Equal(t, 200, w.Code)
 	require.Equal(t, "snapshot", decode(w)["content"].(map[string]any)["text"])
+	// Exercise the real JSON binding boundary with a number beyond float64's
+	// exact integer range, then read the stored snapshot through HTTP.
+	w = request("POST", "/lifecycle/assets", map[string]any{"input": d.Input{Kind: "table", Columns: []string{"id"}, Rows: [][]any{{json.Number("9007199254740993")}}}}, "exact-asset", "")
+	require.Equal(t, 201, w.Code, w.Body.String())
+	exactAsset := decode(w)
+	w = request("GET", "/lifecycle/assets/"+exactAsset["asset_id"].(string), nil, "", "")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "9007199254740993")
+	require.NotContains(t, w.Body.String(), "9007199254740992")
+
 	payload := map[string]any{"agent_id": "data-access", "input_refs": refs}
 	require.Equal(t, 400, request("POST", "/lifecycle/invocations", payload, "", "").Code)
 	w = request("POST", "/lifecycle/invocations", payload, "invoke", "")

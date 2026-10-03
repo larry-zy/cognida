@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from config import get_settings
 from fastapi import APIRouter, HTTPException, Request
@@ -27,6 +28,8 @@ from .models import (
 
 router = APIRouter(prefix="/api/v1/lifecycle", tags=["lifecycle-compute"])
 MAX_BODY_BYTES = 20 * 1024 * 1024
+BODY_TIMEOUT_SECONDS = 30
+MAX_ACTIVE_REQUESTS = 8
 
 
 class LifecycleBodyLimitMiddleware:
@@ -34,22 +37,42 @@ class LifecycleBodyLimitMiddleware:
 
     def __init__(self, app):
         self.app = app
+        self.capacity = threading.BoundedSemaphore(MAX_ACTIVE_REQUESTS)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not scope["path"].startswith("/api/v1/lifecycle"):
             return await self.app(scope, receive, send)
+        if not self.capacity.acquire(blocking=False):
+            return await JSONResponse(
+                {"error": {"code": "compute_capacity_busy", "retryable": True}},
+                status_code=503,
+                headers={"Retry-After": "1"},
+            )(scope, receive, send)
+        try:
+            return await self._bounded_request(scope, receive, send)
+        finally:
+            self.capacity.release()
+
+    async def _bounded_request(self, scope, receive, send):
         buffered = bytearray()
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            buffered.extend(message.get("body", b""))
-            if len(buffered) > MAX_BODY_BYTES:
-                return await JSONResponse(
-                    {"error": {"code": "body_too_large", "retryable": False}}, status_code=413
-                )(scope, receive, send)
-            if not message.get("more_body", False):
-                break
+        try:
+            # A total deadline also bounds slow, continually arriving chunks.
+            async with asyncio.timeout(BODY_TIMEOUT_SECONDS):
+                while True:
+                    message = await receive()
+                    if message["type"] == "http.disconnect":
+                        return
+                    buffered.extend(message.get("body", b""))
+                    if len(buffered) > MAX_BODY_BYTES:
+                        return await JSONResponse(
+                            {"error": {"code": "body_too_large", "retryable": False}}, status_code=413
+                        )(scope, receive, send)
+                    if not message.get("more_body", False):
+                        break
+        except TimeoutError:
+            return await JSONResponse(
+                {"error": {"code": "request_body_timeout", "retryable": True}}, status_code=408
+            )(scope, receive, send)
         delivered = False
         disconnected = asyncio.Event()
         scope["lifecycle_disconnected"] = disconnected
@@ -175,6 +198,8 @@ async def capabilities():
             "table_cells": 100000,
             "text_characters": 200000,
             "timeout_seconds": settings.lifecycle_timeout_seconds,
+            "body_timeout_seconds": BODY_TIMEOUT_SECONDS,
+            "active_requests_per_process": MAX_ACTIVE_REQUESTS,
         },
         "ownership": "Go resolves authorized asset references and persists versions; Python computes bounded payloads.",
     }

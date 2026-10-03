@@ -12,6 +12,30 @@
     </header>
     <div v-if="error" role="alert" class="wb-error">{{ error }}</div>
     <div v-if="notice" role="status" class="wb-success">{{ notice }}</div>
+    <div
+      v-if="
+        assetOptions.state.hasMore ||
+        assetOptions.state.loading ||
+        assetOptions.state.error
+      "
+      class="wb-actions"
+      aria-live="polite"
+    >
+      <span class="wb-muted">已加载 {{ assets.length }} 个可选资产</span>
+      <button
+        type="button"
+        :disabled="assetOptions.state.loading"
+        @click="run(assetOptions.loadMore)"
+      >
+        {{
+          assetOptions.state.loading
+            ? "正在加载资产…"
+            : assetOptions.state.error
+              ? "重试加载资产"
+              : "加载更多资产"
+        }}
+      </button>
+    </div>
     <div class="wb-grid">
       <aside class="wb-panel">
         <div class="wb-list">
@@ -48,10 +72,22 @@
             ><label
               >{{ wt("来源资产")
               }}<select v-model="form.source_ref_id" required>
+                <option
+                  v-if="
+                    form.source_ref_id &&
+                    !assets.some(
+                      (a) =>
+                        `${a.asset_id}:${a.version}` === form.source_ref_id,
+                    )
+                  "
+                  :value="form.source_ref_id"
+                >
+                  当前引用 · {{ form.source_ref_id }}
+                </option>
                 <option value="">请选择</option>
                 <option
                   v-for="asset in assets"
-                  :key="asset.asset_id"
+                  :key="`${asset.asset_id}:${asset.version}`"
                   :value="`${asset.asset_id}:${asset.version}`"
                 >
                   {{ asset.name || asset.asset_id }}
@@ -109,6 +145,18 @@
           </div>
         </form>
         <section v-if="form.id" class="wb-panel">
+          <button
+            v-if="versionOptions.state.hasMore || versionOptions.state.error"
+            type="button"
+            :disabled="versionOptions.state.loading"
+            @click="run(versionOptions.loadMore)"
+          >
+            {{
+              versionOptions.state.error
+                ? "重试加载历史版本"
+                : "加载更多历史版本"
+            }}
+          </button>
           <h2>{{ wt("实体特征值") }}</h2>
           <button :disabled="busy" @click="compute">
             {{ wt("从来源资产计算所选版本") }}
@@ -187,7 +235,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { collectPages } from "@/utils/cursorPages";
+import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
 import { computed, onMounted, reactive, ref } from "vue";
@@ -225,13 +273,22 @@ const form = reactive(empty()),
   asOf = ref(""),
   values = ref<FeatureValue[]>([]),
   queried = ref(false);
+const versionOptions = useCursorOptions(versions, (cursor) =>
+  api.list<Feature>(`/features/${form.id}/versions`, cursor),
+);
+const assetOptions = useCursorOptions(assets, (cursor) =>
+  lifecycleApi.assets("", cursor),
+);
+
 function localTime() {
   const date = new Date();
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16);
 }
+let activeOperations = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -240,7 +297,7 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
 async function load(append = false) {
@@ -257,9 +314,7 @@ function newFeature() {
   queried.value = false;
 }
 async function loadVersions() {
-  versions.value = await collectPages((cursor) =>
-    api.list<Feature>(`/features/${form.id}/versions`, cursor),
-  );
+  await versionOptions.reset();
 }
 async function select(item: Feature) {
   Object.assign(form, JSON.parse(JSON.stringify(item)));
@@ -269,6 +324,7 @@ async function select(item: Feature) {
   await run(loadVersions);
 }
 async function save() {
+  if (busy.value) return;
   await run(async () => {
     const res = await api.create<Feature>(
       form.id ? `/features/${form.id}/versions` : "/features",
@@ -311,6 +367,7 @@ function parsedValue() {
   return value.value;
 }
 async function writeValue() {
+  if (busy.value) return;
   await run(async () => {
     await api.create("/feature-values", {
       values: [
@@ -328,6 +385,7 @@ async function writeValue() {
   });
 }
 async function compute() {
+  if (busy.value) return;
   await run(async () => {
     const response = await api.action<{ count: number }>(
       `/features/${form.id}/compute`,
@@ -356,9 +414,7 @@ async function query() {
 onMounted(() =>
   run(async () => {
     await load();
-    assets.value = await collectPages((cursor) =>
-      lifecycleApi.assets("", cursor),
-    );
+    await assetOptions.reset();
   }),
 );
 </script>

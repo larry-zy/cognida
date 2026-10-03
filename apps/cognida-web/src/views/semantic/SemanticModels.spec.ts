@@ -102,4 +102,94 @@ describe("semantic modeling console", () => {
     ).toBe("Unsaved");
     wrapper.unmount();
   });
+  it("does not replace a new draft with a late model detail response", async () => {
+    api.list.mockResolvedValue({
+      data: { items: [{ id: "old", name: "Old model", status: "draft" }] },
+    });
+    let finish!: (v: unknown) => void;
+    api.get.mockImplementation(
+      () =>
+        new Promise((r) => {
+          finish = r;
+        }),
+    );
+    const wrapper = mount(SemanticModels);
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Old model"))!
+      .trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("新建模型"))!
+      .trigger("click");
+    finish({
+      data: {
+        model: { id: "old", name: "Old model", status: "draft" },
+        logical_tables: [],
+        dimensions: [],
+        measures: [],
+        metrics: [],
+        relations: [],
+      },
+    });
+    await flushPromises();
+    expect(
+      (
+        wrapper.get('input[placeholder="例如：订单销售"]')
+          .element as HTMLInputElement
+      ).value,
+    ).toBe("");
+    wrapper.unmount();
+  });
+  it("publishes the original model when selection changes during save", async () => {
+    const bundle = (id: string) => ({
+      model: { id, name: id, status: "draft", version: 1 },
+      logical_tables: [],
+      dimensions: [],
+      measures: [],
+      metrics: [],
+      relations: [],
+    });
+    api.list.mockResolvedValue({
+      data: { items: [bundle("first").model, bundle("second").model] },
+    });
+    api.get.mockImplementation((id: string) =>
+      Promise.resolve({ data: bundle(id) }),
+    );
+    let finish!: (v: unknown) => void;
+    api.save.mockImplementation(
+      () =>
+        new Promise((r) => {
+          finish = r;
+        }),
+    );
+    api.transition.mockResolvedValue({ data: bundle("first") });
+    const wrapper = mount(SemanticModels);
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("first"))!
+      .trigger("click");
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text() === "保存并发布")!
+      .trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("second"))!
+      .trigger("click");
+    await flushPromises();
+    finish({ data: bundle("first") });
+    await flushPromises();
+    expect(api.transition).toHaveBeenCalledWith("first", "publish");
+    expect(
+      (
+        wrapper.get('input[placeholder="例如：订单销售"]')
+          .element as HTMLInputElement
+      ).value,
+    ).toBe("second");
+    wrapper.unmount();
+  });
 });

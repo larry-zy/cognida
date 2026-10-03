@@ -1,177 +1,221 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
-import { ElMessage } from '@/utils/element'
-import { useAuthStore } from '@/stores/auth'
+import axios, {
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
+  AxiosError,
+} from "axios";
+import { ElMessage } from "@/utils/element";
+import { useAuthStore } from "@/stores/auth";
 
 // 响应数据接口
 export interface ApiResponse<T = any> {
-  code: number
-  message: string
-  data?: T
-  error?: string
+  code: number;
+  message: string;
+  data?: T;
+  error?: string;
 }
 
 // 获取 API 基础 URL
 const getBaseURL = () => {
   // 开发环境：使用 Vite proxy（通过相对路径访问）
   if (import.meta.env.DEV) {
-    return '/api/v1'
+    return "/api/v1";
   }
   // 生产环境：使用相对路径（Go 静态文件服务）
-  return '/api/v1'
-}
+  return "/api/v1";
+};
 
 // 创建axios实例
 const service: AxiosInstance = axios.create({
   baseURL: getBaseURL(),
   timeout: 60000,
   headers: {
-    'Content-Type': 'application/json'
-  }
-})
+    "Content-Type": "application/json",
+  },
+});
 
 // 认证失效统一处理（一次性）：并发 401 下多个等待者共享同一次 refresh 失败后，
 // 只弹一次「登录已过期」、只跳一次登录页；成功登录后由 stores/auth 调 resetAuthFailure() 复位。
-let authFailureHandled = false
+let authFailureHandled = false;
 
 export function resetAuthFailure() {
-  authFailureHandled = false
+  authFailureHandled = false;
 }
 
 export function handleAuthFailure() {
-  const authStore = useAuthStore()
-  authStore.clearAuth()
-  if (authFailureHandled) return
-  authFailureHandled = true
-  ElMessage.error('登录已过期，请重新登录')
-  if (!window.location.pathname.startsWith('/login')) {
-    window.location.href = '/login'
+  const authStore = useAuthStore();
+  authStore.clearAuth();
+  if (authFailureHandled) return;
+  authFailureHandled = true;
+  ElMessage.error("登录已过期，请重新登录");
+  if (!window.location.pathname.startsWith("/login")) {
+    window.location.href = "/login";
   }
 }
+
+type ScopedConfig = AxiosRequestConfig & { _authScope?: string };
+const authScope = () => {
+  const auth = useAuthStore();
+  return JSON.stringify([
+    auth.authEpoch,
+    auth.user?.id,
+    auth.currentTenant?.id,
+  ]);
+};
+const obsolete = (config?: ScopedConfig) =>
+  config?._authScope !== undefined && config._authScope !== authScope();
 
 // 请求拦截器
 service.interceptors.request.use(
   (config) => {
-    const authStore = useAuthStore()
+    const authStore = useAuthStore();
+    (config as ScopedConfig)._authScope = authScope();
     // 添加Token到请求头
     if (authStore.token) {
-      config.headers.Authorization = `Bearer ${authStore.token}`
+      config.headers.Authorization = `Bearer ${authStore.token}`;
     }
     // 添加租户ID（如果有）
     if (authStore.currentTenant) {
-      config.headers['X-Tenant-ID'] = authStore.currentTenant.id
+      config.headers["X-Tenant-ID"] = authStore.currentTenant.id;
     }
-    return config
+    return config;
   },
   (error) => {
-    console.error('Request error:', error)
-    return Promise.reject(error)
-  }
-)
+    console.error("Request error:", error);
+    return Promise.reject(error);
+  },
+);
 
 // 响应拦截器
 service.interceptors.response.use(
   (response: AxiosResponse): any => {
-    const res = response.data as ApiResponse
+    if (obsolete(response.config))
+      throw new axios.CanceledError("登录身份已改变，已忽略旧请求结果");
+    const res = response.data as ApiResponse;
 
     // 如果存在code字段且不为0，表示有错误
     if (res.code !== undefined && res.code !== 0) {
-      const errorMsg = res.message || '请求失败'
-      ElMessage.error(errorMsg)
-      return Promise.reject(new Error(errorMsg))
+      const errorMsg = res.message || "请求失败";
+      ElMessage.error(errorMsg);
+      return Promise.reject(new Error(errorMsg));
     }
 
     // 成功响应，直接返回（message 可能是 "success" 等提示信息）
-    return res
+    return res;
   },
   async (error: AxiosError) => {
-    const authStore = useAuthStore()
+    if (axios.isCancel(error) || obsolete(error.config))
+      return Promise.reject(error);
+    const authStore = useAuthStore();
     // A response sent under a previous identity must not retry as the new tenant.
-    const sentAuthorization = error.config?.headers?.Authorization
-    if (sentAuthorization && sentAuthorization !== `Bearer ${authStore.token}`) return Promise.reject(error)
+    const sentAuthorization = error.config?.headers?.Authorization;
+    if (sentAuthorization && sentAuthorization !== `Bearer ${authStore.token}`)
+      return Promise.reject(error);
 
     // 处理401未授权错误：先 refresh 重放一次（store 内单飞），
     // 不再无条件 logout；refresh 自身 401 或重放仍 401 才清理并跳登录
     if (error.response?.status === 401) {
-      const cfg = error.config as (AxiosRequestConfig & { _retried?: boolean }) | undefined
+      const cfg = error.config as
+        (AxiosRequestConfig & { _retried?: boolean }) | undefined;
 
       const failAuth = () => {
-        handleAuthFailure()
-        return Promise.reject(error)
-      }
+        handleAuthFailure();
+        return Promise.reject(error);
+      };
 
       // refresh 接口自身 401，或已重放过一次：登录态确实失效
-      if (!cfg || cfg.url?.includes('/auth/refresh') || cfg._retried) {
-        return failAuth()
+      if (!cfg || cfg.url?.includes("/auth/refresh") || cfg._retried) {
+        return failAuth();
       }
 
-      const previousTenant = authStore.currentTenant?.id
-      const refreshed = await authStore.refreshAccessToken()
-      if (previousTenant !== authStore.currentTenant?.id) return Promise.reject(error)
+      const previousTenant = authStore.currentTenant?.id;
+      const refreshed = await authStore.refreshAccessToken();
+      if (obsolete(cfg) || previousTenant !== authStore.currentTenant?.id)
+        return Promise.reject(error);
       if (!refreshed) {
-        return failAuth()
+        return failAuth();
       }
 
       // 重放原请求（新 token 由请求拦截器注入）
-      cfg._retried = true
-      return service(cfg)
+      cfg._retried = true;
+      return service(cfg);
     }
 
     // 处理403禁止访问错误
     if (error.response?.status === 403) {
-      ElMessage.error('没有权限访问')
-      return Promise.reject(error)
+      ElMessage.error("没有权限访问");
+      return Promise.reject(error);
     }
 
     // 处理404错误
     if (error.response?.status === 404) {
-      const payload = error.response.data as { message?: string } | undefined
-      ElMessage.error(payload?.message || '请求的资源不存在')
-      return Promise.reject(error)
+      const payload = error.response.data as { message?: string } | undefined;
+      ElMessage.error(payload?.message || "请求的资源不存在");
+      return Promise.reject(error);
     }
 
     // 处理500错误
     if (error.response?.status === 500) {
-      ElMessage.error('服务器错误')
-      return Promise.reject(error)
+      ElMessage.error("服务器错误");
+      return Promise.reject(error);
     }
 
     // 处理网络错误
     if (!error.response) {
-      ElMessage.error('网络错误，请检查网络连接')
-      return Promise.reject(error)
+      ElMessage.error("网络错误，请检查网络连接");
+      return Promise.reject(error);
     }
 
     // 其他错误（如 400/422 业务校验）：优先把后端返回的 message 透传到 error.message，
     // 便于调用方（useAsyncTask 等）直接展示可读原因，而非笼统的 "status code 400"。
-    const backendMsg = (error.response?.data as ApiResponse | undefined)?.message
+    const backendMsg = (error.response?.data as ApiResponse | undefined)
+      ?.message;
     if (backendMsg) {
-      error.message = backendMsg
+      error.message = backendMsg;
     }
-    return Promise.reject(error)
-  }
-)
+    return Promise.reject(error);
+  },
+);
 
 // 封装请求方法
 export const http = {
-  get<T = any>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
-    return service.get(url, config)
+  get<T = any>(
+    url: string,
+    config?: AxiosRequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return service.get(url, config);
   },
 
-  post<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
-    return service.post(url, data, config)
+  post<T = any>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return service.post(url, data, config);
   },
 
-  put<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
-    return service.put(url, data, config)
+  put<T = any>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return service.put(url, data, config);
   },
 
-  delete<T = any>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
-    return service.delete(url, config)
+  delete<T = any>(
+    url: string,
+    config?: AxiosRequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return service.delete(url, config);
   },
 
-  patch<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
-    return service.patch(url, data, config)
-  }
-}
+  patch<T = any>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig,
+  ): Promise<ApiResponse<T>> {
+    return service.patch(url, data, config);
+  },
+};
 
-export default service
+export default service;

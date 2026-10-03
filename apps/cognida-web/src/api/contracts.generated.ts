@@ -208,6 +208,7 @@ export interface GovernanceSubscription {
   watch: GovernanceWatch | null;
   channel: string;
   next_run_at: string | null;
+  schedule_error?: string;
 }
 
 export interface GovernanceSubscriptionRun {

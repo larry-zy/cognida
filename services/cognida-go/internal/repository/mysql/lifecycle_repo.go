@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	d "cognida/internal/model/lifecycle"
@@ -86,6 +87,20 @@ func (r *LifecycleRepository) SaveDefinition(ctx context.Context, definition d.P
 		return d.ErrConflict
 	}
 	return nil
+}
+func (r *LifecycleRepository) FindDefinition(ctx context.Context, id string, version int) (d.PipelineDefinition, error) {
+	var row struct{ Body []byte }
+	if err := r.dbctx(ctx).Table("lifecycle_definitions").Where("id=? AND version=?", id, version).Take(&row).Error; err != nil {
+		return d.PipelineDefinition{}, lifecycleErr(err)
+	}
+	var definition d.PipelineDefinition
+	if err := json.Unmarshal(row.Body, &definition); err != nil {
+		return definition, fmt.Errorf("%w: invalid persisted pipeline definition", d.ErrInvalid)
+	}
+	if definition.ID != id || definition.Version != version {
+		return definition, d.ErrConflict
+	}
+	return definition, nil
 }
 func runRow(run *d.PipelineRun) (lifecycleRecord, error) {
 	body, err := encodeBody(run)
@@ -217,6 +232,15 @@ func stagesFromRows(rows []lifecycleRecord, err error) ([]d.StageRun, error) {
 func (r *LifecycleRepository) ListStages(ctx context.Context, tenant int64, runID string) ([]d.StageRun, error) {
 	var rows []lifecycleRecord
 	err := r.dbctx(ctx).Table("lifecycle_stages").Where("tenant_id = ? AND run_id = ?", tenant, runID).Order("created_at ASC,id ASC").Find(&rows).Error
+	return stagesFromRows(rows, err)
+}
+
+// Run controllers lock all stages in a stable order before inspecting them.
+// This is a current read in InnoDB, so a concurrent stage update cannot be
+// overwritten using an earlier repeatable-read snapshot.
+func (r *LifecycleRepository) LockStages(ctx context.Context, tenant int64, runID string) ([]d.StageRun, error) {
+	var rows []lifecycleRecord
+	err := r.dbctx(ctx).Table("lifecycle_stages").Where("tenant_id=? AND run_id=?", tenant, runID).Order("id ASC").Clauses(clause.Locking{Strength: "UPDATE"}).Find(&rows).Error
 	return stagesFromRows(rows, err)
 }
 func (r *LifecycleRepository) ListInvocations(ctx context.Context, tenant int64, n int) ([]d.StageRun, error) {

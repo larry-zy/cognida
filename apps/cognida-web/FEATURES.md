@@ -38,3 +38,9 @@ Settings already supplies a persisted Chinese/English locale. New navigation, ke
 Frontend unit coverage includes identity refresh/switch races, cache isolation, streaming lifecycle, idempotent retries, semantic form submission, lifecycle result envelopes, suggestion discovery/review, versioned governance references, chart keyboard/mouse drill-down and reactive localization.
 
 The 2026-10 review used only the dedicated `cognida_review_20261003` database. Actual HTTP and browser checks covered semantic draft/publication, workspace switching/isolation, catalog sync/search/governance/glossary, annotation approval and feature computation/readback. Service startup and shutdown remain the responsibility of the test owner; never reuse production credentials or run background workers against a mixed fixture database.
+
+## Reliability refinements
+
+Asset and feature-version selectors fetch one cursor page at a time, with an explicit load-more action. Existing saved references remain selectable even when their page is not loaded. Changing the source or leaving the page invalidates stale option responses; repeated load-more clicks share one request.
+
+Requests carry an in-memory identity generation. A response from a previous login or workspace cannot update the new session, while normal token refresh keeps valid in-flight responses usable. Refresh requests are shared only within one identity. Execution detail updates are coalesced and apply only to the selected run; SSE reconnects on transient disconnects and is closed on terminal state, token replacement, or unmount. Publishing a semantic model keeps the target selected at submission time even if another model is opened before the save finishes.

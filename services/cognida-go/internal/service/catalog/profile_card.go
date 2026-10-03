@@ -56,17 +56,23 @@ func (s *Service) ProfileCard(ctx context.Context, tenant int64, id string) (*Pr
 		fields int
 	}
 	matches := []match{}
+	ids := make([]string, 0, len(page.Items))
+	for _, candidate := range page.Items {
+		if candidate.ID != id && !candidate.Deprecated {
+			ids = append(ids, candidate.ID)
+		}
+	}
+	columns, e := s.Repo.ActiveColumnNames(ctx, tenant, ids)
+	if e != nil {
+		return nil, e
+	}
 	for _, candidate := range page.Items {
 		if candidate.ID == id || candidate.Deprecated {
 			continue
 		}
-		detail, e := s.Get(ctx, tenant, candidate.ID)
-		if e != nil {
-			return nil, e
-		}
 		count := 0
-		for _, col := range detail.Columns {
-			if !col.Deprecated && names[strings.ToLower(col.Name)] {
+		for _, name := range columns[candidate.ID] {
+			if names[strings.ToLower(name)] {
 				count++
 			}
 		}

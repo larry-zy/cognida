@@ -2,6 +2,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -335,6 +336,19 @@ type Input struct {
 	Rows    [][]any  `json:"rows,omitempty"`
 }
 
+// UnmarshalJSON preserves table numbers through HTTP input and persisted snapshots.
+func (i *Input) UnmarshalJSON(raw []byte) error {
+	type plain Input
+	var value plain
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	*i = Input(value)
+	return nil
+}
+
 func (i Input) Validate() error {
 	switch i.Kind {
 	case "text":
@@ -359,6 +373,11 @@ func (i Input) Validate() error {
 			for _, cell := range r {
 				switch v := cell.(type) {
 				case nil, bool, int, int64, int32, uint, uint64, uint32:
+				case json.Number:
+					number, e := v.Float64()
+					if len(v) > 128 || !json.Valid([]byte(v)) || e != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+						return ErrInvalid
+					}
 				case float64:
 					if math.IsNaN(v) || math.IsInf(v, 0) {
 						return ErrInvalid
@@ -398,6 +417,7 @@ type Adapter interface {
 type Repository interface {
 	Transaction(context.Context, func(Repository) error) error
 	SaveDefinition(context.Context, PipelineDefinition) error
+	FindDefinition(context.Context, string, int) (PipelineDefinition, error)
 	RecoverableRuns(context.Context, int) ([]PipelineRun, error)
 	ExpiredApprovals(context.Context, time.Time, int) ([]Approval, error)
 	ListAssets(context.Context, int64, Kind, string, int) ([]DataAssetRef, error)
@@ -414,6 +434,8 @@ type Repository interface {
 	FindStage(context.Context, int64, string, bool) (*StageRun, error)
 	FindStageByKey(context.Context, int64, string) (*StageRun, error)
 	ListStages(context.Context, int64, string) ([]StageRun, error)
+	// LockStages must be used inside a transaction after locking its parent run.
+	LockStages(context.Context, int64, string) ([]StageRun, error)
 	ListInvocations(context.Context, int64, int) ([]StageRun, error)
 	PendingStages(context.Context, int) ([]StageRun, error)
 	UpdateStage(context.Context, *StageRun) error

@@ -18,6 +18,30 @@
     </header>
     <div v-if="error" role="alert" class="wb-error">{{ error }}</div>
     <div v-if="notice" role="status" class="wb-success">{{ notice }}</div>
+    <div
+      v-if="
+        assetOptions.state.hasMore ||
+        assetOptions.state.loading ||
+        assetOptions.state.error
+      "
+      class="wb-actions"
+      aria-live="polite"
+    >
+      <span class="wb-muted">已加载 {{ assets.length }} 个可选资产</span>
+      <button
+        type="button"
+        :disabled="assetOptions.state.loading"
+        @click="run(assetOptions.loadMore)"
+      >
+        {{
+          assetOptions.state.loading
+            ? "正在加载资产…"
+            : assetOptions.state.error
+              ? "重试加载资产"
+              : "加载更多资产"
+        }}
+      </button>
+    </div>
     <div class="wb-grid">
       <aside class="wb-panel">
         <label class="wb-label"
@@ -72,7 +96,7 @@
             >证据资产<select multiple v-model="form.evidence_ref_ids" size="4">
               <option
                 v-for="asset in assets"
-                :key="asset.asset_id"
+                :key="`${asset.asset_id}:${asset.version}`"
                 :value="`${asset.asset_id}:${asset.version}`"
               >
                 {{ asset.name || asset.asset_id }} · {{ asset.kind }}
@@ -202,7 +226,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { collectPages } from "@/utils/cursorPages";
+import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
 import { onMounted, reactive, ref } from "vue";
@@ -243,7 +267,9 @@ const form = reactive({
   content: "",
   evidence_ref_ids: [] as string[],
 });
+let activeOperations = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -252,21 +278,25 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
+let suggestionListEpoch = 0;
 async function load(append = false) {
+  const request = ++suggestionListEpoch;
   const res = await api.list<Suggestion>(
     "/improvement-suggestions",
     append ? next.value : "",
     { status: status.value },
   );
+  if (request !== suggestionListEpoch) return;
   suggestions.value = append
     ? [...suggestions.value, ...(res.data?.items || [])]
     : res.data?.items || [];
   next.value = res.data?.next_cursor || "";
 }
 async function discover() {
+  if (busy.value) return;
   await run(async () => {
     const response = await api.action<{ items: Suggestion[] }>(
       "/improvement-suggestions/discover",
@@ -279,17 +309,25 @@ async function discover() {
     if (response.data?.items[0]) current.value = response.data.items[0];
   });
 }
+const assetOptions = useCursorOptions(assets, (cursor) =>
+  lifecycleApi.assets("", cursor),
+);
+
 function newSuggestion() {
   current.value = undefined;
   reviewComment.value = "";
 }
 async function loadMetrics() {
   await run(async () => {
-    metrics.value = (await semanticApi.get(modelID.value)).data?.metrics || [];
+    const id = modelID.value;
+    const rows = (await semanticApi.get(id)).data?.metrics || [];
+    if (id !== modelID.value) return;
+    metrics.value = rows;
     metricID.value = "";
   });
 }
 async function create() {
+  if (busy.value) return;
   await run(async () => {
     const proposal =
       form.kind === "knowledge"
@@ -322,6 +360,7 @@ async function create() {
   });
 }
 async function review(decision: string) {
+  if (busy.value) return;
   if (!current.value) return;
   await run(async () => {
     const res = await api.action<Suggestion>(
@@ -360,12 +399,11 @@ function proposalLabel(key: string) {
 onMounted(() =>
   run(async () => {
     await load();
-    const [a, m, k] = await Promise.all([
-      collectPages((cursor) => lifecycleApi.assets("", cursor)),
+    const [, m, k] = await Promise.all([
+      assetOptions.reset(),
       semanticApi.list(),
       http.get<{ id: string; name: string }[]>("/knowledge-bases"),
     ]);
-    assets.value = a;
     models.value = m.data?.items || [];
     knowledgeBases.value = k.data || [];
   }),

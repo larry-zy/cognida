@@ -205,6 +205,22 @@ func TestCatalogRealSourcesAndLineage(t *testing.T) {
 				other, e := lineage.Query(ctx, tenant+1, amount.ID, "both", 3)
 				require.NoError(t, e)
 				require.Empty(t, other.Nodes)
+				// A schema drift tombstone remains queryable for governance, but
+				// must no longer appear as a resolved physical column in lineage.
+				require.NoError(t, db.Model(&catalogColumnRow{}).Where("id=? AND tenant_id=?", amount.ID, tenant).Update("deprecated", true).Error)
+				g, e = lineage.Rebuild(ctx, tenant, bundle.Model.ID)
+				require.NoError(t, e)
+				retired := false
+				for _, n := range g.Nodes {
+					if n.Kind == "PhysicalColumn" && n.Column == "amount" {
+						retired = true
+						require.True(t, n.Unresolved)
+						require.Empty(t, n.AssetID)
+					}
+				}
+				require.True(t, retired)
+				_, e = catalogRepo.ResolveCoordinate(ctx, tenant, source.ID, asset.Schema, "orders", "amount")
+				require.NoError(t, e, "access policies still find the historical column")
 			}
 		})
 	}

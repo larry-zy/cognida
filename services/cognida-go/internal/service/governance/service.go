@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"bytes"
 	"cognida/internal/infrastructure/job"
 	d "cognida/internal/model/governance"
 	l "cognida/internal/model/lifecycle"
@@ -154,7 +155,9 @@ func (s *Service) input(ctx context.Context, p l.Principal, id string, published
 		return ref, l.Input{}, fmt.Errorf("%w: published asset required", d.ErrInvalid)
 	}
 	var input l.Input
-	if err = json.Unmarshal(payload, &input); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err = decoder.Decode(&input); err != nil {
 		return ref, input, err
 	}
 	if err = input.Validate(); err != nil {

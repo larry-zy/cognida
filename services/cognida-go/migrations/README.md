@@ -54,3 +54,29 @@ go run ./cmd/migrate-db up        # 此后应用增量（当前无增量则 no c
 
 迁移中途失败会置 `dirty=true` 并停在半应用状态。人工核对该版本 SQL 的实际落库情况后，
 用 `force <上一个干净版本>` 复位，修正迁移文件，再 `up`。
+
+## 历史 Collection AutoMigrate 表接入
+
+早期开发环境可能停在版本 3，却已存在 `collection_tasks/sources/runs/items`，
+且字段是 nullable longtext、缺少唯一键和外键，甚至提前带有调度字段。这不等价于
+迁移 5/6 已完成。`migrate-db up` 会在执行任何增量之前检查此状态并报错；不要用
+`force 5`、`CREATE TABLE IF NOT EXISTS` 或直接删除旧表绕过结构差异。
+
+接入步骤：
+
+1. 暂停向该库写入的 Go 服务；完整备份数据、触发器、存储过程和事件，并在独立库恢复验证。
+2. 确认迁移版本干净、四表的全部列、引用关系及记录数。检查旧数据满足新 schema 的长度、
+   NOT NULL、唯一键和外键约束；如果不满足，先明确修复数据的规则，不截断或丢弃记录。
+3. 若四表没有外部外键引用，将其在**一条原子 `RENAME TABLE`**中改成独立的保留名
+   （例如 `legacy_v3_collection_tasks` 等），避免被新迁移覆盖。存在外部引用时需另行设计迁移。
+4. 正常运行 `migrate-db up`，由版本化 SQL 建立新表。使用 `STRICT_ALL_TABLES`，在一个事务中
+   按 tasks → sources → runs → items 的顺序，显式列名复制旧表的每一列；不得使用 `INSERT IGNORE`。
+   旧表有新 schema 未定义的列时先停止核对，不能静默丢列。
+5. 验证每表记录数、主键，以及所有原列的逐字段二进制 NULL-safe 等值；核对其它业务表记录数
+   （迁移 9 对成员关系的补全属于预期变化），最后确认 migration version 和 dirty=false。
+6. 确认新接口正常后再恢复服务。保留备份与旧表，直到单独决定归档期限；升级失败时保留现场，
+   依据备份和执行记录恢复，不通过强制版本号假装成功。
+
+本地 `cognida` 已按上述过程完成版本 3 → 11：四张旧表各 2 条记录全部逐字段匹配，
+原表以 `legacy_v3_*` 保留。备份与验证报告在仓库忽略目录
+`var/backups/cognida-20261003-v3/`，备份文件权限为 0600；该目录不进入 Git。

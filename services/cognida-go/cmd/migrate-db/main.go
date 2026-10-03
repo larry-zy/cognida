@@ -21,12 +21,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
@@ -90,6 +92,19 @@ func main() {
 
 	switch cmd {
 	case "up":
+		v, dirty, versionErr := m.Version()
+		if versionErr != nil && !errors.Is(versionErr, migrate.ErrNilVersion) {
+			log.Fatalf("read version failed: %v", versionErr)
+		}
+		if dirty {
+			log.Fatalf("database is dirty at version %d; reconcile the partial migration before continuing", v)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		preflightErr := preflightCollection(ctx, db, v)
+		cancel()
+		if preflightErr != nil {
+			log.Fatalf("migration preflight failed: %v", preflightErr)
+		}
 		err = m.Up()
 	case "down":
 		if len(os.Args) > 2 {

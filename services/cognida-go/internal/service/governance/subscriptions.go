@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -48,6 +49,7 @@ func (s *Service) SaveSubscription(ctx context.Context, p l.Principal, id, key s
 		return nil, err
 	}
 	in.NextRunAt = &next
+	in.ScheduleError = ""
 	status := "enabled"
 	if !in.Enabled {
 		status = "disabled"
@@ -78,26 +80,32 @@ func (s *Service) RunSubscription(ctx context.Context, p l.Principal, id, key st
 	return s.submitReport(ctx, record, time.Now().UTC(), "manual:"+key)
 }
 func (s *Service) submitReport(ctx context.Context, sub *d.Record, at time.Time, key string) (*d.Record, error) {
+	record, err := s.createReport(ctx, sub, at, key)
+	if err != nil {
+		return nil, err
+	}
+	return record, s.enqueueReport(ctx, record)
+}
+func (s *Service) createReport(ctx context.Context, sub *d.Record, at time.Time, key string) (*d.Record, error) {
 	var snapshot d.Subscription
 	if err := json.Unmarshal(sub.Payload, &snapshot); err != nil {
 		return nil, err
 	}
 	snapshot.Meta = sub.Meta
 	run := reportRun{SubscriptionRun: d.SubscriptionRun{SubscriptionID: sub.ID, Status: "queued", ScheduledAt: at}, Snapshot: snapshot}
-	record, err := s.create(ctx, l.Principal{TenantID: sub.TenantID, UserID: sub.UserID}, "subscription_run", sub.ID, "queued", sub.ID+":"+key, run, nil)
-	if err != nil {
-		return nil, err
-	}
+	return s.create(ctx, l.Principal{TenantID: sub.TenantID, UserID: sub.UserID}, "subscription_run", sub.ID, "queued", sub.ID+":"+key, run, nil)
+}
+func (s *Service) enqueueReport(ctx context.Context, record *d.Record) error {
 	if record.Status == "queued" || record.Status == "running" {
 		j, e := job.New(record.ID, "governance", jobScope{TenantID: record.TenantID, UserID: record.UserID, Kind: record.Kind, ID: record.ID})
 		if e != nil {
-			return nil, e
+			return e
 		}
 		if e = s.Queue.Enqueue(ctx, j); e != nil {
-			return nil, e
+			return e
 		}
 	}
-	return record, nil
+	return nil
 }
 func (s *Service) Tick(ctx context.Context) error {
 	rows, err := s.Repo.Due(ctx, time.Now().UTC(), 100)
@@ -112,28 +120,69 @@ func (s *Service) Tick(ctx context.Context) error {
 		if record.DueAt == nil {
 			continue
 		}
-		_, e := s.submitReport(ctx, &record, *record.DueAt, record.DueAt.UTC().Format(time.RFC3339Nano))
-		if e != nil {
-			failures = append(failures, e)
-			continue
-		}
 		var sub d.Subscription
-		if e = json.Unmarshal(record.Payload, &sub); e != nil {
-			failures = append(failures, e)
+		if e := json.Unmarshal(record.Payload, &sub); e != nil {
+			failures = append(failures, s.suspendSubscription(ctx, &record, "invalid_schedule_configuration"))
 			continue
 		}
 		next, e := NextRun(sub.Schedule, time.Now())
 		if e != nil {
-			failures = append(failures, e)
+			failures = append(failures, s.suspendSubscription(ctx, &record, "invalid_schedule_configuration"))
 			continue
 		}
-		record.DueAt = &next
-		sub.NextRunAt = &next
-		if e = s.update(ctx, &record, sub, "enabled", record.Version); e != nil && !errors.Is(e, d.ErrConflict) {
+		var run *d.Record
+		// A run and advancement of its schedule form one durable claim. A second
+		// scheduler's stale CAS rolls back its run, and Redis failure cannot keep
+		// the oldest schedules blocking all subsequent subscriptions.
+		e = s.Repo.Transaction(ctx, func(repo d.Repository) error {
+			tx := *s
+			tx.Repo = repo
+			var err error
+			run, err = tx.createReport(ctx, &record, *record.DueAt, record.DueAt.UTC().Format(time.RFC3339Nano))
+			if err != nil {
+				return err
+			}
+			record.DueAt = &next
+			sub.NextRunAt = &next
+			sub.ScheduleError = ""
+			return tx.update(ctx, &record, sub, "enabled", record.Version)
+		})
+		if errors.Is(e, d.ErrConflict) {
+			continue
+		}
+		if errors.Is(e, d.ErrForbidden) {
+			failures = append(failures, s.suspendSubscription(ctx, &record, "owner_access_unavailable"))
+			continue
+		}
+		if e == nil {
+			e = s.enqueueReport(ctx, run)
+		}
+		if e != nil {
 			failures = append(failures, e)
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// Suspension is a scheduler-owned status transition, not an impersonated user
+// mutation. An administrator must explicitly save a valid enabled subscription
+// after fixing configuration or restoring the owner's access.
+func (s *Service) suspendSubscription(ctx context.Context, record *d.Record, code string) error {
+	var payload map[string]json.RawMessage
+	if json.Unmarshal(record.Payload, &payload) != nil || payload == nil {
+		payload = map[string]json.RawMessage{}
+	}
+	payload["enabled"] = json.RawMessage("false")
+	payload["next_run_at"] = json.RawMessage("null")
+	payload["schedule_error"], _ = json.Marshal(code)
+	record.DueAt = nil
+	if err := s.update(ctx, record, payload, "disabled", record.Version); err != nil {
+		if errors.Is(err, d.ErrConflict) {
+			return nil
+		}
+		return err
+	}
+	return fmt.Errorf("subscription %s suspended: %s", record.ID, code)
 }
 func (s *Service) runReport(ctx context.Context, record *d.Record) error {
 	var run reportRun
@@ -215,6 +264,15 @@ func (s *Service) ReadNotification(ctx context.Context, p l.Principal, id string
 	now := time.Now().UTC()
 	n.ReadAt = &now
 	if err = s.update(ctx, record, n, "read", record.Version); err != nil {
+		if errors.Is(err, d.ErrConflict) {
+			current, reloadErr := s.Get(ctx, p, "notification", id)
+			if reloadErr != nil {
+				return nil, reloadErr
+			}
+			if current.Status == "read" {
+				return current, nil
+			}
+		}
 		return nil, err
 	}
 	return record, nil

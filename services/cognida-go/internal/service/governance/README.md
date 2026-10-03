@@ -31,6 +31,8 @@
 
 Cron 是五字段，支持数字、列表、范围与步长（`5/10` 从 5 到字段上限每隔 10）。星期 0/7 均为周日；月日和星期都为具体限制时取 OR，存在星号字段时取 AND。使用 IANA timezone，按真实 UTC 分钟遍历，因此夏令时重复时刻可各运行一次，缺失时刻跳过；最长搜索八年以覆盖闰日。调度器错过多个触发点时补一次并推进到下一未来时刻，不进行无限历史回放。语义参考 [crontab(5)](https://www.man7.org/linux/man-pages/man5/crontab.5.html)。
 
+调度领取在一个 MySQL 事务里创建当期运行并推进下一触发时间，提交后才投递 Redis。队列不可用时运行保持 queued，由恢复器重新投递；不会让最早一页订阅长期阻塞后续任务。并发调度器通过版本 CAS 竞争，失败事务不遗留运行。旧配置无效或创建者访问不可用时自动停用，保留 `schedule_error`（`invalid_schedule_configuration` / `owner_access_unavailable`）；修复权限或配置后，创建者需以管理员身份显式保存启用，成功保存清除错误。
+
 ## 指标与归因
 
 `zscore` 至少需要四个观察周期；设置 `time_column` 时，同一时间的行按 value 求和，然后以最后一期对比此前各期的均值与总体标准差。没有时间列时按行序观察。恒定历史基线遇到变化直接触发，zscore 返回 null。
@@ -46,6 +48,8 @@ Cron 是五字段，支持数字、列表、范围与步长（`5/10` 从 5 到�
 特征定义首版为 field 投影，支持 numerical/categorical/vector，源字段和 entity_field 必须存在。计算保留源 ref 与源观察时间，查询支持 as_of；没有符合时间的数据就不返回该实体。该模块提供版本元数据和 SQL 特征值；图像向量检索走 Python CLIP/Milvus 独立空间。
 
 ## 验证
+
+特征投影保留 JSON 大整数的原始数值，避免把相邻实体 ID 转成相同浮点数。批量写入每次请求只解析和授权各不可变特征版本一次，避免按实体重复读取整个源对象。通知并发标记已读是幂等操作；重新预标注会清除旧审核人和说明，重新等待审核。
 
 核心单测覆盖 cron、维度贡献、版本展示、输入预校验、来源刷新与敏感派生读取。`go test -tags=integration ./internal/service/governance -run TestGovernanceIntegration` 使用显式隔离 `MYSQL_DSN`（库名必须以 `cognida_review_` 开头）、真实 Redis 独立前缀及临时本地对象目录，结束精确清理自有测试行与队列。
 

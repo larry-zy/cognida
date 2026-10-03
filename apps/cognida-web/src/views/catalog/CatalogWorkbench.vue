@@ -451,7 +451,11 @@ const split = (value: string) =>
     .split(/[,，]/)
     .map((v) => v.trim())
     .filter(Boolean);
+let activeOperations = 0,
+  tableEpoch = 0,
+  listEpoch = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -460,10 +464,11 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
 async function load(append = false) {
+  const request = ++listEpoch;
   const res = await catalogApi.list({
     q: query.value,
     tag: tag.value,
@@ -471,6 +476,7 @@ async function load(append = false) {
     cursor: append ? next.value : "",
     page_size: 100,
   });
+  if (request !== listEpoch) return;
   tables.value = append
     ? [...tables.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -478,19 +484,24 @@ async function load(append = false) {
 }
 async function loadGlossaryColumns() {
   await run(async () => {
-    glossaryColumns.value = glossaryTableID.value
-      ? (await catalogApi.get(glossaryTableID.value)).data?.columns || []
-      : [];
+    const id = glossaryTableID.value;
+    const columns = id ? (await catalogApi.get(id)).data?.columns || [] : [];
+    if (id === glossaryTableID.value) glossaryColumns.value = columns;
   });
 }
 async function open(id: string) {
+  const request = ++tableEpoch;
   await run(async () => {
     profileCard.value = undefined;
-    selected.value = (await catalogApi.get(id)).data;
-    profileCard.value = (await catalogApi.profileCard(id)).data;
+    const table = await catalogApi.get(id);
+    if (request !== tableEpoch) return;
+    selected.value = table.data;
+    const profile = await catalogApi.profileCard(id);
+    if (request === tableEpoch) profileCard.value = profile.data;
   });
 }
 async function sync() {
+  if (busy.value) return;
   await run(async () => {
     const res = await catalogApi.sync(source.value, profile.value);
     await load();
@@ -498,6 +509,7 @@ async function sync() {
   });
 }
 async function saveGovernance() {
+  if (busy.value) return;
   if (!selected.value) return;
   await run(async () => {
     await catalogApi.govern("tables", selected.value!.id, selected.value!);
@@ -506,6 +518,7 @@ async function saveGovernance() {
   });
 }
 async function saveColumn(column: CatalogColumn) {
+  if (busy.value) return;
   await run(async () => {
     await catalogApi.govern("columns", column.id, column);
     notice.value = `${column.name} 已保存`;
@@ -522,6 +535,7 @@ function newTerm() {
   Object.assign(term, blankTerm());
 }
 async function saveTerm() {
+  if (busy.value) return;
   await run(async () => {
     const res = await catalogApi.saveTerm(term);
     if (res.data) Object.assign(term, res.data);
@@ -530,6 +544,7 @@ async function saveTerm() {
   });
 }
 async function deleteTerm() {
+  if (busy.value) return;
   if (!window.confirm(`删除术语“${term.term}”？`)) return;
   await run(async () => {
     await catalogApi.deleteTerm(term.id);
@@ -555,6 +570,7 @@ async function impact() {
   });
 }
 async function rebuild() {
+  if (busy.value) return;
   await run(async () => {
     await catalogApi.rebuild(modelID.value);
     notice.value = "血缘已补建，请查询相关资产。";

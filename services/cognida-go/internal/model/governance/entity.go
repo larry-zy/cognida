@@ -45,14 +45,15 @@ type Watch struct {
 }
 type Subscription struct {
 	Meta
-	Name      string        `json:"name"`
-	Kind      string        `json:"kind"`
-	Enabled   bool          `json:"enabled"`
-	Schedule  Schedule      `json:"schedule"`
-	Input     AnalysisInput `json:"input"`
-	Watch     *Watch        `json:"watch"`
-	Channel   string        `json:"channel"`
-	NextRunAt *time.Time    `json:"next_run_at"`
+	Name          string        `json:"name"`
+	Kind          string        `json:"kind"`
+	Enabled       bool          `json:"enabled"`
+	Schedule      Schedule      `json:"schedule"`
+	Input         AnalysisInput `json:"input"`
+	Watch         *Watch        `json:"watch"`
+	Channel       string        `json:"channel"`
+	NextRunAt     *time.Time    `json:"next_run_at"`
+	ScheduleError string        `json:"schedule_error,omitempty"`
 }
 type SubscriptionRun struct {
 	Meta

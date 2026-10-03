@@ -20,6 +20,20 @@ type ComputeResult struct {
 	Result        map[string]any `json:"result"`
 	Warnings      []string       `json:"warnings"`
 }
+
+// Keep computed table identifiers exact both on HTTP responses and checkpoint replay.
+func (r *ComputeResult) UnmarshalJSON(raw []byte) error {
+	type plain ComputeResult
+	var value plain
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	*r = ComputeResult(value)
+	return nil
+}
+
 type HTTPCompute struct {
 	baseURL, token string
 	client         *http.Client

@@ -218,7 +218,10 @@ def test_auth_and_body_limit(client, monkeypatch):
         == 200
     )
     monkeypatch.setattr("services.lifecycle.router.MAX_BODY_BYTES", 10)
-    assert client.post(PREFIX + "/profile", content="x" * 11).status_code == 413
+    assert client.post(
+        PREFIX + "/profile", content="x" * 11, headers={"Authorization": "Bearer internal"}
+    ).status_code == 413
+    assert client.post(PREFIX + "/profile", content="x" * 11).status_code == 401
 
 
 async def test_batch_inference_partial_failure_and_client_cleanup(monkeypatch):
@@ -322,3 +325,82 @@ def test_table_enrichment_preserves_schema_and_cell_evidence(client):
         {"row_index": 0, "column": "email"}
     ]
     assert not result["evidence_truncated"]
+
+
+def test_table_enrichment_preprocessing_respects_shared_cpu_capacity(client, monkeypatch):
+    from services.lifecycle import compute
+
+    def unexpected_preprocessing(_):
+        pytest.fail("table preprocessing ran despite exhausted CPU capacity")
+
+    monkeypatch.setattr(enrichment, "table_enrichment_source", unexpected_preprocessing)
+    acquired = 0
+    try:
+        while compute._CPU_CAPACITY.acquire(blocking=False):
+            acquired += 1
+        response = client.post(
+            PREFIX + "/enrich",
+            json={"input": {"kind": "table", "columns": ["text"], "rows": [["sales"]]}},
+        )
+        assert response.status_code == 503, response.text
+        assert response.json()["detail"]["code"] == "capability_unavailable"
+    finally:
+        for _ in range(acquired):
+            compute._CPU_CAPACITY.release()
+
+
+async def test_body_deadline_releases_capacity(monkeypatch):
+    from services.lifecycle.router import LifecycleBodyLimitMiddleware
+
+    monkeypatch.setattr("services.lifecycle.router.BODY_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("services.lifecycle.router.MAX_ACTIVE_REQUESTS", 1)
+    downstream = AsyncMock()
+    middleware = LifecycleBodyLimitMiddleware(downstream)
+    messages = []
+
+    async def slow_body():
+        await asyncio.Event().wait()
+
+    async def send(message):
+        messages.append(message)
+
+    await middleware({"type": "http", "path": PREFIX + "/profile"}, slow_body, send)
+    assert messages[0]["status"] == 408
+    assert b"request_body_timeout" in messages[1]["body"]
+    downstream.assert_not_awaited()
+    assert middleware.capacity.acquire(blocking=False)
+    middleware.capacity.release()
+
+
+async def test_request_capacity_rejects_before_reading_and_recovers(monkeypatch):
+    from services.lifecycle.router import LifecycleBodyLimitMiddleware
+
+    monkeypatch.setattr("services.lifecycle.router.MAX_ACTIVE_REQUESTS", 1)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    middleware = LifecycleBodyLimitMiddleware(AsyncMock())
+    scope = {"type": "http", "path": PREFIX + "/profile"}
+
+    async def pending_body():
+        started.set()
+        await release.wait()
+        return {"type": "http.disconnect"}
+
+    first = asyncio.create_task(middleware(scope, pending_body, AsyncMock()))
+    await started.wait()
+    response = []
+    never_read = AsyncMock(side_effect=AssertionError("overloaded request read body"))
+
+    async def send(message):
+        response.append(message)
+
+    try:
+        await middleware(scope, never_read, send)
+        assert response[0]["status"] == 503
+        assert b"compute_capacity_busy" in response[1]["body"]
+        never_read.assert_not_awaited()
+    finally:
+        release.set()
+        await first
+    assert middleware.capacity.acquire(blocking=False)
+    middleware.capacity.release()

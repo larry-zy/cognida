@@ -1,6 +1,7 @@
 package governance
 
 import (
+	"bytes"
 	d "cognida/internal/model/governance"
 	l "cognida/internal/model/lifecycle"
 	"context"
@@ -178,16 +179,26 @@ func (s *Service) WriteFeatures(ctx context.Context, p l.Principal, values []d.F
 	if len(values) == 0 || len(values) > 1000 {
 		return d.ErrInvalid
 	}
+	// Definitions are immutable. Resolve each requested version once per call,
+	// including its current source policy, rather than reading the source object
+	// again for every entity in a batch.
+	definitions := map[string]d.Feature{}
 	for i := range values {
 		v := &values[i]
-		f, err := s.featureVersion(ctx, p, v.FeatureID, v.Version)
-		if err != nil {
-			return err
+		key := versionID(v.FeatureID, v.Version)
+		f, ok := definitions[key]
+		if !ok {
+			var err error
+			f, err = s.featureVersion(ctx, p, v.FeatureID, v.Version)
+			if err != nil {
+				return err
+			}
+			definitions[key] = f
 		}
 		if v.EntityID == "" || len(v.EntityID) > 128 || v.Timestamp.IsZero() || v.Timestamp.After(time.Now().Add(time.Minute)) {
 			return d.ErrInvalid
 		}
-		if err = validateFeatureValue(f.Type, v.Value); err != nil {
+		if err := validateFeatureValue(f.Type, v.Value); err != nil {
 			return err
 		}
 		v.SourceRefID = f.SourceRefID
@@ -243,15 +254,20 @@ func (s *Service) ComputeFeatures(ctx context.Context, p l.Principal, id string,
 		}
 		v := row[field]
 		if f.Type == "numerical" {
-			number, e := strconv.ParseFloat(fmt.Sprint(v), 64)
-			if e != nil {
+			// Validation may use float64 for finiteness, but never replace the
+			// original decimal spelling with a rounded floating-point value.
+			number := json.Number(fmt.Sprint(v))
+			parsed, e := number.Float64()
+			if e != nil || math.IsInf(parsed, 0) || math.IsNaN(parsed) || !json.Valid([]byte(number)) {
 				return 0, d.ErrInvalid
 			}
 			v = number
 		}
 		if f.Type == "vector" {
 			if raw, ok := v.(string); ok {
-				if json.Unmarshal([]byte(raw), &v) != nil {
+				decoder := json.NewDecoder(bytes.NewReader([]byte(raw)))
+				decoder.UseNumber()
+				if !json.Valid([]byte(raw)) || decoder.Decode(&v) != nil {
 					return 0, d.ErrInvalid
 				}
 			}

@@ -92,14 +92,16 @@ app.add_middleware(
 # 请求 ID 透传（最外层）：从 Go 传入的 X-Request-ID 绑定到日志上下文并回写响应头
 from core.request_context import RequestIDMiddleware  # noqa: E402
 
-app.add_middleware(RequestIDMiddleware)
-app.add_middleware(InternalHTTPAuthMiddleware)
 
 
 from services.lifecycle.router import LifecycleBodyLimitMiddleware, router as lifecycle_router
 
 app.include_router(lifecycle_router)
 app.add_middleware(LifecycleBodyLimitMiddleware)
+# Later-added middleware is outermost: reject unauthorized requests before any
+# lifecycle body buffering, and retain request IDs on auth/limit failures.
+app.add_middleware(InternalHTTPAuthMiddleware)
+app.add_middleware(RequestIDMiddleware)
 
 
 # ============================================================

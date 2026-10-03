@@ -44,7 +44,7 @@ type fixture struct {
 type computeFixture struct{}
 
 func (computeFixture) Call(context.Context, string, l.Input, map[string]any, string) (lifecycle.ComputeResult, error) {
-	return lifecycle.ComputeResult{SchemaVersion: "1", Method: "rules", Result: map[string]any{"tags": map[string]any{"value": []string{"sales"}, "confidence": 0.7, "evidence": []string{"sales"}}, "summary": map[string]any{"value": "sales observation"}}}, nil
+	return lifecycle.ComputeResult{SchemaVersion: "1", Method: "rules", Result: map[string]any{"tags": map[string]any{"value": []string{"sales"}, "confidence": json.Number("0.7"), "evidence": []string{"sales"}}, "summary": map[string]any{"value": "sales observation"}}}, nil
 }
 func setup(t *testing.T) *fixture {
 	t.Helper()
@@ -242,6 +242,7 @@ func TestGovernanceIntegrationAnnotationsTaggingAndAPI(t *testing.T) {
 	require.Equal(t, 200, code, out)
 	result := out["data"].(map[string]any)["items"].([]any)[0].(map[string]any)
 	require.Equal(t, "sales", result["tags"].([]any)[0])
+	require.Equal(t, 0.7, result["tag_confidence"].(map[string]any)["sales"])
 	require.NotNil(t, result["evidence"])
 	code, _ = f.api(t, 992, f.p.TenantID, "GET", "/tagging-tasks/"+tagging.ID+"/results", nil)
 	require.Equal(t, 403, code)

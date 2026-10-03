@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
 const api = vi.hoisted(() => ({
@@ -12,17 +12,21 @@ const api = vi.hoisted(() => ({
   createAsset: vi.fn(),
 }));
 vi.mock("@/api/lifecycle", () => ({ lifecycleApi: api }));
-vi.mock("vue-router", () => ({
-  useRoute: () => ({ path: "/analysis", query: {} }),
-}));
+const route = vi.hoisted(() => ({ path: "/analysis", query: {} }));
+vi.mock("vue-router", () => ({ useRoute: () => route }));
 vi.mock("@/utils/request", () => ({
   http: { get: vi.fn().mockResolvedValue({ data: { items: [] } }) },
   resetAuthFailure: vi.fn(),
 }));
 import LifecycleWorkbench from "./LifecycleWorkbench.vue";
 describe("published asset analysis", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    route.path = "/analysis";
     api.agents.mockResolvedValue({
       data: {
         agents: [
@@ -123,6 +127,186 @@ describe("published asset analysis", () => {
       "Orders",
       undefined,
     );
+    wrapper.unmount();
+  });
+  it("keeps the last selected execution when responses arrive out of order", async () => {
+    api.list.mockResolvedValue({
+      data: {
+        items: [
+          { id: "first", status: "running" },
+          { id: "second", status: "running" },
+        ],
+      },
+    });
+    let first!: (value: unknown) => void, second!: (value: unknown) => void;
+    api.get.mockImplementation(
+      (_kind, id) =>
+        new Promise((resolve) => {
+          if (id === "first") first = resolve;
+          else second = resolve;
+        }),
+    );
+    const wrapper = mount(LifecycleWorkbench, {
+      global: { plugins: [createPinia()], stubs: { RouterLink: true } },
+    });
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("first"))!
+      .trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("second"))!
+      .trigger("click");
+    second({
+      data: {
+        invocation: {
+          id: "second",
+          status: "succeeded",
+          output: { summary: "Second result" },
+        },
+        approvals: [],
+      },
+    });
+    await flushPromises();
+    first({
+      data: {
+        invocation: {
+          id: "first",
+          status: "succeeded",
+          output: { summary: "Obsolete result" },
+        },
+        approvals: [],
+      },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Second result");
+    expect(wrapper.text()).not.toContain("Obsolete result");
+    wrapper.unmount();
+  });
+  it("does not duplicate form submission while the first write is pending", async () => {
+    let finish!: (value: unknown) => void;
+    api.start.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const wrapper = mount(LifecycleWorkbench, {
+      global: { plugins: [createPinia()], stubs: { RouterLink: true } },
+    });
+    await flushPromises();
+    await wrapper.findAll("select")[1].setValue("published-1:2");
+    await wrapper.get("form").trigger("submit");
+    await wrapper.get("form").trigger("submit");
+    expect(api.start).toHaveBeenCalledTimes(1);
+    finish({ data: undefined });
+    await flushPromises();
+    wrapper.unmount();
+  });
+  it("keeps SSE reconnect alive, coalesces refreshes, and closes when unmounted", async () => {
+    route.path = "/pipelines";
+    vi.useFakeTimers();
+    const streams: Array<{
+      onmessage: () => void;
+      onerror: () => void;
+      close: ReturnType<typeof vi.fn>;
+    }> = [];
+    vi.stubGlobal(
+      "EventSource",
+      class {
+        onmessage = () => {};
+        onerror = () => {};
+        close = vi.fn();
+        addEventListener = vi.fn();
+        constructor() {
+          streams.push(this);
+        }
+      },
+    );
+    api.list.mockResolvedValue({
+      data: { items: [{ id: "run", status: "running" }] },
+    });
+    let finish!: (value: unknown) => void;
+    api.get
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          data: {
+            run: { id: "run", status: "running" },
+            stages: [],
+            approvals: [],
+          },
+        }),
+      )
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const wrapper = mount(LifecycleWorkbench, {
+      global: { plugins: [createPinia()], stubs: { RouterLink: true } },
+    });
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("run"))!
+      .trigger("click");
+    await flushPromises();
+    const stream = streams[streams.length - 1];
+    stream.onerror();
+    expect(stream.close).not.toHaveBeenCalled();
+    stream.onmessage();
+    stream.onmessage();
+    await flushPromises();
+    expect(api.get.mock.calls.length).toBe(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(api.get.mock.calls.length).toBe(2);
+    wrapper.unmount();
+    expect(stream.close).toHaveBeenCalled();
+    if (finish)
+      finish({
+        data: {
+          run: { id: "run", status: "succeeded" },
+          stages: [],
+          approvals: [],
+        },
+      });
+    await flushPromises();
+  });
+  it("ignores an older history append after a fresh reload", async () => {
+    let finish!: (v: unknown) => void;
+    api.list
+      .mockResolvedValueOnce({
+        data: { items: [{ id: "initial" }], next_cursor: "page2" },
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            finish = r;
+          }),
+      )
+      .mockResolvedValueOnce({
+        data: { items: [{ id: "fresh" }], next_cursor: "" },
+      });
+    const wrapper = mount(LifecycleWorkbench, {
+      global: { plugins: [createPinia()], stubs: { RouterLink: true } },
+    });
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text() === "加载更多")!
+      .trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((b) => b.text() === "刷新历史")!
+      .trigger("click");
+    await flushPromises();
+    finish({ data: { items: [{ id: "stale-page" }], next_cursor: "page3" } });
+    await flushPromises();
+    expect(wrapper.text()).toContain("fresh");
+    expect(wrapper.text()).not.toContain("stale-page");
+    expect(wrapper.text()).not.toContain("initial");
     wrapper.unmount();
   });
 });

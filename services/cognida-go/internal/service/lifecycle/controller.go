@@ -345,11 +345,19 @@ func (s *Service) reconcile(ctx context.Context, tenant int64, id string) error 
 		if d.Terminal(run.Status) {
 			return nil
 		}
-		def, ok := s.templates[run.TemplateID]
-		if !ok || def.Version != run.TemplateVersion {
-			return d.ErrConflict
+		// Runs bind to the immutable persisted definition from their creation,
+		// including across deployments that register a newer template version.
+		def, e := repo.FindDefinition(ctx, run.TemplateID, run.TemplateVersion)
+		if errors.Is(e, d.ErrNotFound) || errors.Is(e, d.ErrConflict) || errors.Is(e, d.ErrInvalid) {
+			return s.quarantineDefinition(ctx, repo, run, "persisted pipeline definition is missing or invalid")
 		}
-		stages, e := repo.ListStages(ctx, tenant, id)
+		if e != nil {
+			return e
+		}
+		if e = def.Validate(s.contracts); e != nil {
+			return s.quarantineDefinition(ctx, repo, run, "persisted pipeline definition is incompatible with registered agent contracts")
+		}
+		stages, e := repo.LockStages(ctx, tenant, id)
 		if e != nil {
 			return e
 		}
@@ -451,6 +459,36 @@ func (s *Service) reconcile(ctx context.Context, tenant int64, id string) error 
 	}
 	return nil
 }
+
+// A permanently unusable template quarantines only its own run. Retrying it
+// forever from PendingJobs would prevent healthy runs from being recovered.
+// Transient repository errors are returned by the caller and never quarantined.
+func (s *Service) quarantineDefinition(ctx context.Context, repo d.Repository, run *d.PipelineRun, reason string) error {
+	stages, err := repo.LockStages(ctx, run.TenantID, run.ID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for i := range stages {
+		st := &stages[i]
+		if d.Terminal(st.Status) {
+			continue
+		}
+		st.Status = d.StatusQuarantined
+		st.Error = reason
+		st.UpdatedAt = now
+		if err = repo.UpdateStage(ctx, st); err != nil {
+			return err
+		}
+		if err = s.event(ctx, repo, st, "stage.quarantined", reason); err != nil {
+			return err
+		}
+	}
+	run.Status = d.StatusQuarantined
+	run.Error = reason
+	run.UpdatedAt = now
+	return repo.UpdateRun(ctx, run)
+}
 func (s *Service) CancelStage(ctx context.Context, p d.Principal, id string) error {
 	if e := s.authorize(ctx, p, "read"); e != nil {
 		return e
@@ -489,7 +527,7 @@ func (s *Service) CancelRun(ctx context.Context, p d.Principal, id string) error
 		if d.Terminal(run.Status) {
 			return nil
 		}
-		stages, e := repo.ListStages(ctx, p.TenantID, id)
+		stages, e := repo.LockStages(ctx, p.TenantID, id)
 		if e != nil {
 			return e
 		}
@@ -589,7 +627,7 @@ func (s *Service) RetryRun(ctx context.Context, p d.Principal, id string) error 
 		if run.Status != d.StatusFailed {
 			return d.ErrConflict
 		}
-		stages, e := repo.ListStages(ctx, p.TenantID, id)
+		stages, e := repo.LockStages(ctx, p.TenantID, id)
 		if e != nil {
 			return e
 		}

@@ -78,6 +78,7 @@ type Repository interface {
 	Snapshot(context.Context, int64, string, []AssetTable) (*SyncResult, error)
 	List(context.Context, int64, Filter) (*Page[AssetTable], error)
 	Get(context.Context, int64, string) (*AssetTable, error)
+	ActiveColumnNames(context.Context, int64, []string) (map[string][]string, error)
 	UpdateGovernance(context.Context, int64, string, Governance) error
 	Glossaries(context.Context, int64, Filter) (*Page[Glossary], error)
 	SaveGlossary(context.Context, int64, Glossary) (*Glossary, error)

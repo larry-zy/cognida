@@ -26,6 +26,30 @@
     </header>
     <div v-if="error" class="wb-error" role="alert">{{ error }}</div>
     <div v-if="notice" class="wb-success" role="status">{{ notice }}</div>
+    <div
+      v-if="
+        assetOptions.state.hasMore ||
+        assetOptions.state.loading ||
+        assetOptions.state.error
+      "
+      class="wb-actions"
+      aria-live="polite"
+    >
+      <span class="wb-muted">已加载 {{ assets.length }} 个可选资产</span>
+      <button
+        type="button"
+        :disabled="assetOptions.state.loading"
+        @click="run(assetOptions.loadMore)"
+      >
+        {{
+          assetOptions.state.loading
+            ? "正在加载资产…"
+            : assetOptions.state.error
+              ? "重试加载资产"
+              : "加载更多资产"
+        }}
+      </button>
+    </div>
     <div class="wb-grid">
       <aside class="wb-panel wb-stack">
         <h2>{{ wt("发起任务") }}</h2>
@@ -327,7 +351,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { collectPages } from "@/utils/cursorPages";
+import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
@@ -417,7 +441,13 @@ const statusLabel = (status: string) =>
     cancelled: "已取消",
     quarantined: "已隔离",
   })[status] || status;
+const assetOptions = useCursorOptions(assets, (cursor) =>
+  lifecycleApi.assets(publishedOnly.value ? "published_asset" : "", cursor),
+);
+
+let activeOperations = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -426,39 +456,71 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
 async function loadAssets() {
-  assets.value = await collectPages((cursor) =>
-    lifecycleApi.assets(publishedOnly.value ? "published_asset" : "", cursor),
-  );
+  await assetOptions.reset();
 }
+let historyRequest = 0;
 async function loadHistory(append = false) {
+  const request = ++historyRequest;
   const res = await lifecycleApi.list(kind(), append ? next.value : "");
+  if (disposed || request !== historyRequest) return;
   history.value = append
     ? [...history.value, ...(res.data?.items || [])]
     : res.data?.items || [];
   next.value = res.data?.next_cursor || "";
 }
-async function loadDetail(id: string) {
-  const res = await lifecycleApi.get(kind(), id);
-  if (!res.data) return;
-  if ("run" in res.data) {
-    const d = res.data as RunDetail;
-    current.value = d.run;
-    stages.value = d.stages || [];
-    approvals.value = d.approvals || [];
-  } else {
-    current.value = res.data.invocation;
+let detailTarget = "",
+  detailRequest = 0,
+  disposed = false;
+let detailPending: { id: string; promise: Promise<void> } | undefined;
+function loadDetail(id: string, select = false): Promise<void> {
+  if (select) {
+    detailTarget = id;
+    current.value = undefined;
     stages.value = [];
-    approvals.value = res.data.approvals || [];
+    approvals.value = [];
+    detailPending = undefined;
   }
+  if (disposed || id !== detailTarget) return Promise.resolve();
+  if (detailPending?.id === id) return detailPending.promise;
+  const request = ++detailRequest;
+  const promise = (async () => {
+    const res = await lifecycleApi.get(kind(), id);
+    if (
+      disposed ||
+      request !== detailRequest ||
+      id !== detailTarget ||
+      !res.data
+    )
+      return;
+    if ("run" in res.data) {
+      const d = res.data as RunDetail;
+      current.value = d.run;
+      stages.value = d.stages || [];
+      approvals.value = d.approvals || [];
+    } else {
+      current.value = res.data.invocation;
+      stages.value = [];
+      approvals.value = res.data.approvals || [];
+    }
+  })()
+    .catch((error) => {
+      if (!disposed && request === detailRequest) throw error;
+    })
+    .finally(() => {
+      if (request === detailRequest) detailPending = undefined;
+    });
+  detailPending = { id, promise };
+  return promise;
 }
 async function inspect(id: string) {
-  await run(() => loadDetail(id));
+  await run(() => loadDetail(id, true));
 }
 async function start() {
+  if (busy.value) return;
   await run(async () => {
     const asset = assets.value.find(
       (a) => `${a.asset_id}:${a.version}` === assetSelection.value,
@@ -473,18 +535,21 @@ async function start() {
     };
     const res = await lifecycleApi.start(kind(), data);
     await loadHistory();
-    if (res.data) await loadDetail(res.data.id);
+    if (res.data) await loadDetail(res.data.id, true);
   });
 }
 async function action(action: "retry" | "cancel") {
+  if (busy.value) return;
   if (!current.value) return;
   await run(async () => {
-    await lifecycleApi.action(kind(), current.value!.id, action);
-    await loadDetail(current.value!.id);
+    const id = current.value!.id;
+    await lifecycleApi.action(kind(), id, action);
+    await loadDetail(id);
     await loadHistory();
   });
 }
 async function approve(id: string, decision: string) {
+  if (busy.value) return;
   await run(async () => {
     await lifecycleApi.approve(id, decision, approvalReason.value);
     if (current.value) await loadDetail(current.value.id);
@@ -498,6 +563,7 @@ async function openAsset(ref: RefID) {
   });
 }
 async function createAsset() {
+  if (busy.value) return;
   await run(async () => {
     const columns = rowFields.value.map((c) => c.key);
     const input =
@@ -534,8 +600,17 @@ async function createAsset() {
     const res = await lifecycleApi.createAsset(input, assetName.value, source);
     publishedOnly.value = false;
     await loadAssets();
-    if (res.data)
-      assetSelection.value = `${res.data.asset_id}:${res.data.version}`;
+    if (res.data) {
+      const created = res.data;
+      if (
+        !assets.value.some(
+          (a) =>
+            a.asset_id === created.asset_id && a.version === created.version,
+        )
+      )
+        assets.value.unshift(created);
+      assetSelection.value = `${created.asset_id}:${created.version}`;
+    }
     notice.value = "输入资产已创建，可选择专家进行处理与发布。";
   });
 }
@@ -588,11 +663,20 @@ onMounted(() => {
 });
 let events: EventSource | undefined;
 watch(
-  () => current.value?.id,
-  (id) => {
+  () =>
+    `${current.value?.id || ""}:${current.value?.status || ""}:${useAuthStore().token}`,
+  () => {
+    const id = current.value?.id;
     events?.close();
     events = undefined;
-    if (id && isPipeline.value && typeof EventSource !== "undefined") {
+    if (
+      id &&
+      ["queued", "running", "waiting", "awaiting_approval"].includes(
+        current.value?.status || "",
+      ) &&
+      isPipeline.value &&
+      typeof EventSource !== "undefined"
+    ) {
       events = new EventSource(
         `/api/v1/lifecycle/runs/${encodeURIComponent(id)}/events?token=${encodeURIComponent(useAuthStore().token)}`,
       );
@@ -615,13 +699,17 @@ watch(
         "approval.expired",
       ])
         events.addEventListener(event, refreshProgress);
+      // EventSource reconnects with Last-Event-ID after transient disconnects.
+      // Polling continues as fallback; refresh notifications cannot change selection.
       events.onerror = () => {
-        events?.close();
+        /* keep the browser-managed reconnect alive */
       };
     }
   },
 );
 onBeforeUnmount(() => {
+  disposed = true;
+  detailRequest++;
   if (timer) clearInterval(timer);
   events?.close();
 });

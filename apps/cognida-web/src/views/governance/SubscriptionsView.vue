@@ -10,6 +10,30 @@
     </header>
     <div v-if="error" role="alert" class="wb-error">{{ error }}</div>
     <div v-if="notice" role="status" class="wb-success">{{ notice }}</div>
+    <div
+      v-if="
+        assetOptions.state.hasMore ||
+        assetOptions.state.loading ||
+        assetOptions.state.error
+      "
+      class="wb-actions"
+      aria-live="polite"
+    >
+      <span class="wb-muted">已加载 {{ assets.length }} 个可选资产</span>
+      <button
+        type="button"
+        :disabled="assetOptions.state.loading"
+        @click="run(assetOptions.loadMore)"
+      >
+        {{
+          assetOptions.state.loading
+            ? "正在加载资产…"
+            : assetOptions.state.error
+              ? "重试加载资产"
+              : "加载更多资产"
+        }}
+      </button>
+    </div>
     <div class="wb-tabs">
       <button
         :class="{ selected: tab === 'subscriptions' }"
@@ -51,6 +75,15 @@
       </aside>
       <div class="wb-stack">
         <form class="wb-panel" @submit.prevent="save">
+          <p v-if="form.schedule_error" class="wb-error" role="status">
+            订阅已自动停用：{{
+              form.schedule_error === "invalid_schedule_configuration"
+                ? "执行计划或时区无效，请修正后重新启用。"
+                : form.schedule_error === "owner_access_unavailable"
+                  ? "订阅所有者已无访问权限，请恢复权限后重新启用。"
+                  : form.schedule_error
+            }}
+          </p>
           <h2>{{ form.id ? "编辑订阅" : "新建订阅" }}</h2>
           <div class="wb-form">
             <label>订阅名称<input v-model="form.name" required /></label
@@ -61,10 +94,23 @@
               </select></label
             ><label class="wb-full"
               >已发布资产<select v-model="form.input.asset_ref_id" required>
+                <option
+                  v-if="
+                    form.input.asset_ref_id &&
+                    !assets.some(
+                      (a) =>
+                        `${a.asset_id}:${a.version}` ===
+                        form.input.asset_ref_id,
+                    )
+                  "
+                  :value="form.input.asset_ref_id"
+                >
+                  当前引用 · {{ form.input.asset_ref_id }}
+                </option>
                 <option value="">请选择</option>
                 <option
                   v-for="asset in assets"
-                  :key="asset.asset_id"
+                  :key="`${asset.asset_id}:${asset.version}`"
                   :value="`${asset.asset_id}:${asset.version}`"
                 >
                   {{ asset.name || asset.asset_id }} · v{{ asset.version }}
@@ -276,7 +322,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { collectPages } from "@/utils/cursorPages";
+import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
 import { onMounted, reactive, ref } from "vue";
@@ -335,7 +381,9 @@ const split = (v: string) =>
     .split(/[,，]/)
     .map((x) => x.trim())
     .filter(Boolean);
+let activeOperations = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -344,7 +392,7 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
 async function load(append = false) {
@@ -357,6 +405,10 @@ async function load(append = false) {
     : res.data?.items || [];
   next.value = res.data?.next_cursor || "";
 }
+const assetOptions = useCursorOptions(assets, (cursor) =>
+  lifecycleApi.assets("published_asset", cursor),
+);
+
 function newSubscription() {
   refreshMode.value = "snapshot";
   refreshSourceType.value = "";
@@ -391,6 +443,7 @@ async function select(item: Subscription) {
   await run(() => loadRuns());
 }
 async function save() {
+  if (busy.value) return;
   await run(async () => {
     const input = {
       name: form.name,
@@ -420,17 +473,22 @@ async function save() {
     notice.value = "订阅已保存";
   });
 }
+let runsEpoch = 0;
 async function loadRuns(append = false) {
+  const id = form.id,
+    request = ++runsEpoch;
   const res = await api.list<SubscriptionRun>(
-    `/subscriptions/${form.id}/runs`,
+    `/subscriptions/${id}/runs`,
     append ? runNext.value : "",
   );
+  if (id !== form.id || request !== runsEpoch) return;
   runs.value = append
     ? [...runs.value, ...(res.data?.items || [])]
     : res.data?.items || [];
   runNext.value = res.data?.next_cursor || "";
 }
 async function execute() {
+  if (busy.value) return;
   await run(async () => {
     await api.action(`/subscriptions/${form.id}/run`);
     await loadRuns();
@@ -449,6 +507,7 @@ async function loadNotifications(append = false) {
   notificationNext.value = res.data?.next_cursor || "";
 }
 async function markRead(id: string) {
+  if (busy.value) return;
   await run(async () => {
     await api.action(`/notifications/${id}/read`);
     await loadNotifications();
@@ -457,9 +516,7 @@ async function markRead(id: string) {
 onMounted(() =>
   run(async () => {
     await load();
-    assets.value = await collectPages((cursor) =>
-      lifecycleApi.assets("published_asset", cursor),
-    );
+    await assetOptions.reset();
   }),
 );
 </script>

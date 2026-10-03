@@ -50,7 +50,7 @@ func TestHTTPComputeAuth(t *testing.T) {
 	c := NewHTTPCompute(server.URL, "test-token")
 	result, e := c.Call(context.Background(), "profile", d.Input{Kind: "text", Text: "hello"}, nil, "request-1")
 	require.NoError(t, e)
-	require.EqualValues(t, 90, result.Result["overall_score"])
+	require.Equal(t, json.Number("90"), result.Result["overall_score"])
 	_, e = c.Call(context.Background(), "../../admin", d.Input{Kind: "text", Text: "hello"}, nil, "")
 	require.Error(t, e)
 }
@@ -85,4 +85,32 @@ func TestAuditOutputOptionalAcrossLifecycleStates(t *testing.T) {
 	details := map[string]any{}
 	appendAuditOutput(details, &d.Output{Gate: d.GateResult{Status: d.GatePassed}, Refs: []d.DataAssetRef{ref}})
 	require.Equal(t, []string{ref.RefID.String()}, details["output_refs"])
+}
+
+func TestTableInputPreservesExactJSONNumbers(t *testing.T) {
+	input := d.Input{Kind: "table", Columns: []string{"value"}, Rows: [][]any{{json.Number("9007199254740993")}}}
+	require.NoError(t, input.Validate())
+	raw, e := json.Marshal(input)
+	require.NoError(t, e)
+	require.Contains(t, string(raw), "9007199254740993")
+	for _, value := range []json.Number{"NaN", "null", "1e999999999", "1/2"} {
+		input.Rows[0][0] = value
+		require.Error(t, input.Validate())
+	}
+}
+
+func TestExactInputDecodeAndStatistics(t *testing.T) {
+	var input d.Input
+	require.NoError(t, json.Unmarshal([]byte(`{"kind":"table","columns":["id","value"],"rows":[[9007199254740993,10],[9007199254740995,20]]}`), &input))
+	require.Equal(t, json.Number("9007199254740993"), input.Rows[0][0])
+	output, err := AnalyzeInput(input)
+	require.NoError(t, err)
+	stats := output["columns"].([]map[string]any)
+	require.Equal(t, 2, stats[1]["numeric_count"])
+	require.Equal(t, float64(15), stats[1]["mean"])
+	var computed ComputeResult
+	require.NoError(t, json.Unmarshal([]byte(`{"result":{"data":{"kind":"table","columns":["id"],"rows":[[9007199254740993]]}}}`), &computed))
+	raw, err := json.Marshal(computed)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "9007199254740993")
 }

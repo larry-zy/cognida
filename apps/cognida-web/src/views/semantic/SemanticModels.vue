@@ -296,7 +296,11 @@ const relationFields = computed<EditorField[]>(() => [
   },
 ]);
 const coverage = computed(() => stats.value.find((s) => s.model === form.name));
+let activeOperations = 0,
+  modelEpoch = 0,
+  listEpoch = 0;
 async function run(fn: () => Promise<void>) {
+  activeOperations++;
   busy.value = true;
   error.value = "";
   notice.value = "";
@@ -305,14 +309,16 @@ async function run(fn: () => Promise<void>) {
   } catch (e) {
     error.value = e instanceof Error ? e.message : "操作失败，请重试";
   } finally {
-    busy.value = false;
+    busy.value = --activeOperations > 0;
   }
 }
 async function load(append = false) {
+  const request = ++listEpoch;
   const res = await semanticApi.list(
     status.value,
     append ? nextCursor.value : "",
   );
+  if (request !== listEpoch) return;
   models.value = append
     ? [...models.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -335,6 +341,7 @@ function apply(bundle: SemanticBundle) {
   diagnosis.value = null;
 }
 function newModel() {
+  modelEpoch++;
   currentId.value = "";
   version.value = 0;
   Object.assign(form, fresh());
@@ -343,9 +350,10 @@ function newModel() {
   diagnosis.value = null;
 }
 async function open(id: string) {
+  const request = ++modelEpoch;
   await run(async () => {
     const res = await semanticApi.get(id);
-    if (res.data) apply(res.data);
+    if (request === modelEpoch && res.data) apply(res.data);
   });
 }
 function addMapping(d: SemanticRow) {
@@ -365,28 +373,40 @@ function input() {
   };
 }
 async function save() {
+  if (busy.value) return;
+  const epoch = modelEpoch,
+    id = currentId.value;
+  const data = JSON.parse(JSON.stringify(input()));
   await run(async () => {
-    const res = await semanticApi.save(currentId.value || undefined, input());
-    if (res.data) apply(res.data);
+    const res = await semanticApi.save(id || undefined, data);
+    if (epoch === modelEpoch && res.data) apply(res.data);
     await load();
-    notice.value = "模型已保存";
+    if (epoch === modelEpoch) notice.value = "模型已保存";
   });
 }
 async function transition(action: "publish" | "deprecate") {
+  if (busy.value) return;
+  const epoch = modelEpoch;
+  let id = currentId.value;
+  const data = JSON.parse(JSON.stringify(input()));
   await run(async () => {
     if (action === "publish") {
-      const saved = await semanticApi.save(currentId.value, input());
-      if (saved.data) apply(saved.data);
+      const saved = await semanticApi.save(id, data);
+      if (saved.data) id = saved.data.model.id;
     }
-    const res = await semanticApi.transition(currentId.value, action);
-    if (res.data) apply(res.data);
+    const res = await semanticApi.transition(id, action);
+    if (epoch === modelEpoch && res.data) apply(res.data);
     await load();
-    notice.value = action === "publish" ? "模型已发布" : "模型已停用";
+    if (epoch === modelEpoch)
+      notice.value = action === "publish" ? "模型已发布" : "模型已停用";
   });
 }
 async function diagnose() {
+  const epoch = modelEpoch,
+    id = currentId.value;
   await run(async () => {
-    const res = await semanticApi.diagnose(currentId.value);
+    const res = await semanticApi.diagnose(id);
+    if (epoch !== modelEpoch) return;
     diagnosis.value = res.data?.enabled
       ? res.data.report
       : "画像诊断未启用，请先为数据源生成列画像。";
