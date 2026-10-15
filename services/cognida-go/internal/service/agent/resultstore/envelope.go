@@ -4,9 +4,12 @@
 package resultstore
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
+
+	"cognida/internal/model/datasource"
 )
 
 // DefaultSampleRows 信封默认携带的样本行上限。
@@ -15,12 +18,15 @@ const DefaultSampleRows = 20
 // Result 是被持久化的完整结果集，仅在工具间按 result_id 传递引用。
 type Result struct {
 	// SourceSQL is server-set provenance for downstream data-access checks.
-	SourceSQL string                   `json:"source_sql,omitempty"`
-	ResultID  string                   `json:"result_id"`
-	Owner     string                   `json:"owner"` // 归属键 tenant:session，用于跨会话隔离
-	Columns   []string                 `json:"columns"`
-	Rows      []map[string]interface{} `json:"rows"`
-	CreatedAt int64                    `json:"created_at"`
+	SourceSQL string   `json:"source_sql,omitempty"`
+	ResultID  string   `json:"result_id"`
+	Owner     string   `json:"owner"` // 归属键 tenant:session，用于跨会话隔离
+	Columns   []string `json:"columns"`
+	// ColumnTypes is server-set SQL driver provenance, never inferred from values.
+	// Rows retain exact DECIMAL text and identifiers for downstream consumers.
+	ColumnTypes map[string]string        `json:"column_types,omitempty"`
+	Rows        []map[string]interface{} `json:"rows"`
+	CreatedAt   int64                    `json:"created_at"`
 }
 
 // Envelope 是回灌 LLM 的紧凑结构，绝不包含完整原始行。
@@ -54,18 +60,25 @@ func BuildEnvelope(r *Result, sampleN int) *Envelope {
 	return &Envelope{
 		ResultID:   r.ResultID,
 		Columns:    r.Columns,
-		Dtypes:     inferDtypes(r.Columns, r.Rows),
+		Dtypes:     inferDtypes(r.Columns, r.Rows, r.ColumnTypes),
 		RowCount:   rowCount,
 		Samples:    samples,
-		Aggregates: computeAggregates(r.Columns, r.Rows),
+		Aggregates: computeAggregates(r.Columns, r.Rows, r.ColumnTypes),
 		Truncated:  sampleCount < rowCount,
 	}
 }
 
 // inferDtypes 依据每列首个非空值推断类型（number/bool/string/null）。
-func inferDtypes(columns []string, rows []map[string]interface{}) map[string]string {
+func inferDtypes(columns []string, rows []map[string]interface{}, columnTypes map[string]string) map[string]string {
 	dtypes := make(map[string]string, len(columns))
 	for _, col := range columns {
+		if databaseType := columnTypes[col]; databaseType != "" {
+			dtypes[col] = "string"
+			if datasource.IsNumericSQLType(databaseType) {
+				dtypes[col] = "number"
+			}
+			continue
+		}
 		dtypes[col] = "null"
 		for _, row := range rows {
 			v, ok := row[col]
@@ -79,13 +92,16 @@ func inferDtypes(columns []string, rows []map[string]interface{}) map[string]str
 	return dtypes
 }
 
-// computeAggregates 对可解析为数值的列给出 min/max/sum/count；非数值列给出非空计数。
-func computeAggregates(columns []string, rows []map[string]interface{}) map[string]interface{} {
+// computeAggregates gives approximate float statistics without changing stored rows.
+// String values are numeric only when explicit SQL driver metadata says so.
+func computeAggregates(columns []string, rows []map[string]interface{}, columnTypes map[string]string) map[string]interface{} {
 	if len(rows) == 0 {
 		return nil
 	}
 	aggs := make(map[string]interface{})
 	for _, col := range columns {
+		databaseType := columnTypes[col]
+		numericType := datasource.IsNumericSQLType(databaseType)
 		var (
 			numericCount int
 			nonNull      int
@@ -99,6 +115,12 @@ func computeAggregates(columns []string, rows []map[string]interface{}) map[stri
 				continue
 			}
 			nonNull++
+			if databaseType != "" && !numericType {
+				continue
+			}
+			if _, isText := v.(string); isText && !numericType {
+				continue
+			}
 			f, isNum := toFloat(v)
 			if !isNum {
 				continue
@@ -139,13 +161,9 @@ func kindOf(v interface{}) string {
 		return "bool"
 	case int, int8, int16, int32, int64,
 		uint, uint8, uint16, uint32, uint64,
-		float32, float64:
+		float32, float64, json.Number:
 		return "number"
 	case string:
-		// 字符串可能承载数值（SQL 驱动常把数值列以 []byte→string 返回）
-		if _, ok := toFloat(v); ok {
-			return "number"
-		}
 		return "string"
 	default:
 		return "string"
@@ -185,6 +203,9 @@ func toFloat(v interface{}) (float64, bool) {
 			return 0, false
 		}
 		return f, true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
 	default:
 		return 0, false
 	}

@@ -2,7 +2,9 @@ package knowledge
 
 import (
 	"context"
+	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 
 	"cognida/internal/model/docreader"
 	domain "cognida/internal/model/knowledge"
@@ -11,6 +13,25 @@ import (
 type captureDocumentReader struct {
 	docreader.DocumentReader
 	request *docreader.ParseDocumentRequest
+}
+
+func TestDocumentProcessorRejectsDeletedOrInactiveTargetBeforeParsingOrReplay(t *testing.T) {
+	now := time.Now()
+	for _, kb := range []*domain.KnowledgeBase{
+		{ID: "kb", TenantID: 1, Status: 0},
+		{ID: "kb", TenantID: 1, Status: 1, DeletedAt: &now},
+	} {
+		for _, key := range []string{"", "already-completed-key"} {
+			repo := newTenantFakeKBRepo()
+			repo.kbs["kb"] = kb
+			// Missing downstream dependencies intentionally prove rejection happens
+			// before parsing, locking or returning a historical knowledge receipt.
+			svc := &documentProcessorService{kbRepo: repo}
+			result, err := svc.ProcessDocument(context.Background(), 1, 2, &ProcessDocumentRequest{KnowledgeBaseID: "kb", Title: "source", Content: []byte("content"), IdempotencyKey: key})
+			require.ErrorIs(t, err, domain.ErrKnowledgeBaseNotFound)
+			require.Nil(t, result)
+		}
+	}
 }
 
 func (r *captureDocumentReader) ParseDocument(_ context.Context, req *docreader.ParseDocumentRequest) (*docreader.ParseDocumentResponse, error) {

@@ -334,6 +334,9 @@ type Input struct {
 	Text    string   `json:"text,omitempty"`
 	Columns []string `json:"columns,omitempty"`
 	Rows    [][]any  `json:"rows,omitempty"`
+	// ColumnTypes records declared SQL types while exact decimal/identifier
+	// strings survive compute transports without floating-point conversion.
+	ColumnTypes map[string]string `json:"column_types,omitempty"`
 }
 
 // UnmarshalJSON preserves table numbers through HTTP input and persisted snapshots.
@@ -365,6 +368,11 @@ func (i Input) Validate() error {
 				return ErrInvalid
 			}
 			seen[c] = true
+		}
+		for column, typ := range i.ColumnTypes {
+			if !seen[column] || strings.TrimSpace(typ) == "" || utf8.RuneCountInString(typ) > 64 {
+				return ErrInvalid
+			}
 		}
 		for _, r := range i.Rows {
 			if len(r) != len(i.Columns) {

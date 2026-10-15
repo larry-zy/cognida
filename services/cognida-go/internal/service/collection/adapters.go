@@ -36,6 +36,14 @@ func NewKnowledgeIngestorAdapter(processor knowledge.DocumentProcessorService) *
 	return &KnowledgeIngestorAdapter{processor: processor}
 }
 
+func (a *KnowledgeIngestorAdapter) ValidateTarget(ctx context.Context, tenantID int64, kbID string) error {
+	validator, ok := a.processor.(knowledge.DocumentIngestionTargetValidator)
+	if !ok {
+		return fmt.Errorf("document ingestion target validation is unavailable")
+	}
+	return validator.ValidateIngestionTarget(ctx, tenantID, kbID)
+}
+
 func (a *KnowledgeIngestorAdapter) Ingest(ctx context.Context, request domain.IngestRequest) (*domain.IngestResult, error) {
 	if len(request.ContentHash) != 64 {
 		return nil, fmt.Errorf("invalid content hash")
@@ -68,3 +76,4 @@ func (a *KnowledgeIngestorAdapter) Ingest(ctx context.Context, request domain.In
 
 var _ domain.Fetcher = SafeFetcherAdapter{}
 var _ domain.DocumentIngestor = (*KnowledgeIngestorAdapter)(nil)
+var _ domain.TargetValidator = (*KnowledgeIngestorAdapter)(nil)

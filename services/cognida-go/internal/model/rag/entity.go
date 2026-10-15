@@ -86,6 +86,7 @@ type Document struct {
 	Content         string                 // 文档内容
 	Score           float32                // 相似度分数
 	MatchType       string                 // 匹配类型: vector/bm25/graph/hybrid
+	Sources         []string               // Actual successful backends, never inferred from requested mode.
 	ChunkIndex      int                    // 文档块索引
 	Metadata        map[string]interface{} // 元数据
 }

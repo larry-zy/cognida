@@ -1016,6 +1016,7 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 			"chunk_id":        chunk.ChunkID,
 			"content":         chunk.Content,
 			"score":           chunk.Score,
+			"sources":         chunk.Sources,
 			"highlight":       "", // 高亮功能需要在检索结果中标记匹配的关键词位置
 		}
 	}
@@ -1025,5 +1026,6 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 		"items":             items,
 		"has_answer":        result.HasAnswer,
 		"strategy_attempts": result.Attempts,
+		"warnings":          result.Warnings,
 	})
 }

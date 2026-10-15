@@ -340,7 +340,7 @@ func (r *CollectionRepository) FindAcceptedContent(ctx context.Context, tenantID
 		Joins("JOIN collection_tasks AS tasks ON tasks.id = items.task_id AND tasks.tenant_id = items.tenant_id").
 		Joins("JOIN knowledge AS documents ON documents.id = items.knowledge_id AND documents.tenant_id = items.tenant_id AND documents.knowledge_base_id = tasks.knowledge_base_id").
 		Where("items.tenant_id = ? AND items.task_id = ? AND items.content_hash = ? AND items.status = ?", tenantID, taskID, contentHash, collection.ItemStatusAccepted).
-		Where("documents.deleted_at IS NULL AND documents.parse_status = ?", "completed").
+		Where("documents.deleted_at IS NULL AND documents.parse_status = ? AND documents.enable_status = ?", "completed", "enabled").
 		Order("items.created_at DESC").First(&model).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, collection.ErrItemNotFound

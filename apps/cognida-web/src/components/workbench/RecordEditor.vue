@@ -38,6 +38,8 @@
             </select>
             <input
               v-else
+              :type="field.type === 'number' ? 'number' : 'text'"
+              :step="field.type === 'number' ? 'any' : undefined"
               :aria-label="`${title}${index + 1} ${field.label}`"
               :value="value(row, field)"
               :placeholder="field.placeholder"
@@ -71,6 +73,7 @@ export interface EditorField {
   key: string;
   label: string;
   placeholder?: string;
+  type?: 'text' | 'number';
   list?: boolean;
   options?: { value: string; label: string }[];
 }

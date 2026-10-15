@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -113,4 +114,27 @@ func TestExactInputDecodeAndStatistics(t *testing.T) {
 	raw, err := json.Marshal(computed)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "9007199254740993")
+}
+
+func TestDeclaredSQLNumbersAreAnalyzedWithoutChangingExactValues(t *testing.T) {
+	input := d.Input{Kind: "table", Columns: []string{"amount", "code", "big_id", "untyped"}, ColumnTypes: map[string]string{"amount": "DECIMAL(38,18)", "code": "VARCHAR", "big_id": "VARCHAR"}, Rows: [][]any{{"100.123456789012345678", "00123", "9007199254740993", "12.50"}, {"200.123456789012345678", "00456", "9007199254740995", "20"}, {nil, "00789", "9007199254740997", nil}}}
+	before, err := json.Marshal(input)
+	require.NoError(t, err)
+	stats, err := AnalyzeInput(input)
+	require.NoError(t, err)
+	columns := stats["columns"].([]map[string]any)
+	require.Equal(t, 2, columns[0]["numeric_count"])
+	require.Equal(t, 1, columns[0]["missing_count"])
+	require.InDelta(t, 150.123456789012345678, columns[0]["mean"], 0.0000001)
+	for _, column := range columns[1:] {
+		require.Equal(t, 0, column["numeric_count"])
+	}
+	require.Contains(t, strings.Join(stats["limitations"].([]string), " "), "float64 approximations")
+	after, err := json.Marshal(input)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after), "statistics must never rewrite exact source cells")
+	for _, bad := range []map[string]string{{"missing": "DECIMAL"}, {"amount": " "}, {"amount": strings.Repeat("x", 65)}} {
+		input.ColumnTypes = bad
+		require.ErrorIs(t, input.Validate(), d.ErrInvalid)
+	}
 }

@@ -70,6 +70,12 @@ type DocumentIngestor interface {
 	Ingest(ctx context.Context, request IngestRequest) (*IngestResult, error)
 }
 
+// TargetValidator rechecks publication availability before deduplication; an
+// unchanged source is usable only while its target is still active.
+type TargetValidator interface {
+	ValidateTarget(context.Context, int64, string) error
+}
+
 // Runner makes execution replaceable without leaking goroutine state into APIs.
 type Runner interface {
 	Start(ctx context.Context, tenantID int64, taskID string) error

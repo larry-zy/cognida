@@ -96,7 +96,7 @@ func buildAuditLog(c *gin.Context, path string, durationMs int) *auditmodel.Audi
 		"path":        path,
 	}
 	if raw := c.Request.URL.RawQuery; raw != "" {
-		details["query"] = raw
+		details["query"] = redactSensitiveQuery(raw)
 	}
 	if b, err := json.Marshal(details); err == nil {
 		entry.Details = string(b)

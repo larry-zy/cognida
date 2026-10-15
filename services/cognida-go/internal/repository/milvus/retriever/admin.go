@@ -61,6 +61,10 @@ func (r *VectorRetriever) DropKnowledgeBase(ctx context.Context, kbID int64) err
 // LoadKnowledgeBase 加载知识库到内存
 func (r *VectorRetriever) LoadKnowledgeBase(ctx context.Context, kbID int64, async bool) error {
 	collectionName := r.getCollectionName(kbID)
+	// Missing/corrupt segments can keep Milvus in Loading forever. Bound both
+	// the initial RPC and the SDK's polling, preserving an earlier deadline.
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
 
 	// 使用新 SDK Option API
 	loadOpt := milvusclient.NewLoadCollectionOption(collectionName)
@@ -71,8 +75,9 @@ func (r *VectorRetriever) LoadKnowledgeBase(ctx context.Context, kbID int64, asy
 
 	// 如果不是异步模式，等待加载完成
 	if !async {
-		// 新 SDK 的 LoadTask 可用于等待加载完成
-		_ = task.Await(ctx)
+		if err := task.Await(ctx); err != nil {
+			return fmt.Errorf("await collection %s load: %w", collectionName, err)
+		}
 	}
 
 	log.Printf("[Milvus] Collection loaded: %s", collectionName)

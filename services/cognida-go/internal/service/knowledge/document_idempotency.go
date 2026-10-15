@@ -18,6 +18,12 @@ type DocumentIngestionLocker interface {
 	WithDocumentLock(context.Context, string, func() error) error
 }
 
+// DocumentIngestionTargetValidator lets collection validate even a duplicate
+// that can reuse its previous receipt without invoking document processing.
+type DocumentIngestionTargetValidator interface {
+	ValidateIngestionTarget(context.Context, int64, string) error
+}
+
 func (s *documentProcessorService) ProcessDocument(ctx context.Context, tenantID, userID int64, req *ProcessDocumentRequest) (*ProcessDocumentResponse, error) {
 	if req == nil || req.IdempotencyKey == "" {
 		return s.processDocument(ctx, tenantID, userID, req)
@@ -26,7 +32,7 @@ func (s *documentProcessorService) ProcessDocument(ctx context.Context, tenantID
 		return nil, fmt.Errorf("idempotent ingestion requires authenticated identity, knowledge base and content")
 	}
 	// Check authorization even for an already completed result.
-	if _, err := s.kbRepo.FindByIDForTenant(ctx, req.KnowledgeBaseID, tenantID); err != nil {
+	if _, err := s.requireIngestionKnowledgeBase(ctx, req.KnowledgeBaseID, tenantID); err != nil {
 		return nil, err
 	}
 	locker, ok := s.knowledgeRepo.(DocumentIngestionLocker)
@@ -39,6 +45,10 @@ func (s *documentProcessorService) ProcessDocument(ctx context.Context, tenantID
 	contentHash := hex.EncodeToString(contentDigest[:])
 	var result *ProcessDocumentResponse
 	err := locker.WithDocumentLock(ctx, id, func() error {
+		// The target may have been disabled while another worker held the lock.
+		if _, err := s.requireIngestionKnowledgeBase(ctx, req.KnowledgeBaseID, tenantID); err != nil {
+			return err
+		}
 		copy := *req
 		copy.DocumentID, copy.creationID, copy.contentHash = "", id, contentHash
 		existing, err := s.knowledgeRepo.FindByID(ctx, id)
@@ -46,7 +56,7 @@ func (s *documentProcessorService) ProcessDocument(ctx context.Context, tenantID
 			return err
 		}
 		if existing != nil {
-			if existing.DeletedAt != nil {
+			if existing.DeletedAt != nil || !existing.IsEnabled() {
 				return domain.ErrKnowledgeNotFound
 			}
 			if existing.TenantID != tenantID || existing.KnowledgeBaseID != req.KnowledgeBaseID || existing.FileHash != contentHash {

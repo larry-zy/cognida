@@ -10,6 +10,7 @@ import (
 	"cognida/internal/service/agent/resultstore"
 	"cognida/internal/service/catalog"
 	"cognida/internal/service/collection"
+	"cognida/internal/service/collection/fetcher"
 	"cognida/internal/service/datasource"
 	"cognida/internal/service/knowledge"
 	"cognida/internal/service/lifecycle"
@@ -60,6 +61,9 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 		case "web":
 			response, e := fetcher.Fetch(ctx, collectionmodel.FetchRequest{URL: req.URL, MaxResponseBytes: 2 << 20})
 			if e != nil {
+				if invalidWebSource(e) {
+					return input, origin, policy, fmt.Errorf("%w: %v", l.ErrInvalid, e)
+				}
 				return input, origin, policy, e
 			}
 			content, e := (collection.TextNormalizer{}).Normalize(response.ContentType, response.Body)
@@ -70,6 +74,12 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			origin.SourceID = response.CanonicalURL
 			origin.URI = response.CanonicalURL
 		case "datasource":
+			if _, e := source.Get(ctx, p.TenantID, req.DatasourceID); e != nil {
+				if errors.Is(e, datasource.ErrNotFound) {
+					return input, origin, policy, l.ErrNotFound
+				}
+				return input, origin, policy, e
+			}
 			conn, ds, e := source.ConnectionManager().Acquire(ctx, p.TenantID, req.DatasourceID)
 			if e != nil {
 				return input, origin, policy, e
@@ -112,14 +122,18 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 					return input, origin, policy, e
 				}
 			}
-			columns, rows, e := source.SampleRecords(ctx, p.TenantID, req.DatasourceID, req.Table, 1000)
+			columns, rows, columnTypes, e := source.SampleRecordsWithTypes(ctx, p.TenantID, req.DatasourceID, req.Table, 1000)
 			if e != nil {
 				return input, origin, policy, e
 			}
-			input = l.Input{Kind: "table", Columns: columns, Rows: rows}
+			input = l.Input{Kind: "table", Columns: columns, Rows: rows, ColumnTypes: columnTypes}
 		case "knowledge":
 			document, e := mysql.NewKnowledgeRepository(db).FindByID(ctx, req.KnowledgeID)
-			if e != nil || document == nil || document.TenantID != p.TenantID || document.DeletedAt != nil {
+			if e != nil || document == nil || document.TenantID != p.TenantID || document.DeletedAt != nil || !document.IsEnabled() {
+				return input, origin, policy, l.ErrNotFound
+			}
+			kb, e := mysql.NewKnowledgeBaseRepository(db, true).FindByIDForTenant(ctx, document.KnowledgeBaseID, p.TenantID)
+			if e != nil || kb == nil || kb.DeletedAt != nil || !kb.IsActive() {
 				return input, origin, policy, l.ErrNotFound
 			}
 			chunks, e := mysql.NewChunkRepository(db).FindByKnowledgeID(ctx, document.ID, true)
@@ -128,6 +142,9 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			}
 			var text strings.Builder
 			for _, chunk := range chunks {
+				if chunk == nil || chunk.DeletedAt != nil || chunk.TenantID != p.TenantID || chunk.KnowledgeBaseID != kb.ID {
+					continue
+				}
 				if text.Len()+len(chunk.Content) > 800000 {
 					return input, origin, policy, l.ErrInvalid
 				}
@@ -171,11 +188,14 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			if e != nil || session == nil || session.TenantID != p.TenantID || session.UserID != p.UserID {
 				return input, origin, policy, l.ErrNotFound
 			}
-			result, e := results.Get(ctx, resultstore.OwnerKey(p.TenantID, req.SessionID), req.ResultID)
+			result, e := exactLifecycleResult(ctx, results, resultstore.OwnerKey(p.TenantID, req.SessionID), req.ResultID)
 			if e != nil {
+				if errors.Is(e, resultstore.ErrNotFound) || errors.Is(e, resultstore.ErrUnauthorized) {
+					return input, origin, policy, l.ErrNotFound
+				}
 				return input, origin, policy, e
 			}
-			input = l.Input{Kind: "table", Columns: result.Columns, Rows: [][]any{}}
+			input = l.Input{Kind: "table", Columns: result.Columns, Rows: [][]any{}, ColumnTypes: result.ColumnTypes}
 			for _, row := range result.Rows {
 				values := make([]any, len(result.Columns))
 				for i, col := range result.Columns {
@@ -189,13 +209,24 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			if e != nil || task == nil || task.TenantID != p.TenantID || task.UserID != p.UserID {
 				return input, origin, policy, l.ErrNotFound
 			}
-			rows, _, e := mysql.NewEvaluationResultRepository(db).FindByTaskIDByCursor(ctx, task.ID, "", 1000)
-			if e != nil {
-				return input, origin, policy, e
-			}
 			input = l.Input{Kind: "table", Columns: []string{"question", "reference_answer", "generated_answer", "success"}, Rows: [][]any{}}
-			for _, row := range rows {
-				input.Rows = append(input.Rows, []any{row.Question, row.ReferenceAnswer, row.GeneratedAnswer, row.Success})
+			cursor := ""
+			repo := mysql.NewEvaluationResultRepository(db)
+			for {
+				rows, next, err := repo.FindByTaskIDByCursor(ctx, task.ID, cursor, 100)
+				if err != nil {
+					return input, origin, policy, err
+				}
+				if len(input.Rows)+len(rows) > 10000 {
+					return l.Input{}, origin, policy, fmt.Errorf("%w: evaluation source exceeds 10000 rows", l.ErrInvalid)
+				}
+				for _, row := range rows {
+					input.Rows = append(input.Rows, []any{row.Question, row.ReferenceAnswer, row.GeneratedAnswer, row.Success})
+				}
+				if next == "" {
+					break
+				}
+				cursor = next
 			}
 			origin.SourceID = task.ID
 		default:
@@ -204,6 +235,24 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 		return input, origin, policy, input.Validate()
 	}
 }
+
+func invalidWebSource(err error) bool {
+	return errors.Is(err, fetcher.ErrInvalidURL) || errors.Is(err, fetcher.ErrUnsafeDestination) ||
+		errors.Is(err, fetcher.ErrUnsupportedType) || errors.Is(err, fetcher.ErrResponseTooLarge)
+}
+
+func exactLifecycleResult(ctx context.Context, store resultstore.Store, owner, id string) (*resultstore.Result, error) {
+	if store == nil {
+		return nil, resultstore.ErrNotFound
+	}
+	if exact, ok := store.(interface {
+		GetExact(context.Context, string, string) (*resultstore.Result, error)
+	}); ok {
+		return exact.GetExact(ctx, owner, id)
+	}
+	return store.Get(ctx, owner, id)
+}
+
 func featurePublication(processor knowledge.DocumentProcessorService, catalogService *catalog.Service) lifecycle.PublishFunc {
 	return func(ctx context.Context, p l.Principal, ref l.DataAssetRef, payload json.RawMessage, options map[string]any) (map[string]any, error) {
 		var input l.Input

@@ -20,6 +20,11 @@ pnpm-debug.log*
 # ---- 测试 / 覆盖率 ----
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
+blob-report/
+playwright/.auth/
+e2e/*.local.json
 
 # ---- 缓存 ----
 .vite/

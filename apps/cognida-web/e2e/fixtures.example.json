@@ -1,0 +1,14 @@
+{
+  "target_knowledge_base_id": "REPLACE_WITH_AUTHORIZED_KB_ID",
+  "analysis_prompt": "",
+  "scenarios": [
+    { "id": "manual-text", "source": "text", "text": "A documented sample for isolated acceptance. North recorded 100 units, South recorded 200 units, and West recorded 300 units. These are observations from the supplied snapshot and are not evidence of causation or future results.", "expected": { "text_includes": "isolated acceptance" } },
+    { "id": "manual-table", "source": "table", "columns": ["region", "revenue"], "column_types": { "region": "text", "revenue": "number" }, "rows": [["North",100],["South",200],["West",300]], "expected": { "record_count": 3, "numeric_column": "revenue", "numeric_count": 3, "mean": 200 } },
+    { "id": "real-web", "source": "web", "url": "REPLACE_WITH_PUBLIC_HTTPS_URL" },
+    { "id": "uploaded-document", "source": "knowledge", "knowledge_id": "REPLACE_WITH_PARSED_DOCUMENT_ID" },
+    { "id": "collected-page", "source": "collection", "run_id": "REPLACE_WITH_COLLECTION_RUN_ID", "item_id": "REPLACE_WITH_ITEM_IN_THAT_RUN" },
+    { "id": "database-table", "source": "datasource", "datasource_id": "REPLACE_WITH_DATASOURCE_ID", "schema": "REPLACE_WITH_SCHEMA", "table": "REPLACE_WITH_TABLE" },
+    { "id": "query-result", "source": "result", "session_id": "REPLACE_WITH_OWNED_SESSION_ID", "result_id": "REPLACE_WITH_UNEXPIRED_RESULT_ID" },
+    { "id": "evaluation-results", "source": "evaluation", "run_id": "REPLACE_WITH_COMPLETED_EVALUATION_ID" }
+  ]
+}

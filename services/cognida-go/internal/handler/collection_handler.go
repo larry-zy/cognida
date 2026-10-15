@@ -76,7 +76,8 @@ func (h *CollectionHandler) Create(c *gin.Context) {
 		BadRequest(c, "Idempotency-Key is required")
 		return
 	}
-	if _, err := h.kbs.FindByID(c.Request.Context(), req.KnowledgeBaseID, tenantID); err != nil {
+	kb, err := h.kbs.FindByID(c.Request.Context(), req.KnowledgeBaseID, tenantID)
+	if err != nil || kb == nil || kb.TenantID != tenantID || kb.DeletedAt != nil || !kb.IsActive() {
 		NotFound(c, "knowledge base not found")
 		return
 	}
@@ -152,6 +153,11 @@ func (h *CollectionHandler) Get(c *gin.Context) {
 			return
 		}
 		response["run"], response["items"] = run, items
+		summary := domain.SummarizeItems(len(sources), items)
+		if run.Status == domain.RunStatusRunning || run.Status == domain.RunStatusCancelled || run.Status == domain.RunStatusFailed {
+			summary.Outcome = string(run.Status)
+		}
+		response["summary"] = summary
 	} else if !errors.Is(err, domain.ErrRunNotFound) {
 		h.writeError(c, err)
 		return

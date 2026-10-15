@@ -165,7 +165,7 @@ func (s *Service) handle(ctx context.Context, j job.Job) error {
 	if s.requiresApproval(request) && !stage.Approved {
 		return s.pause(ctx, stage)
 	}
-	workCtx, cancel := context.WithCancel(ctx)
+	workCtx, cancel := context.WithTimeout(ctx, s.config.StageTimeout)
 	defer cancel()
 	done := make(chan struct{})
 	defer close(done)
@@ -190,6 +190,12 @@ func (s *Service) handle(ctx context.Context, j job.Job) error {
 	out, runErr := s.adapters[stage.AgentID].Run(workCtx, request)
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if errors.Is(workCtx.Err(), context.DeadlineExceeded) {
+		// Use the still-live delivery context to persist the failure and apply
+		// the existing retry budget. A local deadline must not leave the stage
+		// running as lease loss or explicit cancellation would.
+		return s.finish(ctx, stage, d.Output{}, fmt.Errorf("stage execution exceeded %s: %w", s.config.StageTimeout, context.DeadlineExceeded))
 	}
 	if workCtx.Err() != nil {
 		return s.reconcile(ctx, stage.TenantID, stage.RunID)

@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	ds "cognida/internal/model/datasource"
 	d "cognida/internal/model/lifecycle"
 )
 
@@ -287,7 +288,7 @@ func AnalyzeInput(input d.Input) (map[string]any, error) {
 	if e := input.Validate(); e != nil {
 		return nil, e
 	}
-	analysis := map[string]any{"method": "descriptive_statistics", "limitations": []string{"Descriptive observations only; no causal inference or predictive accuracy is claimed."}}
+	analysis := map[string]any{"method": "descriptive_statistics", "limitations": []string{"Descriptive observations only; no causal inference or predictive accuracy is claimed.", "Numeric summaries use finite float64 approximations; exact SQL decimal and identifier values remain unchanged in source and published snapshots."}}
 	if input.Kind == "text" {
 		analysis["character_count"] = len([]rune(input.Text))
 		analysis["word_count"] = len(strings.Fields(input.Text))
@@ -307,6 +308,14 @@ func AnalyzeInput(input d.Input) (map[string]any, error) {
 				if v == nil || v == "" {
 					missing++
 					continue
+				}
+				// SQL drivers commonly return DECIMAL as text. Only explicit
+				// column metadata authorizes treating such text as numeric.
+				if text, ok := v.(string); ok && ds.IsNumericSQLType(input.ColumnTypes[name]) {
+					trimmed := strings.TrimSpace(text)
+					if len(trimmed) <= 128 && json.Valid([]byte(trimmed)) {
+						v = json.Number(trimmed)
+					}
 				}
 				if f, ok := number(v); ok && !math.IsNaN(f) && !math.IsInf(f, 0) {
 					numeric = append(numeric, f)

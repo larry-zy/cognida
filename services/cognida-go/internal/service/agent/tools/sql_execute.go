@@ -194,6 +194,18 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 	if err != nil {
 		return nil, fmt.Errorf("获取列名失败: %w", err)
 	}
+	// Keep driver types with the stored result. DECIMAL commonly arrives as text;
+	// parsing strings would also turn VARCHAR identifiers such as 00123 into numbers.
+	driverTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, fmt.Errorf("获取列类型失败: %w", err)
+	}
+	columnTypes := make(map[string]string, len(driverTypes))
+	for i, columnType := range driverTypes {
+		if databaseType := columnType.DatabaseTypeName(); databaseType != "" {
+			columnTypes[columns[i]] = databaseType
+		}
+	}
 
 	// 读取数据
 	var rowData []map[string]interface{}
@@ -232,10 +244,11 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 
 	// data-by-reference：完整结果集写入 Result Store，回灌 LLM 的只是信封。
 	result := &resultstore.Result{
-		SourceSQL: execSQL,
-		Owner:     owner,
-		Columns:   columns,
-		Rows:      rowData,
+		SourceSQL:   execSQL,
+		Owner:       owner,
+		Columns:     columns,
+		ColumnTypes: columnTypes,
+		Rows:        rowData,
 	}
 	resultID := ""
 	if rs != nil {

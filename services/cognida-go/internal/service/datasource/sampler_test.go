@@ -62,7 +62,13 @@ type sampleRows struct {
 }
 
 func (r *sampleRows) Columns() []string { return r.cols }
-func (r *sampleRows) Close() error      { return nil }
+func (r *sampleRows) ColumnTypeDatabaseTypeName(i int) string {
+	if r.cols[i] == "id" {
+		return "BIGINT"
+	}
+	return "VARCHAR"
+}
+func (r *sampleRows) Close() error { return nil }
 func (r *sampleRows) Next(dest []driver.Value) error {
 	if r.pos >= len(r.data) {
 		return io.EOF
@@ -114,6 +120,21 @@ func TestSampleCSV(t *testing.T) {
 		if strings.Join(records[i], ",") != strings.Join(want[i], ",") {
 			t.Errorf("第 %d 行 = %v, want %v", i, records[i], want[i])
 		}
+	}
+}
+
+func TestSampleRecordsRetainsSQLTypesAndExactCells(t *testing.T) {
+	s, repo := newSampleService(t)
+	seedHealthDS(t, s, repo, "typed", model.TypeMySQL, model.StatusActive)
+	columns, rows, types, err := s.SampleRecordsWithTypes(context.Background(), 1, "typed", "orders", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(columns, ",") != "id,name,note" || types["id"] != "BIGINT" || types["name"] != "VARCHAR" {
+		t.Fatalf("missing declared schema: %v %v", columns, types)
+	}
+	if rows[0][0] != "1" || rows[0][1] != "alice" || rows[0][2] != nil {
+		t.Fatalf("cell representation changed: %+v", rows)
 	}
 }
 

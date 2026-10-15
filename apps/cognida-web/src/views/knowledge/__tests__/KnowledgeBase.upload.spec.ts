@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
+import { knowledgeApi } from '@/api/knowledge'
 import KnowledgeBase from '@/views/knowledge/KnowledgeBase.vue'
 import toast from '@/utils/toast'
 import { MAX_KNOWLEDGE_FILE_SIZE } from '@/utils/directoryTree'
@@ -51,7 +52,7 @@ async function mountView() {
   const wrapper = mount(KnowledgeBase, {
     global: {
       // GraphView 依赖 vis-network 的真实尺寸，测试里只需壳；el-* 与 v-loading 由 main.ts 全局注册，这里补桩
-      stubs: { GraphView: true, 'el-icon': true, RouterLink: true },
+      stubs: { GraphView: true, 'el-icon': true, RouterLink: RouterLinkStub },
       directives: { loading: {} }
     },
     attachTo: document.body
@@ -65,6 +66,19 @@ beforeEach(() => {
 })
 
 describe('KnowledgeBase/文件选择过滤', () => {
+  it('offers a source link only for a parsed document with usable chunks', async () => {
+    vi.mocked(knowledgeApi.getKnowledgeList).mockResolvedValueOnce({ data: [
+      { id: 'document-ready', title: 'Ready document', parse_status: 'completed', chunk_count: 2 },
+      { id: 'document-failed', title: 'Failed document', parse_status: 'failed', chunk_count: 0 },
+    ] } as any)
+    const wrapper = await mountView()
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === '文档')!.trigger('click')
+    await flushPromises()
+    const links = wrapper.findAllComponents(RouterLinkStub).filter(link => link.text() === '转入流水线')
+    expect(links).toHaveLength(1)
+    expect(links[0].props('to')).toEqual({ path: '/pipelines', query: { source: 'knowledge', knowledge_id: 'document-ready', name: 'Ready document' } })
+    wrapper.unmount()
+  })
   it('多选中夹带超过 50MB 的文件时被过滤，不进入批量上传队列', async () => {
     const wrapper = await mountView()
     const input = wrapper.find('input[type="file"]:not([webkitdirectory])').element as HTMLInputElement

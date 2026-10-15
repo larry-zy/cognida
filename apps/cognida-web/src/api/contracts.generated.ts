@@ -361,6 +361,7 @@ export interface LifecycleInput {
   text?: string;
   columns?: Array<string> | null;
   rows?: Array<Array<unknown> | null> | null;
+  column_types?: Record<string, string> | null;
 }
 
 export interface LifecycleOutput {

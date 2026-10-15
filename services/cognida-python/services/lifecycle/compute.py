@@ -58,9 +58,14 @@ def dataframe(table) -> pd.DataFrame:
     return pd.DataFrame(table.rows, columns=table.columns, dtype=object)
 
 
-def table_output(frame: pd.DataFrame) -> dict:
+def table_output(frame: pd.DataFrame, column_types: dict[str, str] | None = None) -> dict:
     rows = json_safe(frame.values.tolist())
-    return {"kind": "table", "columns": list(frame.columns), "rows": rows}
+    output = {"kind": "table", "columns": list(frame.columns), "rows": rows}
+    if column_types:
+        output["column_types"] = {
+            name: column_types[name] for name in frame.columns if name in column_types
+        }
+    return output
 
 
 def tokens(text: str) -> list[str]:
@@ -152,7 +157,7 @@ def clean(request: CleanRequest) -> dict:
         cls = CleanerRegistry.get(name)
         if cls is None:
             raise ValueError(f"cleaner is not registered: {name}")
-        config = {"columns": selected, "subset": selected, "text_column": None}
+        config = {"columns": selected, "subset": selected} if selected is not None else {}
         cleaner = cls()
         if name == "dedup":
             # Reversing twice lets the existing keep-first engine preserve the last occurrence.
@@ -184,9 +189,9 @@ def clean(request: CleanRequest) -> dict:
     output = (
         {"kind": "text", "text": "\n".join(frame["text"].astype(str))}
         if is_text
-        else table_output(frame)
+        else table_output(frame, request.input.column_types)
     )
-    changed = output != request.input.model_dump(mode="json")
+    changed = output != request.input.model_dump(mode="json", exclude_defaults=True)
     return envelope(
         request,
         "cleaner-registry-v1",
@@ -214,6 +219,19 @@ def merge(request: MergeRequest) -> dict:
         raise ValueError("merged schema exceeds 200 columns")
     if request.options.keys and any(key not in columns for key in request.options.keys):
         raise ValueError("merge keys must belong to the merged schema")
+    column_types = {}
+    warnings = []
+    for column in columns:
+        types = {
+            table.column_types.get(column) for table in request.inputs if column in table.columns
+        }
+        known = types - {None}
+        if len(known) > 1:
+            raise ValueError(f"conflicting SQL column types for {column}")
+        if known and None not in types:
+            column_types[column] = next(iter(known))
+        elif known:
+            warnings.append(f"SQL type omitted for {column}: not all inputs declare a type")
     frame = pd.concat(
         [dataframe(table).reindex(columns=columns) for table in request.inputs], ignore_index=True
     )
@@ -231,7 +249,7 @@ def merge(request: MergeRequest) -> dict:
         request,
         "schema-aligned-concat-v1",
         {
-            "data": table_output(frame),
+            "data": table_output(frame, column_types),
             "original_count": original_count,
             "cleaned_count": len(frame),
             "removed_count": original_count - len(frame),
@@ -244,6 +262,7 @@ def merge(request: MergeRequest) -> dict:
                 for index, table in enumerate(request.inputs)
             ],
         },
+        warnings=warnings,
     )
 
 

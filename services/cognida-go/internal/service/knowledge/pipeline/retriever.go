@@ -98,6 +98,7 @@ func (r *RetrieverImpl) RetrieveWithEmbedding(ctx context.Context, tenantID, kbI
 			"tenant_id": tenantID,
 		})
 		if err == nil && len(vectorDocs) > 0 {
+			vectorDocs = documentsFromSource(vectorDocs, "milvus_vector")
 			results = append(results, vectorDocs...)
 			trace.RetrievalDetails = append(trace.RetrievalDetails, domainrag.RetrievalStep{
 				StepType:    "milvus_vector",
@@ -183,6 +184,7 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 			successfulBackend = true
 		}
 		if err == nil && len(vectorDocs) > 0 {
+			vectorDocs = documentsFromSource(vectorDocs, "milvus_vector")
 			for _, doc := range vectorDocs {
 				doc.MatchType = "vector"
 			}
@@ -209,6 +211,7 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 			warnings = append(warnings, "vector retrieval used lexical database fallback")
 		}
 		if err == nil && len(memoryDocs) > 0 {
+			memoryDocs = documentsFromSource(memoryDocs, "database_lexical")
 			for _, doc := range memoryDocs {
 				doc.MatchType = "vector"
 			}
@@ -272,6 +275,7 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 			successfulBackend = true
 		}
 		if err == nil && len(bm25Docs) > 0 {
+			bm25Docs = documentsFromSource(bm25Docs, "milvus_bm25")
 			for _, doc := range bm25Docs {
 				doc.MatchType = "bm25"
 				results = append(results, doc)
@@ -303,6 +307,7 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 					Content:         chunk.Content,
 					Score:           score,
 					MatchType:       "bm25",
+					Sources:         []string{"database_lexical"},
 					ChunkIndex:      chunk.ChunkIndex,
 				})
 			}
@@ -532,6 +537,7 @@ func (r *RetrieverImpl) GraphRetrieve(ctx context.Context, tenantID, kbID, query
 	if len(results) > limit {
 		results = results[:limit]
 	}
+	results = documentsFromSource(results, "neo4j_graph")
 
 	trace.GraphLatency = time.Since(startTime).Milliseconds()
 	trace.GraphResultCount = len(results)
@@ -582,6 +588,7 @@ func (r *RetrieverImpl) vectorRetrieveWithEmbedding(ctx context.Context, tenantI
 			Content:         chunk.Content,
 			Score:           score,
 			MatchType:       "vector",
+			Sources:         []string{"database_lexical"},
 			ChunkIndex:      chunk.ChunkIndex,
 		})
 	}
@@ -621,7 +628,9 @@ func (r *RetrieverImpl) rRFusion(vectorDocs, bm25Docs []*domainrag.Document, top
 	for i, doc := range vectorDocs {
 		key := doc.ChunkID
 		if _, exists := docMap[key]; !exists {
-			docMap[key] = doc
+			copy := *doc
+			copy.Sources = append([]string{}, doc.Sources...)
+			docMap[key] = &copy
 		}
 		rrfScore := 1.0 / float64(k+i+1)
 		scoreMap[key] += rrfScore * (1 - alpha)
@@ -631,7 +640,15 @@ func (r *RetrieverImpl) rRFusion(vectorDocs, bm25Docs []*domainrag.Document, top
 	for i, doc := range bm25Docs {
 		key := doc.ChunkID
 		if _, exists := docMap[key]; !exists {
-			docMap[key] = doc
+			copy := *doc
+			copy.Sources = append([]string{}, doc.Sources...)
+			docMap[key] = &copy
+		} else {
+			for _, source := range doc.Sources {
+				if !containsSource(docMap[key].Sources, source) {
+					docMap[key].Sources = append(docMap[key].Sources, source)
+				}
+			}
 		}
 		rrfScore := 1.0 / float64(k+i+1)
 		scoreMap[key] += rrfScore * alpha
@@ -664,6 +681,29 @@ func (r *RetrieverImpl) rRFusion(vectorDocs, bm25Docs []*domainrag.Document, top
 	}
 
 	return result
+}
+
+// Assign provenance only where a backend actually returned evidence. Copy the
+// document so concurrent vector/BM25 requests cannot overwrite shared results.
+func documentsFromSource(docs []*domainrag.Document, source string) []*domainrag.Document {
+	out := make([]*domainrag.Document, 0, len(docs))
+	for _, doc := range docs {
+		if doc == nil {
+			continue
+		}
+		copy := *doc
+		copy.Sources = []string{source}
+		out = append(out, &copy)
+	}
+	return out
+}
+func containsSource(sources []string, source string) bool {
+	for _, current := range sources {
+		if current == source {
+			return true
+		}
+	}
+	return false
 }
 
 func min(a, b int) int {

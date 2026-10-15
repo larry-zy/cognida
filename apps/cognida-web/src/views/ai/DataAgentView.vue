@@ -135,6 +135,7 @@
                   :default-open="false"
                 />
                 <div class="bubble bubble--ai" v-html="renderMarkdown(message.content)"></div>
+                <QueryResultLinks :session-id="currentSessionId" :steps="message.steps" />
                 <div v-if="message.ui_surfaces && message.ui_surfaces.length" class="canvas-ref">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 3h18v14H3z"/><path d="M8 21h8M12 17v4"/>
@@ -295,6 +296,7 @@ import type { Message, AgentStep } from '@/types'
 import { formatTime } from '@/utils'
 import toast from '@/utils/toast'
 import AgentTimeline from '@/components/agent/AgentTimeline.vue'
+import QueryResultLinks from './QueryResultLinks.vue'
 import A2UIRenderer from '@/components/agent/A2UIRenderer.vue'
 import type { A2UISpec, A2UIAction } from '@/components/agent/a2ui-context'
 import { useMarkdown } from '@/composables/useMarkdown'

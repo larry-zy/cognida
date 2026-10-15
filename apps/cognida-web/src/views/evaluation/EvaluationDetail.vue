@@ -24,6 +24,7 @@
             <UiTag v-if="detail.task" :variant="getStatusType(detail.task.status)">
               {{ getStatusText(detail.task.status) }}
             </UiTag>
+            <RouterLink v-if="detail.task?.status === EvaluationStatus.Completed && detail.task.total_count > 0" :to="{ path: '/pipelines', query: { source: 'evaluation', run_id: detail.task.task_id, name: detail.dataset_name ? `${detail.dataset_name}评测结果` : '评测结果' } }">转入流水线</RouterLink>
           </div>
         </template>
         <UiDescriptions v-if="detail.task" :column="3" border>

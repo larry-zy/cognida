@@ -11,7 +11,17 @@ import (
 	"testing"
 
 	"cognida/internal/model/rag"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCapabilityPreservesActualBackendSourcesInsteadOfRequestedMode(t *testing.T) {
+	for _, sources := range [][]string{{"database_lexical"}, {"milvus_vector", "milvus_bm25"}, nil} {
+		ret := &capFakeRetriever{hybrid: []*rag.Document{{ChunkID: "c", Content: "proof", Score: 1, Sources: sources}}}
+		out, err := NewRetrievalCapability(ret, nil).Retrieve(context.Background(), 1, []string{"kb"}, GovernedQuery{Query: "proof", Mode: "hybrid"})
+		require.NoError(t, err)
+		require.Equal(t, append([]string{}, sources...), out.Chunks[0].Sources)
+	}
+}
 
 // capFakeRetriever 按检索模式返回预置文档，并记录最近一次收到的 opts。
 // 未预置的模式返回 nil（模拟单库无命中）。逐库检索现为并发扇出，故内部状态用 mu 保护，

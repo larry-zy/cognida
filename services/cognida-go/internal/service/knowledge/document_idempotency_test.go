@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"testing"
@@ -40,9 +41,9 @@ func TestDocumentIngestionReplayReturnsPreviouslyCommittedDocument(t *testing.T)
 	id := uuid.NewSHA1(uuid.NameSpaceURL, idHash[:]).String()
 	bodyHash := sha256.Sum256([]byte("already ingested"))
 	count := 3
-	repo := &replayKnowledgeRepo{doc: &domain.Knowledge{ID: id, TenantID: 1, KnowledgeBaseID: "kb", FileHash: hex.EncodeToString(bodyHash[:]), ParseStatus: domain.ParseStatusCompleted, ChunkCount: &count}}
+	repo := &replayKnowledgeRepo{doc: &domain.Knowledge{ID: id, TenantID: 1, KnowledgeBaseID: "kb", FileHash: hex.EncodeToString(bodyHash[:]), ParseStatus: domain.ParseStatusCompleted, EnableStatus: domain.EnableStatusEnabled, ChunkCount: &count}}
 	kbRepo := newTenantFakeKBRepo()
-	kbRepo.kbs["kb"] = &domain.KnowledgeBase{ID: "kb", TenantID: 1}
+	kbRepo.kbs["kb"] = &domain.KnowledgeBase{ID: "kb", TenantID: 1, Status: 1}
 	svc := &documentProcessorService{kbRepo: kbRepo, knowledgeRepo: repo}
 	req := &ProcessDocumentRequest{KnowledgeBaseID: "kb", IdempotencyKey: "stable-key", Content: []byte("already ingested")}
 	for i := 0; i < 2; i++ {
@@ -57,6 +58,14 @@ func TestDocumentIngestionReplayReturnsPreviouslyCommittedDocument(t *testing.T)
 	if repo.lockCalls != 2 {
 		t.Fatal("replays must be serialized")
 	}
+	repo.doc.EnableStatus = domain.EnableStatusDisabled
+	if result, err := svc.ProcessDocument(ctx, 1, 2, req); !errors.Is(err, domain.ErrKnowledgeNotFound) || result != nil {
+		t.Fatalf("disabled document replay: result=%+v, err=%v", result, err)
+	}
+	if repo.doc.IsEnabled() {
+		t.Fatal("replay must not re-enable a disabled document")
+	}
+	repo.doc.EnableStatus = domain.EnableStatusEnabled
 	req.Content = []byte("different payload")
 	if _, err := svc.ProcessDocument(ctx, 1, 2, req); err == nil {
 		t.Fatal("conflicting idempotency key accepted")

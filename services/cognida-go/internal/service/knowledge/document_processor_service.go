@@ -4,6 +4,7 @@ package knowledge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -36,7 +37,8 @@ type documentProcessorService struct {
 	embedder               embedding.Embedder   // Embedding 生成器
 	llmClient              domain_llm.LLMClient // LLM 客户端（用于图谱提取）
 	idGenerator            id.IDGenerator
-	vectorInitMu           sync.Mutex
+	vectorInitOnce         sync.Once
+	vectorInitGate         chan struct{}
 	vectorCollectionsReady sync.Map // key: kbID int64，已初始化的 collection；热路径免锁免 HasCollection RPC
 }
 
@@ -73,7 +75,7 @@ func (s *documentProcessorService) processDocument(
 	tenantID int64,
 	userID int64,
 	req *ProcessDocumentRequest,
-) (*ProcessDocumentResponse, error) {
+) (_ *ProcessDocumentResponse, retErr error) {
 	startTime := time.Now()
 	if req == nil {
 		return nil, fmt.Errorf("document request is required")
@@ -90,12 +92,9 @@ func (s *documentProcessorService) processDocument(
 	}
 
 	// 2. 获取知识库信息
-	kb, err := s.kbRepo.FindByIDForTenant(ctx, req.KnowledgeBaseID, tenantID)
+	kb, err := s.requireIngestionKnowledgeBase(ctx, req.KnowledgeBaseID, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge base not found: %w", err)
-	}
-	if kb == nil || kb.TenantID != tenantID {
-		return nil, domain_knowledge.ErrKnowledgeBaseNotFound
 	}
 	if req.DocumentID != "" {
 		existing, err := s.knowledgeRepo.FindByID(ctx, req.DocumentID)
@@ -168,6 +167,14 @@ func (s *documentProcessorService) processDocument(
 		}
 	}
 
+	// Once the document exists, cancellation at any later persistence/indexing
+	// boundary must leave a durable failed receipt instead of processing forever.
+	defer func() {
+		if retErr != nil && ctx.Err() != nil {
+			retErr = s.recordCancelledProcessing(ctx, knowledgeID, retErr)
+		}
+	}()
+
 	// 7. 批量创建分块
 	chunkEntities, err := s.createChunkEntities(ctx, knowledgeID, tenantID, req.KnowledgeBaseID, chunks)
 	if err != nil {
@@ -223,6 +230,9 @@ func (s *documentProcessorService) processDocument(
 	}
 
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// 9. 更新知识条目状态
 	// 向量化是语义检索的前置条件：失败则该文档无法被检索，标 completed 属谎报——
@@ -275,6 +285,36 @@ func (s *documentProcessorService) processDocument(
 		Vectorized:     vectorized,
 		GraphExtracted: graphExtracted,
 	}, nil
+}
+
+// Cancellation stops remote processing, but its failure receipt must still be
+// durable. Bound this cleanup separately and preserve request trace values;
+// never use the detached context for parsing, indexing or publication itself.
+func (s *documentProcessorService) recordCancelledProcessing(ctx context.Context, knowledgeID string, cause error) error {
+	statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.knowledgeRepo.UpdateParseStatus(statusCtx, knowledgeID, domain_knowledge.ParseStatusFailed, "document processing interrupted: "+cause.Error()); err != nil {
+		return errors.Join(cause, fmt.Errorf("persist interrupted document status: %w", err))
+	}
+	return cause
+}
+
+// requireIngestionKnowledgeBase also applies to replayed ingestion receipts:
+// a historical completed document cannot authorize writes to an inactive target.
+func (s *documentProcessorService) requireIngestionKnowledgeBase(ctx context.Context, kbID string, tenantID int64) (*domain_knowledge.KnowledgeBase, error) {
+	kb, err := s.kbRepo.FindByIDForTenant(ctx, kbID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if kb == nil || kb.TenantID != tenantID || kb.DeletedAt != nil || !kb.IsActive() {
+		return nil, domain_knowledge.ErrKnowledgeBaseNotFound
+	}
+	return kb, nil
+}
+
+func (s *documentProcessorService) ValidateIngestionTarget(ctx context.Context, tenantID int64, kbID string) error {
+	_, err := s.requireIngestionKnowledgeBase(ctx, kbID, tenantID)
+	return err
 }
 
 // validateRequest 验证请求
@@ -642,6 +682,7 @@ func (s *documentProcessorService) vectorizeChunks(
 	if len(embeddings) == 0 || len(embeddings[0]) == 0 {
 		return fmt.Errorf("embedding service returned an empty vector")
 	}
+	log.Printf("[DocumentProcessor] Embeddings generated for %d chunks; initializing vector storage", len(chunks))
 
 	// kbID 转换为 int64，如果为空则使用 0（统一 collection）。首次写入时根据真实
 	// embedding 维度初始化 collection；已初始化的 collection 走内存缓存，只有真正的
@@ -653,6 +694,7 @@ func (s *documentProcessorService) vectorizeChunks(
 	if err := s.ensureVectorCollectionCached(ctx, s.vectorRepo, kbIDInt64, len(embeddings[0])); err != nil {
 		return fmt.Errorf("failed to initialize vector collection: %w", err)
 	}
+	log.Printf("[DocumentProcessor] Vector storage ready; inserting %d chunks", len(chunks))
 
 	// 3. 转换为 VectorDocument 格式
 	docs := make([]*domain_knowledge.VectorDocument, len(chunks))
@@ -720,8 +762,13 @@ func (s *documentProcessorService) ensureVectorCollectionCached(
 	if _, ready := s.vectorCollectionsReady.Load(kbID); ready {
 		return nil
 	}
-	s.vectorInitMu.Lock()
-	defer s.vectorInitMu.Unlock()
+	s.vectorInitOnce.Do(func() { s.vectorInitGate = make(chan struct{}, 1) })
+	select {
+	case s.vectorInitGate <- struct{}{}:
+		defer func() { <-s.vectorInitGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	if _, ready := s.vectorCollectionsReady.Load(kbID); ready {
 		return nil
 	}

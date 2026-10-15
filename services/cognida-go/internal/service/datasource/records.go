@@ -10,6 +10,14 @@ import (
 // SampleRecords preserves SQL NULL, unlike CSV, and bounds both rows and bytes.
 // Connections remain owned by ConnectionManager.
 func (s *Service) SampleRecords(ctx context.Context, tenant int64, id, table string, limit int) ([]string, [][]any, error) {
+	columns, rows, _, err := s.SampleRecordsWithTypes(ctx, tenant, id, table, limit)
+	return columns, rows, err
+}
+
+// SampleRecordsWithTypes carries driver-declared SQL types beside exact textual
+// values. DECIMAL must not pass through float64 or a Python JSON float on the
+// way to an immutable source/cleaned/published asset.
+func (s *Service) SampleRecordsWithTypes(ctx context.Context, tenant int64, id, table string, limit int) ([]string, [][]any, map[string]string, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -18,17 +26,17 @@ func (s *Service) SampleRecords(ctx context.Context, tenant int64, id, table str
 	}
 	db, ds, err := s.cm.Acquire(ctx, tenant, id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	drv, err := DriverFor(ds.Type)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, sampleQueryTimeout)
 	defer cancel()
 	tables, err := drv.ListTables(ctx, db, ds.DatabaseName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	found := false
 	for _, t := range tables {
@@ -38,20 +46,30 @@ func (s *Service) SampleRecords(ctx context.Context, tenant int64, id, table str
 		}
 	}
 	if !found {
-		return nil, nil, fmt.Errorf("datasource: unknown table")
+		return nil, nil, nil, fmt.Errorf("datasource: unknown table")
 	}
 	// #nosec G202 -- table is matched against live metadata above, driver-quoted, and LIMIT is a bounded integer.
 	rows, err := db.QueryContext(ctx, "SELECT * FROM "+drv.QuoteIdent(table)+" LIMIT "+strconv.Itoa(limit))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(columns) > 512 {
-		return nil, nil, fmt.Errorf("datasource: too many columns")
+		return nil, nil, nil, fmt.Errorf("datasource: too many columns")
+	}
+	declared, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	columnTypes := make(map[string]string, len(columns))
+	for i, column := range declared {
+		if name := column.DatabaseTypeName(); name != "" {
+			columnTypes[columns[i]] = name
+		}
 	}
 	out := [][]any{}
 	size := 0
@@ -62,13 +80,13 @@ func (s *Service) SampleRecords(ctx context.Context, tenant int64, id, table str
 			dest[i] = &raw[i]
 		}
 		if err := rows.Scan(dest...); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		record := make([]any, len(raw))
 		for i, v := range raw {
 			size += len(v)
 			if len(v) > 65536 || size > 8<<20 {
-				return nil, nil, fmt.Errorf("datasource: sample exceeds byte limit")
+				return nil, nil, nil, fmt.Errorf("datasource: sample exceeds byte limit")
 			}
 			if v != nil {
 				record[i] = string(v)
@@ -76,5 +94,5 @@ func (s *Service) SampleRecords(ctx context.Context, tenant int64, id, table str
 		}
 		out = append(out, record)
 	}
-	return columns, out, rows.Err()
+	return columns, out, columnTypes, rows.Err()
 }

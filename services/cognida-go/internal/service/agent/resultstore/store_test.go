@@ -139,8 +139,9 @@ func TestBuildEnvelope_EmptyResult(t *testing.T) {
 func TestBuildEnvelope_NumericStrings(t *testing.T) {
 	// SQL 驱动常把数值列以字符串（[]byte→string）返回，应仍识别为 number 并可聚合。
 	r := &Result{
-		ResultID: "rs_s",
-		Columns:  []string{"v"},
+		ResultID:    "rs_s",
+		Columns:     []string{"v"},
+		ColumnTypes: map[string]string{"v": "DECIMAL"},
 		Rows: []map[string]interface{}{
 			{"v": "10"}, {"v": "20"}, {"v": "30"},
 		},
@@ -155,5 +156,30 @@ func TestBuildEnvelope_NumericStrings(t *testing.T) {
 	}
 	if agg["max"].(float64) != 30 {
 		t.Fatalf("expected max 30, got %v", agg["max"])
+	}
+}
+
+func TestBuildEnvelope_UsesSQLTypesWithoutRewritingValues(t *testing.T) {
+	r := &Result{
+		Columns:     []string{"amount", "code", "untyped", "empty"},
+		ColumnTypes: map[string]string{"amount": "DECIMAL", "code": "VARCHAR", "empty": "DECIMAL"},
+		Rows:        []map[string]interface{}{{"amount": "123.456789012345678901", "code": "00123", "untyped": "00123", "empty": nil}},
+	}
+	env := BuildEnvelope(r, 20)
+	for _, col := range []string{"amount", "empty"} {
+		if env.Dtypes[col] != "number" {
+			t.Fatalf("%s should use driver numeric type, got %s", col, env.Dtypes[col])
+		}
+	}
+	for _, col := range []string{"code", "untyped"} {
+		if env.Dtypes[col] != "string" {
+			t.Fatalf("%s must remain a string, got %s", col, env.Dtypes[col])
+		}
+		if _, numeric := env.Aggregates[col].(map[string]interface{})["sum"]; numeric {
+			t.Fatalf("%s must not have numeric aggregates", col)
+		}
+	}
+	if env.Samples[0]["amount"] != "123.456789012345678901" || r.Rows[0]["code"] != "00123" {
+		t.Fatal("building an envelope must preserve exact source text")
 	}
 }

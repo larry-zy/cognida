@@ -36,7 +36,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         // 固定走 IPv4，避免 localhost 解析到 [::1] 而 Go 仅在 127.0.0.1:8080 可达时代理 502。
-        target: 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080',
         changeOrigin: true
       }
     }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
+import { reactive } from "vue";
 const api = vi.hoisted(() => ({
   agents: vi.fn(),
   templates: vi.fn(),
@@ -14,7 +15,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/api/lifecycle", () => ({ lifecycleApi: api }));
 const route = vi.hoisted(() => ({ path: "/analysis", query: {} }));
-vi.mock("vue-router", () => ({ useRoute: () => route }));
+vi.mock("vue-router", () => ({ useRoute: () => reactive(route) }));
 vi.mock("@/utils/request", () => ({
   http: { get: vi.fn().mockResolvedValue({ data: { items: [] } }) },
   resetAuthFailure: vi.fn(),
@@ -28,6 +29,7 @@ describe("published asset analysis", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     route.path = "/analysis";
+    route.query = {};
     api.agents.mockResolvedValue({
       data: {
         agents: [
@@ -56,6 +58,25 @@ describe("published asset analysis", () => {
     api.list.mockResolvedValue({ data: { items: [], next_cursor: "" } });
     api.knowledgeBases.mockResolvedValue({ data: { items: [{ id: "kb-1", name: "Policies", status: 1 }], total: 1, page: 1, size: 100 } });
     api.asset.mockResolvedValue({ data: { ref: { asset_id: "published-1", version: 2 }, content: { kind: "text", text: "Policy" } } });
+  });
+  it("prefills a collection item draft without starting collection or a pipeline", async () => {
+    route.path = "/pipelines";
+    route.query = { source: "collection", run_id: "actual-run", item_id: "actual-item", name: "Source page" };
+    api.createAsset.mockResolvedValue({ data: { asset_id: "collected-input", version: 1 } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    const form = wrapper.get("details form");
+    expect(form.element.closest("details")?.open).toBe(true);
+    expect((form.get("select").element as HTMLSelectElement).value).toBe("collection");
+    expect((form.get("input").element as HTMLInputElement).value).toBe("Source page");
+    expect(form.findAll("input").map(input => (input.element as HTMLInputElement).value)).toEqual(["Source page", "actual-run", "actual-item"]);
+    expect(api.createAsset).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+    await form.trigger("submit");
+    await flushPromises();
+    expect(api.createAsset).toHaveBeenCalledWith(expect.anything(), "Source page", expect.objectContaining({ kind: "collection", run_id: "actual-run", item_id: "actual-item" }));
+    expect(api.start).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
   it("defaults to published inputs and renders independent invocation output", async () => {
     api.start.mockResolvedValue({ data: { id: "run-1" } });
@@ -97,6 +118,50 @@ describe("published asset analysis", () => {
     expect(wrapper.text()).toContain("Limited rows");
     wrapper.unmount();
   });
+  it.each([
+    ["knowledge", { knowledge_id: "document-1" }],
+    ["evaluation", { run_id: "evaluation-1" }],
+    ["result", { session_id: "session-1", result_id: "result-1" }],
+  ])("imports only %s source fields from a mixed query", async (source, fields) => {
+    route.path = "/pipelines";
+    route.query = { source, name: "Imported source", run_id: "unrelated-run", item_id: "unrelated-item", session_id: "unrelated-session", result_id: "unrelated-result", knowledge_id: "unrelated-document", ...fields };
+    api.createAsset.mockResolvedValue({ data: { asset_id: "created", version: 1 } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(api.createAsset).not.toHaveBeenCalled();
+    await wrapper.get("details form").trigger("submit");
+    await flushPromises();
+    expect(api.createAsset.mock.calls[0][2]).toEqual({ kind: source, ...fields });
+    expect(api.start).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it.each([
+    { source: "result", session_id: "session-only" },
+    { source: "collection", run_id: "run-only" },
+    { source: "knowledge", knowledge_id: ["one", "two"] },
+    { source: "toString", run_id: "run" },
+  ])("ignores incomplete or ambiguous source queries", async (query) => {
+    route.query = query;
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect((wrapper.get("details form select").element as HTMLSelectElement).value).toBe("text");
+    expect(api.createAsset).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it("clears old handles when an existing page receives an incomplete source link", async () => {
+    route.query = { source: "collection", run_id: "run", item_id: "item" };
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    reactive(route).query = { source: "knowledge", knowledge_id: "document" };
+    await flushPromises();
+    expect((wrapper.get("details form select").element as HTMLSelectElement).value).toBe("knowledge");
+    expect(wrapper.get("details form").findAll("input").map(input => (input.element as HTMLInputElement).value)).toEqual(["导入来源", "document"]);
+    reactive(route).query = { source: "collection", run_id: "run-only" };
+    await flushPromises();
+    expect((wrapper.get("details form select").element as HTMLSelectElement).value).toBe("text");
+    expect(api.createAsset).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
   it("serializes editable table rows in the server column order", async () => {
     api.createAsset.mockResolvedValue({
       data: { asset_id: "raw-1", version: 1 },
@@ -130,6 +195,38 @@ describe("published asset analysis", () => {
       "Orders",
       undefined,
     );
+    wrapper.unmount();
+  });
+  it("uses explicit numeric columns while preserving text identifiers", async () => {
+    api.createAsset.mockResolvedValue({ data: { asset_id: "table", version: 1 } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    const form = wrapper.get("details form");
+    await form.get("select").setValue("table");
+    await form.get('input[placeholder="date,revenue,region"]').setValue("id,revenue");
+    await form.get('[aria-label="revenue 类型"]').setValue("number");
+    const editor = wrapper.findComponent({ name: "RecordEditor" });
+    editor.vm.$emit("update:modelValue", [{ id: "000123", revenue: "100" }, { id: "9007199254740993", revenue: "200.5" }, { id: "003", revenue: "" }]);
+    await flushPromises();
+    expect(form.get('[aria-label="数据行1 revenue"]').attributes("type")).toBe("number");
+    expect(form.get('[aria-label="数据行1 id"]').attributes("type")).toBe("text");
+    await form.trigger("submit");
+    await flushPromises();
+    expect(api.createAsset.mock.calls[0][0].rows).toEqual([["000123", 100], ["9007199254740993", 200.5], ["003", null]]);
+    wrapper.unmount();
+  });
+  it.each(["1e309", "NaN", "9007199254740993", "-9007199254740992"])("rejects non-finite or unsafe numeric value %s before submitting", async (value) => {
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    const form = wrapper.get("details form");
+    await form.get("select").setValue("table");
+    await form.get('input[placeholder="date,revenue,region"]').setValue("amount");
+    await form.get('[aria-label="amount 类型"]').setValue("number");
+    wrapper.findComponent({ name: "RecordEditor" }).vm.$emit("update:modelValue", [{ amount: value }]);
+    await form.trigger("submit");
+    await flushPromises();
+    expect(api.createAsset).not.toHaveBeenCalled();
+    expect(wrapper.get('[role="alert"]').text()).toMatch(/有限数值|安全整数范围/);
     wrapper.unmount();
   });
   it("keeps the last selected execution when responses arrive out of order", async () => {

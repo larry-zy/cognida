@@ -67,7 +67,8 @@ type GovernedChunk struct {
 	KnowledgeBaseID string
 	Content         string
 	Score           float64
-	Source          string // 人类可读出处：文档标题→知识条目→片段 ID→知识库 ID
+	Source          string   // 人类可读出处：文档标题→知识条目→片段 ID→知识库 ID
+	Sources         []string // Actual retrieval backends contributing this evidence.
 	KnowledgeID     string
 	ChunkID         string
 	ChunkIndex      int
@@ -235,6 +236,7 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 			Content:         truncateRunes(d.Content, capMaxChunkContentChars),
 			Score:           float64(d.Score),
 			Source:          chunkSourceLabel(d),
+			Sources:         append([]string{}, d.Sources...),
 			KnowledgeID:     d.KnowledgeID,
 			ChunkID:         d.ChunkID,
 			ChunkIndex:      d.ChunkIndex,

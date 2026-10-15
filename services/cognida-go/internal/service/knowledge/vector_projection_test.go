@@ -2,14 +2,48 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/embedding"
 
 	domain_knowledge "cognida/internal/model/knowledge"
 )
+
+type blockingVectorCollection struct {
+	fakeVectorCollectionStore
+	entered, release chan struct{}
+}
+
+func (r *blockingVectorCollection) HasCollection(ctx context.Context, _ int64) (bool, error) {
+	close(r.entered)
+	select {
+	case <-r.release:
+		return true, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+func TestVectorInitializationWaitRespectsCallerDeadline(t *testing.T) {
+	service := &documentProcessorService{}
+	repo := &blockingVectorCollection{entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() { done <- service.ensureVectorCollectionCached(context.Background(), repo, 7, 1536) }()
+	<-repo.entered
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err := service.ensureVectorCollectionCached(ctx, repo, 7, 1536)
+	close(repo.release)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("initialization waiter ignored deadline: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 
 type fakeVectorProjectionStore struct {
 	exists      bool

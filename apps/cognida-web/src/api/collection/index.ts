@@ -18,21 +18,31 @@ export interface CreateCollectionTaskRequest {
 
 export interface CollectionItemOutcome {
   id: string
+  run_id: string
+  source_id: string
   source_url: string
   canonical_url?: string
   status: CollectionItemStatus
   error_reason?: string
   content_hash?: string
   knowledge_id?: string
+  raw_object_key?: string
+  normalized_object_key?: string
+  raw_hash?: string
+  raw_size?: number
+  normalized_size?: number
+  http_status?: number
+  content_type?: string
   created_at?: string
   updated_at?: string
 }
 
 export interface CollectionRun {
   id: string
-  status: CollectionTaskStatus
+  status: Exclude<CollectionTaskStatus, 'draft'>
+  error_message?: string
   started_at?: string
-  finished_at?: string
+  completed_at?: string
   created_at?: string
 }
 
@@ -40,18 +50,9 @@ export interface CollectionTask {
   id: string
   knowledge_base_id: string
   status: CollectionTaskStatus
-  seed_urls?: string[]
-  source_count?: number
-  completed_count?: number
-  failed_count?: number
-  cancelled_at?: string
+  error_message?: string
   created_at?: string
   updated_at?: string
-}
-
-export interface CollectionTaskDetail extends CollectionTask {
-  runs?: CollectionRun[]
-  items?: CollectionItemOutcome[]
 }
 
 export interface CollectionTaskDetailResponse {
@@ -59,6 +60,16 @@ export interface CollectionTaskDetailResponse {
   sources: Array<{ id: string, url: string, created_at?: string }>
   run?: CollectionRun
   items?: CollectionItemOutcome[]
+  summary?: {
+    outcome: 'success' | 'partial' | 'failed' | 'running' | 'cancelled'
+    total: number
+    accepted: number
+    skipped: number
+    rejected: number
+    failed: number
+    pending: number
+    usable: number
+  }
 }
 
 export interface CollectionTaskListResponse {
@@ -84,10 +95,10 @@ export const collectionApi = {
   },
 
   start(id: string) {
-    return http.post<CollectionTask>(`/collection-tasks/${id}/start`)
+    return http.post<{ message: string }>(`/collection-tasks/${id}/start`)
   },
 
   cancel(id: string) {
-    return http.post<CollectionTask>(`/collection-tasks/${id}/cancel`)
+    return http.post<{ message: string }>(`/collection-tasks/${id}/cancel`)
   }
 }

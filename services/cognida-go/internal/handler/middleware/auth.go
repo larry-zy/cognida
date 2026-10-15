@@ -236,7 +236,7 @@ func NewLoggerMiddleware() *LoggerMiddleware {
 
 // Apply 应用中间件
 func (m *LoggerMiddleware) Apply() gin.HandlerFunc {
-	return gin.Logger()
+	return gin.LoggerWithFormatter(redactedRequestLog)
 }
 
 // ========================================

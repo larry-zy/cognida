@@ -76,6 +76,75 @@ def test_text_pii_and_duplicate_cleaning(client):
     assert result["removed_count"] == 1
 
 
+def test_sql_types_and_exact_decimal_strings_survive_real_compute_roundtrip(client):
+    exact = "9007199254740993.123456789012345678"
+    source = {
+        "kind": "table",
+        "columns": ["account", "amount", "big_id"],
+        "column_types": {"account": "VARCHAR", "amount": "DECIMAL", "big_id": "BIGINT"},
+        "rows": [["00123", exact, "9007199254740993"], ["00123", exact, "9007199254740993"]],
+    }
+    profile = client.post(PREFIX + "/profile", json={"input": source})
+    assert profile.status_code == 200, profile.text
+    cleaned = client.post(PREFIX + "/clean", json={"input": source})
+    assert cleaned.status_code == 200, cleaned.text
+    data = cleaned.json()["result"]["data"]
+    assert data["column_types"] == source["column_types"]
+    assert data["rows"] == [source["rows"][0]]
+    assert all(isinstance(value, str) for value in data["rows"][0])
+    # The returned payload can traverse the next typed HTTP boundary unchanged.
+    again = client.post(PREFIX + "/clean", json={"input": data})
+    assert again.status_code == 200, again.text
+    assert again.json()["result"]["data"] == data
+    assert again.json()["result"]["changed"] is False
+    assert client.post(PREFIX + "/enrich", json={"input": data}).status_code == 200
+
+
+@pytest.mark.parametrize("types", [{"missing": "DECIMAL"}, {"a": ""}, {"a": "X" * 65}])
+def test_sql_type_metadata_is_bounded_and_scoped_to_schema(client, types):
+    source = {"kind": "table", "columns": ["a"], "rows": [["00123"]], "column_types": types}
+    assert client.post(PREFIX + "/clean", json={"input": source}).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"kind": "text", "text": "<p>Hello   world</p>"},
+        {"kind": "table", "columns": ["text", "count"], "rows": [["<p>Hello   world</p>", 3]]},
+    ],
+)
+def test_text_cleaner_without_column_selection_uses_engine_defaults(client, source):
+    response = client.post(
+        PREFIX + "/clean", json={"input": source, "options": {"operations": ["text_cleaner"]}}
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["result"]["data"]
+    text = data["text"] if data["kind"] == "text" else data["rows"][0][0]
+    assert "<p>" not in text
+    assert "Hello" in text
+    if data["kind"] == "table":
+        assert data["rows"][0][1] == 3
+
+
+def test_merge_keeps_consistent_sql_types_without_guessing_untyped_strings(client):
+    source = {
+        "kind": "table",
+        "columns": ["a"],
+        "rows": [["1.234567890123456789"]],
+        "column_types": {"a": "DECIMAL"},
+    }
+    result = client.post(PREFIX + "/merge", json={"inputs": [source, source]}).json()
+    assert result["result"]["data"]["column_types"] == {"a": "DECIMAL"}
+    assert result["result"]["data"]["rows"] == source["rows"] * 2
+    untyped = {**source, "column_types": {}, "rows": [["00123"]]}
+    result = client.post(PREFIX + "/merge", json={"inputs": [source, untyped]}).json()
+    assert "column_types" not in result["result"]["data"]
+    assert result["result"]["data"]["rows"][1] == ["00123"]
+    assert result["warnings"]
+    conflict = {**source, "column_types": {"a": "VARCHAR"}}
+    assert client.post(PREFIX + "/merge", json={"inputs": [source, conflict]}).status_code == 422
+
+
 def test_numeric_phone_is_masked(client):
     result = client.post(
         PREFIX + "/clean",
@@ -218,9 +287,12 @@ def test_auth_and_body_limit(client, monkeypatch):
         == 200
     )
     monkeypatch.setattr("services.lifecycle.router.MAX_BODY_BYTES", 10)
-    assert client.post(
-        PREFIX + "/profile", content="x" * 11, headers={"Authorization": "Bearer internal"}
-    ).status_code == 413
+    assert (
+        client.post(
+            PREFIX + "/profile", content="x" * 11, headers={"Authorization": "Bearer internal"}
+        ).status_code
+        == 413
+    )
     assert client.post(PREFIX + "/profile", content="x" * 11).status_code == 401
 
 

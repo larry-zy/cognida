@@ -251,30 +251,38 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 				if err := s.persistNormalized(ctx, item, content); err != nil {
 					return err
 				}
-				knowledgeID, duplicate := seen[item.ContentHash]
-				if !duplicate {
-					accepted, err := s.repository.FindAcceptedContent(ctx, task.TenantID, task.ID, item.ContentHash)
-					if err != nil && !errors.Is(err, domain.ErrItemNotFound) {
-						return err
-					}
-					if err == nil {
-						knowledgeID, duplicate = accepted.KnowledgeID, true
-					}
+				var targetErr error
+				if validator, ok := s.ingestor.(domain.TargetValidator); ok {
+					targetErr = validator.ValidateTarget(ctx, task.TenantID, task.KnowledgeBaseID)
 				}
-				if duplicate {
-					item.Status, item.KnowledgeID, item.ErrorReason = domain.ItemStatusSkipped, knowledgeID, "duplicate content"
+				if targetErr != nil {
+					item.Status, item.ErrorReason = domain.ItemStatusFailed, targetErr.Error()
 				} else {
-					result, err := s.ingestor.Ingest(ctx, domain.IngestRequest{TenantID: task.TenantID, UserID: task.UserID, KnowledgeBaseID: task.KnowledgeBaseID, SourceURL: source.URL, CanonicalURL: response.CanonicalURL, Content: content, ContentHash: item.ContentHash})
-					if err != nil {
-						item.Status, item.ErrorReason = domain.ItemStatusFailed, err.Error()
-					} else if result == nil {
-						return fmt.Errorf("ingestor returned no result")
-					} else {
-						item.Status, item.KnowledgeID = domain.ItemStatusAccepted, result.KnowledgeID
-						if result.Duplicate {
-							item.Status = domain.ItemStatusSkipped
+					knowledgeID, duplicate := seen[item.ContentHash]
+					if !duplicate {
+						accepted, err := s.repository.FindAcceptedContent(ctx, task.TenantID, task.ID, item.ContentHash)
+						if err != nil && !errors.Is(err, domain.ErrItemNotFound) {
+							return err
 						}
-						seen[item.ContentHash] = result.KnowledgeID
+						if err == nil {
+							knowledgeID, duplicate = accepted.KnowledgeID, true
+						}
+					}
+					if duplicate {
+						item.Status, item.KnowledgeID, item.ErrorReason = domain.ItemStatusSkipped, knowledgeID, "duplicate content"
+					} else {
+						result, err := s.ingestor.Ingest(ctx, domain.IngestRequest{TenantID: task.TenantID, UserID: task.UserID, KnowledgeBaseID: task.KnowledgeBaseID, SourceURL: source.URL, CanonicalURL: response.CanonicalURL, Content: content, ContentHash: item.ContentHash})
+						if err != nil {
+							item.Status, item.ErrorReason = domain.ItemStatusFailed, err.Error()
+						} else if result == nil || result.KnowledgeID == "" {
+							item.Status, item.ErrorReason = domain.ItemStatusFailed, "ingestor returned no knowledge reference"
+						} else {
+							item.Status, item.KnowledgeID = domain.ItemStatusAccepted, result.KnowledgeID
+							if result.Duplicate {
+								item.Status = domain.ItemStatusSkipped
+							}
+							seen[item.ContentHash] = result.KnowledgeID
+						}
 					}
 				}
 			}
@@ -294,7 +302,23 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return s.finish(task, run, domain.RunStatusCompleted, "")
+	items, err := s.repository.ListItems(ctx, task.TenantID, run.ID)
+	if err != nil {
+		return err
+	}
+	summary := domain.SummarizeItems(len(sources), items)
+	if summary.Pending > 0 {
+		return fmt.Errorf("collection has %d uncommitted source outcomes", summary.Pending)
+	}
+	status, message := domain.RunStatusCompleted, ""
+	if summary.Outcome == "failed" || summary.Outcome == "partial" {
+		label := "Partial collection"
+		if summary.Outcome == "failed" {
+			status, label = domain.RunStatusFailed, "Collection failed"
+		}
+		message = fmt.Sprintf("%s: total=%d, accepted=%d, skipped=%d, rejected=%d, failed=%d", label, summary.Total, summary.Accepted, summary.Skipped, summary.Rejected, summary.Failed)
+	}
+	return s.finish(task, run, status, message)
 }
 
 func (s *Service) cancelled(ctx context.Context, task *domain.Task) (bool, error) {

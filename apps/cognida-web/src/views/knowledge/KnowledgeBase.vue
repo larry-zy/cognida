@@ -117,6 +117,7 @@
               {{ formatDateTime(row.created_at) }}
             </template>
             <template #cell-actions="{ row }">
+              <RouterLink v-if="row.parse_status === 'completed' && row.chunk_count > 0" :to="{ path: '/pipelines', query: { source: 'knowledge', knowledge_id: row.id, name: row.title || '知识文档' } }">转入流水线</RouterLink>
               <UiButton
                 variant="ghost"
                 size="sm"
@@ -492,7 +493,7 @@ const documentColumns = [
   { key: 'chunk_count', title: '分块数', width: 100 },
   { key: 'parse_status', title: '处理状态', width: 120 },
   { key: 'created_at', title: '上传时间', width: 180 },
-  { key: 'actions', title: '操作', width: 150 }
+  { key: 'actions', title: '操作', width: 240 }
 ]
 
 // 分块表格列

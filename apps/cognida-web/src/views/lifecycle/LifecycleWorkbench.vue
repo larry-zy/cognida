@@ -294,7 +294,7 @@
               : JSON.stringify(assetDetail.content, null, 2)
           }}</pre></details>
         </section>
-        <details class="wb-panel">
+        <details class="wb-panel" :open="sourcePrefilled">
           <summary>{{ wt("创建输入资产") }}</summary>
           <form
             class="wb-stack"
@@ -325,7 +325,13 @@
                   v-model="inputColumns"
                   required
                   placeholder="date,revenue,region" /></label
-              ><RecordEditor
+              ><p class="wb-muted">列默认按文本保留；需要均值等数值统计时，请将对应列设为数值。编号、账号等应保留文本类型。</p>
+              <label v-for="field in rowFields" :key="field.key" class="wb-label">{{ field.label }} 类型
+                <select :aria-label="`${field.label} 类型`" :value="columnTypes[field.key] || 'text'" @change="columnTypes[field.key] = ($event.target as HTMLSelectElement).value as 'text' | 'number'">
+                  <option value="text">文本</option><option value="number">数值</option>
+                </select>
+              </label>
+              <RecordEditor
                 v-model="inputRows"
                 title="数据行"
                 :fields="rowFields" /></template
@@ -351,7 +357,7 @@
                     v-model="sourceResultID"
                     required /></label></template></template
             ><template v-else
-              ><label class="wb-label"
+              ><p class="wb-muted">导入当前表最多 1,000 行的快照。</p><label class="wb-label"
                 >数据源<select v-model="datasourceID" required>
                   <option value="">请选择</option>
                   <option v-for="ds in datasources" :key="ds.id" :value="ds.id">
@@ -426,6 +432,7 @@ const agents = ref<Agent[]>([]),
   inputText = ref(""),
   inputColumns = ref(""),
   inputRows = ref<Record<string, unknown>[]>([]);
+const columnTypes = reactive<Record<string, 'text' | 'number'>>(Object.create(null));
 const sourceRunID = ref(""),
   sourceItemID = ref(""),
   sourceSessionID = ref(""),
@@ -436,6 +443,31 @@ const sourceURL = ref(""),
   sourceSchema = ref(""),
   sourceTable = ref(""),
   datasources = ref<{ id: string; name: string }[]>([]);
+const sourcePrefilled = ref(false);
+// Navigation only prepares an editable draft. It must never collect or publish on arrival.
+watch(() => route.query, () => {
+  const queryString = (key: string) => typeof route.query[key] === "string" ? String(route.query[key]).trim() : "";
+  const source = queryString("source");
+  const fields: Record<string, string[]> = { collection: ["run_id", "item_id"], knowledge: ["knowledge_id"], evaluation: ["run_id"], result: ["session_id", "result_id"] };
+  const required = fields[source];
+  if (!Array.isArray(required)) return;
+  if (!required.every(key => queryString(key))) {
+    if (sourcePrefilled.value) {
+      inputKind.value = "text";
+      assetName.value = sourceRunID.value = sourceItemID.value = knowledgeID.value = sourceSessionID.value = sourceResultID.value = "";
+      sourcePrefilled.value = false;
+    }
+    return;
+  }
+  inputKind.value = source;
+  sourceRunID.value = ["collection", "evaluation"].includes(source) ? queryString("run_id") : "";
+  sourceItemID.value = source === "collection" ? queryString("item_id") : "";
+  knowledgeID.value = source === "knowledge" ? queryString("knowledge_id") : "";
+  sourceSessionID.value = source === "result" ? queryString("session_id") : "";
+  sourceResultID.value = source === "result" ? queryString("result_id") : "";
+  assetName.value = queryString("name") || "导入来源";
+  sourcePrefilled.value = true;
+}, { immediate: true });
 const selectedTemplate = computed(() =>
   templates.value.find(
     (t) => t.id === (current.value?.template_id || executor.value),
@@ -518,7 +550,7 @@ const selectedAgent = computed(() =>
       .split(/[,，]/)
       .map((v) => v.trim())
       .filter(Boolean)
-      .map((v) => ({ key: v, label: v })),
+      .map((v) => ({ key: v, label: v, type: columnTypes[v] === 'number' ? 'number' as const : 'text' as const })),
   );
 const kind = () => (isPipeline.value ? resource.value : "invocations");
 const statusLabel = (status: string) =>
@@ -681,9 +713,9 @@ async function createAsset() {
         : {
             kind: "table",
             columns,
-            rows: inputRows.value.map((row) =>
-              columns.map((col) => row[col] ?? ""),
-            ),
+            rows: inputKind.value === "table" ? inputRows.value.map((row, index) =>
+              columns.map((col) => tableCell(row[col], col, index)),
+            ) : [],
           };
     const source =
       inputKind.value === "web"
@@ -697,15 +729,13 @@ async function createAsset() {
                 schema: sourceSchema.value,
                 table: sourceTable.value,
               }
-            : ["collection", "result", "evaluation"].includes(inputKind.value)
-              ? {
-                  kind: inputKind.value,
-                  run_id: sourceRunID.value,
-                  item_id: sourceItemID.value,
-                  session_id: sourceSessionID.value,
-                  result_id: sourceResultID.value,
-                }
-              : undefined;
+            : inputKind.value === "collection"
+              ? { kind: "collection", run_id: sourceRunID.value, item_id: sourceItemID.value }
+              : inputKind.value === "evaluation"
+                ? { kind: "evaluation", run_id: sourceRunID.value }
+                : inputKind.value === "result"
+                  ? { kind: "result", session_id: sourceSessionID.value, result_id: sourceResultID.value }
+                  : undefined;
     const res = await lifecycleApi.createAsset(input, assetName.value, source);
     if (disposed) return;
     publishedOnly.value = false;
@@ -723,6 +753,19 @@ async function createAsset() {
     }
     notice.value = "输入资产已创建，可选择专家进行处理与发布。";
   });
+}
+function tableCell(value: unknown, column: string, index: number): string | number | null {
+  const text = String(value ?? "");
+  if (columnTypes[column] !== "number") return text;
+  if (!text.trim()) return null;
+  const number = Number(text);
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(text.trim()) || !Number.isFinite(number)) {
+    throw new Error(`第 ${index + 1} 行「${column}」必须是有限数值`);
+  }
+  if (Number.isInteger(number) && !Number.isSafeInteger(number)) {
+    throw new Error(`第 ${index + 1} 行「${column}」超出安全整数范围，请使用文本类型保留原值`);
+  }
+  return number;
 }
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {

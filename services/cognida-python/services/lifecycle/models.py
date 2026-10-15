@@ -24,6 +24,9 @@ class TableInput(StrictModel):
     kind: Literal["table"]
     columns: list[str] = Field(min_length=1, max_length=200)
     rows: list[list[Scalar]] = Field(min_length=1, max_length=10_000)
+    # Driver-provided SQL types accompany exact string values. Do not coerce
+    # DECIMAL/BIGINT through Python float while profiling or cleaning snapshots.
+    column_types: dict[str, str] = Field(default_factory=dict, max_length=200)
 
     @model_validator(mode="after")
     def rectangular(self):
@@ -33,6 +36,13 @@ class TableInput(StrictModel):
             raise ValueError("columns must be unique nonempty names of at most 200 characters")
         if any(len(row) != len(self.columns) for row in self.rows):
             raise ValueError("every row must match the column count")
+        if any(
+            name not in self.columns or not sql_type.strip() or len(sql_type) > 64
+            for name, sql_type in self.column_types.items()
+        ):
+            raise ValueError(
+                "column_types must name existing columns with 1-64 character SQL types"
+            )
         if sum(len(row) for row in self.rows) > 100_000:
             raise ValueError("table exceeds 100000 cells")
         for row in self.rows:

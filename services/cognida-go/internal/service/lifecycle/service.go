@@ -25,6 +25,9 @@ type Compute interface {
 	Call(context.Context, string, d.Input, map[string]any, string) (ComputeResult, error)
 }
 type Config struct {
+	// StageTimeout bounds one adapter attempt, including remote publication
+	// and indexing. Zero uses five minutes; approvals wait outside this budget.
+	StageTimeout        time.Duration
 	Audit               AuditFunc
 	Access              AccessFunc
 	Compute             Compute
@@ -47,6 +50,9 @@ type Service struct {
 func NewService(repo d.Repository, store objectstore.Store, queue job.Queue, config Config) (*Service, error) {
 	if repo == nil || store == nil || queue == nil {
 		return nil, fmt.Errorf("lifecycle repository, object storage and queue are required")
+	}
+	if config.StageTimeout <= 0 {
+		config.StageTimeout = 5 * time.Minute
 	}
 	s := &Service{repo: repo, store: store, queue: queue, config: config, contracts: Contracts(), templates: map[string]d.PipelineDefinition{}, adapters: map[string]d.Adapter{}}
 	def := DefaultTemplate()
