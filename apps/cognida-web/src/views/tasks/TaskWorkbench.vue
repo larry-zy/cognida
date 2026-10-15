@@ -1,12 +1,12 @@
 <template>
   <div class="workbench task-workbench">
     <header class="wb-head"><div><span class="wb-kicker">SUPERVISOR / 任务规划</span><h1>先明确目标，再审阅计划</h1><p>选择输入版本，把目标拆成有依赖、有预算、可核对的处理步骤。</p></div><button :disabled="busy" @click="newDraft">＋ 新建任务</button></header>
-    <div class="planning-boundary"><span class="wb-badge">规划阶段</span><p>当前支持澄清、预览和保存计划。保存不会执行任务，也不会批准发布。</p></div>
+    <div class="planning-boundary"><span class="wb-badge">受控执行</span><p>保存只追加计划版本。执行需通过当前准入检查，再单独启动；候选与已保存计划均不代表已执行。</p></div>
     <p v-if="!hasIdentity" class="wb-empty" role="status">请登录并选择工作空间后规划任务。</p>
     <template v-else>
       <div v-if="error" class="wb-error" role="alert">{{ error }}<ul v-if="issues.length"><li v-for="(issue, index) in issues" :key="index">{{ issue.node_id ? `${issue.node_id} · ` : '' }}{{ issue.field }}：{{ issue.message }}</li></ul></div>
       <p v-if="notice" class="wb-success" role="status">{{ notice }}</p>
-      <p v-if="busy" class="wb-muted" role="status">{{ action === 'assess' ? '正在核对输入与任务范围…' : action === 'save' ? '正在保存计划版本…' : '正在生成候选计划，请稍候…' }}</p>
+      <p v-if="busy" class="wb-muted" role="status">{{ action === 'assess' ? '正在核对输入与任务范围…' : action === 'save' ? '正在保存计划版本…' : runtime.action ? '正在提交执行控制请求…' : '正在生成候选计划，请稍候…' }}</p>
       <div class="task-layout">
         <aside class="wb-panel task-history" aria-labelledby="tasks-title">
           <div class="panel-heading"><h2 id="tasks-title">我的任务</h2><button :disabled="listLoading || busy" @click="loadTasks(false)">刷新</button></div>
@@ -59,8 +59,8 @@
               </form>
               <template v-if="proposal.decision.kind === 'proposal' && proposal.decision.plan">
                 <TaskPlanPreview :plan="proposal.decision.plan" :validation="proposal.validation" :capabilities="capabilities" />
-                <p class="wb-muted small">候选仅在本页预览。保存会追加不可变计划版本，刷新前未保存的候选会丢失。</p>
-                <button class="primary" :disabled="busy || saveUncertain || !proposal.validation?.valid || proposal.task_version !== current.version" @click="savePlan">保存计划</button>
+                <p class="wb-muted small">候选仅在本页预览。保存会追加不可变计划版本，刷新页面前未保存的候选会丢失。</p><p v-if="proposal.task_version !== current.version" class="wb-error" role="alert">任务版本已变化，此候选已过期，不能保存。请核对当前任务后重新生成。</p>
+                <button class="primary" :disabled="busy || saveUncertain || runtime.uncertain || !proposal.validation?.valid || proposal.task_version !== current.version" @click="savePlan">保存计划</button>
                 <p v-if="saveUncertain" class="wb-error" role="alert">保存结果尚未确认。请先刷新任务状态，核对已保存版本后再生成候选。</p>
               </template>
               <p class="wb-muted small">本次规划调用 {{ proposal.planning_calls }} 次 · 未执行领域任务</p>
@@ -70,7 +70,7 @@
 
             <section v-if="savedPlan" class="wb-panel" aria-labelledby="saved-plan-title"><div class="panel-heading"><div><span class="wb-kicker">03 / SAVED PLAN</span><h2 id="saved-plan-title">已保存计划 v{{ savedPlan.version }}</h2></div><span class="wb-badge">已持久化</span></div><TaskPlanPreview :plan="savedPlan.snapshot" :capabilities="capabilities" /><details><summary>快照摘要</summary><p class="snapshot-hash">{{ savedPlan.content_hash }}</p></details></section>
 
-            <section class="wb-panel" aria-labelledby="summary-title"><div class="panel-heading"><h2 id="summary-title">当前状态汇总</h2><span v-if="summary" class="wb-badge">{{ statusLabel(summary.status) }}</span></div><p v-if="summaryError" class="wb-error" role="alert">{{ summaryError }}</p><template v-if="summary"><p>已保存计划 {{ summary.current_plan_version ? `v${summary.current_plan_version}` : '暂无' }} · {{ summary.planned_nodes }} 个计划节点 · {{ summary.children?.length || 0 }} 条子任务记录</p><p v-if="!summary.children?.length" class="wb-muted">尚无子任务执行记录，计划节点不代表已执行进度。</p><ul class="child-records" v-else><li v-for="child in summary.children" :key="child.id"><strong>{{ child.node_id }}</strong><p>投递状态：{{ statusLabel(child.dispatch_status) }} · 领域状态：{{ statusLabel(child.domain_status) }}</p><p class="wb-muted small">计划 v{{ child.plan_version }} · 第 {{ child.attempt }} 次尝试 · {{ child.receipt_present ? '已有提交回执，仍需核实领域结果' : '尚无提交回执' }}</p><details><summary>领域记录</summary><p>{{ child.domain }} · {{ child.domain_id || '尚未绑定' }}</p></details></li></ul><p v-if="!summary.result_refs?.length" class="wb-muted">暂无已确认的结果引用。</p><ul v-else><li v-for="result in summary.result_refs" :key="refKey(result)"><router-link :to="{ path: '/analysis', query: { asset: refKey(result) } }">查看结果 · {{ result.asset_id }} · v{{ result.version }}</router-link></li></ul><ul v-if="summary.warnings?.length" class="summary-warnings"><li v-for="(warning, index) in summary.warnings" :key="index">{{ warning }}</li></ul></template></section>
+            <TaskExecutionPanel :task="current" :summary="summary" :saved-plan="savedPlan" :readiness="runtime.readiness" :error="runtime.error || summaryError" :readiness-error="runtime.readinessError" :action-error="runtime.actionError" :loading="runtime.loading" :busy="busy" :action="runtime.action" :uncertain="runtime.uncertain" :candidate-pending="Boolean(proposal)" :can-start="runtime.canStart" :can-cancel="runtime.canCancel" :updated-at="runtime.updatedAt" @start="runtime.start" @cancel="runtime.cancel" @refresh="runtime.refresh" />
           </template>
         </div>
       </div>
@@ -86,6 +86,8 @@ import { useCursorOptions } from '@/composables/useCursorOptions'
 import { lifecycleApi, type AssetRef, type RefID } from '@/api/lifecycle'
 import { taskControlApi, type Answer, type Capability, type Clarification, type DraftInput, type GovernedTask, type Proposal, type SavedPlan, type TaskBudget, type TaskSummary } from '@/api/taskcontrol'
 import TaskPlanPreview from './TaskPlanPreview.vue'
+import TaskExecutionPanel from './TaskExecutionPanel.vue'
+import { useTaskRuntime } from './useTaskRuntime'
 import { assetLabel, statusLabel } from './labels'
 import '@/components/workbench/workbench.css'
 
@@ -105,8 +107,15 @@ const error = ref(''), notice = ref(''), action = ref(''), saveUncertain = ref(f
 const answers = reactive<Record<string, string>>(Object.create(null)), issues = ref<{ node_id?: string; field: string; message: string }[]>([])
 const answerHistory = ref<Answer[]>([])
 let proposalRound = 0
-const busy = computed(() => Boolean(action.value))
-const canPropose = computed(() => current.value && ['draft', 'ready'].includes(current.value.status) && !summary.value?.children?.length && !summaryError.value)
+const runtime = reactive(useTaskRuntime({
+  task: current, summary, savedPlan, proposal,
+  scope: computed(() => `${auth.authEpoch}:${auth.user?.id || ''}:${auth.currentTenant?.id || ''}`),
+  planningBusy: computed(() => Boolean(action.value)),
+  onInaccessible: (id, message) => { clearDetail(); detailID.value = id; detailError.value = message },
+  onRefreshed: () => { summaryError.value = '' },
+}))
+const busy = computed(() => Boolean(action.value) || runtime.busy)
+const canPropose = computed(() => current.value && ['draft', 'ready'].includes(current.value.status) && !summary.value?.children?.length && !summaryError.value && !runtime.uncertain && !runtime.error)
 const hasUnsaved = computed(() => Boolean(proposal.value || (!current.value && (goal.value.trim() || selectedRefs.value.length))))
 let epoch = 0, detailSequence = 0, actionSequence = 0, listSequence = 0, disposed = false
 const controllers = new Set<AbortController>()
@@ -126,7 +135,7 @@ function failure(cause: unknown) {
   return response?.data?.message || (cause instanceof Error ? cause.message : '读取失败，请重试')
 }
 function clearProposal() { proposal.value = undefined; saveUncertain.value = false; Object.keys(answers).forEach(key => delete answers[key]) }
-function clearDetail() { detailSequence++; actionSequence++; action.value = ''; current.value = undefined; savedPlan.value = undefined; summary.value = undefined; detailID.value = ''; detailLoading.value = false; detailError.value = ''; summaryError.value = ''; clearProposal(); answerHistory.value = []; proposalRound = 0 }
+function clearDetail() { runtime.reset(); detailSequence++; actionSequence++; action.value = ''; current.value = undefined; savedPlan.value = undefined; summary.value = undefined; detailID.value = ''; detailLoading.value = false; detailError.value = ''; summaryError.value = ''; clearProposal(); answerHistory.value = []; proposalRound = 0 }
 function resetDraft() { goal.value = ''; assetChoice.value = ''; selectedRefs.value = []; Object.assign(budget, defaultBudget()); assessmentQuestions.value = [] }
 function confirmDiscard() { return !hasUnsaved.value || window.confirm('未保存的目标或候选计划将丢失，仍要离开吗？') }
 function newDraft() {
@@ -158,25 +167,40 @@ async function openTask(id: string) {
   try {
     const task = requireData(await taskControlApi.get(id, abort.signal))
     if (!active()) return
+    if (task.id !== id) throw new Error('任务身份不匹配，请重新打开任务。')
     current.value = task; resetDraft()
     const [status, plan] = await Promise.allSettled([
       taskControlApi.summary(id, abort.signal),
       task.current_plan_version ? taskControlApi.plan(id, task.current_plan_version, abort.signal) : Promise.resolve(undefined),
     ])
     if (!active()) return
+    const denied = [status, plan].find(result => result.status === 'rejected' && [401, 403, 404].includes((result.reason as { response?: { status?: number } })?.response?.status || 0))
+    if (denied?.status === 'rejected') {
+      const message = failure(denied.reason)
+      clearDetail(); detailID.value = id; detailError.value = message
+      return
+    }
     if (status.status === 'fulfilled') {
       const result = requireData(status.value)
-      if (result.task_id === task.id && result.task_version === task.version) summary.value = result
+      if (result.task_id === task.id && result.task_version === task.version && result.current_plan_version === task.current_plan_version) summary.value = result
       else summaryError.value = '任务在读取期间发生变化，请刷新任务状态。'
     }
     else summaryError.value = failure(status.reason)
-    if (plan.status === 'fulfilled' && plan.value) savedPlan.value = requireData(plan.value)
+    if (plan.status === 'fulfilled' && plan.value) {
+      const snapshot = requireData(plan.value)
+      if (snapshot.task_id !== id || snapshot.version !== task.current_plan_version) throw new Error('已保存计划版本不匹配，请重新读取任务。')
+      savedPlan.value = snapshot
+    }
     else if (plan.status === 'rejected') error.value = `已保存计划读取失败：${failure(plan.reason)}`
   } catch (cause) { if (active()) { current.value = undefined; detailError.value = failure(cause) } }
-  finally { controllers.delete(abort); if (active()) detailLoading.value = false }
+  finally { controllers.delete(abort); if (active()) { detailLoading.value = false; void runtime.initialize() } }
 }
 function selectTask(id: string) { if (!busy.value) void router.push({ path: '/tasks', query: { task_id: id } }) }
-function refreshTask() { if (!busy.value && current.value && confirmDiscard()) { notice.value = ''; void openTask(current.value.id) } }
+function refreshTask() {
+  if (busy.value || !current.value) return
+  if (saveUncertain.value) { if (confirmDiscard()) { notice.value = ''; void openTask(current.value.id) } }
+  else void runtime.refresh()
+}
 function draftInput(): DraftInput {
   if (Array.from(goal.value.trim()).length > 4000 || goal.value.includes('\0')) throw new Error('任务目标最多 4000 字符，且不能包含空字符。')
   for (const field of budgetFields) if (!Number.isSafeInteger(budget[field.key]) || budget[field.key] < field.min || budget[field.key] > field.max) throw new Error(`${field.label}必须是 ${field.min}–${field.max} 之间的整数。`)
@@ -212,7 +236,7 @@ async function beginPlanning() {
   finally { controllers.delete(abort); if (active()) action.value = '' }
 }
 async function proposeAgain(submittedAnswers: Answer[]) {
-  if (busy.value || !current.value || !hasIdentity.value) return
+  if (busy.value || !current.value || !hasIdentity.value || !canPropose.value) return
   const task = current.value, generation = epoch, sequence = ++actionSequence, abort = controller()
   action.value = 'propose'; error.value = ''; issues.value = []; notice.value = ''
   try { await receiveProposal(task, submittedAnswers, generation, sequence, abort.signal) }
@@ -235,13 +259,13 @@ function continuePlanning() {
 function regenerate() { if (proposal.value && !window.confirm('重新生成会替换本页未保存的候选，并发起一次新的规划调用。继续吗？')) return; void proposeAgain([...answerHistory.value]) }
 async function savePlan() {
   const candidate = proposal.value, task = current.value
-  if (busy.value || saveUncertain.value || !task || candidate?.decision.kind !== 'proposal' || !candidate.decision.plan || !candidate.validation?.valid || candidate.task_version !== task.version) return
+  if (busy.value || saveUncertain.value || runtime.uncertain || !task || candidate?.decision.kind !== 'proposal' || !candidate.decision.plan || !candidate.validation?.valid || candidate.task_version !== task.version) return
   const generation = epoch, sequence = ++actionSequence, abort = controller()
   action.value = 'save'; error.value = ''; issues.value = []
   try {
     requireData(await taskControlApi.appendPlan(task.id, task.version, candidate.decision.plan, abort.signal))
     if (!live(generation) || sequence !== actionSequence) return
-    clearProposal(); notice.value = '计划已保存。当前仍处于规划阶段，未执行任务。'
+    clearProposal(); notice.value = '计划已保存。通过执行准入后仍需单独启动，尚未执行任务。'
     // The platform remounts pages on query navigation. A new instance reads the
     // saved version; hosts that retain this instance still need a fresh GET.
     if (route.query.task_id !== task.id) {

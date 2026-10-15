@@ -46,19 +46,23 @@ const (
 
 type Task struct {
 	Scope
-	ID                 string          `json:"id"`
-	Goal               string          `json:"goal"`
-	InputRefs          json.RawMessage `json:"input_refs"`
-	Budget             json.RawMessage `json:"budget"`
-	ResultRefs         json.RawMessage `json:"result_refs"`
-	RequestID          string          `json:"request_id"`
-	Status             Status          `json:"status"`
-	Version            int64           `json:"version"`
-	CurrentPlanVersion int64           `json:"current_plan_version"`
-	Reason             string          `json:"reason,omitempty"`
-	CancelRequestedAt  *time.Time      `json:"cancel_requested_at,omitempty"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	ID                   string          `json:"id"`
+	Goal                 string          `json:"goal"`
+	InputRefs            json.RawMessage `json:"input_refs"`
+	Budget               json.RawMessage `json:"budget"`
+	ResultRefs           json.RawMessage `json:"result_refs"`
+	RequestID            string          `json:"request_id"`
+	Status               Status          `json:"status"`
+	Version              int64           `json:"version"`
+	CurrentPlanVersion   int64           `json:"current_plan_version"`
+	ExecutionPlanVersion int64           `json:"execution_plan_version"`
+	StartedAt            *time.Time      `json:"started_at,omitempty"`
+	DeadlineAt           *time.Time      `json:"deadline_at,omitempty"`
+	FinishedAt           *time.Time      `json:"finished_at,omitempty"`
+	Reason               string          `json:"reason,omitempty"`
+	CancelRequestedAt    *time.Time      `json:"cancel_requested_at,omitempty"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 type CreateTaskInput struct {
@@ -89,19 +93,25 @@ const (
 
 type Child struct {
 	Scope
-	ID           string          `json:"id"`
-	TaskID       string          `json:"task_id"`
-	PlanVersion  int64           `json:"plan_version"`
-	NodeID       string          `json:"node_id"`
-	Attempt      int             `json:"attempt"`
-	Domain       string          `json:"domain"`
-	OperationKey string          `json:"operation_key"`
-	DomainID     string          `json:"domain_id,omitempty"`
-	Status       ChildStatus     `json:"status"`
-	Version      int64           `json:"version"`
-	Receipt      json.RawMessage `json:"receipt,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID                 string          `json:"id"`
+	TaskID             string          `json:"task_id"`
+	PlanVersion        int64           `json:"plan_version"`
+	NodeID             string          `json:"node_id"`
+	Attempt            int             `json:"attempt"`
+	Domain             string          `json:"domain"`
+	OperationKey       string          `json:"operation_key"`
+	DomainID           string          `json:"domain_id,omitempty"`
+	Status             ChildStatus     `json:"status"`
+	Version            int64           `json:"version"`
+	Receipt            json.RawMessage `json:"receipt,omitempty"`
+	DomainStatus       string          `json:"domain_status"`
+	OutputRefs         json.RawMessage `json:"output_refs,omitempty"`
+	Error              string          `json:"error,omitempty"`
+	ObservedAt         *time.Time      `json:"observed_at,omitempty"`
+	CallsReserved      int             `json:"calls_reserved"`
+	CostMicrosReserved int64           `json:"cost_micros_reserved"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 // DispatchInput is accepted only after service-level plan and authorization
@@ -112,11 +122,13 @@ type DispatchInput struct {
 	Attempt     int
 	Domain      string
 	Payload     json.RawMessage
+	Fence       ExecutionFence
 }
 
 type Binding struct {
 	DomainID string
 	Receipt  json.RawMessage
+	Fence    ExecutionFence
 }
 
 type OutboxStatus string
@@ -155,6 +167,7 @@ type TaskPage struct {
 type OutboxFilter struct {
 	ListFilter
 	Status OutboxStatus
+	TaskID string
 }
 type OutboxPage struct {
 	Items      []Outbox `json:"items"`
@@ -164,6 +177,7 @@ type TaskUpdate struct {
 	Status     Status
 	ResultRefs json.RawMessage
 	Reason     string
+	Fence      ExecutionFence
 }
 
 type Repository interface {

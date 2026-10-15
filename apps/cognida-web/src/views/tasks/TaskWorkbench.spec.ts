@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { reactive } from 'vue'
 import type { GovernedTask, PlanSpec, Proposal, TaskSummary } from '@/api/taskcontrol'
 
-const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn() }))
+const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn(), readiness: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
 const lifecycle = vi.hoisted(() => ({ assets: vi.fn() }))
 const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn(), leave: undefined as undefined | (() => boolean), update: undefined as undefined | (() => boolean) }))
 vi.mock('@/api/taskcontrol', () => ({ taskControlApi: api }))
@@ -37,6 +37,7 @@ describe('Supervisor task planning', () => {
   beforeEach(() => {
     vi.clearAllMocks(); route.query = {}; auth.authEpoch++; auth.user.id = 1; auth.currentTenant.id = 1
     vi.spyOn(window, 'confirm').mockReturnValue(true)
+    api.readiness.mockImplementation((id: string) => Promise.resolve({ data: { task_id: id, task_version: 2, plan_version: 1, execution_enabled: false, allowed: false, blockers: [] } }))
     api.capabilities.mockResolvedValue({ data: { capabilities: [], execution_enabled: false } })
     api.list.mockResolvedValue(page([])); lifecycle.assets.mockResolvedValue(page([asset()]))
     api.assess.mockResolvedValue({ data: { ready: true, questions: [], execution_enabled: false } })
@@ -102,6 +103,14 @@ describe('Supervisor task planning', () => {
     old.resolve({ data: { ...task('old-task'), goal: 'OLD_PRIVATE_GOAL' } }); await flushPromises()
     expect(wrapper.text()).toContain('当前不可访问'); expect(wrapper.text()).not.toContain('OLD_PRIVATE_GOAL')
     expect(api.summary).not.toHaveBeenCalled(); expect(api.propose).not.toHaveBeenCalled(); wrapper.unmount()
+  })
+  it.each(['summary', 'plan'] as const)('clears initial private details if %s becomes inaccessible after the task read succeeds', async endpoint => {
+    route.query = { task_id: 'task-1' }; api.get.mockResolvedValue({ data: { ...task('task-1', 2, 1), goal: 'PRIVATE_REVOKED_GOAL' } })
+    api.summary.mockResolvedValue({ data: summary('task-1', 2, 1) }); api[endpoint].mockRejectedValue({ response: { status: 403 } })
+    const wrapper = await setup()
+    expect(wrapper.text()).toContain('当前不可访问'); expect(wrapper.text()).not.toContain('PRIVATE_REVOKED_GOAL')
+    expect(wrapper.text()).not.toContain('已保存计划 v1'); expect(wrapper.find('.task-goal').exists()).toBe(false)
+    expect(api.readiness).not.toHaveBeenCalled(); wrapper.unmount()
   })
   it('does not continue drafting as a different tenant when create completes late', async () => {
     const old = deferred<{ data: GovernedTask }>(); api.create.mockImplementationOnce(() => old.promise)

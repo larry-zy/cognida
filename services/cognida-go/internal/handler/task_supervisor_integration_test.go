@@ -53,6 +53,9 @@ type supervisorHTTPFixture struct {
 	revoked atomic.Bool
 	calls   atomic.Int64
 	planner supervisorPlannerFunc
+	service *svc.Service
+	handler *TaskControlHandler
+	kinds   map[l.RefID]l.Kind
 }
 
 func newSupervisorHTTPFixture(t *testing.T) *supervisorHTTPFixture {
@@ -78,7 +81,7 @@ func newSupervisorHTTPFixture(t *testing.T) *supervisorHTTPFixture {
 	require.False(t, dirty)
 	f := &supervisorHTTPFixture{t: t, db: db, repo: repository.NewTaskControlRepository(db), owner: d.Scope{TenantID: time.Now().UnixNano() & 0x1fffffffffffff, UserID: 941}, ref: l.RefID{AssetID: uuid.NewString(), Version: 1}, extra: l.RefID{AssetID: uuid.NewString(), Version: 1}, budget: svc.Budget{MaxNodes: 2, MaxConcurrency: 1, MaxAttempts: 2, MaxCalls: 4, MaxCostMicros: 100, TimeoutSeconds: 60}}
 	t.Cleanup(func() {
-		for _, table := range []string{"task_control_outbox", "task_control_children", "task_control_plans", "task_control_tasks"} {
+		for _, table := range []string{"task_control_leases", "task_control_outbox", "task_control_children", "task_control_plans", "task_control_tasks"} {
 			require.NoError(t, db.Table(table).Where("tenant_id = ? AND user_id = ?", f.owner.TenantID, f.owner.UserID).Delete(map[string]any{}).Error)
 		}
 	})
@@ -92,11 +95,15 @@ func newSupervisorHTTPFixture(t *testing.T) *supervisorHTTPFixture {
 		if f.revoked.Load() || scope != f.owner || (ref != f.ref && ref != f.extra) {
 			return "", d.ErrForbidden
 		}
+		if kind, ok := f.kinds[ref]; ok {
+			return kind, nil
+		}
 		return l.RawAsset, nil
 	})
 	require.NoError(t, err)
 	service, err := svc.NewService(f.repo, validator)
 	require.NoError(t, err)
+	f.service = service
 	f.planner = func(context.Context, svc.PlanningInput) (svc.PlannerDecision, error) {
 		plan := f.clonePlan()
 		return svc.PlannerDecision{Kind: "proposal", Explanation: "为合成测试资产生成一次清洗候选。", Plan: &plan}, nil
@@ -125,6 +132,7 @@ func newSupervisorHTTPFixture(t *testing.T) *supervisorHTTPFixture {
 	})
 	f.router.Use(middleware.NewIdempotency(nil).Apply())
 	handler := NewTaskControlHandler(service)
+	f.handler = handler
 	handler.SetSupervisor(supervisor)
 	handler.Register(f.router.Group("/api/v1"))
 	return f

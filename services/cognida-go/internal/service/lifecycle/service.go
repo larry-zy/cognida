@@ -288,7 +288,7 @@ func validateOptions(options map[string]any) error {
 		return d.ErrInvalid
 	}
 	for k := range options {
-		if k == "approved" || k == "is_admin" || k == "tenant_id" || k == "user_id" || k == "tools" || k == "stages" {
+		if k == "approved" || k == "is_admin" || k == "tenant_id" || k == "user_id" || k == "tools" || k == "stages" || k == governedOption {
 			return fmt.Errorf("%w: protected option %s", d.ErrInvalid, k)
 		}
 	}

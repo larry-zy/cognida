@@ -25,6 +25,7 @@ var _ d.Repository = (*TaskControlRepository)(nil)
 type taskControlTaskRow struct {
 	d.Task                      `gorm:"embedded"`
 	IdempotencyKey, RequestHash string
+	ExecutionKey, ExecutionHash string
 }
 
 func (taskControlTaskRow) TableName() string { return "task_control_tasks" }
@@ -187,7 +188,7 @@ func (r *TaskControlRepository) AppendPlan(ctx context.Context, scope d.Scope, i
 		if err != nil {
 			return err
 		}
-		if task.Version != expected || task.CancelRequestedAt != nil || (task.Status != d.StatusDraft && task.Status != d.StatusReady) {
+		if task.Version != expected || task.StartedAt != nil || task.CancelRequestedAt != nil || (task.Status != d.StatusDraft && task.Status != d.StatusReady) {
 			return d.ErrConflict
 		}
 		var count int64
@@ -257,6 +258,12 @@ func (r *TaskControlRepository) EnqueueChild(ctx context.Context, scope d.Scope,
 		if err != nil {
 			return err
 		}
+		if err := tcCheckFence(tx, scope, task, in.Fence); err != nil {
+			return err
+		}
+		if err := tcExecutionOpen(tx, scope, task); err != nil {
+			return err
+		}
 		var existing taskControlChildRow
 		err = tcScope(tx, scope).Where("operation_key = ?", key).Take(&existing).Error
 		if err == nil {
@@ -302,8 +309,12 @@ func (r *TaskControlRepository) EnqueueChild(ctx context.Context, scope d.Scope,
 		if unknown > 0 {
 			return d.ErrConflict
 		}
+		calls, cost, err := tcReserveDispatch(tx, scope, task, in)
+		if err != nil {
+			return err
+		}
 		now := time.Now().UTC()
-		out = d.Child{Scope: scope, ID: uuid.NewString(), TaskID: id, PlanVersion: in.PlanVersion, NodeID: in.NodeID, Attempt: in.Attempt, Domain: in.Domain, OperationKey: key, Status: d.ChildPending, Version: 1, CreatedAt: now, UpdatedAt: now}
+		out = d.Child{Scope: scope, ID: uuid.NewString(), TaskID: id, PlanVersion: in.PlanVersion, NodeID: in.NodeID, Attempt: in.Attempt, Domain: in.Domain, OperationKey: key, Status: d.ChildPending, DomainStatus: d.DomainUnknown, CallsReserved: calls, CostMicrosReserved: cost, Version: 1, CreatedAt: now, UpdatedAt: now}
 		row := taskControlChildRow{Child: out, RequestHash: hash}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
@@ -355,6 +366,12 @@ func (r *TaskControlRepository) ListOutbox(ctx context.Context, scope d.Scope, f
 		return nil, err
 	}
 	q := tcScope(r.db.WithContext(ctx), scope)
+	if filter.TaskID != "" {
+		if _, err := r.GetTask(ctx, scope, filter.TaskID); err != nil {
+			return nil, err
+		}
+		q = q.Where("task_id = ?", filter.TaskID)
+	}
 	if filter.Status != "" {
 		q = q.Where("status = ?", filter.Status)
 	}
@@ -428,6 +445,9 @@ func tcUpdateOutbox(tx *gorm.DB, scope d.Scope, event *taskControlOutboxRow, val
 	return nil
 }
 func (r *TaskControlRepository) ClaimOutbox(ctx context.Context, scope d.Scope, id string, expected int64) (*d.Outbox, error) {
+	return r.ClaimOutboxWithLease(ctx, scope, id, expected, d.ExecutionFence{})
+}
+func (r *TaskControlRepository) ClaimOutboxWithLease(ctx context.Context, scope d.Scope, id string, expected int64, fence d.ExecutionFence) (*d.Outbox, error) {
 	if err := tcCheck(scope, id); err != nil {
 		return nil, err
 	}
@@ -438,6 +458,12 @@ func (r *TaskControlRepository) ClaimOutbox(ctx context.Context, scope d.Scope, 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		task, child, event, err := tcLockedDispatch(tx, scope, id, false)
 		if err != nil {
+			return err
+		}
+		if err := tcCheckFence(tx, scope, task, fence); err != nil {
+			return err
+		}
+		if err := tcExecutionOpen(tx, scope, task); err != nil {
 			return err
 		}
 		if event.Version != expected || event.Status != d.OutboxPending || child.Status != d.ChildPending || task.CancelRequestedAt != nil || task.CurrentPlanVersion != child.PlanVersion || (task.Status != d.StatusReady && task.Status != d.StatusRunning) {
@@ -464,6 +490,9 @@ func (r *TaskControlRepository) ClaimOutbox(ctx context.Context, scope d.Scope, 
 	return &out, nil
 }
 func (r *TaskControlRepository) MarkDispatchUnknown(ctx context.Context, scope d.Scope, id string, expected int64, reason string) (*d.Outbox, error) {
+	return r.MarkDispatchUnknownWithLease(ctx, scope, id, expected, reason, d.ExecutionFence{})
+}
+func (r *TaskControlRepository) MarkDispatchUnknownWithLease(ctx context.Context, scope d.Scope, id string, expected int64, reason string, fence d.ExecutionFence) (*d.Outbox, error) {
 	if err := tcCheck(scope, id); err != nil {
 		return nil, err
 	}
@@ -475,6 +504,12 @@ func (r *TaskControlRepository) MarkDispatchUnknown(ctx context.Context, scope d
 		task, child, event, err := tcLockedDispatch(tx, scope, id, false)
 		if err != nil {
 			return err
+		}
+		if err := tcCheckFence(tx, scope, task, fence); err != nil {
+			return err
+		}
+		if task.Status.Terminal() {
+			return d.ErrConflict
 		}
 		if event.Version != expected || (event.Status != d.OutboxDispatching && event.Status != d.OutboxReconcileRequired) || (child.Status != d.ChildDispatching && child.Status != d.ChildReconcileRequired) {
 			return d.ErrConflict
@@ -489,7 +524,11 @@ func (r *TaskControlRepository) MarkDispatchUnknown(ctx context.Context, scope d
 		if task.CancelRequestedAt != nil {
 			state = d.StatusCancelRequested
 		}
-		if err := tcUpdateTask(tx, scope, task, map[string]any{"status": state, "reason": reason}); err != nil {
+		taskReason := reason
+		if task.CancelRequestedAt != nil {
+			taskReason = task.Reason
+		}
+		if err := tcUpdateTask(tx, scope, task, map[string]any{"status": state, "reason": taskReason}); err != nil {
 			return err
 		}
 		if err := tcScope(tx, scope).Where("id = ?", id).Take(event).Error; err != nil {
@@ -519,6 +558,12 @@ func (r *TaskControlRepository) BindChild(ctx context.Context, scope d.Scope, id
 		task, child, event, err := tcLockedDispatch(tx, scope, id, true)
 		if err != nil {
 			return err
+		}
+		if err := tcCheckFence(tx, scope, task, binding.Fence); err != nil {
+			return err
+		}
+		if task.Status.Terminal() {
+			return d.ErrConflict
 		}
 		if child.Attempt != attempt {
 			return d.ErrConflict
@@ -591,10 +636,10 @@ func (r *TaskControlRepository) RequestCancel(ctx context.Context, scope d.Scope
 			return err
 		}
 		state := d.StatusCancelled
-		if count > 0 {
+		if count > 0 || task.StartedAt != nil {
 			state = d.StatusCancelRequested
 		}
-		if err := tcUpdateTask(tx, scope, task, map[string]any{"status": state, "cancel_requested_at": now}); err != nil {
+		if err := tcUpdateTask(tx, scope, task, map[string]any{"status": state, "cancel_requested_at": now, "reason": "user_cancelled"}); err != nil {
 			return err
 		}
 		stored, err := tcTask(tx, scope, id, false)
@@ -633,6 +678,12 @@ func (r *TaskControlRepository) UpdateTaskStatus(ctx context.Context, scope d.Sc
 		task, err := tcTask(tx, scope, id, true)
 		if err != nil {
 			return err
+		}
+		if err := tcCheckFence(tx, scope, task, in.Fence); err != nil {
+			return err
+		}
+		if task.StartedAt != nil && (in.Status.Terminal() || in.Status == d.StatusDraft || in.Status == d.StatusReady || task.Status == d.StatusReconcileRequired) {
+			return d.ErrConflict
 		}
 		if task.Version != expected || !d.CanTransition(task.Status, in.Status) {
 			return d.ErrConflict

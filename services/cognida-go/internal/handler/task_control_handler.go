@@ -18,6 +18,7 @@ import (
 type TaskControlHandler struct {
 	service    *svc.Service
 	supervisor *svc.Supervisor
+	runtime    *svc.Runtime
 }
 
 func NewTaskControlHandler(s *svc.Service) *TaskControlHandler {
@@ -52,6 +53,9 @@ func (h *TaskControlHandler) Register(api *gin.RouterGroup) {
 	g.GET("/:id", h.Get)
 	g.POST("/:id/plans", h.AppendPlan)
 	g.GET("/:id/plans/:version", h.GetPlan)
+	g.GET("/:id/execution-readiness", h.ExecutionReadiness)
+	g.POST("/:id/start", h.StartTask)
+	g.POST("/:id/cancel", h.CancelTask)
 }
 func taskControlScope(c *gin.Context) d.Scope {
 	return d.Scope{TenantID: c.GetInt64("tenant_id"), UserID: c.GetInt64("user_id")}
@@ -156,7 +160,7 @@ func taskControlError(c *gin.Context, e error) {
 	case errors.Is(e, svc.ErrPlannerOutput):
 		c.JSON(http.StatusBadGateway, gin.H{"code": 502, "message": "Supervisor 未返回有效的受约束计划，请补充目标后重试"})
 	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, context.Canceled):
-		c.JSON(http.StatusGatewayTimeout, gin.H{"code": 504, "message": "任务规划已超时或取消"})
+		c.JSON(http.StatusGatewayTimeout, gin.H{"code": 504, "message": "任务请求已超时或取消，请重新核对任务状态"})
 	case errors.As(e, &validation):
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "任务计划校验未通过", "issues": validation.Issues})
 	case errors.Is(e, d.ErrForbidden):
@@ -177,7 +181,7 @@ func (h *TaskControlHandler) Capabilities(c *gin.Context) {
 		taskControlError(c, e)
 		return
 	}
-	OK(c, gin.H{"capabilities": items, "execution_enabled": false})
+	OK(c, gin.H{"capabilities": items, "execution_enabled": h.runtime != nil && h.runtime.Enabled()})
 }
 func (h *TaskControlHandler) Validate(c *gin.Context) {
 	var in svc.PlanSpec

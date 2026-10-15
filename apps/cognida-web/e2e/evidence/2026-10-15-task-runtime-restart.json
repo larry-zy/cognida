@@ -1,0 +1,250 @@
+{
+  "date": "2026-10-15",
+  "scenario": "authenticated HTTP → four serial real lifecycle quality jobs → SIGKILL own Go → same binary/database/Redis restart → completed",
+  "backend": "real MySQL, dedicated Redis, configured Python lifecycle compute; no fake adapter or HTTP mock",
+  "binary_sha256_before_and_after": "4840ef0c9c091fa1111b15e5a1c898704c01ec1a496a30a9ed073a44b3cd75f5",
+  "unchanged_redis_pid": 85037,
+  "database": "cognida_review_taskruntime_20261015_1cce4e4cf4",
+  "budget": {
+    "max_nodes": 4,
+    "max_concurrency": 1,
+    "max_attempts": 4,
+    "max_calls": 8,
+    "max_cost_micros": 0,
+    "timeout_seconds": 240
+  },
+  "crash": {
+    "signal": "SIGKILL",
+    "old_go_pid": 14636,
+    "new_go_pid": 73213,
+    "time_unix": 1792076675.332458,
+    "command_path_verified_before_signal": true,
+    "domain_states_at_crash": [
+      {
+        "id": "edf0edd4-c963-4b20-8fbd-a0a575fad559",
+        "status": "succeeded",
+        "attempt": 1
+      }
+    ]
+  },
+  "before": {
+    "task": [
+      {
+        "execution_plan_version": 1,
+        "id": "ac759623-5f11-4ec8-aa26-9e1abbc76f6b",
+        "reason": "",
+        "result_refs": [],
+        "status": "running",
+        "version": 7
+      }
+    ],
+    "children": [
+      {
+        "id": "dd57b52a-587e-4e1a-aa1f-1aa24f5bb9ad",
+        "node_id": "quality-1",
+        "attempt": 1,
+        "domain_id": "edf0edd4-c963-4b20-8fbd-a0a575fad559",
+        "status": "bound",
+        "version": 4,
+        "domain_status": "queued",
+        "calls_reserved": 2,
+        "cost_micros_reserved": 0,
+        "receipt_present": true,
+        "receipt_sha256": "0d3aee20f239bd26997c5119bf7cf9a3f77270d046ff43c2fc1ace6b77f692bb"
+      }
+    ],
+    "outbox": [
+      {
+        "id": "032154cf-bd8c-40a0-8734-c57a5ccef6e0",
+        "child_id": "dd57b52a-587e-4e1a-aa1f-1aa24f5bb9ad",
+        "operation_key": "a771be20a3e5edaa9ae0e7a293025399d41444efe448ceb0bc5122e0aa1df1c3",
+        "payload_hash": "c62adcf6e7d705fb5c9f0d610dff0115ea88a0ae0b7d9eae777812381c7e2fa8",
+        "status": "delivered",
+        "version": 3
+      }
+    ],
+    "lease": [
+      {
+        "epoch": 2,
+        "lease_until_us": 1792076675182012,
+        "next_poll_us": 1792076677181247,
+        "owner": ""
+      }
+    ]
+  },
+  "after": {
+    "task": [
+      {
+        "execution_plan_version": 1,
+        "id": "ac759623-5f11-4ec8-aa26-9e1abbc76f6b",
+        "reason": "",
+        "result_refs": [
+          {
+            "version": 1,
+            "asset_id": "ef07a7fb-de21-57dd-b4bc-f54100d7bdab"
+          },
+          {
+            "version": 2,
+            "asset_id": "c7eb772b-0ddd-5a62-924a-ff53f8a9e94d"
+          },
+          {
+            "version": 2,
+            "asset_id": "b045d410-f2e9-57fc-b964-feb0313dfea6"
+          },
+          {
+            "version": 2,
+            "asset_id": "48bfd9b5-96dc-5074-bc4e-20d82f6e9619"
+          },
+          {
+            "version": 2,
+            "asset_id": "e945c5b2-6dbd-546f-ba50-163c87ca1474"
+          }
+        ],
+        "status": "completed",
+        "version": 24
+      }
+    ],
+    "children": [
+      {
+        "id": "dd57b52a-587e-4e1a-aa1f-1aa24f5bb9ad",
+        "node_id": "quality-1",
+        "attempt": 1,
+        "domain_id": "edf0edd4-c963-4b20-8fbd-a0a575fad559",
+        "status": "bound",
+        "version": 5,
+        "domain_status": "succeeded",
+        "calls_reserved": 2,
+        "cost_micros_reserved": 0,
+        "receipt_present": true,
+        "receipt_sha256": "0d3aee20f239bd26997c5119bf7cf9a3f77270d046ff43c2fc1ace6b77f692bb"
+      },
+      {
+        "id": "15e5a233-ecf3-4dc6-8ecf-d3c220f3cdb9",
+        "node_id": "quality-2",
+        "attempt": 1,
+        "domain_id": "d6d54c09-f0ce-4d9a-a70d-bb5ac4f8c917",
+        "status": "bound",
+        "version": 5,
+        "domain_status": "succeeded",
+        "calls_reserved": 2,
+        "cost_micros_reserved": 0,
+        "receipt_present": true,
+        "receipt_sha256": "04cb17b7fc43002d43554737ad6f49c3c29f35c80dfaa6d173a04fe21349490b"
+      },
+      {
+        "id": "52ab06f2-afa3-417d-a235-3107b46862bc",
+        "node_id": "quality-3",
+        "attempt": 1,
+        "domain_id": "7ca5da9e-011a-47c0-aec5-c8549ff71705",
+        "status": "bound",
+        "version": 5,
+        "domain_status": "succeeded",
+        "calls_reserved": 2,
+        "cost_micros_reserved": 0,
+        "receipt_present": true,
+        "receipt_sha256": "4f3d9734971b813e5a5d6b7e54494ea91af39397606558c8b350e059179d5d23"
+      },
+      {
+        "id": "8b59dcc5-a754-417d-b645-94de8f6ffea1",
+        "node_id": "quality-4",
+        "attempt": 1,
+        "domain_id": "10f8f36f-2894-4b56-96e2-f80b82318e86",
+        "status": "bound",
+        "version": 5,
+        "domain_status": "succeeded",
+        "calls_reserved": 2,
+        "cost_micros_reserved": 0,
+        "receipt_present": true,
+        "receipt_sha256": "bf39b2a6b3624960a7c3d99983645342bfd5a9e8a248e2d9484eedc88925afb4"
+      }
+    ],
+    "outbox": [
+      {
+        "id": "4f99348d-2b72-45de-8cce-de1a9c460ef2",
+        "child_id": "15e5a233-ecf3-4dc6-8ecf-d3c220f3cdb9",
+        "operation_key": "380463dc47fdcaaa69df9b1fa79ec158dfca6ef4e5e877bf5d9037d5005ed528",
+        "payload_hash": "99ae334d813b49bffe0b38367ae2ff3478795c1f7f36a697c69c074c94477e7a",
+        "status": "delivered",
+        "version": 3
+      },
+      {
+        "id": "a8b056ef-2332-49f7-8a4f-5438f792f75b",
+        "child_id": "52ab06f2-afa3-417d-a235-3107b46862bc",
+        "operation_key": "77f7548d9b31776e3f8a375e0f37c17cff4555b26f5ca8dabc65abc956a5e2ff",
+        "payload_hash": "59ca118f7260ee106c4fd58e67f1de1fd1f2fcd972749cd3ff7c5cb3b325ab1f",
+        "status": "delivered",
+        "version": 3
+      },
+      {
+        "id": "59060831-a022-4bdd-815e-79856991fbe5",
+        "child_id": "8b59dcc5-a754-417d-b645-94de8f6ffea1",
+        "operation_key": "9f98238349465accde24c5d3f3952222656d79f9c81d90e5f3ac368324a2ad5b",
+        "payload_hash": "4b74bdb6ee70fe3b03b041eed67d4890fd568ecf6051ec647095e75e5ba05edd",
+        "status": "delivered",
+        "version": 3
+      },
+      {
+        "id": "032154cf-bd8c-40a0-8734-c57a5ccef6e0",
+        "child_id": "dd57b52a-587e-4e1a-aa1f-1aa24f5bb9ad",
+        "operation_key": "a771be20a3e5edaa9ae0e7a293025399d41444efe448ceb0bc5122e0aa1df1c3",
+        "payload_hash": "c62adcf6e7d705fb5c9f0d610dff0115ea88a0ae0b7d9eae777812381c7e2fa8",
+        "status": "delivered",
+        "version": 3
+      }
+    ],
+    "lease": [
+      {
+        "epoch": 9,
+        "lease_until_us": 1792076727560169,
+        "next_poll_us": 1792076729559669,
+        "owner": ""
+      }
+    ]
+  },
+  "domain_runs": [
+    {
+      "id": "edf0edd4-c963-4b20-8fbd-a0a575fad559",
+      "status": "succeeded",
+      "attempt": 1,
+      "created_at": "2026-10-15T15:04:35.166316Z",
+      "updated_at": "2026-10-15T15:04:35.226925Z"
+    },
+    {
+      "id": "d6d54c09-f0ce-4d9a-a70d-bb5ac4f8c917",
+      "status": "succeeded",
+      "attempt": 1,
+      "created_at": "2026-10-15T15:05:07.540148Z",
+      "updated_at": "2026-10-15T15:05:07.639679Z"
+    },
+    {
+      "id": "7ca5da9e-011a-47c0-aec5-c8549ff71705",
+      "status": "succeeded",
+      "attempt": 1,
+      "created_at": "2026-10-15T15:05:15.533603Z",
+      "updated_at": "2026-10-15T15:05:15.570932Z"
+    },
+    {
+      "id": "10f8f36f-2894-4b56-96e2-f80b82318e86",
+      "status": "succeeded",
+      "attempt": 1,
+      "created_at": "2026-10-15T15:05:23.541582Z",
+      "updated_at": "2026-10-15T15:05:23.602691Z"
+    }
+  ],
+  "assertions": {
+    "same_database_redis_binary": true,
+    "same_preexisting_domain_handles": true,
+    "four_unique_nodes": true,
+    "four_unique_domain_handles": true,
+    "all_attempt_one": true,
+    "parent_completed": true,
+    "domain_inflight_replay_tested": false,
+    "existing_receipt_digests_unchanged": true,
+    "four_outbox_records_only": true
+  },
+  "limits": [
+    "Crash occurred between domain jobs, with a completed real domain receipt and a nonterminal parent. This does not claim replay of in-flight Python computation.",
+    "Logical call/cost counters are reservations, not measured provider usage.",
+    "Credentials, source bodies and raw receipts are omitted."
+  ]
+}

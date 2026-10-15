@@ -4,6 +4,8 @@
 
 用户调整的执行顺序：**2.4 Supervisor → 2.2/2.5 能力接入与控制器 → 2.7 多 Agent 协作和任务分发验证 → 3.2–3.7 Sandbox**。Supervisor 先形成目标澄清、模型候选、预检和人工保存的规划链路；能力接入后再启用运行。前期能力仅使用已有受控服务，自定义代码执行须等待 Sandbox 验收，不回退为宿主脚本。
 
+2026-10-15 继续交付 **2.2 / 2.5 / 2.6 / 2.7 的首批可执行子集**：四类固定 lifecycle preset、迁移 14、固定执行计划、父任务租约与 fencing、原操作键核对、取消 tombstone、预算预留，以及真实运行状态／结果／取消页面。当前仅放行可信手工输入及完整可验证的派生链；外部来源、其他领域、审批／重规划／SSE 与旧八类来源联合回归不计为已完成。因此整体仍为 4/83，不扩大勾选。过程与证据见[任务控制说明](../../../../services/cognida-go/internal/service/taskcontrol/README.md)和[执行验收](../../../../apps/cognida-web/e2e/ACCEPTANCE-2026-10-15-TASK-RUNTIME.md)。
+
 ## 1. A：契约、支持矩阵与基线
 
 - [ ] 1.1 固定跨域 Task/Plan/ChildHandle/Artifact/Approval 契约及状态机，定义取消请求、已提交事实和待核对状态。

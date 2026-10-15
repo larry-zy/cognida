@@ -31,4 +31,20 @@ describe('task control HTTP adapter', () => {
     expect(transport.get).toHaveBeenLastCalledWith('/governed-tasks/task%2Fid/supervisor/summary', { signal })
     expect(transport.post.mock.calls.every(([path]) => !/\/(run|approve|execute|cancel)$/.test(path))).toBe(true)
   })
+  it('checks readiness without mutations and binds idempotent start to both task and plan versions', async () => {
+    const signal = new AbortController().signal
+    await taskControlApi.readiness('task/id', signal)
+    expect(transport.get).toHaveBeenLastCalledWith('/governed-tasks/task%2Fid/execution-readiness', { signal })
+    expect(transport.post).not.toHaveBeenCalled()
+    transport.post.mockRejectedValueOnce(new Error('unknown start outcome'))
+    await expect(taskControlApi.start('task/id', 4, 2, signal)).rejects.toThrow('unknown start outcome')
+    await taskControlApi.start('task/id', 4, 2, signal)
+    const first = transport.post.mock.calls[0], second = transport.post.mock.calls[1]
+    expect(first.slice(0, 2)).toEqual(['/governed-tasks/task%2Fid/start', { expected_version: 4, plan_version: 2 }])
+    expect(first[2].headers['Idempotency-Key']).toBeTruthy()
+    expect(second[2].headers['Idempotency-Key']).toBe(first[2].headers['Idempotency-Key'])
+    expect(second[2].signal).toBe(signal)
+    await taskControlApi.cancel('task/id', 5, signal)
+    expect(transport.post).toHaveBeenLastCalledWith('/governed-tasks/task%2Fid/cancel', { expected_version: 5 }, { signal })
+  })
 })

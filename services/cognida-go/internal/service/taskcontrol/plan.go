@@ -1,5 +1,5 @@
 // Package taskcontrol validates and persists reviewable cross-domain plans.
-// It does not dispatch domain jobs; successful preflight is not execution.
+// Runtime dispatch is a separate explicit command; preflight is not execution.
 package taskcontrol
 
 import (
@@ -14,7 +14,7 @@ import (
 )
 
 // Budget is a reservation ceiling. Runtime adapters must independently meter
-// actual usage before dispatch; a proposed estimate never grants more budget.
+// bounded preset operations before dispatch; an estimate never grants more budget.
 type Budget struct {
 	MaxNodes       int   `json:"max_nodes"`
 	MaxConcurrency int   `json:"max_concurrency"`
@@ -53,14 +53,15 @@ type PlanSpec struct {
 
 // Capability comes from trusted server configuration, never from a submitted plan.
 type Capability struct {
-	ID               string   `json:"id"`
-	Version          int      `json:"version"`
-	Domain           string   `json:"domain"`
-	InputKinds       []l.Kind `json:"input_kinds"`
-	OutputKinds      []l.Kind `json:"output_kinds"`
-	Tools            []string `json:"tools"`
-	Permissions      []string `json:"permissions"`
-	RequiresApproval bool     `json:"requires_approval"`
+	ID               string            `json:"id"`
+	Version          int               `json:"version"`
+	Domain           string            `json:"domain"`
+	InputKinds       []l.Kind          `json:"input_kinds"`
+	OutputKinds      []l.Kind          `json:"output_kinds"`
+	Tools            []string          `json:"tools"`
+	Permissions      []string          `json:"permissions"`
+	RequiresApproval bool              `json:"requires_approval"`
+	Execution        *ExecutionSupport `json:"execution,omitempty"`
 	// At least one of these kinds must be present in the ordered input list.
 	RequiredAnyInputKinds []l.Kind `json:"required_any_input_kinds,omitempty"`
 	// Outputs in this set can only pass through the first matching input.
@@ -149,6 +150,10 @@ func NewValidator(capabilities []Capability, authorize Authorizer, resolve Resol
 func (v *Validator) Capabilities() []Capability {
 	items := make([]Capability, 0, len(v.capabilities))
 	for _, c := range v.capabilities {
+		if c.Execution != nil {
+			copy := *c.Execution
+			c.Execution = &copy
+		}
 		c.InputKinds = append([]l.Kind(nil), c.InputKinds...)
 		c.OutputKinds = append([]l.Kind(nil), c.OutputKinds...)
 		c.Tools = append([]string(nil), c.Tools...)
@@ -349,11 +354,11 @@ func (v *Validator) Validate(ctx context.Context, p d.Scope, plan PlanSpec) (*Va
 		}
 	}
 	result.Valid = true
-	// This release exposes draft/preflight only. Do not imply that an executor,
-	// approval or runtime budget enforcement has already run.
+	// General plan validation does not authorize execution. Runtime readiness
+	// separately validates a supported preset and its complete source chain.
 	result.ExecutionEnabled = false
 	// The current resolver checks lifecycle asset access and integrity. Source
-	// invalidation propagation must be implemented before executable plans ship.
+	// invalidation propagation is not proven by this general planning preflight.
 	result.AuthorizationScope = "lifecycle_asset"
 	result.OriginRevalidated = false
 	return result, nil

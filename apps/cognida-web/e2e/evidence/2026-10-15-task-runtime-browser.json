@@ -1,0 +1,555 @@
+{
+  "date": "2026-10-15",
+  "environment": "dedicated MySQL/Redis, real Go/Python APIs and local Chrome; no mocked responses",
+  "cases": [
+    {
+      "case": 1,
+      "task_id": "aac399bf-29a7-460c-916d-b490f741d1dc",
+      "task_version": 24,
+      "status": "completed",
+      "terminal": true,
+      "can_cancel": false,
+      "budget": {
+        "max_nodes": 4,
+        "max_concurrency": 1,
+        "max_attempts": 4,
+        "max_calls": 10,
+        "max_cost_micros": 0,
+        "timeout_seconds": 120
+      },
+      "nodes": [
+        {
+          "node_id": "quality",
+          "capability": "lifecycle.data-quality",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "e9c9dd83-71b7-5107-b899-46aebfbe9eec",
+              "version": 1
+            },
+            {
+              "asset_id": "79095ac9-0d12-5c23-9110-f5beba803a81",
+              "version": 2
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "b399b56e-65d5-4436-bb09-4fe662ee97a8"
+        },
+        {
+          "node_id": "clean",
+          "capability": "lifecycle.data-cleaning",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "d11752ca-1bc9-5888-997a-b20841c99609",
+              "version": 2
+            },
+            {
+              "asset_id": "585965cc-c321-57e8-a3a0-c62496996210",
+              "version": 3
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "c0b9c190-f004-4c4c-8465-3f1f4a0dbc82"
+        },
+        {
+          "node_id": "enrich",
+          "capability": "lifecycle.data-enrichment",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "42103477-7365-5619-a1ac-be6d12cef91e",
+              "version": 3
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "d2119887-0f39-4b3e-a261-f79a20d48c3c"
+        },
+        {
+          "node_id": "evaluate",
+          "capability": "lifecycle.data-evaluation",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "b403917b-a909-5b7b-af3b-bb5e79d63abd",
+              "version": 4
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "19f0420e-2c64-47a9-a366-da71f17022eb"
+        }
+      ],
+      "result_refs": [
+        {
+          "asset_id": "d11752ca-1bc9-5888-997a-b20841c99609",
+          "version": 2
+        },
+        {
+          "asset_id": "585965cc-c321-57e8-a3a0-c62496996210",
+          "version": 3
+        },
+        {
+          "asset_id": "42103477-7365-5619-a1ac-be6d12cef91e",
+          "version": 3
+        },
+        {
+          "asset_id": "b403917b-a909-5b7b-af3b-bb5e79d63abd",
+          "version": 4
+        },
+        {
+          "asset_id": "e9c9dd83-71b7-5107-b899-46aebfbe9eec",
+          "version": 1
+        },
+        {
+          "asset_id": "79095ac9-0d12-5c23-9110-f5beba803a81",
+          "version": 2
+        }
+      ],
+      "children": [
+        {
+          "node_id": "clean",
+          "domain_kind": "invocation",
+          "domain_id": "c0b9c190-f004-4c4c-8465-3f1f4a0dbc82",
+          "attempt": 1,
+          "domain_status": "succeeded",
+          "dispatch_status": "bound"
+        },
+        {
+          "node_id": "enrich",
+          "domain_kind": "invocation",
+          "domain_id": "d2119887-0f39-4b3e-a261-f79a20d48c3c",
+          "attempt": 1,
+          "domain_status": "succeeded",
+          "dispatch_status": "bound"
+        },
+        {
+          "node_id": "evaluate",
+          "domain_kind": "invocation",
+          "domain_id": "19f0420e-2c64-47a9-a366-da71f17022eb",
+          "attempt": 1,
+          "domain_status": "succeeded",
+          "dispatch_status": "bound"
+        },
+        {
+          "node_id": "quality",
+          "domain_kind": "invocation",
+          "domain_id": "b399b56e-65d5-4436-bb09-4fe662ee97a8",
+          "attempt": 1,
+          "domain_status": "succeeded",
+          "dispatch_status": "bound"
+        }
+      ],
+      "domain_intervals": [
+        {
+          "id": "c0b9c190-f004-4c4c-8465-3f1f4a0dbc82",
+          "status": "succeeded",
+          "created_at": "2026-10-15T15:02:55.189379Z",
+          "updated_at": "2026-10-15T15:02:55.239196Z"
+        },
+        {
+          "id": "d2119887-0f39-4b3e-a261-f79a20d48c3c",
+          "status": "succeeded",
+          "created_at": "2026-10-15T15:03:03.173187Z",
+          "updated_at": "2026-10-15T15:03:03.273344Z"
+        },
+        {
+          "id": "19f0420e-2c64-47a9-a366-da71f17022eb",
+          "status": "succeeded",
+          "created_at": "2026-10-15T15:03:11.188789Z",
+          "updated_at": "2026-10-15T15:03:11.279556Z"
+        },
+        {
+          "id": "b399b56e-65d5-4436-bb09-4fe662ee97a8",
+          "status": "succeeded",
+          "created_at": "2026-10-15T15:02:47.193125Z",
+          "updated_at": "2026-10-15T15:02:47.229805Z"
+        }
+      ]
+    },
+    {
+      "case": 2,
+      "task_id": "685e7058-ebd7-4f39-9906-3349b7e368d6",
+      "task_version": 14,
+      "status": "completed",
+      "terminal": true,
+      "can_cancel": false,
+      "budget": {
+        "max_nodes": 2,
+        "max_concurrency": 2,
+        "max_attempts": 2,
+        "max_calls": 4,
+        "max_cost_micros": 0,
+        "timeout_seconds": 60
+      },
+      "nodes": [
+        {
+          "node_id": "quality-1",
+          "capability": "lifecycle.data-quality",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "92b86639-c7de-5273-95d0-00a18d9d5ea3",
+              "version": 1
+            },
+            {
+              "asset_id": "38e60fff-2a50-5b00-b9e1-dd7c77403095",
+              "version": 2
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "f8f6c1d2-d6cb-40e3-b1e7-e6031a7965fc"
+        },
+        {
+          "node_id": "quality-2",
+          "capability": "lifecycle.data-quality",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "92b86639-c7de-5273-95d0-00a18d9d5ea3",
+              "version": 1
+            },
+            {
+              "asset_id": "9ef6b74e-762a-5bd8-84a6-b0e68f2cd8eb",
+              "version": 2
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "e89411ec-1da1-4c6b-8952-85259fa7ed51"
+        }
+      ],
+      "result_refs": [
+        {
+          "asset_id": "92b86639-c7de-5273-95d0-00a18d9d5ea3",
+          "version": 1
+        },
+        {
+          "asset_id": "9ef6b74e-762a-5bd8-84a6-b0e68f2cd8eb",
+          "version": 2
+        },
+        {
+          "asset_id": "38e60fff-2a50-5b00-b9e1-dd7c77403095",
+          "version": 2
+        }
+      ],
+      "children": [
+        {
+          "node_id": "quality-1",
+          "domain_kind": "invocation",
+          "domain_id": "f8f6c1d2-d6cb-40e3-b1e7-e6031a7965fc",
+          "attempt": 1,
+          "domain_status": "succeeded",
+          "dispatch_status": "bound"
+        },
+        {
+          "node_id": "quality-2",
+          "domain_kind": "invocation",
+          "domain_id": "e89411ec-1da1-4c6b-8952-85259fa7ed51",
+          "attempt": 1,
+          "domain_status": "succeeded",
+          "dispatch_status": "bound"
+        }
+      ],
+      "domain_intervals": [
+        {
+          "id": "f8f6c1d2-d6cb-40e3-b1e7-e6031a7965fc",
+          "status": "succeeded",
+          "created_at": "2026-10-15T15:03:25.266349Z",
+          "updated_at": "2026-10-15T15:03:25.532828Z"
+        },
+        {
+          "id": "e89411ec-1da1-4c6b-8952-85259fa7ed51",
+          "status": "succeeded",
+          "created_at": "2026-10-15T15:03:25.374022Z",
+          "updated_at": "2026-10-15T15:03:25.736161Z"
+        }
+      ]
+    },
+    {
+      "case": 3,
+      "task_id": "ce1bac3c-d12a-4e12-90b3-e89bfcae79e3",
+      "task_version": 6,
+      "status": "cancelled",
+      "terminal": true,
+      "can_cancel": false,
+      "budget": {
+        "max_nodes": 32,
+        "max_concurrency": 1,
+        "max_attempts": 32,
+        "max_calls": 64,
+        "max_cost_micros": 0,
+        "timeout_seconds": 960
+      },
+      "nodes": [
+        {
+          "node_id": "quality-1",
+          "capability": "lifecycle.data-quality",
+          "status": "cancelled",
+          "attempt": 1,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-2",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-3",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-4",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-5",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-6",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-7",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-8",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-9",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-10",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-11",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-12",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-13",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-14",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-15",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-16",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-17",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-18",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-19",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-20",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-21",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-22",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-23",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-24",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-25",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-26",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-27",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-28",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-29",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-30",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-31",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        },
+        {
+          "node_id": "quality-32",
+          "capability": "lifecycle.data-quality",
+          "status": "skipped",
+          "attempt": 0,
+          "output_refs": []
+        }
+      ],
+      "result_refs": [],
+      "children": [
+        {
+          "node_id": "quality-1",
+          "attempt": 1,
+          "domain_status": "unknown",
+          "dispatch_status": "cancelled"
+        }
+      ],
+      "cancel_response_status": "cancel_requested"
+    }
+  ],
+  "initial_small_input_observation": {
+    "task_id": "4fec926f-d997-4d2a-b0f9-11c2ee5cde0b",
+    "outcome": "Both domain tasks succeeded, but the second was created 23.175 ms after the first terminal update; no concurrency overlap demonstrated. This does not violate a maximum-concurrency ceiling.",
+    "domain_intervals": [
+      {
+        "id": "7685899f-018e-43ea-ad56-968676fd4452",
+        "status": "succeeded",
+        "created_at": "2026-10-15T14:43:24.66006Z",
+        "updated_at": "2026-10-15T14:43:24.849552Z"
+      },
+      {
+        "id": "d3acf7a7-45d9-4ca2-babf-c8b1440f2660",
+        "status": "succeeded",
+        "created_at": "2026-10-15T14:43:24.872727Z",
+        "updated_at": "2026-10-15T14:43:24.97952Z"
+      }
+    ]
+  },
+  "parallel_observation": {
+    "rows": 10000,
+    "columns": 10,
+    "overlap_ms": 158.806,
+    "meaning": "Overlap of domain creation-to-terminal intervals. Does not establish simultaneous Python CPU execution."
+  },
+  "limits": [
+    "Only fixed quality, cleaning, rule enrichment and integrity-evaluation profiles were exercised; no publication, model analysis, Sandbox or arbitrary external write.",
+    "Cancellation confirmed zero successful nodes in this run; partial-completion preservation is asserted conditionally but was not observed in this browser run.",
+    "Credentials, tenant/user identifiers, source bodies and raw receipts are omitted."
+  ]
+}

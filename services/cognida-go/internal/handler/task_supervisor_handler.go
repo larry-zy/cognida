@@ -51,6 +51,9 @@ func (h *TaskControlHandler) SummarizeTask(c *gin.Context) {
 		return
 	}
 	result, err := h.supervisor.Summarize(c.Request.Context(), taskControlScope(c), c.Param("id"))
+	if err == nil && h.runtime != nil {
+		err = h.runtime.DecorateSummary(c.Request.Context(), taskControlScope(c), result)
+	}
 	if err != nil {
 		taskControlError(c, err)
 		return

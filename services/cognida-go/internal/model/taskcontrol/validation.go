@@ -108,7 +108,7 @@ func CanTransition(from, to Status) bool {
 		return true
 	}
 	if from == StatusCancelRequested {
-		return to == StatusCancelled || to == StatusPartiallyCompleted || to == StatusFailed
+		return to == StatusCancelled || to == StatusPartiallyCompleted || to == StatusFailed || to == StatusTimedOut
 	}
 	if to.Terminal() {
 		return true

@@ -26,6 +26,7 @@ import (
 	"cognida/internal/service/lineage"
 	memorysvc "cognida/internal/service/memory"
 	tasksvc "cognida/internal/service/taskcontrol"
+	"cognida/internal/service/taskcontrol/lifecycleadapter"
 	"context"
 	"encoding/json"
 	"github.com/cloudwego/eino/components/embedding"
@@ -42,6 +43,8 @@ import (
 type FeatureServices struct {
 	TaskControl        *tasksvc.Service
 	TaskControlHandler *handler.TaskControlHandler
+	TaskRuntime        *tasksvc.Runtime
+	TaskRuntimeWorker  *tasksvc.RuntimeWorker
 	Memory             *memorysvc.Service
 	MemoryHandler      *handler.MemoryHandler
 	Catalog            *catalog.Service
@@ -118,7 +121,8 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	if err != nil {
 		return nil, err
 	}
-	f.TaskControl, err = tasksvc.NewService(mysql.NewTaskControlRepository(db), validator)
+	taskRepo := mysql.NewTaskControlRepository(db)
+	f.TaskControl, err = tasksvc.NewService(taskRepo, validator)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +132,22 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		return nil, err
 	}
 	f.TaskControlHandler.SetSupervisor(supervisor)
+	adapters := map[string]tasksvc.ExecutionAdapter{}
+	for _, capability := range []string{"lifecycle.data-quality", "lifecycle.data-cleaning", "lifecycle.data-enrichment", "lifecycle.data-evaluation"} {
+		adapter, err := lifecycleadapter.New(life, capability)
+		if err != nil {
+			return nil, err
+		}
+		adapters[capability] = adapter
+	}
+	// Disabling this flag blocks new starts. Existing executions still reconcile,
+	// honour deadlines and propagate cancellation while workers are enabled.
+	f.TaskRuntime, err = tasksvc.NewRuntime(f.TaskControl, taskRepo, adapters, os.Getenv("TASK_CONTROL_EXECUTION_ENABLED") != "false" && os.Getenv("BACKGROUND_WORKERS_ENABLED") != "false")
+	if err != nil {
+		return nil, err
+	}
+	f.TaskControlHandler.SetRuntime(f.TaskRuntime)
+	f.TaskRuntimeWorker = tasksvc.NewRuntimeWorker(f.TaskRuntime)
 	f.Governance = governance.NewService(mysql.NewGovernanceRepository(db), life, compute, job.NewRedisQueueWithPrefix(redisClient, "governance:jobs"), authorize)
 	f.Governance.ValidateSource, f.Governance.Apply, f.Governance.DiscoverSource = NewSuggestionHooks(db, processor)
 	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)
@@ -146,6 +166,7 @@ func (f *FeatureServices) Start() error {
 		f.LifecycleWorker.Stop()
 		return err
 	}
+	f.TaskRuntimeWorker.Start()
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 	f.done = make(chan struct{})
@@ -170,6 +191,9 @@ func (f *FeatureServices) Start() error {
 	return nil
 }
 func (f *FeatureServices) Stop() {
+	if f.TaskRuntimeWorker != nil {
+		f.TaskRuntimeWorker.Stop()
+	}
 	if f.cancel != nil {
 		f.cancel()
 		<-f.done

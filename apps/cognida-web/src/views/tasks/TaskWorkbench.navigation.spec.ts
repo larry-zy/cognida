@@ -4,7 +4,7 @@ import { defineComponent, reactive } from 'vue'
 import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-router'
 import type { GovernedTask, PlanSpec, Proposal } from '@/api/taskcontrol'
 
-const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn() }))
+const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn(), readiness: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
 const lifecycle = vi.hoisted(() => ({ assets: vi.fn() }))
 vi.mock('@/api/taskcontrol', () => ({ taskControlApi: api }))
 vi.mock('@/api/lifecycle', () => ({ lifecycleApi: lifecycle }))
@@ -37,6 +37,7 @@ async function begin(wrapper: VueWrapper) {
 describe('task planning with real route transitions', () => {
   beforeEach(() => {
     vi.clearAllMocks(); vi.spyOn(window, 'confirm').mockReturnValue(false)
+    api.readiness.mockImplementation((id: string) => Promise.resolve({ data: { task_id: id, task_version: 2, plan_version: 1, execution_enabled: false, allowed: false, blockers: [] } }))
     api.capabilities.mockResolvedValue({ data: { capabilities: [], execution_enabled: false } })
     api.list.mockResolvedValue({ data: { items: [task('task-2')], next_cursor: '' } })
     lifecycle.assets.mockResolvedValue({ data: { items: [{ ...input, name: '输入快照', kind: 'raw_asset', status: 'available' }], next_cursor: '' } })

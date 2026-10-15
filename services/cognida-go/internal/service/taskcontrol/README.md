@@ -1,10 +1,12 @@
-# 统一任务控制：Supervisor 与计划审阅
+# 统一任务控制：Supervisor、受控执行与恢复
 
-已交付父任务、不可变计划版本、子任务句柄、事务投递记录，以及 Supervisor 规划服务、HTTP API 和 `/tasks` 任务规划页面。Supervisor 调用现有模型生成澄清问题或候选计划，服务端重新预检后交由用户保存。响应固定 `execution_enabled: false`；保存计划不会创建领域运行、派发任务、发布数据或运行容器。
+已交付父任务、不可变计划版本、子任务句柄、事务投递记录，以及 Supervisor 规划服务、HTTP API 和 `/tasks` 页面。Supervisor 生成候选，服务端预检后由用户保存；保存不派发任务。执行前通过 `execution-readiness` 检查固定操作与完整来源链，用户显式启动后由持久控制器调用已有领域服务。当前接通质检、预置清洗、规则增强和本地产物完整性评估。
 
 ## 启用与 API
 
-按项目迁移流程先应用 `migrations/000013_task_control.{up,down}.sql`，运行时不自动建表。迁移新增 `task_control_tasks`、`task_control_plans`、`task_control_children`、`task_control_outbox` 四张表，不迁移旧任务或修改原领域表。
+按项目流程执行迁移至 **14**，运行时不自动建表。版本 13 新增任务、计划、子任务及 outbox；版本 14 增加执行计划、期限、终态、领域观测、预算预留及 `task_control_leases`。回滚 14 前须停止实例、核对并排空在途任务；回滚会移除执行元数据，不能当作暂停后恢复。
+
+`BACKGROUND_WORKERS_ENABLED` 默认启用领域与任务 workers。`TASK_CONTROL_EXECUTION_ENABLED=false` 仅关闭新启动；已有执行继续核对、遵守期限并传播取消。停止所有后台处理用 `BACKGROUND_WORKERS_ENABLED=false`，同时禁止新启动；恢复 workers 后从数据库接管。开关不替代显式取消任务。
 
 接口位于认证及租户中间件之后；用户与租户来自服务端上下文，请求不能提供身份、审批状态、执行参数或宿主路径。
 
@@ -20,6 +22,9 @@
 | POST | `/api/v1/governed-tasks/supervisor/assess` | 检查目标、输入和预算；缺项返回问题，不调用模型或写库 |
 | POST | `/api/v1/governed-tasks/:id/supervisor/propose` | `{ "expected_version": 1, "answers": [] }`；调用模型生成澄清／候选／不支持说明，不保存候选 |
 | GET | `/api/v1/governed-tasks/:id/supervisor/summary` | 根据已持久化计划及子任务句柄汇总事实，不调用模型 |
+| GET | `/api/v1/governed-tasks/:id/execution-readiness` | 只读检查任务／计划版本、能否启动及逐节点阻断原因 |
+| POST | `/api/v1/governed-tasks/:id/start` | `{ "expected_version": 2, "plan_version": 1 }`，必须有 `Idempotency-Key`；固定计划与绝对期限 |
+| POST | `/api/v1/governed-tasks/:id/cancel` | `{ "expected_version": 3 }`，记录取消请求，随后核对真实终态 |
 
 任务创建请求示例（引用必须替换为当前用户可访问的真实生命周期资产版本）：
 
@@ -50,7 +55,7 @@
 
 提案是只读候选，重复请求可能再次调用模型，不具备持久化的请求去重或累计模型费用结算。保存沿用计划版本 CAS；历史任务深链和刷新读取已保存快照，不重新调用模型。未保存候选离开页面时提示确认；切换身份清除旧上下文并忽略旧请求结果。
 
-汇总保留计划、投递状态和实际绑定句柄；领域状态尚未接入时返回 `domain_status: "unknown"`，不会把句柄绑定当作成功。原始回执不对外返回，结果引用仍需通过当前资产访问校验。页面没有执行和审批入口。
+汇总保留计划、投递状态和实际绑定句柄；领域状态来自持久化观测，句柄绑定不表示完成。原始回执不对外返回，结果引用再次检查完整来源链。页面显示固定操作、预检阻断、启动、取消、节点进度、领域深链及产物；每 4 秒只读刷新，终态停止、隐藏页面暂停，身份变化丢弃旧响应。审批入口尚未接通。
 
 ## 校验与持久化保证
 
@@ -62,11 +67,32 @@
 - 追加计划使用父任务版本 CAS，只允许未派发子任务的草稿／就绪任务；新版本回到 `draft`。历史快照不覆盖，任务不能继承旧计划授权。
 - 仓储在事务内创建子任务和 outbox；操作键固定任务、计划、节点及 attempt。Claim 后不能直接重放；未知提交保留待核对状态。取消待投递任务与取消已进入提交临界点的任务不同，迟到的真实提交回执被保留，绑定句柄不代表领域任务完成。
 
+## 受控执行与恢复
+
+| 能力 | 固定操作 | 每次逻辑调用预算下限 |
+| --- | --- | --- |
+| `lifecycle.data-quality` | 数据质检，门槛 70 | 输入数 + 1 |
+| `lifecycle.data-cleaning` | trim + dedup，保留首次记录，重做质检，门槛 70 | 输入数 + 2 |
+| `lifecycle.data-enrichment` | 规则关键词、摘要、敏感度；最多 10 关键词、300 字符摘要 | 输入数 + 1 |
+| `lifecycle.data-evaluation` | 本地产物完整性与来源检查，不是模型准确率／语义评测 | 输入数 + 1 |
+
+节点最长 300 秒，实际时限取节点、领域服务和父任务绝对期限的最小值。调用数表示输入解析与固定算子的逻辑额度，不是 HTTP／SQL 次数。每次尝试在事务中按保存的 Node 预留调用／成本，页面显示预留而非实际费用；本批固定算子不调用付费模型。领域 stage 固定单次尝试，重试由父任务控制，只有明确失败／超时才可增加 attempt。
+
+- 启动原子固定执行计划与期限；同键同计划重放返回原执行，不重置期限或重跑。启动后不能追加计划。
+- 只分发依赖全部成功的节点，并限制活跃尝试数。输出绑定要求唯一、真实、授权的同类型版本，不猜测多个结果中的一个。
+- 父任务使用 40 秒数据库租约、20 秒单次核对期限。所有执行写操作事务内检查 owner、epoch 和到期时间；旧 worker 不能覆盖新 owner，续租不改变用户任务版本。
+- outbox 与 child 原子建立，操作键绑定租户、用户、任务、计划、节点、attempt。领域 Submit 同键同摘要原子幂等。未知提交先 Lookup；权威确认不存在后，只以同键同载荷重提。
+- 取消先持久化，再取消领域作业。未知提交不存在时写同键 cancelled tombstone，阻止迟到 Submit。pending 不再投递；已成功作业保留事实，父任务以 `partially_completed` 保留当前可访问成果。
+- 每轮核对及提交前复查来源；已完成节点也不能跳过父任务完整来源链检查。结果再次授权；失败／隔离不会汇总为成功。
+- 页面读取只查询事实，不触发分发。领域 worker 根据自己的持久记录恢复队列，父任务恢复只核对相同领域句柄。
+
 ## 当前验收边界与后续工作
 
-当前实际 resolver 调用 `lifecycle.Resolve`，复查租户／用户权限、资产状态、有效期、敏感级别和存储摘要。响应显式标记 `authorization_scope: "lifecycle_asset"`、`origin_revalidated: false`。它尚未递归检查原知识文档禁用／删除、外部数据源撤权或派生来源失效传播；这属于实施清单 6.7，在可执行控制器启用前需要补齐。读取已有任务／计划只返回所属任务的元数据，不重新读取资产正文。
+通用计划预检仍标记 `authorization_scope: "lifecycle_asset"`、`origin_revalidated: false`，只证明资产级检查。执行预检另行递归检查完整来源链：当前仅放行 `ImportWithKey` 的手工输入（`lifecycle` 来源、`upload:` 根）及可验证派生版本，限制深度 16、节点数 128，复查身份、状态、期限、敏感级别及摘要。外部 Web／数据源／知识／采集／结果／评测来源及旧未知根明确阻止启动；原来源撤权传播仍属 6.7。
 
-尚无跨域执行 adapter、派发与恢复 worker、运行时预算扣减、审批 API、执行／取消 API 或 SSE。当前页面覆盖规划、任务列表、历史计划和事实汇总，尚非完整运行工作台。现有领域 API 的执行行为不因本批变化；投递记录原语不能替代后台对账与取消传播。后续顺序为能力接入及控制器、多 Agent 协作与任务分发验证、最后 Sandbox，清单 2.2、2.5–2.7 保持未完成。
+本批的结果过滤作用于执行汇总与最终可用成果集合。普通任务读取／列表和历史记录仍保留已持久化的引用标识；原生命周期资产读取接口沿用资产自身权限，不递归传播祖先失效。此处验证的是控制器停止后续分发及汇总隐藏失效成果，不代表全平台历史派生资产均已不可读取；统一撤回、禁用与缓存失效继续由 6.7 实施。
+
+本批实现 lifecycle 四类固定适配，不包括 collection、governance、模型 evaluation、research、发布／任意分析与自定义代码。审批绑定、运行中重规划、SSE、付费模型实际费用计量及旧八类来源联合执行验收继续实施。清单 2.2、2.5–2.7 按完整要求保持未勾选；域内多节点协作不等于跨域全链路完成。
 
 Sandbox 本批仅有 `model/sandbox.Runner` 接口和 `service/sandbox` 的纯校验：可信 profile、输入授权、镜像／代码摘要、资源声明、执行绑定及 manifest 元数据。它没有 Docker runner、实际磁盘内容验证、归档检查、资源限制执行或候选资产登记。声明通过不能证明容器隔离已生效；3.2–3.7 保持未完成。
 
@@ -83,3 +109,13 @@ Sandbox 本批仅有 `model/sandbox.Runner` 接口和 `service/sandbox` 的纯�
 - [真实页面验收](../../../../../apps/cognida-web/e2e/ACCEPTANCE-2026-10-15-SUPERVISOR.md)通过输入创建→实际模型候选→人工保存→深链刷新，保存前后均无子任务，桌面和手机截图已检查。前端 26 项定向测试、类型检查与生产构建通过。
 
 集成测试要求显式设置 `COGNIDA_TASKCONTROL_TEST_DSN`。迁移 CLI 使用 `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`，而非仅 `MYSQL_DSN`；运行前须核对为隔离测试库。测试不会自动启用业务执行器。
+
+## 受控执行验证（2026-10-15）
+
+- 隔离 MySQL 迁移 14 完成 up → down 1 → up，`dirty=false`；10 项仓储 race 集成覆盖幂等启动、租约过期／独立进程退出接管、迟到写 fencing、取消、预算、终态和非 UTC 驱动时区。
+- `go test ./internal/...` 全部通过；runtime helper、领域 adapter 与生命周期控制器有单元及 race 回归。
+- 新增 9 组 HTTP／Runtime 集成使用真实 MySQL 与明确的故障 adapter，验证只读预检、跨身份、CAS、幂等、未知恢复、取消 tombstone、取消竞态、重试／超时、并发依赖、部分成功及完整来源撤权；不冒充真实 Python 计算。
+- 适配器集成使用真实 MySQL、Redis、本地对象存储及确定性计算 fixture，验证领域持久化、worker、产物、重建读取、并发提交、取消及跨身份隔离。
+- 真实 Go／Redis／Python 和 Playwright 证据见[任务执行验收](../../../../../apps/cognida-web/e2e/ACCEPTANCE-2026-10-15-TASK-RUNTIME.md)。
+- 本批 3 场真实页面、41 项前端单测、类型检查及构建通过。真实 Go 在首个领域成功而父任务未完成时 SIGKILL，再用同一二进制／数据库／Redis 恢复，4 节点全部 attempt 1、领域句柄及原有回执不重复。此项不证明在途 Python 计算重放。
+- 最后停止真实 Go worker 后再次执行仓储／HTTP／adapter 的 MySQL 与 Redis race 集成，全部通过；实际模型规划测试本批显式跳过，沿用前批证据。独立 Review 完成，测试服务、隔离数据库和临时凭据已清理。

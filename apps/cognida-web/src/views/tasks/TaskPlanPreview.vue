@@ -15,7 +15,10 @@
         <p><strong>产出</strong> {{ node.output_kinds.map(assetLabel).join('、') }}</p>
         <p><strong>工具</strong> {{ node.tools.join('、') }}<br /><strong>权限</strong> {{ node.permissions.join('、') }}</p>
         <p class="wb-muted">最多 {{ node.max_attempts }} 次尝试 · 每次 {{ node.max_calls_per_attempt }} 次调用 / {{ node.timeout_seconds }} 秒 · 每次成本额度 {{ node.max_cost_micros_per_attempt }}</p>
-        <details><summary>技术标识与版本</summary><p class="wb-muted">{{ node.id }} · {{ node.capability }} v{{ node.capability_version }}</p></details>
+        <p v-if="executionFor(node.capability, node.capability_version)" class="preset-note">固定执行预置：{{ executionProfileLabel(executionFor(node.capability, node.capability_version)!.profile) }}<br />每次基础 {{ executionFor(node.capability, node.capability_version)!.base_calls }} 次调用 + 每项输入 {{ executionFor(node.capability, node.capability_version)!.calls_per_input }} 次；单次最多 {{ executionFor(node.capability, node.capability_version)!.max_timeout_seconds }} 秒。具体任务仍需通过执行准入。</p>
+        <p v-else-if="capabilities.some(item => item.id === node.capability && item.version === node.capability_version)" class="wb-muted">此能力尚未接入当前任务控制器，计划可保存供审阅，执行准入会说明阻塞原因。</p>
+        <p v-else class="wb-muted">执行支持情况需以当前准入检查为准。</p>
+        <details><summary>技术标识与版本</summary><p class="wb-muted">{{ node.id }} · {{ node.capability }} v{{ node.capability_version }}</p><p v-if="executionFor(node.capability, node.capability_version)" class="wb-muted">{{ executionFor(node.capability, node.capability_version)!.profile }}</p></details>
       </li>
     </ol>
     <p v-if="validation && !validation.origin_revalidated" class="wb-muted plan-note">当前预检核验生命周期资产权限、状态与完整性；尚未复查原始来源的撤权或失效传播。</p>
@@ -25,7 +28,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Capability, PlanSpec, PlanValidation } from '@/api/taskcontrol'
-import { assetLabel, capabilityLabel } from './labels'
+import { assetLabel, capabilityLabel, executionProfileLabel } from './labels'
 const props = defineProps<{ plan: PlanSpec; validation?: PlanValidation; capabilities: Capability[] }>()
 const orderedNodes = computed(() => {
   // Saved snapshots do not include validation. Reconstruct a stable dependency
@@ -42,6 +45,7 @@ const orderedNodes = computed(() => {
 })
 const dependencyLabel = (id: string) => { const node = props.plan.nodes.find(item => item.id === id); return node ? `${capabilityLabel(node.capability)}（${id}）` : id }
 const requiresApproval = (id: string, capability: string, version: number, permissions: string[]) => props.validation?.approval_required?.includes(id) || permissions.some(scope => scope === 'write' || scope === 'etl') || props.capabilities.some(item => item.id === capability && item.version === version && item.requires_approval)
+const executionFor = (id: string, version: number) => props.capabilities.find(item => item.id === id && item.version === version)?.execution
 </script>
 
 <style scoped>

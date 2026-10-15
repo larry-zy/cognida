@@ -153,9 +153,22 @@ func (s *Service) handle(ctx context.Context, j job.Job) error {
 	if !execute {
 		return s.reconcile(ctx, stage.TenantID, stage.RunID)
 	}
+	workCtx, cancel, governed, contextErr := s.governedStageContext(ctx, stage)
+	if contextErr != nil {
+		return s.finish(ctx, stage, d.Output{}, contextErr)
+	}
+	defer cancel()
+	if governed {
+		if err := s.ValidateGovernedInputs(workCtx, d.Principal{TenantID: stage.TenantID, UserID: stage.UserID}, stage.InputRefs); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = governedTimeoutError()
+			}
+			return s.finish(ctx, stage, d.Output{}, err)
+		}
+	}
 	request := d.StageRequest{Principal: d.Principal{TenantID: stage.TenantID, UserID: stage.UserID}, Stage: *stage}
 	for _, id := range stage.InputRefs {
-		ref, body, e := s.Resolve(ctx, stage.TenantID, stage.UserID, id)
+		ref, body, e := s.Resolve(workCtx, stage.TenantID, stage.UserID, id)
 		if e != nil {
 			return s.finish(ctx, stage, d.Output{}, e)
 		}
@@ -165,8 +178,6 @@ func (s *Service) handle(ctx context.Context, j job.Job) error {
 	if s.requiresApproval(request) && !stage.Approved {
 		return s.pause(ctx, stage)
 	}
-	workCtx, cancel := context.WithTimeout(ctx, s.config.StageTimeout)
-	defer cancel()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -187,7 +198,13 @@ func (s *Service) handle(ctx context.Context, j job.Job) error {
 			}
 		}
 	}()
-	out, runErr := s.adapters[stage.AgentID].Run(workCtx, request)
+	var out d.Output
+	var runErr error
+	if governed {
+		out, runErr = s.executeAdapter(workCtx, request)
+	} else {
+		out, runErr = s.adapters[stage.AgentID].Run(workCtx, request)
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -195,6 +212,9 @@ func (s *Service) handle(ctx context.Context, j job.Job) error {
 		// Use the still-live delivery context to persist the failure and apply
 		// the existing retry budget. A local deadline must not leave the stage
 		// running as lease loss or explicit cancellation would.
+		if governed {
+			return s.finish(ctx, stage, d.Output{}, governedTimeoutError())
+		}
 		return s.finish(ctx, stage, d.Output{}, fmt.Errorf("stage execution exceeded %s: %w", s.config.StageTimeout, context.DeadlineExceeded))
 	}
 	if workCtx.Err() != nil {

@@ -268,6 +268,7 @@ type SupervisorChildSummary struct {
 	DomainID       string        `json:"domain_id,omitempty"`
 	DispatchStatus d.ChildStatus `json:"dispatch_status"`
 	DomainStatus   string        `json:"domain_status"`
+	DomainKind     string        `json:"domain_kind,omitempty"`
 	ReceiptPresent bool          `json:"receipt_present"`
 }
 type SupervisorSummary struct {
@@ -280,6 +281,10 @@ type SupervisorSummary struct {
 	ResultRefs         []l.RefID                `json:"result_refs"`
 	Warnings           []string                 `json:"warnings"`
 	ExecutionEnabled   bool                     `json:"execution_enabled"`
+	Terminal           bool                     `json:"terminal"`
+	CanCancel          bool                     `json:"can_cancel"`
+	Nodes              []RuntimeNodeSummary     `json:"nodes"`
+	Usage              RuntimeUsage             `json:"usage"`
 }
 
 // Summarize uses persisted facts, not model narration. Domain execution remains

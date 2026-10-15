@@ -39,11 +39,11 @@ func taskControlIT(t *testing.T) (*TaskControlRepository, *gorm.DB, d.Scope) {
 	var version int64
 	var dirty bool
 	require.NoError(t, sqlDB.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty))
-	require.GreaterOrEqual(t, version, int64(13), "apply versioned migrations first")
+	require.GreaterOrEqual(t, version, int64(14), "apply versioned migrations first")
 	require.False(t, dirty)
 	scope := d.Scope{TenantID: time.Now().UnixNano() & 0x1fffffffffffff, UserID: 921}
 	t.Cleanup(func() {
-		for _, table := range []string{"task_control_outbox", "task_control_children", "task_control_plans", "task_control_tasks"} {
+		for _, table := range []string{"task_control_outbox", "task_control_children", "task_control_plans", "task_control_leases", "task_control_tasks"} {
 			require.NoError(t, db.Table(table).Where("tenant_id IN ?", []int64{scope.TenantID, scope.TenantID + 1}).Delete(map[string]any{}).Error)
 		}
 	})

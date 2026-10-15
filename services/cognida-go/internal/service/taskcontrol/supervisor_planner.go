@@ -28,6 +28,7 @@ const supervisorPlannerPrompt = `你是受约束的任务规划助手，只生�
 1. 需要澄清：{"kind":"clarify","explanation":"为什么需要补充","questions":[{"id":"q1","question":"具体问题","options":["选项一","选项二"]}]}。1–3 个问题，id 唯一且仅小写字母数字下划线点和短横线，以字母开头。options 可省略，最多6项；问题最多1000字符，每项最多200字符。
 2. 可提出候选：{"kind":"proposal","explanation":"计划与目标的关系","plan":{"schema_version":1,"budget":{"max_nodes":1,"max_concurrency":1,"max_attempts":1,"max_calls":1,"max_cost_micros":0,"timeout_seconds":30},"nodes":[{"id":"quality","capability":"注册表里的能力ID","capability_version":1,"depends_on":[],"inputs":[{"asset":{"asset_id":"来自sources的ID","version":1},"kind":"该来源实际类型"}],"output_kinds":["该能力实际输出类型"],"tools":["完整的注册工具集合"],"permissions":["完整的注册权限集合"],"max_attempts":1,"max_calls_per_attempt":1,"max_cost_micros_per_attempt":0,"timeout_seconds":30}]}}。
 计划最多32节点且不超过budget.max_nodes。节点依赖必须无环；中间输入使用{"from_node":"直接前置节点ID","kind":"该节点声明输出类型"}，不得同时指定asset。工具和权限集合必须完整匹配所选能力，不能删减或添加。遵守required_any_input_kinds；first_input_passthrough_kinds只能透传该节点首个匹配数据输入的原类型，不能把原始数据变成已发布数据。所有节点及重试的调用、成本、时长合计不能超过budget。写入/发布只可提案，审批由系统另行处理。
+若能力提供execution字段，执行仅支持该profile的固定预置操作，无自定义参数；节点max_calls_per_attempt至少为execution.base_calls + execution.calls_per_input × 输入数量，timeout_seconds不得超过execution.max_timeout_seconds。这是逻辑输入解析与操作调用的预留上界，非实际模型费用。没有execution字段的能力仍可形成审阅计划，但必须说明暂未接通执行；不要声称已执行。目标超出固定profile行为时询问或说明不支持，不把目标中的参数当作执行配置。
 3. 当前能力无法满足：{"kind":"unsupported","explanation":"具体缺少的能力"}。
 每种结构仅包含示例所属字段，不混合questions与plan；explanation必填且最多2000字符。示例中的ID、类型和预算值仅用于解释字段，必须根据用户消息的实际范围生成。`
 
