@@ -1,15 +1,19 @@
 <template>
   <div class="platform-container">
     <!-- 左侧导航栏（可收缩：展开显示图标+标题，收起仅图标） -->
-    <aside class="rail" :class="{ 'rail--collapsed': collapsed }">
+    <button v-if="mobileOpen" class="rail-backdrop" tabindex="-1" aria-label="关闭导航菜单" @click="closeMobileNavigation"></button>
+    <aside ref="navigationPanel" id="workspace-navigation" class="rail" :class="{ 'rail--collapsed': collapsed, 'rail--mobile-open': mobileOpen }">
+      <button class="rail__mobile-close" aria-label="关闭导航菜单" @click="closeMobileNavigation">关闭菜单 ×</button>
       <div class="rail__head">
-        <router-link to="/home" class="rail__logo" title="Link">
-          <span>L</span>
+        <router-link to="/home" class="rail__logo" aria-label="Cognida 工作总览">
+          <span>C</span>
         </router-link>
         <span class="rail__brand" v-show="!collapsed">Cognida</span>
         <button
           class="rail__toggle"
           :title="collapsed ? '展开菜单' : '收起菜单'"
+          :aria-label="collapsed ? '展开菜单' : '收起菜单'"
+          :aria-expanded="!collapsed"
           @click="toggleCollapse"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
@@ -20,22 +24,23 @@
         </button>
       </div>
 
-      <TenantSwitcher v-if="!collapsed" />
-      <nav class="rail__nav">
-        <router-link
-          v-for="item in menuItems"
-          :key="item.path"
-          :to="item.path"
-          class="rail__item"
-          :class="{ active: isActive(item.path) }"
-          :title="collapsed ? item.title : undefined"
-        >
-          <!-- 内联线性图标（自研，不依赖 Element Plus）。
-               v-html 仅允许注入下方 ICONS 写死的编译期常量，严禁接入任何动态/用户数据 -->
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-            stroke-linecap="round" stroke-linejoin="round" v-html="item.icon" />
-          <span class="rail__label" v-show="!collapsed">{{ item.title }}</span>
-        </router-link>
+      <TenantSwitcher v-if="!collapsed || mobileOpen" />
+      <nav class="rail__nav" aria-label="主导航">
+        <section v-for="group in navigationGroups" :key="group.title" class="rail__group" :aria-label="group.title">
+          <h2 class="rail__group-title" v-show="!collapsed">{{ group.title }}</h2>
+          <router-link
+            v-for="item in group.items" :key="item.path" :to="item.path"
+            class="rail__item" :class="{ active: activePath === item.path }"
+            :aria-current="activePath === item.path ? 'page' : undefined"
+            :aria-label="item.title" :title="collapsed ? item.title : undefined"
+            @click="mobileOpen = false"
+          >
+            <!-- Only compiled icon paths enter v-html; never user or API data. -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="ICONS[item.icon as keyof typeof ICONS]" />
+            <span class="rail__label" v-show="!collapsed">{{ item.title }}</span>
+          </router-link>
+        </section>
       </nav>
 
       <div class="rail__footer">
@@ -45,7 +50,7 @@
           </div>
           <span class="rail__label rail__username" v-show="!collapsed">{{ authStore.username }}</span>
         </div>
-        <button class="rail__item rail__logout" :title="collapsed ? '退出登录' : undefined" @click="handleLogout">
+        <button class="rail__item rail__logout" aria-label="退出登录" :title="collapsed ? '退出登录' : undefined" @click="handleLogout">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
             stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h8" />
@@ -58,26 +63,24 @@
     </aside>
 
     <!-- 主内容区（顶栏由各页面自有，见 ui-preview-*.html 定稿） -->
-    <main class="main-content">
+    <main class="main-content" :inert="mobileOpen ? true : undefined">
+      <div class="platform-mobile-bar"><router-link to="/home">Cognida</router-link><button ref="mobileToggle" aria-controls="workspace-navigation" :aria-expanded="mobileOpen" @click="openMobileNavigation">导航菜单</button></div>
       <div class="content-wrapper">
-        <router-view :key="`${authStore.user?.id}:${authStore.currentTenant?.id}:${route.fullPath}`" />
+        <router-view :key="`${authStore.authEpoch}:${authStore.user?.id}:${authStore.currentTenant?.id}:${route.fullPath}`" />
       </div>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TenantSwitcher from '@/components/workbench/TenantSwitcher.vue'
 import '@/components/workbench/workbench.css'
 import { useRouter, useRoute } from 'vue-router'
 import toast from '@/utils/toast'
 import { ElMessageBox } from '@/utils/confirm'
 import { useAuthStore } from '@/stores/auth'
-import { useI18n } from 'vue-i18n'
-import { wt } from '@/i18n/workbench'
-
-const { t } = useI18n()
+import { activeNavigationPath, navigationGroups } from './navigation'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -108,37 +111,37 @@ const ICONS = {
   settings: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="17" r="2"/>'
 }
 
-// 菜单项
-const menuItems = computed(() => [
-  { path: '/home', title: t('menu.home'), icon: ICONS.home },
-  { path: '/kb-assistant', title: t('menu.kb'), icon: ICONS.kb },
-  { path: '/research', title: wt('深度研究'), icon: ICONS.kb },
-  { path: '/memories', title: wt('长期记忆'), icon: ICONS.knowledge },
-  { path: '/analysis', title: wt('数据分析'), icon: ICONS.ai },
-  {path:'/catalog',title:wt('数据目录'),icon:ICONS.datasource},
-  {path:'/pipelines',title:wt('数据流水线'),icon:ICONS.trace},
-  {path:'/experts',title:wt('专家工作台'),icon:ICONS.quality},
-  {path:'/subscriptions',title:wt('报告与看护'),icon:ICONS.evaluation},
-  {path:'/labeling',title:wt('标注与打标'),icon:ICONS.knowledge},
-  {path:'/features',title:wt('特征存储'),icon:ICONS.datasets},
-  {path:'/suggestions',title:wt('反馈与改进'),icon:ICONS.audit},
-  { path: '/collection-tasks', title: t('menu.collection'), icon: ICONS.collection },
-  { path: '/knowledge', title: t('menu.knowledge'), icon: ICONS.knowledge },
-  { path: '/graphs', title: t('menu.graph'), icon: ICONS.graph },
-  { path: '/evaluation', title: t('menu.evaluation'), icon: ICONS.evaluation },
-  { path: '/datasets', title: t('menu.datasets'), icon: ICONS.datasets },
-  { path: '/quality', title: t('menu.quality'), icon: ICONS.quality },
-  { path: '/datasource', title: t('menu.datasource'), icon: ICONS.datasource },
-  { path: '/semantic-models', title: wt('语义建模'), icon: ICONS.graph },
-  { path: '/audit-logs', title: t('menu.audit'), icon: ICONS.audit },
-  { path: '/traces', title: t('menu.trace'), icon: ICONS.trace },
-  { path: '/settings', title: t('menu.settings'), icon: ICONS.settings }
-])
-
-// 判断是否激活
-function isActive(path: string): boolean {
-  return route.path.startsWith(path)
+const activePath = computed(() => activeNavigationPath(route.path))
+const mobileOpen = ref(false)
+const mobileToggle = ref<HTMLButtonElement>()
+const navigationPanel = ref<HTMLElement>()
+async function openMobileNavigation() {
+  mobileOpen.value = true
+  await nextTick()
+  navigationPanel.value?.querySelector<HTMLButtonElement>('.rail__mobile-close')?.focus()
 }
+async function closeMobileNavigation() {
+  mobileOpen.value = false
+  await nextTick()
+  mobileToggle.value?.focus()
+}
+function handleEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape' && mobileOpen.value) { event.preventDefault(); void closeMobileNavigation() }
+}
+watch(() => route.fullPath, () => { mobileOpen.value = false })
+let desktopViewport: MediaQueryList | undefined
+function handleDesktopViewport(event: MediaQueryListEvent) {
+  if (event.matches) mobileOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('keydown', handleEscape)
+  desktopViewport = window.matchMedia?.('(min-width: 768px)')
+  desktopViewport?.addEventListener('change', handleDesktopViewport)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleEscape)
+  desktopViewport?.removeEventListener('change', handleDesktopViewport)
+})
 
 // 退出登录
 async function handleLogout() {
@@ -309,6 +312,11 @@ async function handleLogout() {
   color: var(--text-primary);
 }
 
+.rail__group { width: 100%; }
+.rail__group + .rail__group { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.rail__group-title { margin: 0 11px 7px; font-size: 10px; font-weight: 500; letter-spacing: .08em; color: var(--text-muted); }
+.rail--collapsed .rail__group { display: flex; flex-direction: column; align-items: center; }
+.rail__item:focus-visible, .rail__toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .rail__item.active {
   background: var(--primary-dim);
   color: var(--primary);
@@ -377,4 +385,28 @@ async function handleLogout() {
   overflow-x: hidden;
   padding: 24px;
 }
+.platform-mobile-bar, .rail-backdrop, .rail__mobile-close { display: none; }
+@media (max-width: 767px) {
+  .platform-container { padding: 0; gap: 0; height: 100dvh; }
+  .main-content { border-radius: 0; }
+  .content-wrapper { padding: 20px 16px; }
+  .platform-mobile-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-default); }
+  .platform-mobile-bar a { font-family: var(--font-display); color: var(--text-primary); font-weight: 700; text-decoration: none; }
+  .platform-mobile-bar button { color: var(--text-primary); background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 5px; padding: 8px 12px; }
+  /* Visibility must change immediately: a transition leaves the drawer hidden
+     when nextTick moves focus, so browsers silently discard that focus. */
+  .rail { position: fixed; z-index: 50; top: 12px; left: 12px; bottom: 12px; width: min(260px, calc(100vw - 48px)); padding: 16px 12px; transform: translateX(calc(-100% - 24px)); visibility: hidden; transition: transform .2s ease; box-shadow: 0 16px 60px #0004; }
+  .rail--mobile-open { visibility: visible; transform: translateX(0); }
+  .rail-backdrop { display: block; position: fixed; z-index: 49; inset: 0; border: 0; background: #0006; }
+  .rail__toggle { display: none; }
+  .rail__mobile-close { display: block; border: 0; background: transparent; color: var(--text-secondary); align-self: flex-end; padding: 0 0 14px; font-size: 12px; }
+  .rail--collapsed { align-items: stretch; }
+  .rail--collapsed .rail__head { flex-direction: row; padding: 0 2px; }
+  .rail--collapsed .rail__brand, .rail--collapsed .rail__label, .rail--collapsed .rail__group-title { display: block !important; }
+  .rail--collapsed .rail__group { align-items: stretch; }
+  .rail--collapsed .rail__item { width: 100%; padding: 0 11px; justify-content: flex-start; gap: 12px; }
+  .rail--collapsed .rail__footer { align-items: stretch; }
+  .rail--collapsed .rail__profile { justify-content: flex-start; padding: 4px 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .rail { transition: none; } }
 </style>

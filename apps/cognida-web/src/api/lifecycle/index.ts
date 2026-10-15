@@ -37,6 +37,7 @@ export interface Invocation {
   id: string;
   agent_id?: string;
   template_id?: string;
+  template_version?: number;
   status: string;
   created_at: string;
   updated_at: string;

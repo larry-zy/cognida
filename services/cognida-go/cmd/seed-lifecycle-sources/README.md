@@ -2,7 +2,9 @@
 
 Run from `services/cognida-go` after loading the disposable environment's
 `runtime.env`. Pass its directory containing `account.json` (the authenticated
-tenant 1 / user 1 account). Both API and Redis must use loopback, the database
+test account). The account identity must match the real profile API response.
+Use a distinct test tenant ID when validating against a shared repaired vector
+service so existing tenant data stays separate. Both API and Redis must use loopback, the database
 name must start with `cognida_review_`, and `ISOLATED=true` is required.
 
 ```sh

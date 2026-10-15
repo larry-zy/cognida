@@ -2,7 +2,7 @@
   <article v-if="report" class="analysis-report wb-stack" aria-label="分析报告">
     <div class="wb-section-head">
       <h3>分析报告</h3>
-      <span class="wb-badge">{{ report.decision?.verification_status || '未提供验证结论' }}</span>
+      <span class="wb-badge">{{ decisionStatusLabel(report.decision?.verification_status) }}</span>
     </div>
     <p v-if="report.prompt"><strong>分析目标：</strong>{{ report.prompt }}</p>
     <p v-if="report.narrative" class="report-narrative">{{ report.narrative }}</p>
@@ -28,7 +28,7 @@
     </section>
     <section v-if="report.limitations.length">
       <h4>限制与待核实事项</h4>
-      <ul><li v-for="(limitation, index) in report.limitations" :key="index">{{ limitation }}</li></ul>
+      <ul><li v-for="(limitation, index) in report.limitations" :key="index">{{ decisionText(limitation) }}</li></ul>
     </section>
     <section v-if="report.columns.length || report.record_count !== undefined || report.character_count !== undefined">
       <h4>描述统计</h4>
@@ -47,6 +47,7 @@
 </template>
 <script setup lang="ts">
 import { computed } from "vue";
+import { decisionStatusLabel, decisionText } from "./decisionLabels";
 const props = defineProps<{ content: unknown }>();
 const prefix = `report-${crypto.randomUUID()}`;
 const anchor = (id: string) => `${prefix}-${encodeURIComponent(id)}`;

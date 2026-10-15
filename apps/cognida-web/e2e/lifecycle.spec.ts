@@ -90,6 +90,7 @@ for (const scenario of scenarios) {
       const execution = page.locator('section.wb-panel').filter({ has: page.getByRole('heading', { name: '执行详情', exact: true }) })
       await expect(execution.locator('.wb-section-head .wb-badge')).toHaveText('已完成')
       await expect(execution.locator('.pipeline-stage')).toHaveCount(7)
+      expect((await execution.locator('.pipeline-stage strong small').allTextContents()).map(value => value.trim())).toEqual(stages)
       for (const badge of await execution.locator('.pipeline-stage > .wb-badge').all()) await expect(badge).toHaveText('已完成')
       const publishedRef = lastDetail.stages.find(stage => stage.stage_key === 'publication')?.output?.refs.find(ref => ref.kind === 'published_asset')
       const insightRef = lastDetail.stages.find(stage => stage.stage_key === 'analysis')?.output?.refs.find(ref => ref.kind === 'insight')
@@ -144,7 +145,7 @@ for (const scenario of scenarios) {
       }
       await attachJSON(info, 'published-ref-and-receipt', { ref: published.ref, publication: published.content.publication })
       await attachJSON(info, 'analysis-report', report)
-      await execution.getByRole('button', { name: '查看 insight', exact: true }).click()
+      await execution.getByRole('button', { name: '查看分析报告产物', exact: true }).click()
       const renderedReport = page.getByRole('article', { name: '分析报告', exact: true })
       await expect(renderedReport).toBeVisible()
       await expect(renderedReport).toContainText(report.content.source_ref)

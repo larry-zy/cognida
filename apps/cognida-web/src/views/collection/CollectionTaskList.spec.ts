@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, RouterLinkStub, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
-import { defineComponent } from 'vue'
+import { defineComponent, reactive } from 'vue'
 const api = vi.hoisted(() => ({ list: vi.fn(), getById: vi.fn(), create: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
 const lifecycle = vi.hoisted(() => ({ knowledgeBases: vi.fn() }))
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const route = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
+const navigation = vi.hoisted(() => ({ leave: vi.fn() }))
+vi.mock('vue-router', () => ({ useRoute: () => reactive(route), onBeforeRouteLeave: navigation.leave }))
 vi.mock('@/api/collection', () => ({ collectionApi: api }))
 vi.mock('@/api/lifecycle', () => ({ lifecycleApi: lifecycle }))
 vi.mock('@/utils/toast', () => ({ default: toast }))
@@ -45,11 +48,12 @@ async function fillCreate(wrapper: VueWrapper) {
 describe('collection source to lifecycle flow', () => {
   beforeEach(() => {
     vi.resetAllMocks(); vi.useFakeTimers()
+    route.query = {}
     api.list.mockResolvedValue({ data: { tasks: [task('task-one'), task('task-two')] } })
     api.getById.mockImplementation((id: string) => Promise.resolve({ data: payload(id) }))
     lifecycle.knowledgeBases.mockResolvedValue({ data: { items: [{ id: 'kb-one', name: 'First knowledge base' }], total: 1, page: 1, size: 100 } })
   })
-  afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers = []; vi.useRealTimers() })
+  afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers = []; vi.useRealTimers(); vi.restoreAllMocks() })
   it('reads knowledge base pages and allows selecting the later page', async () => {
     lifecycle.knowledgeBases.mockImplementation((page: number) => Promise.resolve({ data: { items: [{ id: page === 1 ? 'kb-one' : 'kb-two', name: page === 1 ? 'First knowledge base' : 'Second knowledge base' }], total: 2, page, size: 1 } }))
     const { wrapper } = setup(); await flushPromises()
@@ -117,5 +121,51 @@ describe('collection source to lifecycle flow', () => {
     const { wrapper } = setup(); await flushPromises()
     await button(wrapper, 'task-one').trigger('click'); await flushPromises(); expect(wrapper.text()).toContain('Denied for this tenant')
     await button(wrapper, '重试加载详情').trigger('click'); await flushPromises(); expect(wrapper.text()).toContain('run-task-one')
+  })
+  it('distinguishes initial loading from an actionable empty list', async () => {
+    let finish!: (value: unknown) => void
+    api.list.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const { wrapper } = setup(); await flushPromises()
+    expect(wrapper.text()).toContain('正在加载采集任务…')
+    expect(wrapper.text()).not.toContain('从第一个网页开始')
+    finish({ data: { tasks: [] } }); await flushPromises()
+    await button(wrapper, '新建第一个采集任务').trigger('click')
+    expect(wrapper.find('form').exists()).toBe(true)
+  })
+  it('opens task links read-only and fences stale results when the query changes', async () => {
+    route.query = { task_id: 'old-private' }
+    let finish!: (value: unknown) => void
+    api.getById.mockImplementation((id: string) => id === 'old-private' ? new Promise(resolve => { finish = resolve }) : Promise.reject(new Error('Task not found or not authorized')))
+    const { wrapper } = setup(); await flushPromises()
+    expect(wrapper.text()).toContain('正在加载任务详情')
+    reactive(route).query = { task_id: 'new-task' }; await flushPromises()
+    expect(wrapper.text()).toContain('Task not found or not authorized')
+    finish({ data: payload('old-private') }); await flushPromises()
+    expect(wrapper.text()).not.toContain('run-old-private')
+    expect(api.create).not.toHaveBeenCalled(); expect(api.start).not.toHaveBeenCalled()
+  })
+  it('keeps a closed creation draft and warns on page leave until it is submitted', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    api.create.mockResolvedValue({ data: task('created-task', 'draft') })
+    const { wrapper } = setup(); await flushPromises(); await fillCreate(wrapper)
+    await button(wrapper, '稍后继续').trigger('click')
+    await button(wrapper, '创建采集任务').trigger('click')
+    expect((wrapper.get('form textarea').element as HTMLTextAreaElement).value).toBe('https://example.com')
+    const guard = navigation.leave.mock.calls.at(-1)![0]
+    expect(guard()).toBe(false); expect(confirm).toHaveBeenCalledOnce()
+    await wrapper.get('form').trigger('submit'); await flushPromises()
+    expect(api.create).toHaveBeenCalledOnce()
+    expect(guard()).toBe(true)
+  })
+  it('filters failed sources and prepares a fresh retry draft without starting it', async () => {
+    const { wrapper } = setup(); await flushPromises()
+    await button(wrapper, 'task-one').trigger('click'); await flushPromises()
+    expect(wrapper.get('progress').attributes('value')).toBe('2')
+    await button(wrapper, '失败与拒绝').trigger('click')
+    expect(wrapper.findAllComponents(RouterLinkStub).some(link => link.text() === '转入流水线')).toBe(false)
+    expect(wrapper.text()).toContain('Remote source is unavailable')
+    await button(wrapper, '新建任务重新采集').trigger('click')
+    expect((wrapper.get('form textarea').element as HTMLTextAreaElement).value).toBe('https://example.org')
+    expect(api.create).not.toHaveBeenCalled(); expect(api.start).not.toHaveBeenCalled()
   })
 })

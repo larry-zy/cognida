@@ -15,7 +15,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/api/lifecycle", () => ({ lifecycleApi: api }));
 const route = vi.hoisted(() => ({ path: "/analysis", query: {} }));
-vi.mock("vue-router", () => ({ useRoute: () => reactive(route) }));
+const navigation = vi.hoisted(() => ({ leave: vi.fn() }));
+vi.mock("vue-router", () => ({ useRoute: () => reactive(route), onBeforeRouteLeave: navigation.leave }));
 vi.mock("@/utils/request", () => ({
   http: { get: vi.fn().mockResolvedValue({ data: { items: [] } }) },
   resetAuthFailure: vi.fn(),
@@ -25,6 +26,7 @@ describe("published asset analysis", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
   beforeEach(() => {
     vi.clearAllMocks();
@@ -571,6 +573,190 @@ describe("published asset analysis", () => {
     expect(report.text()).toContain("unverified");
     expect(report.find("img").exists()).toBe(false);
     expect(report.get("a").attributes("href")).toMatch(/^#report-/);
+    wrapper.unmount();
+  });
+  it("opens a linked invocation read-only and isolates it from source draft parameters", async () => {
+    route.path = '/experts';
+    route.query = { invocation_id: 'linked-invocation' };
+    api.get.mockResolvedValue({ data: { invocation: { id: 'linked-invocation', status: 'succeeded', output: { summary: 'Linked result', refs: [] } }, approvals: [] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('invocations', 'linked-invocation');
+    expect(wrapper.text()).toContain('Linked result');
+    reactive(route).query = { source: 'collection', run_id: 'collection-run', item_id: 'source-item' };
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Linked result');
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.createAsset).not.toHaveBeenCalled(); expect(api.start).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it("does not reveal an older run after a linked query switches to a denied run", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'old-run' };
+    let finish!: (value: unknown) => void;
+    api.get.mockImplementation((_kind, id) => id === 'old-run' ? new Promise(resolve => { finish = resolve; }) : Promise.reject(new Error('Run not found or not authorized')));
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('正在读取执行详情');
+    reactive(route).query = { run_id: 'denied-run' }; await flushPromises();
+    expect(wrapper.text()).toContain('Run not found or not authorized');
+    finish({ data: { run: { id: 'old-run', status: 'succeeded', output: { summary: 'Old private report' } }, stages: [], approvals: [] } });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Old private report');
+    expect(api.start).not.toHaveBeenCalled();
+    reactive(route).query = {}; await flushPromises();
+    expect(wrapper.text()).not.toContain('Run not found or not authorized');
+    wrapper.unmount();
+  });
+  it("keeps advanced defaults collapsed and reveals the stage with invalid options", async () => {
+    const wrapper = pipeline(); await selectPipeline(wrapper);
+    const quality = wrapper.get('details[data-options-stage="inspect-input"]');
+    expect((quality.element as HTMLDetailsElement).open).toBe(false);
+    expect((wrapper.get('details[data-options-stage="publish-approved"]').element as HTMLDetailsElement).open).toBe(true);
+    expect((wrapper.get('details[data-options-stage="explain-data"]').element as HTMLDetailsElement).open).toBe(true);
+    await quality.get('[data-option="min_score"]').setValue('101');
+    await wrapper.get('form').trigger('submit'); await flushPromises();
+    expect((quality.element as HTMLDetailsElement).open).toBe(true);
+    expect(api.start).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it("prioritizes pending approval and reports actual completed stage counts", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'review-run' };
+    api.get.mockResolvedValue({ data: { run: { id: 'review-run', status: 'awaiting_approval' }, stages: [
+      { id: 'stage-one', stage_key: 'access', agent_id: 'data-access', status: 'succeeded', attempt: 1 },
+      { id: 'stage-two', stage_key: 'publication', agent_id: 'data-asset', status: 'awaiting_approval', attempt: 1 },
+    ], approvals: [{ id: 'approval', status: 'pending', reason: 'Confirm the publication destination' }] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.get('progress').attributes('value')).toBe('1');
+    expect(wrapper.get('progress').attributes('max')).toBe('2');
+    expect(wrapper.text()).toContain('下一步：审核后继续执行');
+    expect(wrapper.html().indexOf('批准并继续')).toBeLessThan(wrapper.html().indexOf('class="pipeline-stages"'));
+    expect(api.start).not.toHaveBeenCalled(); wrapper.unmount();
+  });
+  it.each(['cancelled', 'quarantined'])("guides %s runs to new configuration instead of unsupported retry", async (status) => {
+    route.path = '/pipelines'; route.query = { run_id: 'terminal-run' };
+    api.get.mockResolvedValue({ data: { run: { id: 'terminal-run', status }, stages: [], approvals: [] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.findAll('button').some(button => button.text() === '重试失败任务')).toBe(false);
+    expect(wrapper.text()).toContain('重新发起任务'); wrapper.unmount();
+  });
+  it("keeps a cancelled run's pending approval read-only", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'cancelled-run' };
+    api.get.mockResolvedValue({ data: { run: { id: 'cancelled-run', status: 'cancelled' }, stages: [], approvals: [{ id: 'obsolete-approval', status: 'pending', reason: 'Original publication request' }] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('下一步：审核后继续执行');
+    expect(wrapper.findAll('button').some(button => button.text() === '批准并继续')).toBe(false);
+    expect(wrapper.text()).toContain('此审批记录仅供查看');
+    expect(wrapper.text()).toContain('Original publication request'); wrapper.unmount();
+  });
+  it("opens the report shortcut and focuses the actual report panel", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'completed-run' };
+    api.get.mockResolvedValue({ data: { run: { id: 'completed-run', status: 'succeeded' }, stages: [{ id: 'analysis', stage_key: 'analysis', agent_id: 'data-analysis', status: 'succeeded', attempt: 1, output: { refs: [{ asset_id: 'actual-insight', version: 3, kind: 'insight' }] } }], approvals: [] } });
+    api.asset.mockResolvedValue({ data: { ref: { asset_id: 'actual-insight', version: 3 }, content: { source_ref: 'published:1', record_count: 3, columns: [{ name: 'revenue', numeric_count: 3, mean: 200 }] } } });
+    const wrapper = mount(LifecycleWorkbench, { attachTo: document.body, global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    await wrapper.findAll('button').find(button => button.text() === '查看分析报告')!.trigger('click'); await flushPromises();
+    expect(api.asset).toHaveBeenCalledWith('actual-insight', 3);
+    expect(wrapper.get('[aria-label="分析报告"]').text()).toContain('200');
+    expect(document.activeElement).toBe(wrapper.get('.asset-result').element);
+    wrapper.unmount(); wrapper.element.remove();
+  });
+  it("warns before discarding an edited input but allows leaving after successful creation", async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    api.createAsset.mockResolvedValue({ data: { asset_id: 'created-input', version: 1 } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    await wrapper.get('details form input').setValue('Unsaved input');
+    const guard = navigation.leave.mock.calls.at(-1)![0];
+    expect(guard()).toBe(false); expect(confirm).toHaveBeenCalledOnce();
+    const pending = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(pending); expect(pending.defaultPrevented).toBe(true);
+    await wrapper.get('details form').trigger('submit'); await flushPromises();
+    expect(guard()).toBe(true);
+    const submitted = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(submitted); expect(submitted.defaultPrevented).toBe(false);
+    wrapper.unmount();
+  });
+  it("orders execution cards by the running template even when another launch template is selected", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'existing-run' };
+    const keys = ['input-v2', 'quality-v2', 'clean-v2', 'enrich-v2', 'publish-v2', 'analyze-v2', 'evaluate-v2'];
+    const agentIDs = ['data-access', 'data-quality', 'data-cleaning', 'data-enrichment', 'data-asset', 'data-analysis', 'data-evaluation'];
+    const definition = keys.map((id, index) => ({ id, agent_id: agentIDs[index], depends_on: [] }));
+    api.templates.mockResolvedValue({ data: { templates: [
+      { id: 'running-template', name: '当前流程', version: 1, stages: definition },
+      { id: 'other-template', name: '待发起的另一流程', version: 1, stages: [...definition].reverse() },
+    ] } });
+    const shuffled = [
+      { id: 'unknown-z', stage_key: 'extension-z', agent_id: 'extension', status: 'waiting', attempt: 1 },
+      ...[6, 1, 3, 0, 5, 2, 4].map(index => ({ id: `random-id-${index}`, stage_key: keys[index], agent_id: agentIDs[index], status: index === 6 ? 'queued' : 'succeeded', attempt: 1 })),
+      { id: 'unknown-a', stage_key: 'extension-a', agent_id: 'extension', status: 'waiting', attempt: 1 },
+    ];
+    const originalOrder = shuffled.map(stage => stage.stage_key);
+    api.get.mockResolvedValue({ data: { run: { id: 'existing-run', template_id: 'running-template', template_version: 1, status: 'running' }, stages: shuffled, approvals: [] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    await wrapper.get('.launch-form select').setValue('other-template'); await flushPromises();
+    expect(wrapper.findAll('.pipeline-stage strong small').map(node => node.text())).toEqual([...keys, 'extension-z', 'extension-a']);
+    expect(wrapper.get('.journey-panel h2').text()).toBe('当前执行流程 · 当前流程');
+    expect(wrapper.findAll('.journey-panel li strong').map(node => node.text())).toEqual(['数据接入', '质量检查', '数据清洗', '数据增强', '审批与发布', '分析报告', '结果评估']);
+    expect(wrapper.get('progress').attributes('value')).toBe('6');
+    expect(wrapper.get('progress').attributes('max')).toBe('9');
+    expect(shuffled.map(stage => stage.stage_key)).toEqual(originalOrder);
+    wrapper.unmount();
+  });
+  it("uses the stable built-in execution order without borrowing an unrelated template", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'historical-run' };
+    api.templates.mockResolvedValue({ data: { templates: [{ id: 'new-template', name: 'New template', version: 1, stages: [{ id: 'evaluation', agent_id: 'data-evaluation' }, { id: 'access', agent_id: 'data-access' }] }] } });
+    api.get.mockResolvedValue({ data: { run: { id: 'historical-run', template_id: 'unavailable-template', status: 'succeeded' }, stages: [
+      { id: 'eval', stage_key: 'evaluation', agent_id: 'data-evaluation', status: 'succeeded', attempt: 1 },
+      { id: 'input', stage_key: 'access', agent_id: 'data-access', status: 'succeeded', attempt: 1 },
+    ], approvals: [] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises(); await wrapper.get('.launch-form select').setValue('new-template');
+    expect(wrapper.findAll('.pipeline-stage strong small').map(node => node.text())).toEqual(['access', 'evaluation']);
+    expect(wrapper.find('.journey-panel').exists()).toBe(false);
+    wrapper.unmount();
+  });
+  it("does not apply a newer definition to a historical run with the same template ID", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'historical-version' };
+    api.templates.mockResolvedValue({ data: { templates: [{ id: 'versioned-template', name: '新版流程', version: 2, stages: [
+      { id: 'evaluation', agent_id: 'data-evaluation', depends_on: [] },
+      { id: 'new-stage', agent_id: 'data-quality', depends_on: [] },
+      { id: 'access', agent_id: 'data-access', depends_on: [] },
+    ] }] } });
+    api.get.mockResolvedValue({ data: { run: { id: 'historical-version', template_id: 'versioned-template', template_version: 1, status: 'succeeded' }, stages: [
+      { id: 'eval', stage_key: 'evaluation', agent_id: 'data-evaluation', status: 'succeeded', attempt: 1 },
+      { id: 'old-z', stage_key: 'legacy-z', agent_id: 'extension', status: 'succeeded', attempt: 1 },
+      { id: 'input', stage_key: 'access', agent_id: 'data-access', status: 'succeeded', attempt: 1 },
+      { id: 'old-a', stage_key: 'legacy-a', agent_id: 'extension', status: 'succeeded', attempt: 1 },
+    ], approvals: [] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.findAll('.pipeline-stage strong small').map(node => node.text())).toEqual(['access', 'evaluation', 'legacy-z', 'legacy-a']);
+    expect(wrapper.find('.journey-panel').exists()).toBe(false);
+    expect(wrapper.get('progress').attributes('value')).toBe('4');
+    expect(wrapper.get('progress').attributes('max')).toBe('4');
+    expect(wrapper.find('.pipeline-stage').text()).not.toContain('new-stage');
+    wrapper.unmount();
+  });
+  it("translates fixed approval and artifact labels while preserving unknown messages verbatim", async () => {
+    route.path = '/pipelines'; route.query = { run_id: 'review-run' };
+    const unknownError = 'upstream gateway: TLS certificate rejected <code>731</code>';
+    const unknownReason = 'Custom reviewer explanation: inspect source transaction 42';
+    api.get.mockResolvedValue({ data: { run: { id: 'review-run', status: 'awaiting_approval' }, stages: [{ id: 'inspect', stage_key: 'quality', agent_id: 'data-quality', status: 'failed', attempt: 1, error: unknownError, output: { summary: 'quality score below threshold', gate: { status: 'failed', reason: unknownReason }, refs: [{ asset_id: 'raw', version: 1, kind: 'raw_asset' }, { asset_id: 'quality', version: 1, kind: 'quality_report' }, { asset_id: 'analysis', version: 1, kind: 'insight' }] } }], approvals: [
+      { id: 'pending', status: 'pending', reason: 'administrator approval required for publication or model cost' },
+      { id: 'rejected', status: 'rejected', reason: unknownReason },
+    ] } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    expect(wrapper.findAll('.wb-review h3').map(node => node.text())).toEqual(['审批 · 待审批', '审批 · 已拒绝']);
+    expect(wrapper.text()).toContain('发布资产或调用模型前，需要管理员审核批准。');
+    expect(wrapper.text()).toContain('质量评分低于阈值，请检查输入数据或调整处理参数。');
+    expect(wrapper.get('.pipeline-stage .wb-error').text()).toBe(unknownError);
+    expect(wrapper.get('.failure-reason').text()).toBe(unknownError);
+    expect(wrapper.text()).toContain(unknownReason);
+    expect(wrapper.find('.pipeline-stage code').exists()).toBe(false);
+    expect(wrapper.findAll('.pipeline-stage button').map(button => button.text())).toEqual(['查看原始输入产物', '查看质量报告产物', '查看分析报告产物']);
     wrapper.unmount();
   });
 });

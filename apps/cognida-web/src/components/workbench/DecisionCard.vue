@@ -3,30 +3,30 @@
     <div class="wb-section-head" style="margin-top: 0">
       <h3>{{ wt("可信决策") }}</h3>
       <span class="wb-badge">{{
-        decision?.verification_status || "未提供验证结论"
+        decisionStatusLabel(decision?.verification_status)
       }}</span>
     </div>
     <p>{{ summary || "暂无结论" }}</p>
     <p v-if="decision?.recommendation" class="decision-recommendation">
       <strong>{{ wt("建议行动") }}</strong
-      ><br />{{ decision.recommendation }}
+      ><br />{{ decisionText(decision.recommendation) }}
     </p>
     <dl>
       <dt>{{ wt("计算方法") }}</dt>
-      <dd>{{ decision?.method || "生产者未提供方法说明" }}</dd>
+      <dd>{{ decisionMethodLabel(decision?.method) }}</dd>
       <dt>{{ wt("置信度") }}</dt>
       <dd>{{ decision?.confidence ?? "未评估" }}</dd>
       <dt>{{ wt("假设") }}</dt>
       <dd>
         <ul v-if="decision?.assumptions?.length">
-          <li v-for="item in decision.assumptions" :key="item">{{ item }}</li>
+          <li v-for="item in decision.assumptions" :key="item">{{ decisionText(item) }}</li>
         </ul>
         <span v-else>未提供</span>
       </dd>
       <dt>{{ wt("风险与限制") }}</dt>
       <dd>
         <ul v-if="decision?.risks?.length">
-          <li v-for="item in decision.risks" :key="item">{{ item }}</li>
+          <li v-for="item in decision.risks" :key="item">{{ decisionText(item) }}</li>
         </ul>
         <span v-else>未提供风险评估</span>
       </dd>
@@ -48,6 +48,7 @@
 </template>
 <script setup lang="ts">
 import { wt } from "@/i18n/workbench";
+import { decisionMethodLabel, decisionStatusLabel, decisionText } from "./decisionLabels";
 
 import type { RefID, Decision } from "@/api/lifecycle";
 defineProps<{ decision?: Decision; summary?: string; refs: RefID[] }>();

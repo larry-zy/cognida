@@ -11,19 +11,26 @@
 
         <!-- Modal -->
         <div
+          ref="dialog"
           :class="containerClasses"
           :style="containerStyle"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="title || $slots.header ? titleId : undefined"
+          :aria-label="!title && !$slots.header ? '对话框' : undefined"
+          tabindex="-1"
           @click.stop
         >
           <!-- Header -->
           <div v-if="$slots.header || title || closable" class="ui-modal__header">
-            <slot name="header">
+            <div :id="titleId"><slot name="header">
               <h3 class="ui-modal__title">{{ title }}</h3>
-            </slot>
+            </slot></div>
             <button
               v-if="closable"
               type="button"
               class="ui-modal__close"
+              aria-label="关闭对话框"
               @click="handleClose"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -47,8 +54,16 @@
   </Teleport>
 </template>
 
+<script lang="ts">
+// All instances share a stack so nested dialogs neither steal focus nor unlock
+// scrolling while another dialog remains open.
+const openDialogs: HTMLElement[] = []
+let savedBodyOverflow = ''
+let dialogSequence = 0
+</script>
+
 <script setup lang="ts">
-import { computed, watch, onMounted, onBeforeUnmount, useSlots } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount, useSlots } from 'vue'
 
 interface Props {
   modelValue?: boolean
@@ -90,6 +105,11 @@ const containerStyle = computed(() => ({
 }))
 
 const slots = useSlots()
+const dialog = ref<HTMLElement>()
+const titleId = `ui-modal-title-${++dialogSequence}`
+let activeDialog: HTMLElement | undefined
+let previousFocus: HTMLElement | undefined
+let openRevision = 0
 
 const bodyClasses = computed(() => [
   'ui-modal__body',
@@ -98,6 +118,7 @@ const bodyClasses = computed(() => [
 ])
 
 function handleClose() {
+  if (!props.modelValue) return
   emit('update:modelValue', false)
   emit('close')
 }
@@ -109,27 +130,86 @@ function handleBackdropClick() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-  if (props.closeOnEsc && event.key === 'Escape') {
-    handleClose()
+  if (!props.modelValue || !activeDialog || openDialogs[openDialogs.length - 1] !== activeDialog) return
+  if (event.key === 'Escape') {
+    event.stopPropagation()
+    if (props.closeOnEsc) {
+      event.preventDefault()
+      handleClose()
+    }
+  } else if (event.key === 'Tab') {
+    const targets = focusableElements(activeDialog)
+    const first = targets[0]
+    const last = targets[targets.length - 1]
+    if (!first || !last) {
+      event.preventDefault()
+      activeDialog.focus()
+    } else if (event.shiftKey && (document.activeElement === first || !targets.includes(document.activeElement as HTMLElement))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (document.activeElement === last || !targets.includes(document.activeElement as HTMLElement))) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 }
 
-watch(() => props.modelValue, (value) => {
-  if (value) {
-    emit('open')
-    document.body.style.overflow = 'hidden'
-  } else {
-    document.body.style.overflow = ''
+function focusableElements(container: HTMLElement) {
+  return [...container.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, summary, [tabindex], [contenteditable="true"]')]
+    .filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[hidden], [inert], [aria-hidden="true"]'))
+    .filter(element => {
+      for (let node: HTMLElement | null = element; node && node !== container; node = node.parentElement) {
+        const style = getComputedStyle(node)
+        if (style.display === 'none' || style.visibility === 'hidden') return false
+        if (node.tagName === 'DETAILS' && !node.hasAttribute('open')) {
+          const summary = [...node.children].find(child => child.tagName === 'SUMMARY')
+          if (!summary?.contains(element)) return false
+        }
+      }
+      return true
+    })
+}
+
+function releaseDialog() {
+  if (!activeDialog) return
+  const wasTop = openDialogs[openDialogs.length - 1] === activeDialog
+  const index = openDialogs.indexOf(activeDialog)
+  if (index >= 0) openDialogs.splice(index, 1)
+  activeDialog = undefined
+  if (!openDialogs.length) document.body.style.overflow = savedBodyOverflow
+  if (wasTop) {
+    const top = openDialogs[openDialogs.length - 1]
+    if (previousFocus?.isConnected && (!top || top.contains(previousFocus))) previousFocus.focus()
+    else top?.focus()
   }
-})
+}
+
+watch(() => props.modelValue, async (value) => {
+  const revision = ++openRevision
+  if (value) {
+    previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    await nextTick()
+    if (revision !== openRevision || !props.modelValue || !dialog.value) return
+    activeDialog = dialog.value
+    if (!openDialogs.length) savedBodyOverflow = document.body.style.overflow
+    openDialogs.push(activeDialog)
+    document.body.style.overflow = 'hidden'
+    const initial = focusableElements(activeDialog).find(element => element.hasAttribute('autofocus'))
+    ;(initial || activeDialog).focus()
+    emit('open')
+  } else {
+    releaseDialog()
+  }
+}, { immediate: true, flush: 'post' })
 
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
+  openRevision++
   document.removeEventListener('keydown', handleKeydown)
-  document.body.style.overflow = ''
+  releaseDialog()
 })
 </script>
 
@@ -232,6 +312,11 @@ onBeforeUnmount(() => {
 .ui-modal__close:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+}
+
+.ui-modal__close:focus-visible {
+  outline: 2px solid var(--accent-primary, #b8a177);
+  outline-offset: 2px;
 }
 
 .ui-modal__close svg {
@@ -341,5 +426,12 @@ onBeforeUnmount(() => {
 .ui-modal-leave-from .ui-modal__container {
   opacity: 1;
   transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-modal-enter-active,
+  .ui-modal-leave-active,
+  .ui-modal-enter-active .ui-modal__container,
+  .ui-modal-leave-active .ui-modal__container { transition: none; }
 }
 </style>

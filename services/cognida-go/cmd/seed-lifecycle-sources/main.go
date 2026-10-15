@@ -133,17 +133,27 @@ func run(dir string, statusOnly, cleanup bool) error {
 	if err = json.Unmarshal(body, &account); err != nil {
 		return err
 	}
-	if account.Auth.Data.TenantID != 1 || account.Auth.Data.User.ID != 1 || account.Auth.Data.AccessToken == "" {
-		return fmt.Errorf("fixture account must be tenant 1 user 1")
+	if account.Auth.Data.TenantID <= 0 || account.Auth.Data.User.ID <= 0 || account.Auth.Data.AccessToken == "" {
+		return fmt.Errorf("fixture account requires a positive tenant/user identity and access token")
 	}
 	api := apiClient{base: base, token: account.Auth.Data.AccessToken, client: &http.Client{Timeout: 45 * time.Second}}
+	var profile struct {
+		ID       int64 `json:"id"`
+		TenantID int64 `json:"tenant_id"`
+	}
+	if err = api.call(http.MethodGet, "/user/profile", nil, &profile); err != nil {
+		return err
+	}
+	if profile.ID != account.Auth.Data.User.ID || profile.TenantID != account.Auth.Data.TenantID {
+		return fmt.Errorf("fixture account identity does not match the authenticated profile")
+	}
 	output := filepath.Join(dir, "source-fixtures.json")
-	f := fixture{TenantID: 1, UserID: 1, Schema: cfg.DBName, Upstream: map[string]string{}}
+	f := fixture{TenantID: profile.TenantID, UserID: profile.ID, Schema: cfg.DBName, Upstream: map[string]string{}}
 	if old, err := os.ReadFile(output); err == nil {
 		if err = json.Unmarshal(old, &f); err != nil {
 			return err
 		}
-		if f.Schema != cfg.DBName || f.TenantID != 1 || f.UserID != 1 {
+		if f.Schema != cfg.DBName || f.TenantID != profile.TenantID || f.UserID != profile.ID {
 			return fmt.Errorf("existing manifest belongs to a different environment")
 		}
 	} else if !os.IsNotExist(err) {
@@ -239,7 +249,7 @@ func run(dir string, statusOnly, cleanup bool) error {
 		if err = api.call(http.MethodPost, "/sessions", map[string]any{"title": "Browser source SQL fixture", "agent_type": "text2sql"}, &session); err != nil {
 			return err
 		}
-		if session.ID == "" || session.TenantID != 1 || session.UserID != 1 {
+		if session.ID == "" || session.TenantID != f.TenantID || session.UserID != f.UserID {
 			return fmt.Errorf("unexpected session owner")
 		}
 		f.SessionID = session.ID
@@ -258,7 +268,7 @@ func run(dir string, statusOnly, cleanup bool) error {
 	defer client.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	ctx = agentctx.WithSessionID(agentctx.WithUserID(agentctx.WithTenantID(ctx, 1), 1), f.SessionID)
+	ctx = agentctx.WithSessionID(agentctx.WithUserID(agentctx.WithTenantID(ctx, f.TenantID), f.UserID), f.SessionID)
 	ctx = agentctx.WithToolScope(agentctx.WithDatasourceID(ctx, f.DatasourceID), "read")
 	store := resultstore.NewRedisStore(client)
 	tool := tools.NewSQLExecuteTool(db, manager, store, nil, resultstore.NewSessionRegistry(resultstore.DefaultTTL))
@@ -274,7 +284,7 @@ func run(dir string, statusOnly, cleanup bool) error {
 	if result.ResultID == "" || result.RowCount != 2 {
 		return fmt.Errorf("SQLTool did not produce expected 2-row stored result")
 	}
-	actual, err := store.GetExact(ctx, resultstore.OwnerKey(1, f.SessionID), result.ResultID)
+	actual, err := store.GetExact(ctx, resultstore.OwnerKey(f.TenantID, f.SessionID), result.ResultID)
 	if err != nil {
 		return err
 	}

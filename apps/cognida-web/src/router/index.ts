@@ -30,7 +30,7 @@ const routes: RouteRecordRaw[] = [
         path: '/home',
         name: 'Home',
         component: () => import('@/views/home/HomeView.vue'),
-        meta: { title: '首页' }
+        meta: { title: '工作总览' }
       },
       {
         path: '/knowledge',

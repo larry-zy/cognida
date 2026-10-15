@@ -12,3 +12,7 @@
 
 - `test-agent-flow.sh` - Agent 流程集成测试
 - `test-text2sql.sh` - Text2SQL 功能测试
+
+## Milvus 本地路径诊断
+
+`milvus_local_paths.py` 默认只读诊断及真实查询验收；修复宿主机路径别名必须显式 `--apply`，校验容器停止、固定挂载范围和完整备份。不会重建集合或修改元数据。用法、持久挂载及回滚见 [运维手册](MILVUS_LOCAL_STORAGE.md)。
