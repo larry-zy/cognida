@@ -1,0 +1,128 @@
+Use case: infographic-diagram
+Asset type: Final target architecture poster for the Cognida repository.
+Generate a completely NEW, polished Chinese technical architecture diagram. Target a high-resolution 3840×2160 landscape canvas, very sharp readable Chinese lettering. The supplied reference image is ONLY a STYLE reference: white background, deep blue title, pastel horizontal layers, thin vivid outlines, tidy rounded cards, recognizable technology brand logos beside names, side panels, clear arrows. Do NOT borrow any architecture, component, product name, title, logo selection, or content from that reference.
+
+Title verbatim: “Cognida 数据与知识平台 · 技术架构”
+Subtitle verbatim: “目标架构｜Agent 驱动 · 数据与知识双栖 · 全生命周期 · 评测进化”
+Small top-right phrase: “采集 → 治理 → 沉淀 → 分析 → 评测 → 进化”
+This is an end-state architecture: NO progress status labels, NO badges saying 已有/待建/待做/规划/增强/完成. The words 目标架构 only appear in the subtitle. Do not include RL or model training infrastructure.
+
+COMPOSITION:
+Three columns: left sidebar 14%, center 69%, right sidebar 17%. The center has SIX horizontal layers, numbered L1 through L6 exactly once, with numbered blue titles. Layer heights adapt to content: L4 largest, L3 and L5 next, L2 smallest. Left and right panels must align to overall height and use white interiors and blue borders. Leave ample white space, orderly baselines, consistent type, readable character spacing. Minimize decorative illustrations. No 3D, no photorealism, no embossed text. Logos are flat brand marks. Use short actual labels below; do not replace Chinese phrases with fake gibberish or introduce any unlisted component. Brand logos must correspond to their text labels and retain recognizable official color/shape; where an authentic logo is uncertain, use a clean text wordmark, not an invented pictogram.
+
+LEFT SIDEBAR, title “数据与数仓来源”:
+First compact section “内容与业务数据”
+Small suitable neutral icons with “网页 / API”, “文件 / 文档”, “数据库表 / 查询结果”, “标注样本 / 评测反馈”.
+Second main section “数据库与数仓”
+Seven compact brand entries, each logo + exact name, in sensible vertical rows:
+MySQL, PostgreSQL, ClickHouse, Apache Doris, StarRocks, Apache Hive, BigQuery.
+Use distinct official recognizable brand marks. Keep MySQL dolphin, PostgreSQL elephant, ClickHouse yellow/black bars, Hive bee, BigQuery blue magnifier.
+Footer two-line note: “统一适配 · 授权查询” / “加工写入受管派生空间”
+A blue arrow from this sidebar into L4 denotes data ingress.
+Do not imply these engines are all compulsory platform storage.
+
+CENTER L1, pale pink, title “L1 业务交互与工作台”:
+Five cards in a row:
+“统一任务与审批” / “数据工程与数仓” / “知识问答与研究” / “分析图表与报告” / “评测与经验技能”.
+A technology strip underneath with recognizable logos and names:
+Vue 3 | TypeScript | Vite | Element Plus | Pinia.
+A2UI can be a simple text badge at end, not a made-up logo.
+Footer microcopy “目标提交 · 过程可见 · 人工接管 · 结果交付”.
+
+CENTER L2, pale blue, title “L2 API 接入与服务网关”:
+Logos and names for Go, Gin, gRPC, MCP; text badges HTTP / SSE.
+Four compact capability labels:
+“认证与租户上下文” | “资源授权与请求校验” | “限流与幂等” | “内部认证与请求追踪”.
+
+CENTER L3, pale orange, title “L3 智能规划与任务控制”:
+First row: three large boxes connected with arrows:
+“目标规划 Supervisor” [small line “理解目标 · 拆解计划 · 调整策略”]
+→ “持久化任务控制器” [small line “依赖 · 预算 · 审批 · 取消 · 恢复”]
+→ “领域 Agent 协作” [small line “分工委派 · 证据回传 · 结果汇总”].
+Second area compact expert chips in two ordered rows, all using generic small agent icons not company logos:
+“采集” “质检” “清洗” “知识打标” “样本标注”
+“数仓建模” “数据分析” “RAG / 研究” “资产发布” “评测 / 反馈诊断”.
+Bottom strip: “实时对话｜持久化流水线｜定时任务｜反馈返工”.
+
+CENTER L4, pale green, title “L4 数据与知识领域引擎”:
+Five equal readable vertical capability cards. This layer is the heart of the image.
+Card 1 title “接入与治理”
+Lines: “快照 / 增量 / 解析”
+“画像 / 质检 / 清洗”
+“差异预览 / 打标标注”
+“审核 / 版本 / 发布撤回”
+Card 2 title “数仓与语义”
+Lines: “主题域 / 事实与维度”
+“原始 → 明细 → 汇总 → 应用”
+“ETL / ELT / 增量与物化”
+“指标口径 / 血缘 / 影响分析”
+Card 3 title “知识与上下文”
+Lines: “分块 / 向量 / 知识图谱”
+“混合检索 / 重排 / 多跳”
+“会话 / 私人长期记忆”
+“组织知识 / 经验 / Skill”
+Card 4 title “分析与研究”
+Lines: “Text2SQL / 语义查询”
+“统计 / 趋势 / 归因 / 异常”
+“A2UI / 洞察 / 报告订阅”
+“DeepResearch / 证据核查”
+Card 5 title “特征与数据集”
+Lines: “转换 / 聚合 / Embedding”
+“物化 / 时点一致 / 漂移”
+“样本审核 / 数据集版本”
+“划分 / 去重 / 泄漏检查”
+Footer strip connecting all five: “来源可追溯 · 产物可引用 · 版本可比较 · 发布可撤回”.
+
+CENTER L5, pale lavender, title “L5 Agent Runtime 与执行计算”:
+Four cards:
+1 “Agent Runtime” with CloudWeGo Eino wordmark and Go logo.
+Small labels “ReAct · 上下文 · Hooks” and “工具注册 · 委派 · Skill”.
+2 “Python 计算” with Python and FastAPI logos, and small pandas / NumPy wordmarks.
+Labels “解析 · 质量 · 分析 · 评测”.
+3 “查询与加工适配器” with neutral query icon.
+Labels “方言 / 类型 / 执行取消” and “分页 / 资源与费用限额”.
+4 “Sandbox” with Docker logo.
+Labels “隔离执行 / 默认禁网” and “资源限制 / 产物校验”.
+Under cards a compact model strip: “模型服务：对话模型 · Embedding · Reranker｜路由 · 重试 · 降级 · 熔断”.
+Do not add vendor logos to model strip, to avoid claiming specific required providers.
+
+CENTER L6, pale cyan, title “L6 存储与基础设施”:
+Five principal brand cells with actual recognizable logos:
+MySQL — “元数据 / 状态 / 版本 / 记忆”
+Redis — “队列 / 缓存 / 进度 / 结果引用”
+Milvus — “向量 / 混合检索索引”
+Neo4j — “知识图谱 / 血缘 / 经验关联”
+MinIO / Local — “文件 / 快照 / 资产 / 数据集”.
+Slim bottom strip: Docker Compose logo/name “部署与服务编排”; etcd logo/name “Milvus 元数据依赖”.
+etcd is explicitly a Milvus dependency, NOT a separate business storage service.
+
+RIGHT SIDEBAR:
+Top panel “安全治理体系”, compact generic security icons and 6 lines:
+“租户与资源权限”
+“凭据与数据分级”
+“工具权限与人工审批”
+“版本 / 来源 / 审计”
+“幂等 / 恢复 / 撤回”
+“私人记忆与共享知识隔离”
+Middle, largest panel “评测与自进化”, bright but professional:
+First small row: “QA · RAG · Agent · SQL”
+Vertical connected steps:
+“轨迹 / 质量 / 用户反馈”
+↓ “归因 / 经验提炼”
+↓ “候选数据与策略”
+↓ “固定基线回归评测”
+↓ “审核 / 版本发布”
+↓ “监测 / 回退”
+Small final lines: “经验 · Skill · Playbook” / “检索参数 · 规则 · 编排策略”.
+Bottom panel “可观测性”:
+Official logos plus names: OpenTelemetry, Grafana, Loki.
+Small line “调用链 · 日志 · 运行与质量指标”.
+Do NOT add Prometheus or Langfuse.
+
+ARROWS:
+Blue arrows communicate invocation/data interfaces, orange dashed return arrow from the right-side self-evolution panel back to L3 and L4 labeled “反馈 · 返工 · 策略迭代”. Do not draw crossing spaghetti.
+Small bottom legend: “实线：调用与数据流   虚线：反馈与迭代   分层表示职责，按业务路径调用”.
+
+EXCLUSIONS:
+Do not import coworker-os, PowerContext, A2A, Codex, Claude Code, Hermes, WorkBuddy, Next.js, React, PostgreSQL as platform metadata DB, MongoDB, Kafka, R2, Sora, LangGraph, AgentScope, or any AI-employee/task-calendar/video-production concepts.
+Keep the Cognida modules and approved six-layer structure above. The picture must be complete, sharp, polished, and readable, with all main names correctly spelled.

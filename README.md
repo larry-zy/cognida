@@ -167,11 +167,13 @@
 
 ### 目标架构：业务闭环与能力补全
 
-下图结合现有实现与[本期计划](docs/openspec/changes/complete-governed-data-loop/design.md)，用「已有／增强／规划」区分状态。Supervisor、Sandbox、版本化数据集等仍待实施；右侧 A2A、外部 Agent、PowerContext 为可选扩展，尚未接入且非本期依赖。RL、训练及模型部署后续另议。
+下图为 Cognida 的**目标架构**，采用六层主体，以及贯穿各层的安全治理、评测与自进化体系。内容以项目代码与[本期设计](docs/openspec/changes/complete-governed-data-loop/design.md)为基础，展示数据接入、治理、数仓与语义、知识与记忆、分析研究、特征及数据集之间的关系；参考图仅用于视觉样式。图中不标注实施进度，实际支持与验收状态以本文「能力全景」及「规划中」为准。
 
-![Cognida 数据与知识平台目标架构](assets/images/cognida-target-architecture.png)
+![Cognida 数据与知识平台目标架构：技术栈、中间件、数仓与自进化](assets/images/cognida-target-architecture-v2.png)
 
-图中实线表示调用与数据流，虚线表示反馈或规划边界；分层表达职责，不表示所有请求必须依次经过每层。[高清原图](assets/images/cognida-target-architecture.png) · [生成提示词](assets/images/cognida-target-architecture.prompt.txt)。
+左侧为内容来源及数据库／数仓引擎，与底部的平台存储分开；加工写入须限定在授权的受管派生空间。自进化通过反馈归因、经验提炼、固定基线评测、审核发布与监测回退改进数据和执行策略；RL、模型训练及部署不在本图范围。
+
+图中实线表示调用与数据流，虚线表示反馈与迭代；分层表达职责，不表示所有请求必须依次经过每层。品牌图标为图内重绘。[架构原图](assets/images/cognida-target-architecture-v2.png) · [生成提示词](assets/images/cognida-target-architecture-v2.prompt.txt)。
 
 **依赖方向**：`handler → service → model ← repository`
 
