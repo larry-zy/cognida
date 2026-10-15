@@ -33,10 +33,10 @@ type GetSchemaRequest struct {
 
 // TableSchema 表结构定义
 type TableSchema struct {
-	TableName  string         `json:"table_name"`
+	TableName   string         `json:"table_name"`
 	Description string         `json:"description,omitempty"`
-	Columns    []ColumnSchema `json:"columns"`
-	PrimaryKey string         `json:"primary_key,omitempty"`
+	Columns     []ColumnSchema `json:"columns"`
+	PrimaryKey  string         `json:"primary_key,omitempty"`
 }
 
 // ColumnSchema 列结构定义
@@ -96,6 +96,9 @@ func NewGetSchemaTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, prof
 // FetchSchema 导出的 Schema 查询入口，供 HTTP handler 等外部调用方复用（前端 schema 浏览器）。
 // 与 agent 工具不同：未指定表名时返回全库全部表的完整结构（不做相关度收敛）。
 func FetchSchema(ctx context.Context, db *gorm.DB, dsp model_datasource.ConnectionProvider, databaseID, tableName string) (*GetSchemaResult, error) {
+	if err := validatePrivateDataAccess(tableName); err != nil {
+		return nil, err
+	}
 	target, err := resolveQueryTarget(ctx, databaseID, db, dsp)
 	if err != nil {
 		return nil, err
@@ -122,6 +125,9 @@ func FetchSchema(ctx context.Context, db *gorm.DB, dsp model_datasource.Connecti
 // getSchema 是 agent 工具处理器：施加「有界选表」策略，未指定表名时禁止全库详细注入。
 // database_id 非空时经 ConnectionProvider 路由到外部数据源；无效 id 显式报错不回落业务库。
 func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, profileStore dataprofile.Store) (*GetSchemaResult, error) {
+	if err := validatePrivateDataAccess(req.TableName); err != nil {
+		return nil, err
+	}
 	target, err := resolveQueryTarget(ctx, req.DatabaseID, businessDB, dsp)
 	if err != nil {
 		return nil, err
@@ -202,7 +208,9 @@ func listTableNames(ctx context.Context, target *queryTarget) ([]string, error) 
 		if err := rows.Scan(&name); err != nil {
 			return nil, fmt.Errorf("查询表列表失败: %w", err)
 		}
-		names = append(names, name)
+		if validatePrivateDataAccess(name) == nil {
+			names = append(names, name)
+		}
 	}
 	return names, rows.Err()
 }
@@ -211,6 +219,9 @@ func listTableNames(ctx context.Context, target *queryTarget) ([]string, error) 
 func queryTableSchemas(ctx context.Context, target *queryTarget, names []string) ([]TableSchema, error) {
 	result := make([]TableSchema, 0, len(names))
 	for _, tableName := range names {
+		if validatePrivateDataAccess(tableName) != nil {
+			continue
+		}
 		colSchemas, err := queryTableColumns(ctx, target, tableName)
 		if err != nil {
 			return nil, err
@@ -237,6 +248,9 @@ func queryTableSchemas(ctx context.Context, target *queryTarget, names []string)
 
 // queryTableColumns 查询单表列结构。
 func queryTableColumns(ctx context.Context, target *queryTarget, tableName string) ([]ColumnSchema, error) {
+	if err := validatePrivateDataAccess(tableName); err != nil {
+		return nil, err
+	}
 	rows, err := target.db.QueryContext(ctx, `
 		SELECT column_name, data_type, is_nullable, column_comment
 		FROM information_schema.columns
@@ -267,6 +281,9 @@ func queryTableColumns(ctx context.Context, target *queryTarget, tableName strin
 
 // queryPrimaryKey 查询单表主键首列。
 func queryPrimaryKey(ctx context.Context, target *queryTarget, tableName string) (string, error) {
+	if err := validatePrivateDataAccess(tableName); err != nil {
+		return "", err
+	}
 	rows, err := target.db.QueryContext(ctx, `
 		SELECT column_name
 		FROM information_schema.key_column_usage
@@ -323,7 +340,9 @@ func loadTableCards(ctx context.Context, target *queryTarget) ([]tableCard, erro
 		if err := tRows.Scan(&name, &comment); err != nil {
 			return nil, fmt.Errorf("查询表列表失败: %w", err)
 		}
-		cards = append(cards, tableCard{Name: name, Comment: comment.String})
+		if validatePrivateDataAccess(name) == nil {
+			cards = append(cards, tableCard{Name: name, Comment: comment.String})
+		}
 	}
 	if err := tRows.Err(); err != nil {
 		return nil, fmt.Errorf("查询表列表失败: %w", err)

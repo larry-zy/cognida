@@ -214,12 +214,17 @@ func (s *Service) publish(ctx context.Context, r d.StageRequest) (d.Output, erro
 	if !r.Stage.Approved {
 		return d.Output{}, d.ErrForbidden
 	}
-	ref, payload, _, e := dataInput(r)
+	ref, payload, input, e := dataInput(r)
 	if e != nil {
 		return d.Output{}, e
 	}
 	if s.config.Publish == nil {
 		return d.Output{}, fmt.Errorf("asset publication adapter unavailable")
+	}
+	if s.config.ValidatePublication != nil {
+		if e = s.config.ValidatePublication(ctx, r.Principal, input, r.Stage.Options); e != nil {
+			return d.Output{}, e
+		}
 	}
 	receipt, e := s.config.Publish(ctx, r.Principal, ref, payload, r.Stage.Options)
 	if e != nil {
@@ -255,12 +260,16 @@ func (s *Service) analyze(ctx context.Context, r d.StageRequest) (d.Output, erro
 	if ref.Kind != d.PublishedAsset || !ref.Policy.Approved {
 		return d.Output{}, d.ErrForbidden
 	}
-	analysis, e := AnalyzeInput(input)
+	prompt, _ := r.Stage.Options["prompt"].(string)
+	analysis, e := AnalyzeGoal(ctx, stageAnalysisCompute{s, r}, input, prompt, ref.AssetRefID, r.Stage.RequestID)
 	if e != nil {
 		return d.Output{}, e
 	}
 	analysis["source_ref"] = ref.AssetRefID
 	decision := decisionFor([]d.RefID{ref.RefID}, "descriptive_statistics", "verified_computation")
+	if strings.TrimSpace(prompt) != "" {
+		decision = decisionFor([]d.RefID{ref.RefID}, "goal-directed-llm-v1", "citations_checked_interpretation_unverified")
+	}
 	analysis["decision"] = decision
 	body, e := json.Marshal(analysis)
 	if e != nil {

@@ -89,7 +89,10 @@ class Settings(BaseSettings):
 
     # API 配置（HTTP REST API，用于调试和管理）
     api_host: str = Field(default="0.0.0.0", description="API 监听地址")
-    api_port: int = Field(default=8000, description="API 监听端口")
+    api_port: int = Field(default=8000, ge=1, le=65535, description="API 监听端口")
+    evaluation_http_port: int = Field(
+        default=18888, ge=1, le=65535, description="评测与生命周期计算 HTTP 监听端口"
+    )
 
     # MCP 配置
     # 默认与部署真源 dev.sh(py-mcp 以 http 模式监听 :3100)对齐：Go 侧 data_analysis 工具
@@ -99,11 +102,11 @@ class Settings(BaseSettings):
         default="http", description="MCP 运行模式"
     )
     mcp_host: str = Field(default="0.0.0.0", description="MCP HTTP 监听地址")
-    mcp_port: int = Field(default=3100, description="MCP HTTP 端口")
+    mcp_port: int = Field(default=3100, ge=1, le=65535, description="MCP HTTP 端口")
 
     # gRPC 配置
     grpc_enabled: bool = Field(default=True, description="是否启用 gRPC 服务")
-    grpc_port: int = Field(default=50051, description="gRPC 监听端口")
+    grpc_port: int = Field(default=50051, ge=1, le=65535, description="gRPC 监听端口")
     grpc_max_workers: int = Field(default=10, description="gRPC 最大工作线程数")
     # 跨服务内部 gRPC 边界共享密钥（审计发现 H8）。两侧配置同一值；为空则禁用鉴权
     # （接受所有调用，保留本地/开发行为，启动时告警一次）。环境变量 GRPC_AUTH_TOKEN。

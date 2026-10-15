@@ -107,6 +107,19 @@ func (o *opTools) etlRun(ctx context.Context, req *ETLRunRequest) (*ETLRunResult
 		return nil, fmt.Errorf("输入源必须且只能提供一个：sql 或 result_id")
 	}
 
+	// Reject private sources before replace can drop an existing derived table.
+	if hasSQL {
+		if err := validateSQL(req.SQL); err != nil {
+			o.recordAudit(ctx, operations.OpETL, req.TargetTable, req.SQL, "",
+				operations.StatusFailed, err.Error(), map[string]interface{}{"source": "sql"})
+			return nil, fmt.Errorf("输入源 SQL 校验失败（仅允许 SELECT）: %w", err)
+		}
+	} else if _, err := o.loadETLResult(ctx, req.ResultID); err != nil {
+		o.recordAudit(ctx, operations.OpETL, req.TargetTable, "", "",
+			operations.StatusFailed, err.Error(), map[string]interface{}{"source": "result_id:" + req.ResultID})
+		return nil, err
+	}
+
 	execCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -165,22 +178,34 @@ func (o *opTools) etlFromSQL(execCtx context.Context, target, sourceSQL string) 
 	return o.countTableRows(execCtx, target)
 }
 
-// etlFromResultID 从 Result Store 取本会话结果集并物化为派生表。
-func (o *opTools) etlFromResultID(execCtx, ownerCtx context.Context, target, resultID string) (int64, error) {
+// loadETLResult authorizes the source before any target replacement takes place.
+func (o *opTools) loadETLResult(ownerCtx context.Context, resultID string) (*resultstore.Result, error) {
 	if o.resultStore == nil {
-		return 0, fmt.Errorf("结果存储未启用，无法按 result_id 派生，请改用 sql 输入源")
+		return nil, fmt.Errorf("结果存储未启用，无法按 result_id 派生，请改用 sql 输入源")
 	}
 	owner := resultstore.OwnerKey(agentctx.MustGetTenantID(ownerCtx), agentctx.MustGetSessionID(ownerCtx))
 	stored, err := o.resultStore.Get(ownerCtx, owner, resultID)
 	if err != nil {
 		switch err {
 		case resultstore.ErrNotFound:
-			return 0, fmt.Errorf("result_id %s 不存在或已过期，请重新取数", resultID)
+			return nil, fmt.Errorf("result_id %s 不存在或已过期，请重新取数", resultID)
 		case resultstore.ErrUnauthorized:
-			return 0, fmt.Errorf("result_id %s 不属于当前会话", resultID)
+			return nil, fmt.Errorf("result_id %s 不属于当前会话", resultID)
 		default:
-			return 0, fmt.Errorf("读取结果存储失败: %w", err)
+			return nil, fmt.Errorf("读取结果存储失败: %w", err)
 		}
+	}
+	if err := validatePrivateDataAccess(stored.SourceSQL); err != nil {
+		return nil, err
+	}
+	return stored, nil
+}
+
+// etlFromResultID 从 Result Store 取本会话结果集并物化为派生表。
+func (o *opTools) etlFromResultID(execCtx, ownerCtx context.Context, target, resultID string) (int64, error) {
+	stored, err := o.loadETLResult(ownerCtx, resultID)
+	if err != nil {
+		return 0, err
 	}
 	if len(stored.Columns) == 0 {
 		return 0, fmt.Errorf("结果集无列定义，无法建表")

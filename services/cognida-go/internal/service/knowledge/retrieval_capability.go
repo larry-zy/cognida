@@ -64,17 +64,19 @@ type GovernedQuery struct {
 
 // GovernedChunk 是受治理后回灌上下文的单个片段（已截断、带出处）。
 type GovernedChunk struct {
-	Content     string
-	Score       float64
-	Source      string // 人类可读出处：文档标题→知识条目→片段 ID→知识库 ID
-	KnowledgeID string
-	ChunkID     string
-	ChunkIndex  int
-	Metadata    map[string]interface{}
+	KnowledgeBaseID string
+	Content         string
+	Score           float64
+	Source          string // 人类可读出处：文档标题→知识条目→片段 ID→知识库 ID
+	KnowledgeID     string
+	ChunkID         string
+	ChunkIndex      int
+	Metadata        map[string]interface{}
 }
 
 // GovernedResult 是一次受治理检索的结果。
 type GovernedResult struct {
+	Warnings  []string           `json:"warnings,omitempty"`
 	Attempts  []RetrievalAttempt `json:"attempts,omitempty"`
 	Chunks    []GovernedChunk
 	HasAnswer bool // 是否有通过质量阈值的命中；false 时调用方应向 LLM 明示「无可靠证据」
@@ -136,6 +138,7 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 	// 收集到定长槽位，单库失败留 nil 不阻断整体；合并/去重仍在扇入后按原序串行执行，
 	// 与并发调度顺序无关，保持确定性。每库用 opts 的独立副本，杜绝底层若改写 opts 引发的数据竞争。
 	respSlots := make([]*rag.RetrieveResponse, len(kbIDs))
+	errSlots := make([]error, len(kbIDs))
 	sem := make(chan struct{}, capMaxConcurrentKB)
 	var wg sync.WaitGroup
 	for i, kbID := range kbIDs {
@@ -143,16 +146,35 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 		go func(i int, kbID string) {
 			defer safego.Recover("kb-retrieval")
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				errSlots[i] = ctx.Err()
+				return
+			}
 			defer func() { <-sem }()
 			optsCopy := *opts
 			resp, err := c.retrieveByMode(ctx, tenantStr, kbID, q.Query, q.Mode, &optsCopy)
 			if err == nil {
 				respSlots[i] = resp // 失败留 nil，单库失败不阻断整体
+			} else {
+				errSlots[i] = err
 			}
 		}(i, kbID)
 	}
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	warnings := []string{}
+	for i, err := range errSlots {
+		if err != nil {
+			warnings = append(warnings, "knowledge base "+kbIDs[i]+": "+err.Error())
+		}
+	}
+	if len(warnings) == len(kbIDs) {
+		return nil, errors.Join(errSlots...)
+	}
 
 	// 跨库合并 + 去重：同一片段可能被多库/多模式重复命中，按 ChunkID（退回 Content）去重保留最高分。
 	var merged []*rag.Document
@@ -161,6 +183,7 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 		if resp == nil {
 			continue
 		}
+		warnings = append(warnings, resp.Warnings...)
 		for _, d := range resp.Results {
 			if d == nil {
 				continue
@@ -182,7 +205,11 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 
 	// 启用状态后过滤：MySQL 权威，回查命中的 knowledge_id，剔除停用/已删条目。放在去重之后、
 	// 质量下限与重排之前——先按业务权威把停用内容清出候选集，再对干净候选集做质量筛选与排序。
-	merged = c.filterByEnabled(ctx, merged)
+	var filterErr error
+	merged, filterErr = c.filterByEnabled(ctx, merged)
+	if filterErr != nil {
+		return nil, filterErr
+	}
 
 	// 混合模式相对质量下限：丢弃 RRF 量纲下明显弱相关的命中（vector/bm25 已在底层按余弦阈值过滤）。
 	merged = applyHybridFloor(merged, q.Mode)
@@ -204,25 +231,26 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 	chunks := make([]GovernedChunk, 0, len(merged))
 	for _, d := range merged {
 		chunks = append(chunks, GovernedChunk{
-			Content:     truncateRunes(d.Content, capMaxChunkContentChars),
-			Score:       float64(d.Score),
-			Source:      chunkSourceLabel(d),
-			KnowledgeID: d.KnowledgeID,
-			ChunkID:     d.ChunkID,
-			ChunkIndex:  d.ChunkIndex,
-			Metadata:    d.Metadata,
+			KnowledgeBaseID: d.KnowledgeBaseID,
+			Content:         truncateRunes(d.Content, capMaxChunkContentChars),
+			Score:           float64(d.Score),
+			Source:          chunkSourceLabel(d),
+			KnowledgeID:     d.KnowledgeID,
+			ChunkID:         d.ChunkID,
+			ChunkIndex:      d.ChunkIndex,
+			Metadata:        d.Metadata,
 		})
 	}
-	return &GovernedResult{Chunks: chunks, HasAnswer: len(chunks) > 0}, nil
+	return &GovernedResult{Chunks: chunks, HasAnswer: len(chunks) > 0, Warnings: warnings}, nil
 }
 
 // filterByEnabled 用 MySQL 权威启用状态过滤命中：收集去重后的 knowledge_id，回查启用子集，
 // 剔除停用/已删条目。未注入过滤器或无有效 id 时原样返回。
 //
 // 回查失败时不返回内容，避免停用知识在数据库故障期间重新进入模型上下文。
-func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.Document) []*rag.Document {
+func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.Document) ([]*rag.Document, error) {
 	if c.enabledFilter == nil || len(docs) == 0 {
-		return docs
+		return docs, nil
 	}
 	idSet := make(map[string]struct{}, len(docs))
 	for _, d := range docs {
@@ -231,7 +259,7 @@ func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.D
 		}
 	}
 	if len(idSet) == 0 {
-		return docs // 命中都没有 knowledge_id，无从过滤
+		return docs, nil // 命中都没有 knowledge_id，无从过滤
 	}
 	ids := make([]string, 0, len(idSet))
 	for id := range idSet {
@@ -240,7 +268,7 @@ func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.D
 	enabled, err := c.enabledFilter.FilterEnabledKnowledgeIDs(ctx, ids)
 	if err != nil {
 		log.Printf("[RetrievalCapability] 启用状态过滤回查失败，本轮不返回内容: %v", err)
-		return nil
+		return nil, err
 	}
 	kept := docs[:0]
 	for _, d := range docs {
@@ -249,7 +277,7 @@ func (c *RetrievalCapability) filterByEnabled(ctx context.Context, docs []*rag.D
 			kept = append(kept, d)
 		}
 	}
-	return kept
+	return kept, nil
 }
 
 // retrieveByMode 按检索模式选择底层检索器方法（未知模式按 hybrid）。
@@ -259,6 +287,8 @@ func (c *RetrievalCapability) retrieveByMode(ctx context.Context, tenantID, kbID
 		return c.retriever.VectorRetrieve(ctx, tenantID, kbID, query, opts)
 	case "bm25":
 		return c.retriever.BM25Retrieve(ctx, tenantID, kbID, query, opts)
+	case "graph":
+		return c.retriever.GraphRetrieve(ctx, tenantID, kbID, query, opts)
 	default:
 		return c.retriever.HybridRetrieve(ctx, tenantID, kbID, query, opts)
 	}

@@ -136,6 +136,9 @@ func (r *Neo4jRepository) GetGraph(ctx context.Context, namespace knowledge.Name
 
 // SearchNode 搜索节点
 func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.NameSpace, nodeNames []string) (*knowledge.GraphData, error) {
+	if namespace.TenantID == "" || namespace.KnowledgeBaseID == "" {
+		return nil, fmt.Errorf("graph search requires tenant and knowledge base")
+	}
 	session := r.driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: r.dbName})
 	defer session.Close(ctx)
 
@@ -158,7 +161,7 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			"limit":    defaultGraphLoadLimit,
 		})
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("search graph nodes: %w", err)
 		}
 
 		for result.Next(ctx) {
@@ -186,6 +189,9 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			})
 			nodeSet[id] = true
 		}
+		if err := result.Err(); err != nil {
+			return nil, err
+		}
 	}
 
 	// 查询这些节点之间的关系
@@ -209,7 +215,10 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 			"kbId":     namespace.KnowledgeBaseID,
 			"limit":    defaultGraphLoadLimit,
 		})
-		if err == nil {
+		if err != nil {
+			return nil, fmt.Errorf("search graph relations: %w", err)
+		}
+		{
 			for relResult.Next(ctx) {
 				record := relResult.Record()
 
@@ -219,15 +228,12 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 				relType := getStringValue(record, "type")
 				strength := getFloat64Value(record, "strength")
 				weight := getFloat64Value(record, "weight")
-				chunkIdsStr := getStringValue(record, "chunkIds")
+				chunkIds := getStringSliceValue(record, "chunkIds")
 				propsStr := getStringValue(record, "properties")
 
 				if id == "" || source == "" || target == "" {
 					continue
 				}
-
-				var chunkIds []string
-				_ = json.Unmarshal([]byte(chunkIdsStr), &chunkIds) // 解析失败保持零值
 
 				var properties map[string]string
 				_ = json.Unmarshal([]byte(propsStr), &properties) // 解析失败保持零值
@@ -243,6 +249,9 @@ func (r *Neo4jRepository) SearchNode(ctx context.Context, namespace knowledge.Na
 					Properties: properties,
 				})
 			}
+		}
+		if err := relResult.Err(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -346,6 +355,9 @@ func (r *Neo4jRepository) SearchNodes(ctx context.Context, namespace knowledge.N
 		})
 	}
 
+	if err := result.Err(); err != nil {
+		return nil, err
+	}
 	return nodes, nil
 }
 
@@ -445,8 +457,7 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 
 		chunks := getStringSliceValue(record, "chunks") // chunks 为 Neo4j 原生 list〔GR-1〕
 
-		var relChunks []string
-		_ = json.Unmarshal([]byte(getStringValue(record, "relChunks")), &relChunks) // 解析失败保持零值
+		relChunks := getStringSliceValue(record, "relChunks")
 
 		neighbors = append(neighbors, &knowledge.GraphNode{
 			ID:         id,
@@ -466,6 +477,9 @@ func (r *Neo4jRepository) GetNeighbors(ctx context.Context, namespace knowledge.
 		})
 	}
 
+	if err := result.Err(); err != nil {
+		return nil, err
+	}
 	return &knowledge.NodeQueryResult{
 		Node:      center,
 		Neighbors: neighbors,

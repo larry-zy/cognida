@@ -14,6 +14,8 @@ const DefaultSampleRows = 20
 
 // Result 是被持久化的完整结果集，仅在工具间按 result_id 传递引用。
 type Result struct {
+	// SourceSQL is server-set provenance for downstream data-access checks.
+	SourceSQL string                   `json:"source_sql,omitempty"`
 	ResultID  string                   `json:"result_id"`
 	Owner     string                   `json:"owner"` // 归属键 tenant:session，用于跨会话隔离
 	Columns   []string                 `json:"columns"`

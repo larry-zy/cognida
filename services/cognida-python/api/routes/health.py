@@ -1,8 +1,7 @@
 """健康检查 / 就绪检查 / 指标路由（架构评审 INF-5 / INF-6）。"""
 
-from fastapi import APIRouter, Response
-
 from core import get_logger
+from fastapi import APIRouter, Request, Response
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -22,7 +21,7 @@ async def health_check() -> dict[str, str]:
 
 
 @router.get("/ready")
-async def readiness_check(response: Response) -> dict:
+async def readiness_check(request: Request, response: Response) -> dict:
     """就绪探针（readiness）。
 
     对本部署已配置的后端存储（MySQL/Redis/Milvus/Neo4j）做有界探活：
@@ -35,10 +34,15 @@ async def readiness_check(response: Response) -> dict:
     from core.readiness import check_readiness
 
     ready, deps = await check_readiness()
+    runtime_readiness = getattr(request.app.state, "runtime_readiness", None)
+    services = runtime_readiness() if runtime_readiness else {}
+    ready = ready and all(services.values())
     if not ready:
         response.status_code = 503
     return {
         "status": "ready" if ready else "not_ready",
+        "ready": ready,
+        "services": services,
         "dependencies": {
             d.name: {"status": d.status, "detail": d.detail} for d in deps
         },

@@ -112,6 +112,8 @@ const ICONS = {
 const menuItems = computed(() => [
   { path: '/home', title: t('menu.home'), icon: ICONS.home },
   { path: '/kb-assistant', title: t('menu.kb'), icon: ICONS.kb },
+  { path: '/research', title: wt('深度研究'), icon: ICONS.kb },
+  { path: '/memories', title: wt('长期记忆'), icon: ICONS.knowledge },
   { path: '/analysis', title: wt('数据分析'), icon: ICONS.ai },
   {path:'/catalog',title:wt('数据目录'),icon:ICONS.datasource},
   {path:'/pipelines',title:wt('数据流水线'),icon:ICONS.trace},

@@ -33,9 +33,8 @@ func (failingEnabledFilter) FilterEnabledKnowledgeIDs(context.Context, []string)
 func TestGovernedRetrievalNeverLeaksDisabledContentOnDatabaseFailure(t *testing.T) {
 	fake := &capFakeRetriever{hybrid: []*rag.Document{{ChunkID: "a", KnowledgeID: "known", Content: "removed content", Score: 1}}}
 	result, e := NewRetrievalCapability(fake, nil).WithEnabledFilter(failingEnabledFilter{}).Retrieve(context.Background(), 1, []string{"kb"}, GovernedQuery{Query: "x", Mode: "hybrid"})
-	require.NoError(t, e)
-	require.Empty(t, result.Chunks)
-	require.False(t, result.HasAnswer)
+	require.Error(t, e)
+	require.Nil(t, result)
 }
 func TestAdaptiveChunkingUsesStructure(t *testing.T) {
 	strategy, size, overlap := adaptiveChunkPlan("first\n\nsecond\n\nthird")

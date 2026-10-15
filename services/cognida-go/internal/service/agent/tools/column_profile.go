@@ -93,7 +93,7 @@ func effectiveDatasourceID(ctx context.Context, databaseID string) string {
 // （需刷新）以及本次是否适用（store 未接线/空表返回 ok=false）。是「挂缓存」与「决定是否刷新」
 // 的共享底座，供单表精确路径与多候选表批量路径复用。
 func attachCachedFacts(ctx context.Context, store dataprofile.Store, target *queryTarget, databaseID string, table *TableSchema) (stale, ok bool) {
-	if store == nil || table == nil || len(table.Columns) == 0 {
+	if store == nil || table == nil || len(table.Columns) == 0 || validatePrivateDataAccess(table.TableName) != nil {
 		return false, false
 	}
 	tenantID := agentctx.MustGetTenantID(ctx)
@@ -211,6 +211,9 @@ func attachColumnFacts(table *TableSchema, profiles []*dataprofile.ColumnProfile
 // 会随工具返回被取消），带超时与坐标级去重。目标库在 goroutine 内按坐标重新取（不捕获
 // 请求期句柄，见 resolveProfileDB）。失败仅记日志，不反哺调用方。
 func triggerBackgroundProfile(store dataprofile.Store, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, tenantID int64, datasourceID, schema string, table TableSchema) {
+	if validatePrivateDataAccess(table.TableName) != nil {
+		return
+	}
 	key := profileKey(tenantID, datasourceID, schema, table.TableName)
 	if _, loaded := profileInFlight.LoadOrStore(key, struct{}{}); loaded {
 		return // 同坐标已有画像在跑
@@ -253,6 +256,9 @@ func profileKey(tenantID int64, datasourceID, schema, table string) string {
 //
 // 返回每列一条快照。空表（0 行）也返回零值快照，避免反复重扫。
 func computeColumnProfiles(ctx context.Context, db *sql.DB, tenantID int64, datasourceID, schema string, table TableSchema) ([]*dataprofile.ColumnProfile, error) {
+	if err := validatePrivateDataAccess(table.TableName); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	cols := table.Columns
 	tableRef := quoteMySQLIdent(schema) + "." + quoteMySQLIdent(table.TableName)

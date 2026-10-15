@@ -7,8 +7,8 @@ from typing import Any
 from aiohttp import web
 from config import get_settings
 from core import get_logger, setup_logging
-from core.request_context import HTTP_HEADER, bind_request_id
 from core.http_auth import authorized_internal_request, validate_http_auth_config
+from core.request_context import HTTP_HEADER, bind_request_id
 from tools.bootstrap import register_default_tools
 
 from tools import get_registry
@@ -287,7 +287,7 @@ class LinkPythonMCPServer:
             "properties": {},
         }
 
-    async def run(self, host: str = "0.0.0.0", port: int = 3000) -> None:
+    async def run(self, host: str = "0.0.0.0", port: int = 3000, *, stop_event=None, on_ready=None) -> None:
         """运行 MCP Server。
 
         Args:
@@ -305,19 +305,22 @@ class LinkPythonMCPServer:
         if self._mode == "http":
             # HTTP 模式
             self._logger.info(f"启动 HTTP MCP Server on {host}:{port}")
-            runner = web.AppRunner(self._app)
-            await runner.setup()
-            site = web.TCPSite(runner, host, port)
-            await site.start()
-
-            self._logger.info(f"HTTP MCP Server 已启动: http://{host}:{port}/mcp")
-
-            # 保持运行
+            # Bound in-flight tool draining so the unified runtime can shut
+            # down all protocols before its supervisor timeout expires.
+            # aiohttp applies this deadline to each of its two drain phases.
+            runner = web.AppRunner(self._app, shutdown_timeout=2)
             try:
-                while True:
-                    await asyncio.sleep(3600)
+                await runner.setup()
+                site = web.TCPSite(runner, host, port)
+                await site.start()
+                if on_ready is not None:
+                    on_ready()
+                self._logger.info(f"HTTP MCP Server 已启动: http://{host}:{port}/mcp")
+                await (stop_event or asyncio.Event()).wait()
             except asyncio.CancelledError:
                 self._logger.info("HTTP MCP Server 已停止")
+                raise
+            finally:
                 await runner.cleanup()
         else:
             # stdio 模式：官方 SDK 用 stdio_server() 提供读写流，

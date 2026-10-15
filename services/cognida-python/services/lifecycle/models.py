@@ -114,6 +114,25 @@ class EnrichRequest(StrictModel):
     options: EnrichOptions = Field(default_factory=EnrichOptions)
 
 
+class AnalyzeOptions(StrictModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    source_ref: str = Field(min_length=1, max_length=128)
+    statistics: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def bounded_statistics(self):
+        if not self.prompt.strip():
+            raise ValueError("analysis goal must not be blank")
+        if len(json.dumps(self.statistics, ensure_ascii=False, allow_nan=False)) > 100_000:
+            raise ValueError("statistics exceed analysis context limit")
+        return self
+
+
+class AnalyzeRequest(StrictModel):
+    input: DataInput
+    options: AnalyzeOptions
+
+
 class MergeOptions(StrictModel):
     schema_policy: Literal["strict", "union"] = "strict"
     deduplicate: bool = False

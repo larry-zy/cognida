@@ -44,7 +44,7 @@ func NewHTTPCompute(baseURL, token string) *HTTPCompute {
 }
 func (c *HTTPCompute) Call(ctx context.Context, operation string, input d.Input, options map[string]any, requestID string) (ComputeResult, error) {
 	var out ComputeResult
-	if operation != "profile" && operation != "clean" && operation != "enrich" {
+	if operation != "profile" && operation != "clean" && operation != "enrich" && operation != "analyze" {
 		return out, d.ErrInvalid
 	}
 	if e := input.Validate(); e != nil {

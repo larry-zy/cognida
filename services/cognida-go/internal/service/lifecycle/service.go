@@ -20,17 +20,19 @@ import (
 
 type Authorizer func(context.Context, d.Principal, string) error
 type PublishFunc func(context.Context, d.Principal, d.DataAssetRef, json.RawMessage, map[string]any) (map[string]any, error)
+type PublicationValidator func(context.Context, d.Principal, d.Input, map[string]any) error
 type Compute interface {
 	Call(context.Context, string, d.Input, map[string]any, string) (ComputeResult, error)
 }
 type Config struct {
-	Audit     AuditFunc
-	Access    AccessFunc
-	Compute   Compute
-	Publish   PublishFunc
-	Authorize Authorizer
-	Adapters  map[string]d.Adapter
-	Templates []d.PipelineDefinition
+	Audit               AuditFunc
+	Access              AccessFunc
+	Compute             Compute
+	Publish             PublishFunc
+	ValidatePublication PublicationValidator
+	Authorize           Authorizer
+	Adapters            map[string]d.Adapter
+	Templates           []d.PipelineDefinition
 }
 type Service struct {
 	repo      d.Repository
@@ -244,6 +246,9 @@ func (s *Service) Invoke(ctx context.Context, p d.Principal, agent string, refs 
 	if e := validateOptions(options); e != nil {
 		return nil, e
 	}
+	if e := s.preflight(ctx, p, agent, refs, options); e != nil {
+		return nil, e
+	}
 	stage := newStage(p, "", agent, agent, refs, options, "invoke:"+key, requestID, 3)
 	if e := s.repo.CreateStage(ctx, &stage); e != nil {
 		old, findErr := s.repo.FindStageByKey(ctx, p.TenantID, stage.IdempotencyKey)
@@ -297,6 +302,14 @@ func (s *Service) StartRun(ctx context.Context, p d.Principal, template string, 
 	if e := s.validateInputs(ctx, p, "data-access", refs); e != nil {
 		return nil, e
 	}
+	if e := validatePipelineOptions(def, opts); e != nil {
+		return nil, e
+	}
+	for _, st := range def.Stages {
+		if e := s.preflight(ctx, p, st.AgentID, refs, stageOptions(opts, st.ID)); e != nil {
+			return nil, fmt.Errorf("stage %s: %w", st.ID, e)
+		}
+	}
 	if e := s.repo.SaveDefinition(ctx, def); e != nil {
 		return nil, e
 	}
@@ -344,6 +357,11 @@ func stageOptions(opts map[string]any, key string) map[string]any {
 	return map[string]any{}
 }
 
+// DerivedRefID identifies an immutable output for retry recovery. Reading that
+// output must still go through Resolve to recheck the caller's current access.
+func DerivedRefID(tenant int64, kind d.Kind, producer string, parents []d.RefID) d.RefID {
+	return derivedRefID(tenant, kind, producer, parents)
+}
 func derivedRefID(tenant int64, kind d.Kind, producer string, parents []d.RefID) d.RefID {
 	parentKey, _ := json.Marshal(parents)
 	id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%d/%s/%s/%s", tenant, producer, kind, parentKey))).String()

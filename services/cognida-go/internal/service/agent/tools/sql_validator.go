@@ -24,42 +24,42 @@ type SQLValidator struct {
 func NewSQLValidator() *SQLValidator {
 	return &SQLValidator{
 		readOnlyKeywords: map[string]bool{
-			"SELECT": true,
-			"WITH":   true,
-			"UNION":  true,
-			"UNIQUE": true,
-			"FROM":   true,
-			"WHERE":  true,
-			"GROUP":  true,
-			"ORDER":  true,
-			"HAVING": true,
-			"LIMIT":  true,
-			"OFFSET": true,
-			"JOIN":   true,
-			"INNER":  true,
-			"LEFT":   true,
-			"RIGHT":  true,
-			"FULL":   true,
-			"CROSS":  true,
-			"AS":     true,
-			"AND":    true,
-			"OR":     true,
-			"NOT":    true,
-			"IN":     true,
-			"EXISTS": true,
-			"BETWEEN": true,
-			"LIKE":   true,
-			"IS":     true,
-			"NULL":   true,
-			"CASE":   true,
-			"WHEN":   true,
-			"THEN":   true,
-			"ELSE":   true,
-			"END":    true,
+			"SELECT":   true,
+			"WITH":     true,
+			"UNION":    true,
+			"UNIQUE":   true,
+			"FROM":     true,
+			"WHERE":    true,
+			"GROUP":    true,
+			"ORDER":    true,
+			"HAVING":   true,
+			"LIMIT":    true,
+			"OFFSET":   true,
+			"JOIN":     true,
+			"INNER":    true,
+			"LEFT":     true,
+			"RIGHT":    true,
+			"FULL":     true,
+			"CROSS":    true,
+			"AS":       true,
+			"AND":      true,
+			"OR":       true,
+			"NOT":      true,
+			"IN":       true,
+			"EXISTS":   true,
+			"BETWEEN":  true,
+			"LIKE":     true,
+			"IS":       true,
+			"NULL":     true,
+			"CASE":     true,
+			"WHEN":     true,
+			"THEN":     true,
+			"ELSE":     true,
+			"END":      true,
 			"DISTINCT": true,
-			"ALL":    true,
-			"ANY":    true,
-			"SOME":   true,
+			"ALL":      true,
+			"ANY":      true,
+			"SOME":     true,
 		},
 		dangerousKeywords: map[string]bool{
 			"INSERT":   true,
@@ -79,17 +79,17 @@ func NewSQLValidator() *SQLValidator {
 			"sp_":      true, // SQL Server 系统存储过程
 		},
 		injectionPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`(?i)\bor\s+1\s*=\s*1\b`),     // SQL 注入常见模式
-			regexp.MustCompile(`(?i)\bor\s+true\b`),           // OR true 注入
-			regexp.MustCompile(`(?i);\s*DROP\b`),              // 多语句注入
-			regexp.MustCompile(`(?i);\s*DELETE\b`),            // 多语句注入
-			regexp.MustCompile(`(?i);\s*UPDATE\b`),            // 多语句注入
-			regexp.MustCompile(`(?i);\s*INSERT\b`),            // 多语句注入
-			regexp.MustCompile(`(?i)'.*OR.*'.*'`),             // 条件注入
+			regexp.MustCompile(`(?i)\bor\s+1\s*=\s*1\b`),       // SQL 注入常见模式
+			regexp.MustCompile(`(?i)\bor\s+true\b`),            // OR true 注入
+			regexp.MustCompile(`(?i);\s*DROP\b`),               // 多语句注入
+			regexp.MustCompile(`(?i);\s*DELETE\b`),             // 多语句注入
+			regexp.MustCompile(`(?i);\s*UPDATE\b`),             // 多语句注入
+			regexp.MustCompile(`(?i);\s*INSERT\b`),             // 多语句注入
+			regexp.MustCompile(`(?i)'.*OR.*'.*'`),              // 条件注入
 			regexp.MustCompile(`(?i)\bunion\s+all\s+select\b`), // UNION ALL SELECT
-			regexp.MustCompile(`(?i)waitfor\s+delay\b`),       // SQL Server 时间注入
-			regexp.MustCompile(`(?i)benchmark\s*\(`),          // MySQL 盲注
-			regexp.MustCompile(`(?i)sleep\s*\(`),             // MySQL 时间注入
+			regexp.MustCompile(`(?i)waitfor\s+delay\b`),        // SQL Server 时间注入
+			regexp.MustCompile(`(?i)benchmark\s*\(`),           // MySQL 盲注
+			regexp.MustCompile(`(?i)sleep\s*\(`),               // MySQL 时间注入
 		},
 	}
 }
@@ -97,6 +97,9 @@ func NewSQLValidator() *SQLValidator {
 // Validate 验证 SQL 安全性
 // 返回 error 如果 SQL 不安全
 func (v *SQLValidator) Validate(sql string) error {
+	if err := validatePrivateDataAccess(sql); err != nil {
+		return err
+	}
 	if sql == "" {
 		return fmt.Errorf("empty SQL query")
 	}

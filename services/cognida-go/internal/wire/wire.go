@@ -378,8 +378,10 @@ func ProvideTenantUserRepository(db *gorm.DB) domain_tenant.TenantUserRepository
 // ProvideGraphRepositoryWithFallback 两个未接线 provider 一并删除，消除「两份平行实现」。
 // GraphService 直接消费 ProvideNeo4jGraphRepository；未配置 Neo4j 时图谱能力整体关闭。
 
-func ProvideGraphQueryRepository(db *gorm.DB) domain_knowledge.GraphQueryRepository {
-	return mysql.NewGraphQueryRepository(db, true)
+func ProvideGraphQueryRepository(db *gorm.DB, chunks domain_knowledge.ChunkRepository) domain_knowledge.GraphQueryRepository {
+	repo := mysql.NewGraphQueryRepository(db, true)
+	repo.SetChunkRepository(chunks)
+	return repo
 }
 
 // ========================================
@@ -1051,10 +1053,8 @@ func ProvideMilvusRetriever(embedder embedding.Embedder) ragpipeline.MilvusRetri
 	return retriever.NewMilvusAdapter(vectorRetriever)
 }
 
-func ProvideRAGGraphRepository() domain_rag.GraphRepository {
-	// 暂时返回 nil，RAG 评估主要使用 Retriever 进行检索
-	// 后续可以添加 Neo4j 适配器
-	return nil
+func ProvideRAGGraphRepository(repo domain_knowledge.GraphRepository) ragpipeline.GraphSearcher {
+	return ragpipeline.NewGraphRepositoryAdapter(repo)
 }
 
 func ProvideRetriever(
@@ -1062,12 +1062,10 @@ func ProvideRetriever(
 	chunkRepo domain_knowledge.ChunkRepository,
 	embedder embedding.Embedder,
 	milvusRetriever ragpipeline.MilvusRetriever,
-	graphRepo domain_rag.GraphRepository,
+	graphRepo ragpipeline.GraphSearcher,
 	graphQueryRepo domain_knowledge.GraphQueryRepository,
 ) domain_rag.Retriever {
-	// TODO: graph.GraphQueryRepository 和 rag.GraphQueryRepository 接口不兼容
-	// 暂时传入 nil，待接口统一后再启用
-	return ragpipeline.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, nil, ragpipeline.NewReranker())
+	return ragpipeline.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, ragpipeline.NewGraphQueryAdapter(graphQueryRepo), ragpipeline.NewReranker())
 }
 
 func ProvideReranker() domain_rag.Reranker {
@@ -1309,7 +1307,8 @@ type App struct {
 	DataSourceService *datasourcesvc.Service
 	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
 	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
-	AgentHandler *handler.AgentHandler
+	AgentHandler    *handler.AgentHandler
+	ResearchService *agentuc.ResearchService
 	// Embedder 暴露给组合根：供 Agent 自我进化向量化任务/教训（experience 后台 worker 沉淀），
 	// 由初始化器下发给 data_agent 预设。（内联反思记忆路径已下线，改由 experience worker 承担。）
 	Embedder embedding.Embedder
@@ -1334,8 +1333,10 @@ func ProvideApp(
 	auditWriter *auditsvc.Writer,
 	dataSourceService *datasourcesvc.Service,
 	agentHandler *handler.AgentHandler,
+	researchService *agentuc.ResearchService,
 	embedder embedding.Embedder,
 ) *App {
+	r.AddTenantRoutes(features.MemoryHandler.Register)
 	r.AddTenantRoutes(features.CatalogHandler.Register)
 	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
 	r.AddTenantRoutes(features.GovernanceHandler.Register)
@@ -1361,6 +1362,7 @@ func ProvideApp(
 		AuditWriter:             auditWriter,
 		DataSourceService:       dataSourceService,
 		AgentHandler:            agentHandler,
+		ResearchService:         researchService,
 		Embedder:                embedder,
 	}
 }

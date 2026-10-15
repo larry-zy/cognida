@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -394,19 +395,21 @@ func (h *AgentHandler) GetStatus(c *gin.Context) {
 
 // DeepResearch 深度研究
 func (h *AgentHandler) DeepResearch(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 	var req agentuc.DeepResearchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err.Error())
 		return
 	}
 
-	log.Printf("[DeepResearch] Query: %s", req.Query)
-
-	// 执行深度研究
-	resp, err := h.researchUseCase.Execute(c.Request.Context(), &req)
+	ctx, ok := h.researchContext(c, &req)
+	if !ok {
+		return
+	}
+	resp, err := h.researchUseCase.Execute(ctx, &req)
 	if err != nil {
-		log.Printf("[DeepResearch] Execution failed: %v", err)
-		InternalError(c, err.Error())
+		h.researchError(c, err, resp)
 		return
 	}
 
@@ -415,7 +418,7 @@ func (h *AgentHandler) DeepResearch(c *gin.Context) {
 
 // DeepResearchStream 深度研究（流式）
 func (h *AgentHandler) DeepResearchStream(c *gin.Context) {
-	log.Printf("[DeepResearchStream] Received stream request")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 
 	var req agentuc.DeepResearchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -424,13 +427,15 @@ func (h *AgentHandler) DeepResearchStream(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[DeepResearchStream] Query: %s", req.Query)
-
-	// 执行流式深度研究
-	progressChan, err := h.researchUseCase.ExecuteStreamWithProgress(c.Request.Context(), &req)
+	ctx, ok := h.researchContext(c, &req)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	progressChan, err := h.researchUseCase.ExecuteStreamWithProgress(ctx, &req)
 	if err != nil {
-		log.Printf("[DeepResearchStream] Execution failed: %v", err)
-		InternalError(c, err.Error())
+		h.researchError(c, err, nil)
 		return
 	}
 
@@ -441,14 +446,70 @@ func (h *AgentHandler) DeepResearchStream(c *gin.Context) {
 	sw := sse.NewWriter(c.Writer)
 
 	// 启动心跳机制
-	stopHeartbeat := sw.StartHeartbeat(c.Request.Context(), nil)
+	stopHeartbeat := sw.StartHeartbeat(ctx, nil)
 	defer stopHeartbeat()
 
 	// 发送流式进度数据
 	for progress := range progressChan {
-		eventData := h.progressUseCase.ConvertToSSEEvent(progress)
-		sw.Send(progress.Stage, eventData)
+		if ctx.Err() != nil {
+			return
+		}
+		sw.Send(progress.Stage, progress)
 	}
+}
+
+// researchContext uses authenticated identity only. Arbitrary request Context
+// values are never copied into the tool context or the research prompts.
+func (h *AgentHandler) researchContext(c *gin.Context, req *agentuc.DeepResearchRequest) (context.Context, bool) {
+	tenantID, userID := c.GetInt64("tenant_id"), c.GetInt64("user_id")
+	if tenantID <= 0 || userID <= 0 {
+		Unauthorized(c, "需要登录后研究")
+		return nil, false
+	}
+	if h.researchUseCase == nil {
+		c.JSON(503, gin.H{"error": "research is unavailable"})
+		return nil, false
+	}
+	if req.SessionID != "" {
+		if h.persistenceService == nil {
+			c.JSON(503, gin.H{"error": "session authorization unavailable"})
+			return nil, false
+		}
+		_, err := h.persistenceService.PrepareSession(c.Request.Context(), &agentuc.PrepareSessionRequest{SessionID: req.SessionID, TenantID: tenantID, UserID: userID, AgentID: "deep_research", Query: req.Query})
+		if err != nil {
+			Forbidden(c, "无权访问研究会话")
+			return nil, false
+		}
+	}
+	ctx := agentctx.NewAgentContext(c.Request.Context(), req.SessionID, tenantID, userID, req.Query)
+	ctx = agentctx.WithRequestID(ctx, resolveRequestID(c.Request.Context(), "research"))
+	ctx = agentctx.WithAllowedKBIDs(ctx, req.KBIDs)
+	ctx = agentctx.WithKBScopeMode(ctx, req.KBScopeMode)
+	ctx = agentctx.WithGraphEnabled(ctx, req.GraphEnabled)
+	ctx = agentctx.WithRouteSelection(ctx, agentctx.NewRouteSelection())
+	if req.SessionID != "" {
+		if params := h.loadRetrievalParams(ctx, req.SessionID); params != nil {
+			ctx = agentctx.WithRetrievalParams(ctx, params)
+		}
+	}
+	return ctx, true
+}
+
+func (h *AgentHandler) researchError(c *gin.Context, err error, report *agentuc.DeepResearchResponse) {
+	status := 502
+	switch {
+	case errors.Is(err, agentuc.ErrResearchInvalid):
+		status = 400
+	case errors.Is(err, agentuc.ErrResearchUnavailable):
+		status = 503
+	case errors.Is(err, agentuc.ErrResearchNoEvidence):
+		status = 422
+	case errors.Is(err, context.DeadlineExceeded):
+		status = 504
+	case errors.Is(err, context.Canceled):
+		status = 499
+	}
+	c.JSON(status, gin.H{"error": err.Error(), "report": report})
 }
 
 // ========================================

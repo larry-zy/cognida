@@ -125,6 +125,9 @@ var ddlKeywords = []string{
 
 // validateDML 校验 sql_mutate 提交的语句：仅 INSERT/UPDATE/DELETE 单语句，无注释。
 func validateDML(sqlStr string) error {
+	if err := validatePrivateDataAccess(sqlStr); err != nil {
+		return err
+	}
 	trimmed := strings.TrimSpace(sqlStr)
 	if trimmed == "" {
 		return fmt.Errorf("sql 不能为空")

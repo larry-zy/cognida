@@ -22,13 +22,13 @@ type PipelineConfig struct {
 	Alpha          float64 // 混合检索权重 (向量: 1-Alpha, BM25: Alpha)
 
 	// 图谱配置
-	GraphEnabled bool   // 是否启用图谱检索
-	GraphDepth   int    // 图谱检索深度
-	GraphTopK    int    // 图谱返回数量
+	GraphEnabled bool // 是否启用图谱检索
+	GraphDepth   int  // 图谱检索深度
+	GraphTopK    int  // 图谱返回数量
 
 	// 查询增强配置
-	EnableQueryRewrite bool   // 是否启用查询重写
-	EnableQuerySplit   bool   // 是否启用查询拆分
+	EnableQueryRewrite bool // 是否启用查询重写
+	EnableQuerySplit   bool // 是否启用查询拆分
 }
 
 // DefaultPipelineConfig 默认管道配置
@@ -80,18 +80,19 @@ func DefaultRetrieveOptions() *RetrieveOptions {
 
 // Document 文档
 type Document struct {
-	ChunkID      string  // 文档块ID
-	KnowledgeID  string  // 知识条目ID
-	KnowledgeBaseID         string  // 知识库ID
-	Content      string  // 文档内容
-	Score        float32 // 相似度分数
-	MatchType    string  // 匹配类型: vector/bm25/graph/hybrid
-	ChunkIndex   int     // 文档块索引
-	Metadata     map[string]interface{} // 元数据
+	ChunkID         string                 // 文档块ID
+	KnowledgeID     string                 // 知识条目ID
+	KnowledgeBaseID string                 // 知识库ID
+	Content         string                 // 文档内容
+	Score           float32                // 相似度分数
+	MatchType       string                 // 匹配类型: vector/bm25/graph/hybrid
+	ChunkIndex      int                    // 文档块索引
+	Metadata        map[string]interface{} // 元数据
 }
 
 // RetrieveResponse 检索响应
 type RetrieveResponse struct {
+	Warnings       []string     `json:"warnings,omitempty"`
 	Results        []*Document  // 检索结果
 	Query          string       // 查询内容
 	ProcessedQuery string       // 处理后的查询（重写后）
@@ -104,15 +105,15 @@ type RetrieveResponse struct {
 
 // SearchTrace 检索追踪信息
 type SearchTrace struct {
-	VectorResultCount int              // 向量检索结果数
-	BM25ResultCount   int              // BM25检索结果数
-	GraphResultCount  int              // 图谱检索结果数
-	RerankedCount     int              // 重排后结果数
-	VectorLatency     int64            // 向量检索延迟
-	BM25Latency       int64            // BM25检索延迟
-	GraphLatency      int64            // 图谱检索延迟
-	RerankLatency     int64            // 重排延迟
-	RetrievalDetails  []RetrievalStep  // 检索步骤详情
+	VectorResultCount int             // 向量检索结果数
+	BM25ResultCount   int             // BM25检索结果数
+	GraphResultCount  int             // 图谱检索结果数
+	RerankedCount     int             // 重排后结果数
+	VectorLatency     int64           // 向量检索延迟
+	BM25Latency       int64           // BM25检索延迟
+	GraphLatency      int64           // 图谱检索延迟
+	RerankLatency     int64           // 重排延迟
+	RetrievalDetails  []RetrievalStep // 检索步骤详情
 
 	// HyDE 相关
 	HyDEUsed        bool   // 是否使用了 HyDE
@@ -126,10 +127,10 @@ type SearchTrace struct {
 
 // RetrievalStep 检索步骤详情
 type RetrievalStep struct {
-	StepType    string        // 步骤类型
-	Description string        // 描述
-	Latency     int64         // 延迟
-	ResultCount int           // 结果数
+	StepType    string                 // 步骤类型
+	Description string                 // 描述
+	Latency     int64                  // 延迟
+	ResultCount int                    // 结果数
 	Details     map[string]interface{} // 详细信息
 }
 
@@ -139,20 +140,20 @@ type RetrievalStep struct {
 
 // RAGContext RAG 上下文
 type RAGContext struct {
-	Query              string       // 原始查询
-	RewrittenQuery     string       // 重写后的查询
-	SubQueries         []string     // 拆分的子查询
-	Documents          []*Document  // 检索到的文档
-	RetrievalMetadata  *SearchTrace // 检索元数据
+	Query               string                // 原始查询
+	RewrittenQuery      string                // 重写后的查询
+	SubQueries          []string              // 拆分的子查询
+	Documents           []*Document           // 检索到的文档
+	RetrievalMetadata   *SearchTrace          // 检索元数据
 	ConversationHistory []ConversationMessage // 对话历史
-	ProcessingTime     int64        // 处理时间（毫秒）
-	Timestamp          time.Time    // 时间戳
+	ProcessingTime      int64                 // 处理时间（毫秒）
+	Timestamp           time.Time             // 时间戳
 }
 
 // ConversationMessage 对话消息
 type ConversationMessage struct {
-	Role    string // 角色: user/assistant/system
-	Content string // 内容
+	Role    string    // 角色: user/assistant/system
+	Content string    // 内容
 	Time    time.Time // 时间
 }
 
@@ -162,12 +163,12 @@ type ConversationMessage struct {
 
 // StrengthenedQuery 增强后的查询
 type StrengthenedQuery struct {
-	OriginalQuery   string   // 原始查询
-	RewrittenQuery  string   // 重写后的查询
-	SubQueries      []string // 拆分的子查询
-	RewriteApplied  bool     // 是否应用了重写
-	SplitApplied    bool     // 是否应用了拆分
-	ProcessingTime  int64    // 处理耗时（毫秒）
+	OriginalQuery  string   // 原始查询
+	RewrittenQuery string   // 重写后的查询
+	SubQueries     []string // 拆分的子查询
+	RewriteApplied bool     // 是否应用了重写
+	SplitApplied   bool     // 是否应用了拆分
+	ProcessingTime int64    // 处理耗时（毫秒）
 }
 
 // GetQueriesForRetrieve 获取用于检索的查询列表
@@ -204,15 +205,15 @@ type GraphNode struct {
 
 // GraphRelation 图谱关系
 type GraphRelation struct {
-	ID          string            // 关系ID
-	Source      string            // 源节点名称
-	Target      string            // 目标节点名称
-	Type        string            // 关系类型
-	Strength    float64           // 关系强度 (1-10)
-	Weight      float64           // 关系权重
-	ChunkIDs    []string          // 关联的文档块ID列表
-	Properties  map[string]string // 属性键值对
-	CombinedDegree int            // 组合度数
+	ID             string            // 关系ID
+	Source         string            // 源节点名称
+	Target         string            // 目标节点名称
+	Type           string            // 关系类型
+	Strength       float64           // 关系强度 (1-10)
+	Weight         float64           // 关系权重
+	ChunkIDs       []string          // 关联的文档块ID列表
+	Properties     map[string]string // 属性键值对
+	CombinedDegree int               // 组合度数
 }
 
 // GraphData 图谱数据

@@ -72,6 +72,13 @@ func NewIdempotency(client *redis.Client) *Idempotency {
 // Apply 返回幂等中间件。仅写方法 + 携带 Idempotency-Key 头才介入。
 func (m *Idempotency) Apply() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Private memories implement durable, payload-aware idempotency themselves.
+		// Never retain or replay their content after an update/deletion.
+		path := c.FullPath()
+		if path == "/api/v1/memories" || strings.HasPrefix(path, "/api/v1/memories/") {
+			c.Next()
+			return
+		}
 		if !isWriteMethod(c.Request.Method) {
 			c.Next()
 			return

@@ -3,6 +3,7 @@ package tools
 
 import (
 	"context"
+	"github.com/cloudwego/eino/components/model"
 	"gorm.io/gorm"
 
 	collectionmodel "cognida/internal/model/collection"
@@ -23,6 +24,7 @@ import (
 // 必需依赖缺失 → 构造失败；可选依赖缺失 → 对应工具仍注册，但 Run 时返回既定降级提示
 // （宁拒不闯，行为与旧全局注入路径逐字节保持一致）。
 type ToolDeps struct {
+	RetrievalModel model.BaseChatModel
 	DecisionAssets DecisionAssetResolver
 	CatalogContext interface {
 		Context(context.Context, int64, string) (string, error)

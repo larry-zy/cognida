@@ -14,8 +14,8 @@ import (
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/model/knowledge"
-	svcknowledge "cognida/internal/service/knowledge"
 	"cognida/internal/service/agent/tools"
+	svcknowledge "cognida/internal/service/knowledge"
 )
 
 // ========================================
@@ -38,14 +38,23 @@ func NewRAGRetrieverAdapter(capability *svcknowledge.RetrievalCapability, kbRepo
 // Query 实现 tools.RAGQueryService。ctxAny 由工具层透传，断言回 context.Context 读取 scope。
 func (a *RAGRetrieverAdapter) Query(ctxAny interface{}, req *tools.RAGQueryRequest) (*tools.RAGQueryResult, error) {
 	ctx := asContext(ctxAny)
+	if a.kbRepo == nil {
+		return nil, fmt.Errorf("knowledge base authorization is unavailable")
+	}
 	if a.capability == nil {
 		return nil, fmt.Errorf("检索器未接线")
 	}
 
 	tenantID := agentctx.MustGetTenantID(ctx)
+	if req.RetrievalMode == "graph" && !agentctx.IsGraphEnabled(ctx) {
+		return nil, fmt.Errorf("graph retrieval is disabled for this request")
+	}
 
 	// 检索范围：用户选定的 KB 与租户内已启用 KB 求交（租户边界强制）；未选定则取全部已启用 KB。
-	kbIDs := resolveKBScope(ctx, a.kbRepo, tenantID)
+	kbIDs, err := resolveKBScopeStrict(ctx, a.kbRepo, tenantID)
+	if err != nil {
+		return nil, err
+	}
 	if len(kbIDs) == 0 {
 		return &tools.RAGQueryResult{
 			Query:     req.Query,
@@ -77,11 +86,14 @@ func (a *RAGRetrieverAdapter) Query(ctxAny interface{}, req *tools.RAGQueryReque
 	chunks := make([]tools.DocumentChunk, 0, len(res.Chunks))
 	for _, ch := range res.Chunks {
 		chunks = append(chunks, tools.DocumentChunk{
-			Content:    ch.Content,
-			Score:      ch.Score,
-			Source:     ch.Source,
-			ChunkIndex: ch.ChunkIndex,
-			Metadata:   ch.Metadata,
+			ChunkID:         ch.ChunkID,
+			KnowledgeID:     ch.KnowledgeID,
+			KnowledgeBaseID: ch.KnowledgeBaseID,
+			Content:         ch.Content,
+			Score:           ch.Score,
+			Source:          ch.Source,
+			ChunkIndex:      ch.ChunkIndex,
+			Metadata:        ch.Metadata,
 		})
 	}
 
@@ -91,6 +103,7 @@ func (a *RAGRetrieverAdapter) Query(ctxAny interface{}, req *tools.RAGQueryReque
 		Count:           len(chunks),
 		KnowledgeBaseID: strings.Join(kbIDs, ","),
 		HasAnswer:       res.HasAnswer,
+		Warnings:        res.Warnings,
 	}, nil
 }
 
@@ -239,48 +252,35 @@ func applyRetrievalOverrides(ctx context.Context, q *svcknowledge.GovernedQuery)
 // 注：本应用 KB 授权边界为租户级（列表接口 ListKnowledgeBases 即按租户返回），跨租户由
 // 向量库/图谱的 tenant 过滤兜底；此处再做一层显式校验，避免对越权/陌生 ID 发起无效检索。
 func resolveKBScope(ctx context.Context, kbRepo knowledge.KnowledgeBaseRepository, tenantID int64) []string {
-	if tenantID <= 0 {
-		return nil // 缺少有效租户信息时不检索，避免落到 tenant=0
-	}
-	mode := agentctx.MustGetKBScopeMode(ctx)
-	upper := upperBoundKBScope(ctx, kbRepo, tenantID, mode)
-
-	// 手动模式：用户全权，忽略 Agent 路由，直接返回上界。
-	if mode == agentctx.KBScopeModeManual {
-		return upper
-	}
-
-	// 结合 / 智能：Agent 经 kb_route 声明的聚焦范围，与允许上界求交。
-	var route []string
-	if sel, ok := agentctx.GetRouteSelection(ctx); ok {
-		route = sel.Get()
-	}
-	if len(route) == 0 {
-		return upper // Agent 未路由 → 检索整个上界
-	}
-	return intersect(route, upper)
+	scope, _ := resolveKBScopeStrict(ctx, kbRepo, tenantID)
+	return scope
 }
 
-// upperBoundKBScope 计算某模式下的「允许上界」知识库集合：
-//   - auto：租户全部已启用 KB（忽略用户勾选）；
-//   - 其他（manual/hybrid）：用户勾选 ∩ 已启用；未勾选 → 全部已启用；
-//     勾选非空但枚举为空时，仓储缺失则信任勾选、仓储可用则视为无可检索 KB（沿用历史退化规则）。
-func upperBoundKBScope(ctx context.Context, kbRepo knowledge.KnowledgeBaseRepository, tenantID int64, mode string) []string {
-	enabled := enabledKBIDs(ctx, kbRepo, tenantID)
-	if mode == agentctx.KBScopeModeAuto {
-		return enabled
+func resolveKBScopeStrict(ctx context.Context, kbRepo knowledge.KnowledgeBaseRepository, tenantID int64) ([]string, error) {
+	if tenantID <= 0 {
+		return nil, fmt.Errorf("authenticated tenant is required")
 	}
-	selected := agentctx.MustGetAllowedKBIDs(ctx)
-	if len(selected) == 0 {
-		return enabled // 未勾选 → 全部已启用
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	if len(enabled) == 0 {
-		if kbRepo == nil {
-			return selected // 无法校验，信任用户勾选
+	enabled, err := enabledKBIDs(ctx, kbRepo, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	mode := agentctx.MustGetKBScopeMode(ctx)
+	upper := enabled
+	if selected := agentctx.MustGetAllowedKBIDs(ctx); mode != agentctx.KBScopeModeAuto && len(selected) > 0 {
+		upper = intersect(selected, enabled)
+	}
+	if mode == agentctx.KBScopeModeManual {
+		return upper, nil
+	}
+	if selection, ok := agentctx.GetRouteSelection(ctx); ok {
+		if route := selection.Get(); len(route) > 0 {
+			return intersect(route, upper), nil
 		}
-		return nil // 仓储可用但无已启用 KB
 	}
-	return intersect(selected, enabled)
+	return upper, nil
 }
 
 // intersect 返回 a 中同时出现在 b 的元素（保持 a 的顺序、去重）。
@@ -301,14 +301,14 @@ func intersect(a, b []string) []string {
 }
 
 // enabledKBIDs 枚举租户下全部已启用（未删除且 Status!=0）的知识库 ID。
-func enabledKBIDs(ctx context.Context, kbRepo knowledge.KnowledgeBaseRepository, tenantID int64) []string {
+func enabledKBIDs(ctx context.Context, kbRepo knowledge.KnowledgeBaseRepository, tenantID int64) ([]string, error) {
 	if kbRepo == nil {
-		return nil
+		return nil, fmt.Errorf("knowledge base authorization is unavailable")
 	}
 	// 取足够大的单页覆盖租户全部 KB，避免选定的 KB 落在分页之外被静默丢弃。
 	kbs, _, err := kbRepo.FindByTenantID(ctx, tenantID, 1, 1000)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("enumerate authorized knowledge bases: %w", err)
 	}
 	var ids []string
 	for _, kb := range kbs {
@@ -316,7 +316,7 @@ func enabledKBIDs(ctx context.Context, kbRepo knowledge.KnowledgeBaseRepository,
 			ids = append(ids, kb.ID)
 		}
 	}
-	return ids
+	return ids, nil
 }
 
 // extractQueryTerms 从查询里拆出候选实体名（按空白与常见标点切分），无有效词则退回整句。

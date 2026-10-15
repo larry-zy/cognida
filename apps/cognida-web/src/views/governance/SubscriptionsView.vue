@@ -177,10 +177,10 @@
               >{{ wt("报告目标")
               }}<textarea
                 v-model="form.input.prompt"
-                required
+                maxlength="4000"
                 placeholder="总结业务表现、趋势及异常"
               /></label
-            ><template v-else
+            ><p v-if="form.kind === 'report'" class="wb-muted wb-full">填写目标会基于所选资产生成带证据的模型报告；模型不可用时显示失败。留空仅生成描述统计。</p><template v-else
               ><label
                 >{{ wt("指标名")
                 }}<input v-model="form.input.metric" required /></label
@@ -253,13 +253,11 @@
                   <p v-if="item.error" class="wb-error">{{ item.error }}</p>
                 </td>
                 <td>
-                  <router-link
+                  <button
                     v-if="item.result_ref_id"
-                    :to="{
-                      path: '/experts',
-                      query: { asset: item.result_ref_id },
-                    }"
-                    >查看分析结果 →</router-link
+                    type="button"
+                    @click="openReport(item.result_ref_id)"
+                    >查看分析结果 →</button
                   ><span v-else class="wb-muted">暂无结果</span>
                 </td>
               </tr>
@@ -268,6 +266,15 @@
           <button v-if="runNext" @click="run(() => loadRuns(true))">
             {{ wt("加载更多") }}
           </button>
+        </section>
+        <section v-if="reportLoading || reportError || reportDetail" class="wb-panel" aria-live="polite">
+          <div class="wb-section-head"><h2>执行结果</h2><button type="button" @click="closeReport">收起</button></div>
+          <p v-if="reportLoading" class="wb-muted">正在读取报告…</p>
+          <p v-if="reportError" class="wb-error" role="alert">{{ reportError }}</p>
+          <template v-if="reportDetail">
+            <AnalysisReport :content="reportDetail.content" />
+            <details><summary>原始报告与资产引用</summary><p class="wb-footnote">{{ reportDetail.ref.asset_id }}:{{ reportDetail.ref.version }}</p><pre class="wb-code">{{ JSON.stringify(reportDetail.content, null, 2) }}</pre></details>
+          </template>
         </section>
       </div>
     </div>
@@ -325,7 +332,7 @@
 import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
-import { onMounted, reactive, ref } from "vue";
+import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import {
   governanceApi as api,
   type Subscription,
@@ -333,6 +340,7 @@ import {
   type Notification,
 } from "@/api/governance";
 import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
+import AnalysisReport from "@/components/workbench/AnalysisReport.vue";
 import "@/components/workbench/workbench.css";
 const empty = () =>
   ({
@@ -382,6 +390,24 @@ const split = (v: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 let activeOperations = 0;
+let disposed = false, selectionEpoch = 0, listEpoch = 0, notificationsEpoch = 0, reportEpoch = 0;
+const reportDetail = ref<{ ref: AssetRef; content: unknown }>(), reportLoading = ref(false), reportError = ref("");
+function closeReport() { reportEpoch++; reportDetail.value = undefined; reportError.value = ""; reportLoading.value = false; }
+async function openReport(reference: string) {
+  closeReport();
+  const request = reportEpoch;
+  reportLoading.value = true;
+  try {
+    const parts = reference.split(":"), [assetID, version] = parts;
+    if (parts.length !== 2 || !assetID || !Number.isInteger(Number(version)) || Number(version) < 1) throw new Error("报告资产引用无效");
+    const result = await lifecycleApi.asset(assetID, Number(version));
+    if (!disposed && request === reportEpoch) reportDetail.value = result.data;
+  } catch (e) {
+    if (!disposed && request === reportEpoch) reportError.value = e instanceof Error ? e.message : "报告读取失败";
+  } finally {
+    if (!disposed && request === reportEpoch) reportLoading.value = false;
+  }
+}
 async function run(fn: () => Promise<void>) {
   activeOperations++;
   busy.value = true;
@@ -396,10 +422,12 @@ async function run(fn: () => Promise<void>) {
   }
 }
 async function load(append = false) {
+  const request = ++listEpoch;
   const res = await api.list<Subscription>(
     "/subscriptions",
     append ? next.value : "",
   );
+  if (disposed || request !== listEpoch) return;
   subscriptions.value = append
     ? [...subscriptions.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -410,6 +438,10 @@ const assetOptions = useCursorOptions(assets, (cursor) =>
 );
 
 function newSubscription() {
+  selectionEpoch++;
+  runsEpoch++;
+  runNext.value = "";
+  closeReport();
   refreshMode.value = "snapshot";
   refreshSourceType.value = "";
   refreshSourceID.value = "";
@@ -423,6 +455,11 @@ function newSubscription() {
   tab.value = "subscriptions";
 }
 async function select(item: Subscription) {
+  selectionEpoch++;
+  runsEpoch++;
+  runs.value = [];
+  runNext.value = "";
+  closeReport();
   refreshMode.value = item.input.refresh?.mode || "snapshot";
   refreshSourceType.value = item.input.refresh?.source_type || "";
   refreshSourceID.value = item.input.refresh?.source_id || "";
@@ -445,6 +482,9 @@ async function select(item: Subscription) {
 async function save() {
   if (busy.value) return;
   await run(async () => {
+    const request = selectionEpoch, id = form.id;
+    const prompt = (form.input.prompt || "").trim();
+    if (prompt.length > 4000) throw new Error("报告目标最多 4000 字符");
     const input = {
       name: form.name,
       kind: form.kind,
@@ -452,6 +492,7 @@ async function save() {
       schedule: form.schedule,
       input: {
         ...form.input,
+        prompt: form.kind === "report" ? prompt : "",
         refresh:
           refreshMode.value === "latest_published"
             ? {
@@ -465,9 +506,12 @@ async function save() {
       watch: form.kind === "metric_watch" ? watch : null,
       expected_version: form.version,
     };
-    const res = form.id
-      ? await api.update<Subscription>(`/subscriptions/${form.id}`, input)
-      : await api.create<Subscription>("/subscriptions", input);
+    // Freeze nested drafts while the user can select another subscription.
+    const payload = JSON.parse(JSON.stringify(input));
+    const res = id
+      ? await api.update<Subscription>(`/subscriptions/${id}`, payload)
+      : await api.create<Subscription>("/subscriptions", payload);
+    if (disposed || request !== selectionEpoch) return;
     if (res.data) Object.assign(form, res.data);
     await load();
     notice.value = "订阅已保存";
@@ -477,11 +521,12 @@ let runsEpoch = 0;
 async function loadRuns(append = false) {
   const id = form.id,
     request = ++runsEpoch;
+  if (!id) return;
   const res = await api.list<SubscriptionRun>(
     `/subscriptions/${id}/runs`,
     append ? runNext.value : "",
   );
-  if (id !== form.id || request !== runsEpoch) return;
+  if (disposed || id !== form.id || request !== runsEpoch) return;
   runs.value = append
     ? [...runs.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -490,17 +535,21 @@ async function loadRuns(append = false) {
 async function execute() {
   if (busy.value) return;
   await run(async () => {
-    await api.action(`/subscriptions/${form.id}/run`);
+    const id = form.id, request = selectionEpoch;
+    await api.action(`/subscriptions/${id}/run`);
+    if (disposed || request !== selectionEpoch) return;
     await loadRuns();
     notice.value = "已提交执行，可刷新历史查看进度。";
   });
 }
 async function loadNotifications(append = false) {
+  const request = ++notificationsEpoch;
   const res = await api.list<Notification>(
     "/notifications",
     append ? notificationNext.value : "",
     { unread: unreadOnly.value },
   );
+  if (disposed || request !== notificationsEpoch) return;
   notifications.value = append
     ? [...notifications.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -519,6 +568,7 @@ onMounted(() =>
     await assetOptions.reset();
   }),
 );
+onBeforeUnmount(() => { disposed = true; selectionEpoch++; listEpoch++; notificationsEpoch++; runsEpoch++; closeReport(); });
 </script>
 <style scoped>
 .notification-item {

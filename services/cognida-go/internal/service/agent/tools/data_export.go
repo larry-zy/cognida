@@ -121,6 +121,10 @@ func (o *opTools) dataExport(ctx context.Context, req *DataExportRequest) (*Data
 		}, nil
 	}
 
+	if err := validatePrivateDataAccess(stored.SourceSQL); err != nil {
+		return nil, err
+	}
+
 	// 导出目录
 	dir := o.cfg.ExportDir
 	if dir == "" {

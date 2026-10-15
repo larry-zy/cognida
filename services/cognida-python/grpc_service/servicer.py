@@ -23,18 +23,16 @@ import grpc
 from core import get_logger
 from core.file_access import validated_input_path
 from core.url_access import download_url
+from proto import docreader_pb2, docreader_pb2_grpc
 from services.document import (
-    parse_document,
-    ocr_image,
-    chunk_text,
-    fetch_url,
     ChunkStrategy,
     OCREngine,
     OCRLanguage,
+    chunk_text,
+    fetch_url,
+    ocr_image,
+    parse_document,
 )
-
-from proto import docreader_pb2
-from proto import docreader_pb2_grpc
 
 if TYPE_CHECKING:
     pass
@@ -392,18 +390,20 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
         gRPC 服务器实例
     """
 
+    from config.settings import get_settings
     from core import (
         AuthServerInterceptor,
         RequestIDServerInterceptor,
         TenantServerInterceptor,
     )
-    from config.settings import get_settings
 
     logger = get_logger(__name__)
 
     # 跨服务内部 gRPC 鉴权（审计发现 H8）：配置了共享密钥则强制校验 Bearer；
     # 未配置则禁用（接受所有调用），保留本地/开发默认行为并告警一次。
     auth_token = get_settings().grpc_auth_token
+    if get_settings().is_prod and not auth_token:
+        raise ValueError("GRPC_AUTH_TOKEN is required in production")
     interceptors: tuple[grpc.ServerInterceptor, ...] = (
         RequestIDServerInterceptor(),
         TenantServerInterceptor(),
@@ -419,6 +419,9 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
         futures.ThreadPoolExecutor(max_workers=10),
         interceptors=interceptors,
         options=[
+            # One managed listener owns this port; another runtime must fail
+            # startup instead of silently sharing traffic via SO_REUSEPORT.
+            ("grpc.so_reuseport", 0),
             ("grpc.max_receive_message_length", MAX_MESSAGE_LENGTH),
             ("grpc.max_send_message_length", MAX_MESSAGE_LENGTH),
         ],
@@ -441,11 +444,14 @@ def create_grpc_server(port: int = 50051, include_analytics: bool = False):
         )
     except Exception as e:
         logger = get_logger(__name__)
-        logger.warning(f"Failed to register QualityService", error=str(e))
+        if get_settings().is_prod:
+            raise RuntimeError("Required QualityService failed to initialize") from e
+        logger.warning("Failed to register QualityService", error=str(e))
 
     # The Go API runs in a separate container, so loopback-only binding makes
     # this service unreachable even though the Python container is healthy.
-    server.add_insecure_port(f"0.0.0.0:{port}")
+    if not server.add_insecure_port(f"0.0.0.0:{port}"):
+        raise RuntimeError("gRPC port binding failed")
     return server
 
 

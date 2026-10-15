@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type reportRun struct {
@@ -23,7 +24,7 @@ func (s *Service) SaveSubscription(ctx context.Context, p l.Principal, id, key s
 	if err := s.authorize(ctx, p, "admin"); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 128 || len(in.Input.Prompt) > 4000 || in.Channel != "in_app" {
+	if strings.TrimSpace(in.Name) == "" || len(in.Name) > 128 || utf8.RuneCountInString(in.Input.Prompt) > 4000 || in.Channel != "in_app" {
 		return nil, d.ErrInvalid
 	}
 	if in.Kind != "report" && in.Kind != "metric_watch" {
@@ -207,29 +208,44 @@ func (s *Service) runReport(ctx context.Context, record *d.Record) error {
 	if err != nil {
 		return err
 	}
-	analysis, err := lifecycle.AnalyzeInput(input)
-	if err != nil {
-		return err
-	}
-	analysis["prompt"] = run.Snapshot.Input.Prompt
-	analysis["source_ref_id"] = ref.AssetRefID
+	var watchEvidence any
 	alert := false
 	if run.Snapshot.Kind == "metric_watch" {
 		evidence, trigger, e := WatchMetric(input, run.Snapshot.Input, run.Snapshot.Watch)
 		if e != nil {
 			return e
 		}
-		analysis["metric_watch"] = evidence
+		watchEvidence = evidence
 		alert = trigger
 	}
-	analysis["decision"] = map[string]any{"evidence_refs": []string{ref.AssetRefID}, "method": "deterministic_statistics", "assumptions": []string{"Source snapshot represents the intended observation period"}, "risks": []string{"Sampling and source quality may limit conclusions"}, "verification_status": "computed", "confidence": nil}
-	raw, err := json.Marshal(analysis)
-	if err != nil {
+	result, _, err := s.Assets.Resolve(ctx, p.TenantID, p.UserID, lifecycle.DerivedRefID(p.TenantID, l.Insight, record.ID, []l.RefID{ref.RefID}))
+	if err != nil && !errors.Is(err, l.ErrNotFound) {
 		return err
 	}
-	result, err := s.Assets.ImportDerived(ctx, p, l.Insight, record.ID, []l.RefID{ref.RefID}, raw, ref.Policy)
-	if err != nil {
-		return err
+	if errors.Is(err, l.ErrNotFound) {
+		analysis, err := lifecycle.AnalyzeGoal(ctx, s.Compute, input, run.Snapshot.Input.Prompt, ref.AssetRefID, "subscription:"+record.ID)
+		if err != nil {
+			return err
+		}
+		analysis["prompt"] = run.Snapshot.Input.Prompt
+		analysis["source_ref_id"] = ref.AssetRefID
+		if watchEvidence != nil {
+			analysis["metric_watch"] = watchEvidence
+		}
+		analysis["decision"] = map[string]any{"evidence_refs": []string{ref.AssetRefID}, "method": "deterministic_statistics", "assumptions": []string{"Source snapshot represents the intended observation period"}, "risks": []string{"Sampling and source quality may limit conclusions"}, "verification_status": "computed", "confidence": nil}
+		if strings.TrimSpace(run.Snapshot.Input.Prompt) != "" {
+			analysis["decision"].(map[string]any)["method"] = analysis["method"]
+			analysis["decision"].(map[string]any)["verification_status"] = "citations_checked_interpretation_unverified"
+		}
+		raw, err := json.Marshal(analysis)
+		if err != nil {
+			return err
+		}
+		result, err = s.Assets.ImportDerived(ctx, p, l.Insight, record.ID, []l.RefID{ref.RefID}, raw, ref.Policy)
+		if err != nil {
+			return err
+		}
+
 	}
 	run.ResultRefID = result.AssetRefID
 	run.AlertTriggered = alert

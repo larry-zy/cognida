@@ -43,6 +43,7 @@ import (
 	ragtool "cognida/internal/service/agent/tools"
 	"cognida/internal/service/agent/uibinding"
 	knowledgesvc "cognida/internal/service/knowledge"
+	memorysvc "cognida/internal/service/memory"
 
 	"github.com/cloudwego/eino/components/embedding"
 	neo4jsdk "github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -358,6 +359,10 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			// 复用 toolModel 作蒸馏 LLM、db 建仓储、GraphService 的图谱仓储写经验节点。
 			// 总开关 EXPERIENCE_DISTILL_ENABLED 默认关；关闭时仍装配但不启动。
 			expCfg := experiencesvc.ConfigFromEnv()
+			if expCfg.Enabled && app.Features.Memory != nil {
+				log.Println("ℹ️  私人记忆已启用，暂停租户共享经验/全局技能自动蒸馏，防止保存私人回答")
+				expCfg.Enabled = false
+			}
 			if expCfg.Enabled {
 				var graphSink *experiencesvc.GraphSink
 				if app.GraphService != nil {
@@ -440,6 +445,7 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			sessionResults := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
 
 			deps := ragtool.ToolDeps{
+				RetrievalModel:       toolModel,
 				CatalogContext:       app.Features.Catalog,
 				DecisionAssets:       app.Features.Lifecycle,
 				SQLDB:                db,
@@ -550,6 +556,12 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			if regErr != nil {
 				log.Printf("⚠️  工具注册表构造失败，跳过 Agent 初始化: %v", regErr)
 			} else {
+				for _, memoryTool := range ragtool.NewMemoryTools(app.Features.Memory) {
+					if err := reg.Register("memory", memoryTool); err != nil {
+						log.Printf("⚠️  记忆工具注册失败: %v", err)
+					}
+				}
+				app.ResearchService.WithDependencies(toolModel, reg)
 				log.Printf("✅ 工具注册表构造完成（%d 个工具，依赖显式注入）", reg.Size())
 
 				// 经组合根把工具注册表注入 handler 网关（confirm-resume / UI 取数 /
@@ -576,7 +588,7 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				// 历史经验召回器（自进化读侧）：EXPERIENCE_RECALL_ENABLED 开启且图谱可用时，
 				// 用与沉淀同源的图谱仓储装配，供 Data Agent 首答注入过往会话经验。默认关 → nil（不召回）。
 				var experienceRecall *experiencesvc.GraphRecaller
-				if experiencesvc.RecallEnabledFromEnv() && app.GraphService != nil {
+				if app.Features.Memory == nil && experiencesvc.RecallEnabledFromEnv() && app.GraphService != nil {
 					experienceRecall = experiencesvc.NewGraphRecaller(app.GraphService.GetGraphRepo())
 					log.Println("✅ 历史经验召回已启用（图谱召回 + 首答注入）")
 				}
@@ -585,13 +597,17 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				//   - RAG 知识库助手 → 硬缓存短路返回（NewCachingAgent）
 				//   - Data Agent → 软 few-shot 读侧（Before hook）+ 软写穿写侧（NewWriteThroughAgent）
 				// 仅在真正装配（非 nil）时挂接 With*，避免把 typed-nil 具体指针混入接口字段。
-				semanticCache := buildSemanticCache(ctx, app.Embedder)
+				var semanticCache *cachesvc.SemanticCacheService
+				if app.Features.Memory == nil {
+					semanticCache = buildSemanticCache(ctx, app.Embedder)
+				}
 
 				// 工具注册表就绪后构造 Initializer（工具注册表构造期显式注入，
 				// 替代 tools 包级 GetTool/GetToolsByGroup 全局查询）。
 				initializer := agentinit.NewInitializer(app.AgentRegistry, reg, msgRepo).
 					WithEmbedder(app.Embedder).
-					WithExperienceRecall(experienceRecall)
+					WithExperienceRecall(experienceRecall).
+					WithPersonalMemory(memorysvc.NewRecallHook(app.Features.Memory))
 				if semanticCache != nil {
 					initializer = initializer.
 						WithSemanticFewShot(semanticCache).

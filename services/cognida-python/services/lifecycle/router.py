@@ -11,9 +11,10 @@ from starlette.responses import JSONResponse
 
 from services.quality.dimension_names import STRUCTURED_DIMENSIONS, UNSTRUCTURED_DIMENSIONS
 
-from . import compute, enrichment, images
+from . import analysis, compute, enrichment, images
 from .enrichment import CapabilityUnavailableError
 from .models import (
+    AnalyzeRequest,
     CleanRequest,
     EmbedRequest,
     EnrichRequest,
@@ -176,6 +177,7 @@ async def capabilities():
         ],
         "enrichment_methods": ["rules", "llm"],
         "operations": [
+            "analyze",
             "profile",
             "clean",
             "enrich",
@@ -218,6 +220,11 @@ async def clean(payload: CleanRequest, request: Request):
 @router.post("/enrich")
 async def enrich(payload: EnrichRequest, request: Request):
     return await execute(request, enrichment.enrich(payload))
+
+
+@router.post("/analyze")
+async def analyze(payload: AnalyzeRequest, request: Request):
+    return await execute(request, analysis.analyze(payload))
 
 
 @router.post("/merge")

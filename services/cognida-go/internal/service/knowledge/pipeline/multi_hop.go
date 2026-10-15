@@ -3,6 +3,7 @@ package rag
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -34,6 +35,19 @@ func (m *MultiHopRetrieverImpl) RetrieveMultiHop(ctx context.Context, query stri
 	if opts == nil {
 		opts = domainrag.DefaultMultiHopOptions()
 	}
+	if m.baseRetriever == nil || m.llm == nil {
+		return nil, fmt.Errorf("multi-hop retrieval and model must be configured")
+	}
+	if opts.MaxHops < 1 || opts.MaxHops > 3 {
+		return nil, fmt.Errorf("max_hops must be between 1 and 3")
+	}
+	if opts.HopStrategy != "" && opts.HopStrategy != "sequential" {
+		return nil, fmt.Errorf("only sequential multi-hop is supported")
+	}
+	bound, isBound := m.baseRetriever.(interface{ ScopeBound() bool })
+	if !(isBound && bound.ScopeBound()) && (opts.TenantID == "" || opts.KnowledgeBaseID == "") {
+		return nil, fmt.Errorf("multi-hop requires tenant and knowledge-base scope")
+	}
 
 	response := &domainrag.MultiHopResponse{
 		Hops:         make([]*domainrag.HopResult, 0),
@@ -47,35 +61,52 @@ func (m *MultiHopRetrieverImpl) RetrieveMultiHop(ctx context.Context, query stri
 
 	// 执行多跳检索
 	for hop := 1; hop <= opts.MaxHops; hop++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		hopStart := time.Now()
 
 		// 执行当前跳的检索
 		retrieveOpts := &domainrag.RetrieveOptions{
-			TopK:              10,
-			RerankEnabled:     true,
-			RetrievalMode:     "hybrid",
+			TopK:                10,
+			RerankEnabled:       true,
+			RetrievalMode:       "hybrid",
 			SimilarityThreshold: 0.5,
 		}
 
-		retrieveResp, err := m.baseRetriever.Retrieve(ctx, "", "", currentQuery, retrieveOpts)
+		retrieveResp, err := m.baseRetriever.Retrieve(ctx, opts.TenantID, opts.KnowledgeBaseID, currentQuery, retrieveOpts)
 		if err != nil {
 			return nil, fmt.Errorf("hop %d retrieval failed: %w", hop, err)
 		}
 
 		// 记录文档
+		if retrieveResp == nil {
+			return nil, fmt.Errorf("retriever returned no response")
+		}
 		for _, doc := range retrieveResp.Results {
-			if _, exists := allDocs[doc.ChunkID]; !exists {
-				allDocs[doc.ChunkID] = doc
+			if doc == nil {
+				continue
+			}
+			key := doc.KnowledgeBaseID + ":" + doc.ChunkID
+			if doc.ChunkID == "" {
+				key = doc.Content
+			}
+			if _, exists := allDocs[key]; !exists {
+				allDocs[key] = doc
 				response.AllDocuments = append(response.AllDocuments, doc)
 			}
 		}
 
 		// 构建当前跳的结果
 		hopResult := &domainrag.HopResult{
-			HopIndex:       hop,
-			Query:          currentQuery,
-			RetrievedDocs:  retrieveResp.Results,
-			Latency:        time.Since(hopStart).Milliseconds(),
+			HopIndex:      hop,
+			Query:         currentQuery,
+			RetrievedDocs: retrieveResp.Results,
+			Latency:       time.Since(hopStart).Milliseconds(),
+		}
+		if len(retrieveResp.Results) == 0 {
+			response.Hops = append(response.Hops, hopResult)
+			break
 		}
 
 		// 生成中间答案和下一步查询
@@ -99,7 +130,7 @@ func (m *MultiHopRetrieverImpl) RetrieveMultiHop(ctx context.Context, query stri
 			fmt.Sprintf("跳 %d: %s -> %s", hop, currentQuery, intermediateAnswer))
 
 		// 检查是否应该继续
-		if !shouldContinue {
+		if !shouldContinue || strings.TrimSpace(nextQuery) == "" || nextQuery == currentQuery || len([]rune(nextQuery)) > 4000 {
 			break
 		}
 
@@ -114,9 +145,12 @@ func (m *MultiHopRetrieverImpl) RetrieveMultiHop(ctx context.Context, query stri
 	}
 
 	// 生成最终答案
+	if len(response.AllDocuments) == 0 {
+		return response, nil
+	}
 	finalAnswer, err := m.generateFinalAnswer(ctx, query, response.Hops, opts)
 	if err != nil {
-		finalAnswer = m.buildFallbackAnswer(response.Hops)
+		return nil, fmt.Errorf("multi-hop synthesis failed: %w", err)
 	}
 
 	response.FinalAnswer = finalAnswer
@@ -155,6 +189,9 @@ func (m *MultiHopRetrieverImpl) generateNextStep(
 	}
 
 	// 解析响应
+	if resp == nil {
+		return "", "", false, fmt.Errorf("multi-hop model returned no reasoning")
+	}
 	return m.parseReasoningResponse(resp.Content, hopIndex, opts.MaxHops)
 }
 
@@ -181,6 +218,9 @@ func (m *MultiHopRetrieverImpl) generateFinalAnswer(
 		return "", err
 	}
 
+	if resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return "", fmt.Errorf("multi-hop model returned no answer")
+	}
 	return resp.Content, nil
 }
 
@@ -256,41 +296,23 @@ func (m *MultiHopRetrieverImpl) parseReasoningResponse(
 	hopIndex int,
 	maxHops int,
 ) (nextQuery string, intermediateAnswer string, shouldContinue bool, err error) {
-	// 简化实现：从文本中提取信息
-
-	lines := strings.Split(content, "\n")
-	intermediateAnswer = "已检索到相关信息"
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		if strings.Contains(line, "intermediate_answer") || strings.Contains(line, "中间答案") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				intermediateAnswer = strings.TrimSpace(parts[1])
-			}
-		}
-
-		if strings.Contains(line, "should_continue") || strings.Contains(line, "是否继续") {
-			if strings.Contains(line, "true") || strings.Contains(line, "是") {
-				shouldContinue = hopIndex < maxHops
-			}
-		}
-
-		if strings.Contains(line, "next_query") || strings.Contains(line, "下一步查询") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				nextQuery = strings.TrimSpace(parts[1])
-			}
-		}
+	raw := strings.TrimSpace(content)
+	if strings.HasPrefix(raw, "```") {
+		raw = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(raw, "```json"), "```"), "```"))
 	}
-
-	// 如果没有明确的下一步查询，不继续
-	if nextQuery == "" {
-		shouldContinue = false
+	var decision struct {
+		Answer   string `json:"intermediate_answer"`
+		Continue *bool  `json:"should_continue"`
+		Query    string `json:"next_query"`
 	}
-
-	return nextQuery, intermediateAnswer, shouldContinue, nil
+	if len(raw) > 20000 || json.Unmarshal([]byte(raw), &decision) != nil || decision.Continue == nil {
+		return "", "", false, fmt.Errorf("multi-hop reasoning requires valid structured JSON")
+	}
+	decision.Answer, decision.Query = strings.TrimSpace(decision.Answer), strings.TrimSpace(decision.Query)
+	if decision.Answer == "" || len([]rune(decision.Answer)) > 8000 || len([]rune(decision.Query)) > 4000 || (*decision.Continue && decision.Query == "") {
+		return "", "", false, fmt.Errorf("multi-hop reasoning returned invalid answer or next query")
+	}
+	return decision.Query, decision.Answer, *decision.Continue && hopIndex < maxHops, nil
 }
 
 // buildFallbackAnswer 构建降级答案
@@ -317,10 +339,10 @@ func (m *MultiHopRetrieverImpl) buildFallbackAnswer(hops []*domainrag.HopResult)
 
 // RetrievalOptimizer 检索优化服务
 type RetrievalOptimizer struct {
-	hydeGenerator    domainrag.HyDEGenerator
-	queryRewriter    domainrag.QueryRewriter
+	hydeGenerator     domainrag.HyDEGenerator
+	queryRewriter     domainrag.QueryRewriter
 	multiHopRetriever domainrag.MultiHopRetriever
-	baseRetriever    domainrag.Retriever
+	baseRetriever     domainrag.Retriever
 }
 
 // NewRetrievalOptimizer 创建检索优化服务
@@ -331,10 +353,10 @@ func NewRetrievalOptimizer(
 	baseRetriever domainrag.Retriever,
 ) *RetrievalOptimizer {
 	return &RetrievalOptimizer{
-		hydeGenerator:    hydeGenerator,
-		queryRewriter:    queryRewriter,
+		hydeGenerator:     hydeGenerator,
+		queryRewriter:     queryRewriter,
 		multiHopRetriever: multiHopRetriever,
-		baseRetriever:    baseRetriever,
+		baseRetriever:     baseRetriever,
 	}
 }
 
@@ -378,10 +400,10 @@ func (o *RetrievalOptimizer) OptimizedRetrieve(
 
 	// 4. 降级到基础检索
 	return o.baseRetriever.Retrieve(ctx, tenantID, kbID, processedQuery, &domainrag.RetrieveOptions{
-		TopK:              10,
-		RerankEnabled:     true,
+		TopK:                10,
+		RerankEnabled:       true,
 		SimilarityThreshold: 0.5,
-		RetrievalMode:     "hybrid",
+		RetrievalMode:       "hybrid",
 	})
 }
 
@@ -399,20 +421,20 @@ func (o *RetrievalOptimizer) hydeRetrieve(
 	if err != nil {
 		// 降级到普通检索
 		return o.baseRetriever.Retrieve(ctx, tenantID, kbID, processedQuery, &domainrag.RetrieveOptions{
-			TopK:              10,
-			RerankEnabled:     true,
+			TopK:                10,
+			RerankEnabled:       true,
 			SimilarityThreshold: 0.5,
-			RetrievalMode:     "hybrid",
+			RetrievalMode:       "hybrid",
 		})
 	}
 
 	// 使用假设文档和原始查询进行混合检索
 	// 先用假设文档检索
 	opts := &domainrag.RetrieveOptions{
-		TopK:              10,
-		RerankEnabled:     true,
+		TopK:                10,
+		RerankEnabled:       true,
 		SimilarityThreshold: 0.5,
-		RetrievalMode:     "hybrid",
+		RetrievalMode:       "hybrid",
 	}
 
 	// 组合检索：原始查询 + 假设文档
@@ -434,12 +456,12 @@ func (o *RetrievalOptimizer) convertMultiHopResponse(
 	processedQuery string,
 ) (*domainrag.RetrieveResponse, error) {
 	return &domainrag.RetrieveResponse{
-		Results:     multiHopResp.AllDocuments,
-		Query:       originalQuery,
+		Results:        multiHopResp.AllDocuments,
+		Query:          originalQuery,
 		ProcessedQuery: processedQuery,
-		TotalCount:  len(multiHopResp.AllDocuments),
-		HasMore:     false,
-		Answer:      multiHopResp.FinalAnswer,
+		TotalCount:     len(multiHopResp.AllDocuments),
+		HasMore:        false,
+		Answer:         multiHopResp.FinalAnswer,
 		SearchTrace: &domainrag.SearchTrace{
 			MultiHopUsed:   true,
 			HopCount:       len(multiHopResp.Hops),

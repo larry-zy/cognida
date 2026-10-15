@@ -362,6 +362,8 @@ func (r *Router) setupAgentRoutes(api *gin.RouterGroup) {
 	// 昂贵端点限流〔INF-2〕：Agent 流式对话/Text2SQL 等直连 LLM，防并发打爆与成本失控。
 	agent.Use(r.rateLimiter.Expensive())
 	{
+		agent.POST("/deep-research", r.agentHandler.DeepResearch)
+		agent.POST("/deep-research/stream", r.agentHandler.DeepResearchStream)
 		// Knowledge Chat（知识库对话，带持久化）
 		agent.POST("/knowledge/stream", r.agentHandler.KnowledgeStream)
 

@@ -54,11 +54,15 @@ type RAGQueryResult struct {
 	RetrievalMode string `json:"retrieval_mode"`
 
 	// HasAnswer 是否有答案
-	HasAnswer bool `json:"has_answer"`
+	HasAnswer bool     `json:"has_answer"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
 // DocumentChunk 文档片段
 type DocumentChunk struct {
+	ChunkID         string `json:"chunk_id,omitempty"`
+	KnowledgeID     string `json:"knowledge_id,omitempty"`
+	KnowledgeBaseID string `json:"knowledge_base_id,omitempty"`
 	// Content 片段内容
 	Content string `json:"content"`
 
@@ -146,7 +150,7 @@ func ragQuery(ctx context.Context, req *RAGQueryRequest, ragService RAGQueryServ
 	validModes := map[string]bool{
 		"vector": true,
 		"bm25":   true,
-		"hybrid": true, "auto": true,
+		"hybrid": true, "auto": true, "graph": true,
 	}
 	if !validModes[req.RetrievalMode] {
 		return nil, fmt.Errorf("invalid retrieval_mode: %s, must be one of: vector, bm25, hybrid, auto", req.RetrievalMode)

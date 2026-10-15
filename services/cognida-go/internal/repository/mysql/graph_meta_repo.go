@@ -23,7 +23,7 @@ type graphQueryRepository struct {
 }
 
 // NewGraphQueryRepository 创建图谱查询仓储
-func NewGraphQueryRepository(db *gorm.DB, tenantEnabled bool) domain_knowledge.GraphQueryRepository {
+func NewGraphQueryRepository(db *gorm.DB, tenantEnabled bool) *graphQueryRepository {
 	return &graphQueryRepository{
 		db:            db,
 		tenantEnabled: tenantEnabled,
@@ -127,27 +127,20 @@ func (r *graphQueryRepository) GetChunksByIDs(ctx context.Context, kbID string, 
 		return []*domain_knowledge.Chunk{}, nil
 	}
 
-	if r.chunkRepo == nil {
-		return nil, fmt.Errorf("chunk repository not initialized")
+	if kbID == "" || len(chunkIDs) > 100 {
+		return nil, fmt.Errorf("invalid graph chunk lookup scope or size")
 	}
-
-	// 使用 Chunk 仓储查找分块
-	chunks, err := r.chunkRepo.FindByKnowledgeID(ctx, kbID, false)
+	var chunks []ChunkModel
+	err := r.db.WithContext(ctx).Table("chunks AS c").Select("c.*").
+		Joins("JOIN knowledge AS k ON k.id=c.knowledge_id AND k.knowledge_base_id=c.knowledge_base_id AND k.tenant_id=c.tenant_id").
+		Where("c.knowledge_base_id=? AND c.id IN ? AND c.is_enabled=? AND c.deleted_at IS NULL AND k.deleted_at IS NULL AND k.enable_status=?", kbID, chunkIDs, true, "enabled").
+		Order("c.chunk_index ASC, c.id ASC").Limit(100).Find(&chunks).Error
 	if err != nil {
 		return nil, fmt.Errorf("查询分块失败: %w", err)
 	}
-
-	// 按ID过滤
 	result := make([]*domain_knowledge.Chunk, 0)
-	chunkIDMap := make(map[string]bool)
-	for _, id := range chunkIDs {
-		chunkIDMap[id] = true
-	}
-
-	for _, chunk := range chunks {
-		if chunkIDMap[chunk.ID] {
-			result = append(result, chunk)
-		}
+	for i := range chunks {
+		result = append(result, chunks[i].ToDomain())
 	}
 
 	return result, nil

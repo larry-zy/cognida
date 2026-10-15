@@ -14,6 +14,7 @@ log_level: INFO         # DEBUG | INFO | WARNING | ERROR | CRITICAL
 # ── HTTP API 配置（用于调试和管理）───────────────────────
 api_host: 0.0.0.0
 api_port: 8000
+evaluation_http_port: 18888  # lifecycle computation and evaluation listener
 
 # ── MCP 配置（AI 工具调用）───────────────────────────────
 # 与 dev.sh(py-mcp)/Go 侧真源对齐：http 模式 + :3100。

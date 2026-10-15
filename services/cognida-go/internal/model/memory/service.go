@@ -29,20 +29,20 @@ type CompressionService interface {
 
 // CompressionResult 压缩结果
 type CompressionResult struct {
-	SessionID          string
-	Strategy           CompressionStrategy
-	OriginalMessages   int
-	OriginalTokens     int
-	CompressedTokens   int
-	TokensSaved        int
-	CompressionRatio   float64
-	SummaryID          string
-	Duration           int64 // 毫秒
+	SessionID        string
+	Strategy         CompressionStrategy
+	OriginalMessages int
+	OriginalTokens   int
+	CompressedTokens int
+	TokensSaved      int
+	CompressionRatio float64
+	SummaryID        string
+	Duration         int64 // 毫秒
 }
 
 // OffloadResult 卸载结果
 type OffloadResult struct {
-	SessionID     string
+	SessionID      string
 	OffloadedCount int
 	OffloadedSize  int64 // 字节
 	OffloadedPaths []string
@@ -83,17 +83,17 @@ type ContextBuilder interface {
 
 // BuildContextRequest 上下文构建请求
 type BuildContextRequest struct {
-	SessionID          string
-	TenantID           int64
-	UserID             int64
-	CurrentMessage     string
-	Config             *ContextBuilderConfig
+	SessionID      string
+	TenantID       int64
+	UserID         int64
+	CurrentMessage string
+	Config         *ContextBuilderConfig
 
 	// 可选：指定要包含的历史消息数量
-	HistoryLimit       int
+	HistoryLimit int
 
 	// 可选：特定的长期记忆查询
-	MemoryQuery        *MemorySearchQuery
+	MemoryQuery *MemorySearchQuery
 }
 
 // BuildContext 构建的上下文
@@ -102,22 +102,22 @@ type BuildContext struct {
 	SystemPrompt string
 
 	// Few-shot 示例
-	FewShots     []*Message
+	FewShots []*Message
 
 	// 对话历史
-	History      []*Message
+	History []*Message
 
 	// 摘要
-	Summaries    []*Summary
+	Summaries []*Summary
 
 	// 长期记忆
 	LongTermMemories []*LongTermMemory
 
 	// 元数据
-	Metadata     *ContextBuildMetadata
+	Metadata *ContextBuildMetadata
 
 	// 最终的 messages 列表（可直接传给 LLM）
-	Messages     []*Message
+	Messages []*Message
 }
 
 // ========================================
@@ -174,24 +174,10 @@ type MemoryService interface {
 
 // LongTermMemoryService 长期记忆服务接口
 type LongTermMemoryService interface {
-	// Store 存储长期记忆
-	Store(ctx context.Context, memory *LongTermMemory) error
-
-	// Retrieve 根据 ID 获取记忆
-	Retrieve(ctx context.Context, id string) (*LongTermMemory, error)
-
-	// Search 搜索记忆
-	Search(ctx context.Context, query *MemorySearchQuery) ([]*LongTermMemory, error)
-
-	// Recall 智能回忆（综合评分排序）
-	Recall(ctx context.Context, query *MemorySearchQuery, opts *RecallOptions) ([]*LongTermMemory, error)
-
-	// Update 更新记忆
-	Update(ctx context.Context, memory *LongTermMemory) error
-
-	// Delete 删除记忆
-	Delete(ctx context.Context, id string) error
-
-	// ExtractFacts 从对话中提取原子事实
-	ExtractFacts(ctx context.Context, sessionID string, messages []*Message) ([]*LongTermMemory, error)
+	Create(ctx context.Context, scope Scope, input WriteInput, key, source string) (*LongTermMemory, error)
+	Get(ctx context.Context, scope Scope, id string) (*LongTermMemory, error)
+	List(ctx context.Context, scope Scope, filter ListFilter) (*MemoryPage, error)
+	Update(ctx context.Context, scope Scope, id string, input UpdateInput) (*LongTermMemory, error)
+	Delete(ctx context.Context, scope Scope, id string, expectedVersion int64) error
+	Recall(ctx context.Context, scope Scope, input RecallInput) (*RecallResult, error)
 }

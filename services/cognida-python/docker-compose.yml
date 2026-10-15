@@ -7,6 +7,9 @@ services:
       target: development
     ports:
       - "8000:8000"
+      - "18888:18888"
+      - "50051:50051"
+      - "3100:3100"
     volumes:
       - ./img:/app/img
       - ./config:/app/config
@@ -16,7 +19,7 @@ services:
       - APP_ENV=dev
       - LOG_LEVEL=DEBUG
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
       interval: 10s
       timeout: 3s
       retries: 3

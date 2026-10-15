@@ -3,9 +3,11 @@ package rag
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +29,7 @@ type RetrieverImpl struct {
 	chunkRepo       knowledge.ChunkRepository
 	embedder        embedding.Embedder
 	milvusRetriever MilvusRetriever
-	neo4jRepo       domainrag.GraphRepository
+	neo4jRepo       GraphSearcher
 	graphQueryRepo  domainrag.GraphQueryRepository
 	reranker        domainrag.Reranker
 }
@@ -45,7 +47,7 @@ func NewRetriever(
 	chunkRepo knowledge.ChunkRepository,
 	embedder embedding.Embedder,
 	milvusRetriever MilvusRetriever,
-	neo4jRepo domainrag.GraphRepository,
+	neo4jRepo GraphSearcher,
 	graphQueryRepo domainrag.GraphQueryRepository,
 	reranker domainrag.Reranker,
 ) domainrag.Retriever {
@@ -145,6 +147,9 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 		opts = domainrag.DefaultRetrieveOptions()
 	}
 
+	warnings := []string{}
+	backendErrors := []error{}
+	successfulBackend := false
 	startTime := time.Now()
 	results := make([]*domainrag.Document, 0)
 	trace := &domainrag.SearchTrace{
@@ -158,6 +163,8 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 		if err != nil {
 			// 不再静默吞掉：embedding 失败会让整条向量检索退化，必须可观测。
 			log.Printf("[Retriever] EmbedStrings failed, dense retrieval degraded: %v", err)
+			warnings = append(warnings, "embedding failed: "+err.Error())
+			backendErrors = append(backendErrors, err)
 		} else if len(vecs) > 0 {
 			// 将 float64 转换为 float32
 			for _, v := range vecs[0] {
@@ -169,6 +176,12 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 	// Milvus 向量检索
 	if r.milvusRetriever != nil && len(embeddingVec) > 0 {
 		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embeddingVec, opts.TopK, milvusFilter(tenantID, kbID))
+		if err != nil {
+			warnings = append(warnings, "vector search failed: "+err.Error())
+			backendErrors = append(backendErrors, err)
+		} else {
+			successfulBackend = true
+		}
 		if err == nil && len(vectorDocs) > 0 {
 			for _, doc := range vectorDocs {
 				doc.MatchType = "vector"
@@ -188,6 +201,13 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 	// 内存向量检索（降级方案）
 	if len(results) == 0 && r.chunkRepo != nil {
 		memoryDocs, err := r.vectorRetrieveWithEmbedding(ctx, tenantID, kbID, query, embeddingVec, opts)
+		if err != nil {
+			warnings = append(warnings, "lexical fallback failed: "+err.Error())
+			backendErrors = append(backendErrors, err)
+		} else {
+			successfulBackend = true
+			warnings = append(warnings, "vector retrieval used lexical database fallback")
+		}
 		if err == nil && len(memoryDocs) > 0 {
 			for _, doc := range memoryDocs {
 				doc.MatchType = "vector"
@@ -197,6 +217,15 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 	}
 
 	// 应用相似度阈值
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !successfulBackend {
+		if len(backendErrors) == 0 {
+			return nil, fmt.Errorf("vector retrieval has no configured backend")
+		}
+		return nil, errors.Join(backendErrors...)
+	}
 	filtered := r.filterByThreshold(results, opts.SimilarityThreshold)
 
 	// 重排
@@ -208,6 +237,7 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 	}
 
 	return &domainrag.RetrieveResponse{
+		Warnings:    warnings,
 		Results:     filtered,
 		Query:       query,
 		TotalCount:  len(filtered),
@@ -223,6 +253,9 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 		opts = domainrag.DefaultRetrieveOptions()
 	}
 
+	warnings := []string{}
+	backendErrors := []error{}
+	successfulBackend := false
 	startTime := time.Now()
 	results := make([]*domainrag.Document, 0)
 	trace := &domainrag.SearchTrace{
@@ -232,6 +265,12 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 	// 优先使用 Milvus BM25 全文搜索
 	if r.milvusRetriever != nil {
 		bm25Docs, err := r.milvusRetriever.FullTextSearch(ctx, kbID, query, opts.TopK, milvusFilter(tenantID, kbID))
+		if err != nil {
+			warnings = append(warnings, "BM25 index search failed: "+err.Error())
+			backendErrors = append(backendErrors, err)
+		} else {
+			successfulBackend = true
+		}
 		if err == nil && len(bm25Docs) > 0 {
 			for _, doc := range bm25Docs {
 				doc.MatchType = "bm25"
@@ -245,7 +284,13 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 	// 按查询词的词项重合度打分排序，而非固定分数，保证降级结果仍按相关性排序。
 	if len(results) == 0 && r.chunkRepo != nil {
 		chunks, err := r.chunkRepo.FindEnabledChunks(ctx, kbID, opts.TopK*10)
+		if err != nil {
+			warnings = append(warnings, "database keyword search failed: "+err.Error())
+			backendErrors = append(backendErrors, err)
+		}
 		if err == nil {
+			successfulBackend = true
+			warnings = append(warnings, "BM25 retrieval used lexical database fallback")
 			for _, chunk := range chunks {
 				score := keywordScore(chunk.Content, query)
 				if score <= 0 {
@@ -278,9 +323,19 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 	})
 
 	// 应用相似度阈值
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !successfulBackend {
+		if len(backendErrors) == 0 {
+			return nil, fmt.Errorf("keyword retrieval has no configured backend")
+		}
+		return nil, errors.Join(backendErrors...)
+	}
 	filtered := r.filterByThreshold(results, opts.SimilarityThreshold)
 
 	return &domainrag.RetrieveResponse{
+		Warnings:    warnings,
 		Results:     filtered,
 		Query:       query,
 		TotalCount:  len(filtered),
@@ -303,10 +358,12 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 
 	// 并发执行向量检索和 BM25 检索
 	var (
-		vectorResults []*domainrag.Document
-		bm25Results   []*domainrag.Document
-		wg            sync.WaitGroup
-		mu            sync.Mutex
+		vectorErr, bm25Err error
+		warnings           []string
+		vectorResults      []*domainrag.Document
+		bm25Results        []*domainrag.Document
+		wg                 sync.WaitGroup
+		mu                 sync.Mutex
 	)
 
 	// 向量检索
@@ -322,11 +379,15 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 			RetrievalMode:       "vector",
 			RerankEnabled:       false,
 		})
-		if err == nil {
-			mu.Lock()
+		mu.Lock()
+		vectorErr = err
+		if err == nil && vectorResp != nil {
 			vectorResults = vectorResp.Results
-			mu.Unlock()
+			warnings = append(warnings, vectorResp.Warnings...)
+		} else if err != nil {
+			warnings = append(warnings, "vector retrieval failed: "+err.Error())
 		}
+		mu.Unlock()
 	}()
 
 	// BM25 检索
@@ -339,14 +400,24 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 			RetrievalMode: "bm25",
 			RerankEnabled: false,
 		})
-		if err == nil {
-			mu.Lock()
+		mu.Lock()
+		bm25Err = err
+		if err == nil && bm25Resp != nil {
 			bm25Results = bm25Resp.Results
-			mu.Unlock()
+			warnings = append(warnings, bm25Resp.Warnings...)
+		} else if err != nil {
+			warnings = append(warnings, "keyword retrieval failed: "+err.Error())
 		}
+		mu.Unlock()
 	}()
 
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if vectorErr != nil && bm25Err != nil {
+		return nil, errors.Join(vectorErr, bm25Err)
+	}
 
 	// RRF 融合
 	alpha := opts.Alpha
@@ -381,6 +452,7 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 	}
 
 	return &domainrag.RetrieveResponse{
+		Warnings:    warnings,
 		Results:     filtered,
 		Query:       query,
 		TotalCount:  len(filtered),
@@ -402,16 +474,63 @@ func (r *RetrieverImpl) GraphRetrieve(ctx context.Context, tenantID, kbID, query
 		RetrievalDetails: make([]domainrag.RetrievalStep, 0),
 	}
 
-	if r.graphQueryRepo != nil {
-		// 使用图谱查询检索
-		// 这里简化处理，实际应该从图谱中提取实体名称进行查询
-		docs, err := r.graphQueryRepo.GetChunksByGraphNodes(ctx, kbID, []string{query})
-		if err == nil {
-			for _, doc := range docs {
-				doc.MatchType = "graph"
-				results = append(results, doc)
+	tenant, err := strconv.ParseInt(tenantID, 10, 64)
+	if err != nil || tenant <= 0 || kbID == "" {
+		return nil, fmt.Errorf("graph retrieval requires tenant and knowledge-base scope")
+	}
+	reader, ok := r.graphQueryRepo.(interface {
+		GetScopedChunks(context.Context, string, string, []string) ([]*domainrag.Document, error)
+	})
+	if r.neo4jRepo == nil || !ok {
+		return nil, fmt.Errorf("graph retrieval dependencies are not configured")
+	}
+	terms := strings.FieldsFunc(query, func(c rune) bool { return strings.ContainsRune(" ,，。?？!！;；:\n\t", c) })
+	if len(terms) == 0 {
+		return nil, fmt.Errorf("graph query is empty")
+	}
+	if len(terms) > 12 {
+		terms = terms[:12]
+	}
+	data, err := r.neo4jRepo.SearchNode(ctx, domainrag.NameSpace{TenantID: tenantID, KnowledgeBaseID: kbID}, terms)
+	if err != nil {
+		return nil, fmt.Errorf("graph node search failed: %w", err)
+	}
+	ids, seen := []string{}, map[string]bool{}
+	add := func(values []string) {
+		for _, id := range values {
+			if id != "" && !seen[id] && len(ids) < 100 {
+				seen[id] = true
+				ids = append(ids, id)
 			}
 		}
+	}
+	if data != nil {
+		for _, node := range data.Node {
+			if node != nil {
+				add(node.Chunks)
+			}
+		}
+		for _, relation := range data.Relation {
+			if relation != nil {
+				add(relation.ChunkIDs)
+			}
+		}
+	}
+	if len(ids) > 0 {
+		results, err = reader.GetScopedChunks(ctx, tenantID, kbID, ids)
+		if err != nil {
+			return nil, fmt.Errorf("graph evidence lookup failed: %w", err)
+		}
+	}
+	limit := opts.TopK
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if len(results) > limit {
+		results = results[:limit]
 	}
 
 	trace.GraphLatency = time.Since(startTime).Milliseconds()

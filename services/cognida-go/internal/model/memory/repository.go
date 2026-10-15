@@ -81,40 +81,23 @@ type MemoryRepository interface {
 
 // LongTermMemoryRepository 长期记忆存储接口
 type LongTermMemoryRepository interface {
-	// Store 存储长期记忆
-	Store(ctx context.Context, memory *LongTermMemory) error
-
-	// Retrieve 根据 ID 获取记忆
-	Retrieve(ctx context.Context, id string) (*LongTermMemory, error)
-
-	// Search 搜索记忆（语义检索）
-	Search(ctx context.Context, query *MemorySearchQuery) ([]*LongTermMemory, error)
-
-	// Update 更新记忆
-	Update(ctx context.Context, memory *LongTermMemory) error
-
-	// RecordAccess 原子记录一次访问（access_count 自增 + last_access_at 刷新）。
-	// 由存储层做原子 UPDATE，调用方不得改写已返回给使用者的实体（避免 data race）
-	RecordAccess(ctx context.Context, id string) error
-
-	// Delete 删除记忆（软删除）
-	Delete(ctx context.Context, id string) error
-
-	// ListByCategory 按类别列出记忆
-	ListByCategory(ctx context.Context, tenantID int64, category string, limit int) ([]*LongTermMemory, error)
-
-	// ListByUser 列出用户的记忆
-	ListByUser(ctx context.Context, tenantID, userID int64, limit int) ([]*LongTermMemory, error)
+	Create(ctx context.Context, scope Scope, memory *LongTermMemory, key, requestHash string) (*LongTermMemory, error)
+	Get(ctx context.Context, scope Scope, id string) (*LongTermMemory, error)
+	List(ctx context.Context, scope Scope, filter ListFilter) (*MemoryPage, error)
+	Candidates(ctx context.Context, scope Scope, category string, limit int) ([]*LongTermMemory, bool, error)
+	Update(ctx context.Context, scope Scope, memory *LongTermMemory, expectedVersion int64) (*LongTermMemory, error)
+	// Delete clears content and embeddings; the tombstone prevents idempotency replay from resurrecting it.
+	Delete(ctx context.Context, scope Scope, id string, expectedVersion int64) error
 }
 
 // MemorySearchQuery 记忆搜索查询
 type MemorySearchQuery struct {
-	TenantID      int64
-	UserID        *int64  // 可选，为空则搜索全局记忆
-	Category      string  // 可选，类别过滤
+	TenantID       int64
+	UserID         int64     // Mandatory: there are no global personal memories.
+	Category       string    // 可选，类别过滤
 	QueryEmbedding []float32 // 查询向量
-	MaxResults    int     // 最大返回数量
-	MinImportance float64 // 最小重要性
+	MaxResults     int       // 最大返回数量
+	MinImportance  float64   // 最小重要性
 }
 
 // ========================================

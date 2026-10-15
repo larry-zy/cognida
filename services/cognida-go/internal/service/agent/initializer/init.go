@@ -24,6 +24,7 @@ import (
 
 // Initializer Agent 初始化器
 type Initializer struct {
+	personalMemory infraagent.BeforeHook
 	// registry 是声明式 Agent 注册表：RegisterSpec 按 AgentSpec 构建实例并登记元信息，
 	// 取代了此前各包的 Set*Agent 单例 + GetAgentByID switch。
 	registry *infraagent.SpecRegistry
@@ -122,6 +123,19 @@ func (init *Initializer) WithDataSoftCache(cache infraagent.ResponseCache) *Init
 	return init
 }
 
+// WithPersonalMemory adds fresh private context. Shared answer and few-shot caches
+// must not read or retain personalized answers, including after a memory deletion.
+func (init *Initializer) WithPersonalMemory(hook infraagent.BeforeHook) *Initializer {
+	init.personalMemory = hook
+	return init
+}
+func (init *Initializer) decoratePersonalAgent(builder *infraagent.Builder) *infraagent.Builder {
+	if init.personalMemory != nil {
+		builder = builder.Before(init.personalMemory)
+	}
+	return init.guardrail.Apply(builder)
+}
+
 // Initialize 初始化所有 Agent
 // chatModel: LLM 模型，支持 ChatModel 或 ToolCallingChatModel
 func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
@@ -143,6 +157,10 @@ func (init *Initializer) Initialize(ctx context.Context, chatModel any) error {
 	// 1. 注册 RAG Agent
 	if err := init.registerRAGAgent(ctx, chatModel); err != nil {
 		return fmt.Errorf("注册 RAG Agent 失败: %w", err)
+	}
+
+	if err := init.registerResearchAgent(ctx, chatModel); err != nil {
+		return fmt.Errorf("注册研究 Agent 失败: %w", err)
 	}
 
 	// 2. 注册简单聊天 Agent
@@ -207,6 +225,7 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 			}
 			// 挂载 skill 工具（skill_invoke 等），支持 LLM 按需加载技能完整指导（Level 2）
 			tools = append(tools, init.skillTools()...)
+			tools = append(tools, init.tools.GetByGroup("memory")...)
 
 			// 构建默认 Agent（带工具能力）。system prompt 追加技能目录（Level 1 渐进式披露）。
 			builder := infraagent.New(nil).
@@ -229,7 +248,7 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 				builder = builder.Tools(tools...)
 			}
 			// 组合根护栏装配（默认关闭 → 恒等，零回归）。
-			builder = init.guardrail.Apply(builder)
+			builder = init.decoratePersonalAgent(builder)
 			return builder.Build(ctx)
 		},
 	}
@@ -259,7 +278,7 @@ func (init *Initializer) registerRAGAgent(ctx context.Context, chatModel any) er
 
 	// 元信息中的工具清单：核心 rag_query + 已注册的增强工具（存在即列出）。
 	boundNames := []string{"rag_query"}
-	for _, name := range []string{"kb_list", "kb_route", "graph_query"} {
+	for _, name := range []string{"kb_list", "kb_route", "graph_query", "rag_rewrite", "rag_hyde", "rag_multi_hop", "memory_remember", "memory_recall", "memory_update", "memory_forget"} {
 		if t, ok := init.tools.Get(name); ok && t != nil {
 			boundNames = append(boundNames, name)
 		}
@@ -305,6 +324,12 @@ func (init *Initializer) buildRAGAgent(ctx context.Context, toolModel model.Tool
 	if graphTool, ok := init.tools.Get("graph_query"); ok && graphTool != nil {
 		agentTools = append(agentTools, graphTool)
 	}
+	for _, name := range []string{"rag_rewrite", "rag_hyde", "rag_multi_hop"} {
+		if t, ok := init.tools.Get(name); ok {
+			agentTools = append(agentTools, t)
+		}
+	}
+	agentTools = append(agentTools, init.tools.GetByGroup("memory")...)
 	// 挂载 skill 工具，支持按需加载技能完整指导（Level 2）
 	agentTools = append(agentTools, init.skillTools()...)
 
@@ -346,13 +371,16 @@ func (init *Initializer) buildRAGAgent(ctx context.Context, toolModel model.Tool
 		ragBuilder = ragBuilder.WithContextBuilder(convcontext.NewConversationContextBuilder(init.messageRepo))
 	}
 	// 组合根护栏装配（默认关闭 → 恒等，零回归）。
-	ragBuilder = init.guardrail.Apply(ragBuilder)
+	ragBuilder = init.decoratePersonalAgent(ragBuilder)
 	ragAgent, err := ragBuilder.Build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("构建 RAG Agent 失败: %w", err)
 	}
 	// 硬语义缓存装饰（默认 nil/未启用 → 返回 ragAgent 本身，恒等透传，零回归）：
 	// 命中高相似历史问答即短路返回旧答案、跳过 LLM。知识相对稳定，硬缓存安全。
+	if init.personalMemory != nil {
+		return ragAgent, nil
+	}
 	return infraagent.NewCachingAgent(ragAgent, init.ragHardCache, ragCacheKey), nil
 }
 
@@ -367,7 +395,11 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 
 	// 声明式注册：预设 Build 工厂内部装配子代理协作注册表 + ReAct 内核 + 委派能力，
 	// msgRepo 非 nil 时启用跨轮对话记忆。
-	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools, init.experienceRecall, init.semanticFewShot, init.dataSoftCache, init.guardrail)); err != nil {
+	fewShot, softCache := init.semanticFewShot, init.dataSoftCache
+	if init.personalMemory != nil {
+		fewShot, softCache = nil, nil
+	}
+	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools, init.experienceRecall, fewShot, softCache, init.decoratePersonalAgent)); err != nil {
 		return err
 	}
 
@@ -461,7 +493,7 @@ func (init *Initializer) registerChatAgent(ctx context.Context, chatModel any) e
 - 保持对话友好和连贯`).
 				Before(skills.AutoInjectHook(0)) // 命中 Skill 时自动注入其指导内容
 			// 组合根护栏装配（默认关闭 → 恒等，零回归）。
-			chatBuilder = init.guardrail.Apply(chatBuilder)
+			chatBuilder = init.decoratePersonalAgent(chatBuilder)
 			return chatBuilder.Build(ctx)
 		},
 	}

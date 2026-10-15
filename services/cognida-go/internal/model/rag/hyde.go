@@ -142,6 +142,8 @@ type MultiHopRetriever interface {
 
 // MultiHopOptions 多跳检索配置
 type MultiHopOptions struct {
+	TenantID        string
+	KnowledgeBaseID string
 	// MaxHops 最大跳数
 	MaxHops int
 
@@ -161,9 +163,9 @@ type MultiHopOptions struct {
 // DefaultMultiHopOptions 默认多跳配置
 func DefaultMultiHopOptions() *MultiHopOptions {
 	return &MultiHopOptions{
-		MaxHops:      3,
-		HopStrategy:  "sequential",
-		EnableLog:    true,
+		MaxHops:     3,
+		HopStrategy: "sequential",
+		EnableLog:   true,
 	}
 }
 
@@ -213,15 +215,15 @@ type HopResult struct {
 // RetrievalOptimizationConfig 检索优化配置
 type RetrievalOptimizationConfig struct {
 	// HyDE HyDE 配置
-	EnableHyDE   bool
-	HyDEOptions  *HyDEOptions
+	EnableHyDE  bool
+	HyDEOptions *HyDEOptions
 
 	// QueryRewrite 查询重写配置
 	EnableQueryRewrite bool
 	RewriteOptions     *RewriteOptions
 
 	// MultiHop 多跳检索配置
-	EnableMultiHop bool
+	EnableMultiHop  bool
 	MultiHopOptions *MultiHopOptions
 
 	// FallbackStrategy 降级策略

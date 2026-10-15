@@ -118,6 +118,9 @@ func NewSQLExecuteTool(db *gorm.DB, dsp model_datasource.ConnectionProvider, rs 
 // sqlExecute 执行 SQL 查询
 func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, rs resultstore.Store, profileStore dataprofile.Store, reg *resultstore.SessionRegistry) (*SQLExecuteResult, error) {
 	startTime := time.Now()
+	if err := validatePrivateDataAccess(req.SQL); err != nil {
+		return nil, err
+	}
 
 	// 参数验证
 	if req.SQL == "" {
@@ -229,9 +232,10 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 
 	// data-by-reference：完整结果集写入 Result Store，回灌 LLM 的只是信封。
 	result := &resultstore.Result{
-		Owner:   owner,
-		Columns: columns,
-		Rows:    rowData,
+		SourceSQL: execSQL,
+		Owner:     owner,
+		Columns:   columns,
+		Rows:      rowData,
 	}
 	resultID := ""
 	if rs != nil {
@@ -271,6 +275,9 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 
 // validateSQL 验证 SQL 安全性
 func validateSQL(sqlStr string) error {
+	if err := validatePrivateDataAccess(sqlStr); err != nil {
+		return err
+	}
 	sqlStr = strings.TrimSpace(sqlStr)
 	upperSQL := strings.ToUpper(sqlStr)
 

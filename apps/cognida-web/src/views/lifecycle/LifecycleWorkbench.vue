@@ -81,7 +81,7 @@
           <label class="wb-label"
             >{{ wt("输入资产")
             }}<select v-model="assetSelection" required>
-              <option value="">选择已发布资产</option>
+              <option value="">选择输入资产</option>
               <option
                 v-for="asset in assets"
                 :key="asset.asset_id + asset.version"
@@ -97,13 +97,29 @@
               type="checkbox"
               @change="run(loadAssets)"
             />{{ wt("仅显示已发布资产") }}</label
-          ><label class="wb-label"
-            >{{ wt("分析目标")
-            }}<textarea
-              v-model="prompt"
-              placeholder="例如：分析近一个月收入的变化与主要原因"
-            /></label
-          ><button class="primary" :disabled="busy">
+          >
+          <p v-if="inputLoading" class="wb-muted" role="status">正在确认输入资产类型…</p>
+          <p v-if="inputError" class="wb-error" role="alert">{{ inputError }}</p>
+          <button v-if="inputError" type="button" @click="resolveSelectedInput">重试读取输入资产</button>
+          <ExpertOptionsForm
+            v-for="stage in parameterStages"
+            :key="stage.id"
+            :stage-id="stage.id"
+            :agent-id="stage.agent_id"
+            :title="`${isPipeline ? stage.id + ' · ' : ''}${agents.find((a) => a.id === stage.agent_id)?.name || stage.agent_id}`"
+            :model-value="optionDrafts[stage.id] || defaultOptions(stage.agent_id)"
+            :input-kind="selectedInputKind"
+            :targets="publicationTargets"
+            @update:model-value="optionDrafts[stage.id] = $event"
+          />
+          <div v-if="needsPublication && selectedInputKind === 'text'" class="wb-stack">
+            <p v-if="targetError" class="wb-error" role="alert">{{ targetError }}</p>
+            <p v-else-if="!targetLoading && !publicationTargets.length" class="wb-muted">当前工作空间暂无知识库，请先在知识库页面创建。</p>
+            <button v-if="targetHasMore || targetLoading || targetError" type="button" :disabled="targetLoading" @click="loadPublicationTargets">
+              {{ targetLoading ? '正在加载知识库…' : targetError ? '重试加载知识库' : '加载更多知识库' }}
+            </button>
+          </div>
+          <button class="primary" :disabled="busy || inputLoading">
             {{ wt("开始执行") }}
           </button>
         </form>
@@ -256,6 +272,12 @@
           "
           @open="openAsset"
         />
+        <section v-if="current?.output?.refs?.length" class="wb-panel">
+          <h3>执行产出</h3>
+          <div class="wb-actions">
+            <button v-for="ref in current.output.refs" :key="`${ref.asset_id}:${ref.version}`" @click="openAsset(ref)">查看产出 · {{ ref.kind || '资产' }} · v{{ ref.version }}</button>
+          </div>
+        </section>
         <section v-if="assetDetail" class="wb-panel">
           <div class="wb-section-head">
             <h2>资产内容 · v{{ assetDetail.ref.version }}</h2>
@@ -265,11 +287,12 @@
             来源：{{ assetDetail.ref.producer_id }} ·
             {{ assetDetail.ref.kind }} · {{ assetDetail.ref.status }}
           </p>
-          <pre class="wb-code">{{
+          <AnalysisReport :content="assetDetail.content" />
+          <details><summary>原始资产内容</summary><pre class="wb-code">{{
             typeof assetDetail.content === "string"
               ? assetDetail.content
               : JSON.stringify(assetDetail.content, null, 2)
-          }}</pre>
+          }}</pre></details>
         </section>
         <details class="wb-panel">
           <summary>{{ wt("创建输入资产") }}</summary>
@@ -354,7 +377,7 @@
 import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { http } from "@/utils/request";
@@ -369,9 +392,14 @@ import {
   type Approval,
   type RunDetail,
   type StageOutput,
+  type ExpertOptions,
+  type PublicationTarget,
 } from "@/api/lifecycle";
 import DecisionCard from "@/components/workbench/DecisionCard.vue";
+import AnalysisReport from "@/components/workbench/AnalysisReport.vue";
 import RecordEditor from "@/components/workbench/RecordEditor.vue";
+import ExpertOptionsForm from "./ExpertOptionsForm.vue";
+import { defaultOptions, validatedOptions } from "./expertOptions";
 import "@/components/workbench/workbench.css";
 const route = useRoute(),
   isAnalysis = computed(() => route.path === "/analysis"),
@@ -386,8 +414,7 @@ const agents = ref<Agent[]>([]),
   approvals = ref<Approval[]>([]),
   executor = ref(""),
   assetSelection = ref(""),
-  prompt = ref(""),
-  publishedOnly = ref(true),
+  publishedOnly = ref(isAnalysis.value),
   busy = ref(false),
   error = ref(""),
   notice = ref(""),
@@ -414,6 +441,70 @@ const selectedTemplate = computed(() =>
     (t) => t.id === (current.value?.template_id || executor.value),
   ),
 );
+const parameterStages = computed(() => isPipeline.value
+  ? templates.value.find((t) => t.id === executor.value)?.stages || []
+  : executor.value ? [{ id: executor.value, agent_id: executor.value }] : []);
+const optionDrafts = reactive<Record<string, ExpertOptions>>({});
+const needsPublication = computed(() => parameterStages.value.some((stage) => stage.agent_id === "data-asset"));
+const selectedInputKind = ref(""), inputLoading = ref(false), inputError = ref("");
+const publicationTargets = ref<PublicationTarget[]>([]), targetLoading = ref(false), targetError = ref(""), targetHasMore = ref(false);
+let targetPage = 1, targetLoaded = false, targetEpoch = 0, inputEpoch = 0;
+let inputPending: Promise<void> | undefined;
+watch(() => parameterStages.value.map((stage) => `${stage.id}:${stage.agent_id}`).join("|"), () => {
+  for (const key of Object.keys(optionDrafts)) delete optionDrafts[key];
+  for (const stage of parameterStages.value) optionDrafts[stage.id] = defaultOptions(stage.agent_id);
+}, { immediate: true, flush: "sync" });
+async function loadPublicationTargets() {
+  if (targetLoading.value || (targetLoaded && !targetHasMore.value)) return;
+  const epoch = targetEpoch, page = targetPage;
+  targetLoading.value = true;
+  targetError.value = "";
+  try {
+    const result = (await lifecycleApi.knowledgeBases(page)).data;
+    if (disposed || epoch !== targetEpoch) return;
+    if (!result || !Array.isArray(result.items)) throw new Error("知识库列表格式异常，请重试");
+    const byID = new Map(publicationTargets.value.map((target) => [target.id, target]));
+    for (const target of result.items) byID.set(target.id, target);
+    publicationTargets.value = [...byID.values()];
+    targetHasMore.value = page * result.size < result.total;
+    if (targetHasMore.value && !result.items.length) throw new Error("知识库分页异常，请刷新页面重试");
+    targetPage = page + 1;
+    targetLoaded = true;
+  } catch (e) {
+    if (!disposed && epoch === targetEpoch) targetError.value = e instanceof Error ? e.message : "知识库加载失败";
+  } finally {
+    if (!disposed && epoch === targetEpoch) targetLoading.value = false;
+  }
+}
+function resolveSelectedInput(): Promise<void> {
+  const epoch = ++inputEpoch, selected = assetSelection.value;
+  selectedInputKind.value = "";
+  inputError.value = "";
+  inputLoading.value = false;
+  inputPending = undefined;
+  if (!selected || !needsPublication.value) return Promise.resolve();
+  const asset = assets.value.find((a) => `${a.asset_id}:${a.version}` === selected);
+  if (!asset) return Promise.resolve();
+  inputLoading.value = true;
+  const promise = (async () => {
+    try {
+      const result = (await lifecycleApi.asset(asset.asset_id, asset.version)).data;
+      if (disposed || epoch !== inputEpoch || selected !== assetSelection.value) return;
+      const content = result?.content;
+      const kind = content && typeof content === "object" && "kind" in content ? content.kind : undefined;
+      if (kind !== "text" && kind !== "table") throw new Error("输入资产不是可发布的文本或表格");
+      selectedInputKind.value = kind;
+    } catch (e) {
+      if (!disposed && epoch === inputEpoch) inputError.value = e instanceof Error ? e.message : "输入资产读取失败";
+    } finally {
+      if (!disposed && epoch === inputEpoch) { inputLoading.value = false; inputPending = undefined; }
+    }
+  })();
+  inputPending = promise;
+  return promise;
+}
+watch(needsPublication, (needed) => { if (needed) void loadPublicationTargets(); });
+watch([assetSelection, needsPublication], () => { void resolveSelectedInput(); });
 const selectedAgent = computed(() =>
     agents.value.find((a) => a.id === executor.value),
   ),
@@ -464,6 +555,7 @@ async function loadAssets() {
 }
 let historyRequest = 0;
 async function loadHistory(append = false) {
+  if (disposed) return;
   const request = ++historyRequest;
   const res = await lifecycleApi.list(kind(), append ? next.value : "");
   if (disposed || request !== historyRequest) return;
@@ -526,14 +618,25 @@ async function start() {
       (a) => `${a.asset_id}:${a.version}` === assetSelection.value,
     );
     if (!asset) throw new Error("请选择输入资产");
+    if (!parameterStages.value.length) throw new Error("请选择可用的专家或流水线模板");
+    const selected = assetSelection.value, selectedExecutor = executor.value;
+    if (needsPublication.value) {
+      if (inputPending) await inputPending;
+      if (disposed) return;
+      if (selected !== assetSelection.value || selectedExecutor !== executor.value) throw new Error("任务选择已改变，请重新提交");
+      if (inputError.value) throw new Error(inputError.value);
+      if (!selectedInputKind.value) throw new Error("请先确认输入资产类型");
+    }
+    const options = Object.fromEntries(parameterStages.value.map((stage) => [stage.id, validatedOptions(stage.agent_id, optionDrafts[stage.id] || defaultOptions(stage.agent_id), selectedInputKind.value, publicationTargets.value)]));
     const data = {
       ...(isPipeline.value
         ? { template_id: executor.value }
         : { agent_id: executor.value }),
       input_refs: [{ asset_id: asset.asset_id, version: asset.version }],
-      options: { prompt: prompt.value },
+      options: isPipeline.value ? { stage_options: options } : options[executor.value],
     };
     const res = await lifecycleApi.start(kind(), data);
+    if (disposed) return;
     await loadHistory();
     if (res.data) await loadDetail(res.data.id, true);
   });
@@ -555,11 +658,17 @@ async function approve(id: string, decision: string) {
     if (current.value) await loadDetail(current.value.id);
   });
 }
+let assetDetailRequest = 0;
 async function openAsset(ref: RefID) {
+  const request = ++assetDetailRequest;
+  assetDetail.value = undefined;
   await run(async () => {
-    assetDetail.value = (
-      await lifecycleApi.asset(ref.asset_id, ref.version)
-    ).data;
+    try {
+      const result = await lifecycleApi.asset(ref.asset_id, ref.version);
+      if (!disposed && request === assetDetailRequest) assetDetail.value = result.data;
+    } catch (error) {
+      if (!disposed && request === assetDetailRequest) throw error;
+    }
   });
 }
 async function createAsset() {
@@ -598,6 +707,7 @@ async function createAsset() {
                 }
               : undefined;
     const res = await lifecycleApi.createAsset(input, assetName.value, source);
+    if (disposed) return;
     publishedOnly.value = false;
     await loadAssets();
     if (res.data) {
@@ -639,10 +749,7 @@ onMounted(() => {
         (a) => a.asset_id === assetID && a.version === requestedVersion,
       );
       if (ref) await openAsset(ref);
-      else
-        assetDetail.value = (
-          await lifecycleApi.asset(assetID, requestedVersion)
-        ).data;
+      else await openAsset({ asset_id: assetID, version: requestedVersion });
     }
   });
   timer = setInterval(async () => {
@@ -710,6 +817,9 @@ watch(
 onBeforeUnmount(() => {
   disposed = true;
   detailRequest++;
+  targetEpoch++;
+  inputEpoch++;
+  assetDetailRequest++;
   if (timer) clearInterval(timer);
   events?.close();
 });

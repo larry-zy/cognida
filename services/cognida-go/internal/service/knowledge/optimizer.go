@@ -17,11 +17,11 @@ import (
 
 // Optimizer 检索优化服务
 type Optimizer struct {
-	hydeGenerator      domainrag.HyDEGenerator
-	queryRewriter      domainrag.QueryRewriter
-	multiHopRetriever  domainrag.MultiHopRetriever
-	baseRetriever      domainrag.Retriever
-	optimizer          *rag.RetrievalOptimizer
+	hydeGenerator     domainrag.HyDEGenerator
+	queryRewriter     domainrag.QueryRewriter
+	multiHopRetriever domainrag.MultiHopRetriever
+	baseRetriever     domainrag.Retriever
+	optimizer         *rag.RetrievalOptimizer
 }
 
 // NewOptimizer 创建检索优化服务
@@ -32,7 +32,7 @@ func NewOptimizer(
 	// 创建各个优化组件
 	hydeGen := rag.NewHyDEGenerator(llm)
 	queryRewriter := rag.NewQueryRewriter(llm)
-	multiHop := rag.NewMultiHopRetriever(baseRetriever, nil) // LLM chat 传入 nil 表示不使用
+	multiHop := rag.NewMultiHopRetriever(baseRetriever, rag.EinoLLMAdapter{Model: llm})
 
 	optimizer := rag.NewRetrievalOptimizer(hydeGen, queryRewriter, multiHop, baseRetriever)
 
@@ -51,14 +51,14 @@ func NewOptimizer(
 
 // HyDERetrieveRequest HyDE 检索请求
 type HyDERetrieveRequest struct {
-	TenantID         string
-	KnowledgeBaseID  string
-	Query            string
-	EnableMultiDoc   bool
-	DocCount         int
-	Temperature      float64
-	MaxTokens        int
-	Domain           string
+	TenantID        string
+	KnowledgeBaseID string
+	Query           string
+	EnableMultiDoc  bool
+	DocCount        int
+	Temperature     float64
+	MaxTokens       int
+	Domain          string
 }
 
 // HyDERetrieveResponse HyDE 检索响应
@@ -191,12 +191,12 @@ type QueryRewriteRequest struct {
 
 // QueryRewriteResponse 查询重写响应
 type QueryRewriteResponse struct {
-	OriginalQuery       string
-	RewrittenQuery      string
-	ExpandedQueries     []string
-	SubQueries          []*domainrag.SubQuery
-	Keywords            []string
-	Intent              string
+	OriginalQuery   string
+	RewrittenQuery  string
+	ExpandedQueries []string
+	SubQueries      []*domainrag.SubQuery
+	Keywords        []string
+	Intent          string
 }
 
 // RewriteQuery 重写查询
@@ -244,37 +244,39 @@ func (s *Optimizer) RewriteQuery(ctx context.Context, req *QueryRewriteRequest) 
 
 // MultiHopRetrieveRequest 多跳检索请求
 type MultiHopRetrieveRequest struct {
-	TenantID      string
+	TenantID        string
 	KnowledgeBaseID string
-	Query         string
-	MaxHops       int
-	HopStrategy   string
+	Query           string
+	MaxHops         int
+	HopStrategy     string
 }
 
 // MultiHopRetrieveResponse 多跳检索响应
 type MultiHopRetrieveResponse struct {
-	FinalAnswer     string
-	Hops            []*HopInfo
-	AllDocuments    []*domainrag.Document
-	ReasoningChain  string
-	HopCount        int
+	FinalAnswer    string
+	Hops           []*HopInfo
+	AllDocuments   []*domainrag.Document
+	ReasoningChain string
+	HopCount       int
 }
 
 // HopInfo 单跳信息
 type HopInfo struct {
-	HopIndex         int
-	Query            string
+	HopIndex           int
+	Query              string
 	IntermediateResult string
-	RetrievedCount   int
-	Latency          int64
+	RetrievedCount     int
+	Latency            int64
 }
 
 // MultiHopRetrieve 执行多跳检索
 func (s *Optimizer) MultiHopRetrieve(ctx context.Context, req *MultiHopRetrieveRequest) (*MultiHopRetrieveResponse, error) {
 	opts := &domainrag.MultiHopOptions{
-		MaxHops:      req.MaxHops,
-		HopStrategy:  req.HopStrategy,
-		EnableLog:    true,
+		TenantID:        req.TenantID,
+		KnowledgeBaseID: req.KnowledgeBaseID,
+		MaxHops:         req.MaxHops,
+		HopStrategy:     req.HopStrategy,
+		EnableLog:       true,
 	}
 
 	result, err := s.multiHopRetriever.RetrieveMultiHop(ctx, req.Query, opts)
@@ -290,7 +292,7 @@ func (s *Optimizer) MultiHopRetrieve(ctx context.Context, req *MultiHopRetrieveR
 			Query:              hop.Query,
 			IntermediateResult: hop.IntermediateResult,
 			RetrievedCount:     len(hop.RetrievedDocs),
-			Latency:           hop.Latency,
+			Latency:            hop.Latency,
 		}
 	}
 
@@ -309,10 +311,10 @@ func (s *Optimizer) MultiHopRetrieve(ctx context.Context, req *MultiHopRetrieveR
 
 // OptimizedRetrieveRequest 优化检索请求
 type OptimizedRetrieveRequest struct {
-	TenantID      string
+	TenantID        string
 	KnowledgeBaseID string
-	Query         string
-	Config        *domainrag.RetrievalOptimizationConfig
+	Query           string
+	Config          *domainrag.RetrievalOptimizationConfig
 }
 
 // OptimizedRetrieveResponse 优化检索响应
@@ -371,8 +373,8 @@ func (s *Optimizer) OptimizedRetrieve(ctx context.Context, req *OptimizedRetriev
 			if err == nil {
 				return &OptimizedRetrieveResponse{
 					Documents:      retrieveResp.Results,
-					Query:           req.Query,
-					ProcessedQuery:  processedQuery,
+					Query:          req.Query,
+					ProcessedQuery: processedQuery,
 					TotalCount:     len(retrieveResp.Results),
 					TechniquesUsed: techniquesUsed,
 					Trace:          trace,
@@ -386,7 +388,13 @@ func (s *Optimizer) OptimizedRetrieve(ctx context.Context, req *OptimizedRetriev
 		techniquesUsed = append(techniquesUsed, "multi_hop")
 		trace.MultiHopUsed = true
 
-		multiHopResp, err := s.multiHopRetriever.RetrieveMultiHop(ctx, processedQuery, req.Config.MultiHopOptions)
+		multiOptions := domainrag.DefaultMultiHopOptions()
+		if req.Config.MultiHopOptions != nil {
+			copy := *req.Config.MultiHopOptions
+			multiOptions = &copy
+		}
+		multiOptions.TenantID, multiOptions.KnowledgeBaseID = req.TenantID, req.KnowledgeBaseID
+		multiHopResp, err := s.multiHopRetriever.RetrieveMultiHop(ctx, processedQuery, multiOptions)
 		if err == nil {
 			trace.HopCount = len(multiHopResp.Hops)
 			trace.ReasoningChain = multiHopResp.ReasoningChain
@@ -450,9 +458,9 @@ func CreateRewriteConfig(preserveIntent bool, domain string, history []string) *
 // CreateMultiHopConfig 创建多跳检索配置
 func CreateMultiHopConfig(maxHops int, strategy string) *domainrag.MultiHopOptions {
 	return &domainrag.MultiHopOptions{
-		MaxHops:      maxHops,
-		HopStrategy:  strategy,
-		EnableLog:    true,
+		MaxHops:     maxHops,
+		HopStrategy: strategy,
+		EnableLog:   true,
 	}
 }
 

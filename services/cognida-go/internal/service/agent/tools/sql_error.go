@@ -239,7 +239,7 @@ func columnHint(ctx context.Context, target *queryTarget, unknownColumn, sql str
 // 租户取自 ctx、数据源 ID 显式 database_id 优先否则回落会话选定、schema 取 target.dbName。
 // store 缺失、坐标不全或无画像时返回 nil——不阻断 available_columns 线索，零回归。
 func columnFactsHint(ctx context.Context, store dataprofile.Store, target *queryTarget, databaseID, table string) map[string]interface{} {
-	if store == nil {
+	if store == nil || validatePrivateDataAccess(table) != nil {
 		return nil
 	}
 	tenantID, ok := agentctx.GetTenantID(ctx)

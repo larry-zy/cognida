@@ -41,7 +41,7 @@ type AgenticRAGResponse struct {
 	Answer     string                 `json:"answer"`
 	Success    bool                   `json:"success"`
 	Error      string                 `json:"error,omitempty"`
-	ToolCalls  []*ToolCallRecordDTO    `json:"tool_calls,omitempty"`
+	ToolCalls  []*ToolCallRecordDTO   `json:"tool_calls,omitempty"`
 	Sources    []string               `json:"sources,omitempty"`
 	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 	Conclusion *ConclusionDTO         `json:"conclusion,omitempty"` // 数据结论
@@ -70,12 +70,12 @@ type QueryAnalysisDTO struct {
 
 // ResultEvaluationDTO 结果评估DTO
 type ResultEvaluationDTO struct {
-	Confidence    float64 `json:"confidence"`
-	IsSufficient  bool    `json:"is_sufficient"`
-	MissingInfo   []string `json:"missing_info,omitempty"`
-	Suggestions   []string `json:"suggestions,omitempty"`
-	ToolCount     int     `json:"tool_count"`
-	HasWebSearch  bool    `json:"has_web_search"`
+	Confidence   float64  `json:"confidence"`
+	IsSufficient bool     `json:"is_sufficient"`
+	MissingInfo  []string `json:"missing_info,omitempty"`
+	Suggestions  []string `json:"suggestions,omitempty"`
+	ToolCount    int      `json:"tool_count"`
+	HasWebSearch bool     `json:"has_web_search"`
 }
 
 // ChatChunkDTO 流式聊天分块DTO
@@ -91,14 +91,20 @@ type ChatChunkDTO struct {
 
 // DeepResearchRequest 深度研究请求
 type DeepResearchRequest struct {
-	Query    string                `json:"query" binding:"required"`
-	SessionID string                `json:"session_id,omitempty"`
-	Options   *DeepResearchOptions  `json:"options,omitempty"`
-	Context   map[string]interface{} `json:"context,omitempty"`
+	KBIDs        []string               `json:"kb_ids,omitempty"`
+	KBScopeMode  string                 `json:"kb_scope_mode,omitempty"`
+	GraphEnabled bool                   `json:"graph_enabled"`
+	Query        string                 `json:"query" binding:"required"`
+	SessionID    string                 `json:"session_id,omitempty"`
+	Options      *DeepResearchOptions   `json:"options,omitempty"`
+	Context      map[string]interface{} `json:"context,omitempty"`
 }
 
 // DeepResearchOptions 深度研究选项
 type DeepResearchOptions struct {
+	EnableWebSearch       bool `json:"enable_web_search"`
+	TimeoutSeconds        int  `json:"timeout_seconds,omitempty"`
+	MaxSources            int  `json:"max_sources,omitempty"`
 	Stream                bool `json:"stream"`
 	MaxSubQuestions       int  `json:"max_sub_questions"`
 	MaxConcurrency        int  `json:"max_concurrency"`
@@ -109,28 +115,36 @@ type DeepResearchOptions struct {
 
 // DeepResearchResponse 深度研究响应
 type DeepResearchResponse struct {
+	SessionID        string                  `json:"session_id,omitempty"`
+	SubQuestions     []string                `json:"sub_questions"`
+	Warnings         []string                `json:"warnings,omitempty"`
+	CitationChecks   []ResearchCitationCheck `json:"citation_checks,omitempty"`
 	Query            string                  `json:"query"`
 	ExecutiveSummary string                  `json:"executive_summary"`
 	DetailedAnalysis string                  `json:"detailed_analysis"`
 	KeyFindings      []string                `json:"key_findings"`
 	Sources          []ReportSourceDTO       `json:"sources"`
-	VerifiedFacts    []*ValidationResultDTO `json:"verified_facts,omitempty"`
-	Metadata         ReportMetadataDTO        `json:"metadata"`
+	VerifiedFacts    []*ValidationResultDTO  `json:"verified_facts,omitempty"`
+	Metadata         ReportMetadataDTO       `json:"metadata"`
 	Success          bool                    `json:"success"`
 	Error            string                  `json:"error,omitempty"`
 }
 
 // ReportSourceDTO 报告来源DTO
 type ReportSourceDTO struct {
-	Type    string `json:"type"`
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Excerpt string `json:"excerpt"`
+	ID              string `json:"id"`
+	KnowledgeBaseID string `json:"knowledge_base_id,omitempty"`
+	KnowledgeID     string `json:"knowledge_id,omitempty"`
+	ChunkID         string `json:"chunk_id,omitempty"`
+	Type            string `json:"type"`
+	Title           string `json:"title"`
+	URL             string `json:"url"`
+	Excerpt         string `json:"excerpt"`
 }
 
 // ValidationResultDTO 验证结果DTO
 type ValidationResultDTO struct {
-	Fact           *ExtractedFactDTO    `json:"fact,omitempty"`
+	Fact           *ExtractedFactDTO     `json:"fact,omitempty"`
 	IsVerified     bool                  `json:"is_verified"`
 	Confidence     float64               `json:"confidence"`
 	Consensus      string                `json:"consensus,omitempty"`
@@ -160,12 +174,15 @@ type ValidationSourceDTO struct {
 
 // ReportMetadataDTO 报告元数据DTO
 type ReportMetadataDTO struct {
-	SubQuestionCount   int    `json:"sub_question_count"`
-	TotalSources       int    `json:"total_sources"`
-	ExecutionTimeMs    int64  `json:"execution_time_ms"`
-	FactChecked        bool   `json:"fact_checked"`
-	VerifiedFactCount   int    `json:"verified_fact_count"`
-	Timestamp           int64  `json:"timestamp"`
+	Partial           bool   `json:"partial"`
+	CitationChecked   bool   `json:"citation_checked"`
+	VerificationLimit string `json:"verification_limit,omitempty"`
+	SubQuestionCount  int    `json:"sub_question_count"`
+	TotalSources      int    `json:"total_sources"`
+	ExecutionTimeMs   int64  `json:"execution_time_ms"`
+	FactChecked       bool   `json:"fact_checked"`
+	VerifiedFactCount int    `json:"verified_fact_count"`
+	Timestamp         int64  `json:"timestamp"`
 }
 
 // ========================================
@@ -174,19 +191,27 @@ type ReportMetadataDTO struct {
 
 // ResearchProgressDTO 研究进度DTO
 type ResearchProgressDTO struct {
-	Stage        string          `json:"stage"`
-	Progress     float64         `json:"progress"`
-	Detail       string          `json:"detail"`
-	SubStage     string          `json:"sub_stage,omitempty"`
-	TotalSteps   int             `json:"total_steps"`
-	CurrentStep  int             `json:"current_step"`
-	ElapsedTime  int64           `json:"elapsed_ms"`
-	Estimated    int64           `json:"estimated_ms,omitempty"`
-	ResultsCount int             `json:"results_count"`
-	SubQuestions []string        `json:"sub_questions,omitempty"`
-	Sources      []SourceInfoDTO `json:"sources,omitempty"`
-	Error        string          `json:"error,omitempty"`
-	Timestamp    int64           `json:"timestamp"`
+	Report       *DeepResearchResponse `json:"report,omitempty"`
+	Stage        string                `json:"stage"`
+	Progress     float64               `json:"progress"`
+	Detail       string                `json:"detail"`
+	SubStage     string                `json:"sub_stage,omitempty"`
+	TotalSteps   int                   `json:"total_steps"`
+	CurrentStep  int                   `json:"current_step"`
+	ElapsedTime  int64                 `json:"elapsed_ms"`
+	Estimated    int64                 `json:"estimated_ms,omitempty"`
+	ResultsCount int                   `json:"results_count"`
+	SubQuestions []string              `json:"sub_questions,omitempty"`
+	Sources      []SourceInfoDTO       `json:"sources,omitempty"`
+	Error        string                `json:"error,omitempty"`
+	Timestamp    int64                 `json:"timestamp"`
+}
+
+type ResearchCitationCheck struct {
+	Statement    string `json:"statement"`
+	SourceID     string `json:"source_id"`
+	Quote        string `json:"quote"`
+	QuoteMatched bool   `json:"quote_matched"`
 }
 
 // SourceInfoDTO 来源信息DTO
@@ -224,7 +249,7 @@ type ClarificationQuestionDTO struct {
 
 // ClarificationResponseDTO 澄清响应DTO
 type ClarificationResponseDTO struct {
-	NeedsClarification bool                       `json:"needs_clarification"`
+	NeedsClarification bool                        `json:"needs_clarification"`
 	Questions          []*ClarificationQuestionDTO `json:"questions"`
 	OriginalQuery      string                      `json:"original_query"`
 	CurrentAnswers     map[string]string           `json:"current_answers,omitempty"`
@@ -238,16 +263,16 @@ type ClarificationResponseDTO struct {
 
 // AgentConfigDTO Agent配置DTO
 type AgentConfigDTO struct {
-	Type                  string                 `json:"type"`
-	Name                  string                 `json:"name"`
-	Description           string                 `json:"description"`
-	MaxIterations         int                    `json:"max_iterations"`
-	EnableSmartRetrieval  bool                   `json:"enable_smart_retrieval"`
-	DefaultTopK           int                    `json:"default_top_k"`
-	EnableQueryRewrite    bool                   `json:"enable_query_rewrite"`
-	EnableResultEval      bool                   `json:"enable_result_eval"`
-	MinConfidence         float64                `json:"min_confidence"`
-	Extra                 map[string]interface{} `json:"extra,omitempty"`
+	Type                 string                 `json:"type"`
+	Name                 string                 `json:"name"`
+	Description          string                 `json:"description"`
+	MaxIterations        int                    `json:"max_iterations"`
+	EnableSmartRetrieval bool                   `json:"enable_smart_retrieval"`
+	DefaultTopK          int                    `json:"default_top_k"`
+	EnableQueryRewrite   bool                   `json:"enable_query_rewrite"`
+	EnableResultEval     bool                   `json:"enable_result_eval"`
+	MinConfidence        float64                `json:"min_confidence"`
+	Extra                map[string]interface{} `json:"extra,omitempty"`
 }
 
 // SearchConfigDTO 搜索配置DTO
@@ -260,20 +285,20 @@ type SearchConfigDTO struct {
 // HookConfigDTO Hook配置DTO
 type HookConfigDTO struct {
 	EnableConclusion     bool     `json:"enable_conclusion"`
-	DataTools           []string `json:"data_tools"`
-	EnableClarification bool     `json:"enable_clarification"`
-	BusinessContext     string   `json:"business_context"`
-	MaxRounds           int      `json:"max_rounds"`
-	EnableMemoryWrite   bool     `json:"enable_memory_write"`
-	EnableAutoCompress  bool     `json:"enable_auto_compress"`
-	EnableLongTermMemory bool    `json:"enable_long_term_memory"`
+	DataTools            []string `json:"data_tools"`
+	EnableClarification  bool     `json:"enable_clarification"`
+	BusinessContext      string   `json:"business_context"`
+	MaxRounds            int      `json:"max_rounds"`
+	EnableMemoryWrite    bool     `json:"enable_memory_write"`
+	EnableAutoCompress   bool     `json:"enable_auto_compress"`
+	EnableLongTermMemory bool     `json:"enable_long_term_memory"`
 }
 
 // MemoryConfigDTO 记忆配置DTO
 type MemoryConfigDTO struct {
-	StorageBackend     string                 `json:"storage_backend"`
-	ContextConfig      map[string]interface{} `json:"context_config"`
-	CompressionConfig  map[string]interface{} `json:"compression_config"`
+	StorageBackend    string                 `json:"storage_backend"`
+	ContextConfig     map[string]interface{} `json:"context_config"`
+	CompressionConfig map[string]interface{} `json:"compression_config"`
 }
 
 // ========================================

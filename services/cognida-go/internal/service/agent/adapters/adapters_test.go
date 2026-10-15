@@ -2,6 +2,8 @@ package adapters
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,12 +92,12 @@ func (f *fakeKBRepo) FindByIDForTenant(context.Context, string, int64) (*knowled
 func (f *fakeKBRepo) FindByUser(context.Context, int64, int, int) ([]*knowledge.KnowledgeBase, int64, error) {
 	return nil, 0, nil
 }
-func (f *fakeKBRepo) Update(context.Context, *knowledge.KnowledgeBase) error         { return nil }
-func (f *fakeKBRepo) UpdateStats(context.Context, string, int, int, int64) error     { return nil }
-func (f *fakeKBRepo) Delete(context.Context, string) error                           { return nil }
-func (f *fakeKBRepo) HardDelete(context.Context, string) error                       { return nil }
-func (f *fakeKBRepo) Exists(context.Context, string) (bool, error)                   { return true, nil }
-func (f *fakeKBRepo) GetStorageStats(context.Context, int64) (int64, int64, error)   { return 0, 0, nil }
+func (f *fakeKBRepo) Update(context.Context, *knowledge.KnowledgeBase) error       { return nil }
+func (f *fakeKBRepo) UpdateStats(context.Context, string, int, int, int64) error   { return nil }
+func (f *fakeKBRepo) Delete(context.Context, string) error                         { return nil }
+func (f *fakeKBRepo) HardDelete(context.Context, string) error                     { return nil }
+func (f *fakeKBRepo) Exists(context.Context, string) (bool, error)                 { return true, nil }
+func (f *fakeKBRepo) GetStorageStats(context.Context, int64) (int64, int64, error) { return 0, 0, nil }
 
 // ========================================
 // 测试
@@ -171,10 +173,10 @@ func TestRAGAdapter_NoTenant(t *testing.T) {
 	// 不注入 tenant，MustGetTenantID 返回 0
 	ctx := agentctx.WithAllowedKBIDs(context.Background(), []string{"kb1"})
 	res, err := a.Query(ctx, &tools.RAGQueryRequest{Query: "hi"})
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
+	if err == nil {
+		t.Fatal("expected missing tenant to fail closed")
 	}
-	if res.HasAnswer || len(ret.calledKBs) != 0 {
+	if res != nil || len(ret.calledKBs) != 0 {
 		t.Fatalf("expected no retrieval without tenant, got %v", ret.calledKBs)
 	}
 }
@@ -632,4 +634,28 @@ func (s *optsSpyRetriever) HybridRetrieve(_ context.Context, _, _, _ string, o *
 }
 func (s *optsSpyRetriever) GraphRetrieve(_ context.Context, _, _, _ string, o *rag.RetrieveOptions) (*rag.RetrieveResponse, error) {
 	return s.respond(o)
+}
+
+type failingKBRepo struct {
+	knowledge.KnowledgeBaseRepository
+	err error
+}
+
+func (r failingKBRepo) FindByTenantID(context.Context, int64, int, int) ([]*knowledge.KnowledgeBase, int64, error) {
+	return nil, 0, r.err
+}
+func TestRAGAdapterAuthorizationFailureIsVisible(t *testing.T) {
+	for _, failure := range []error{fmt.Errorf("catalog unavailable"), context.Canceled} {
+		adapter := newTestAdapter(&recordingRetriever{}, failingKBRepo{err: failure})
+		_, err := adapter.Query(baseCtx(), &tools.RAGQueryRequest{Query: "q"})
+		if !errors.Is(err, failure) {
+			t.Fatalf("authorization failure lost: %v", err)
+		}
+	}
+	ctx, cancel := context.WithCancel(baseCtx())
+	cancel()
+	_, err := newTestAdapter(&recordingRetriever{}, &fakeKBRepo{}).Query(ctx, &tools.RAGQueryRequest{Query: "q"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation lost: %v", err)
+	}
 }

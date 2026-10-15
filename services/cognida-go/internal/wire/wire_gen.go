@@ -117,14 +117,14 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 	chatConfig := ProvideChatConfig(cfg)
-	llmClient := ProvideLLMClient(chatConfig)
-	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, docreaderClient, embedder, llmClient, idGenerator)
+	v := ProvideLLMClient(chatConfig)
+	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, docreaderClient, embedder, v, idGenerator)
 	fetcher := ProvideCollectionFetcher()
 	collectionRepository := ProvideCollectionRepository(db)
 	documentIngestor := ProvideCollectionIngestor(documentProcessorService)
 	collectionJobQueue := ProvideCollectionJobQueue(client)
 	collectionService := ProvideCollectionService(collectionRepository, fetcher, documentIngestor, collectionJobQueue, store)
-	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, client, documentProcessorService, fetcher, collectionService, collectionRepository)
+	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, client, documentProcessorService, fetcher, collectionService, collectionRepository, embedder)
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +138,9 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
 	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
 	milvusRetriever := ProvideMilvusRetriever(embedder)
-	ragGraphRepository := ProvideRAGGraphRepository()
-	graphQueryRepository := ProvideGraphQueryRepository(db)
-	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, ragGraphRepository, graphQueryRepository)
+	graphSearcher := ProvideRAGGraphRepository(graphRepository)
+	graphQueryRepository := ProvideGraphQueryRepository(db, chunkRepository)
+	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, graphSearcher, graphQueryRepository)
 	retrievalCapability := ProvideRetrievalCapability(retriever, knowledgeRepository)
 	uploadConfig := ProvideUploadConfig(cfg)
 	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability, uploadConfig)
@@ -150,7 +150,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	sessionService := ProvideSessionService(sessionRepository, messageRepository, retrievalSettingRepository)
 	modelRepository := ProvideModelRepository(db)
 	modelFactory := ProvideModelFactory()
-	chatService := ProvideChatService(llmClient, modelRepository, modelFactory)
+	chatService := ProvideChatService(v, modelRepository, modelFactory)
 	sessionHandler := ProvideSessionHandler(sessionService, chatService)
 	messageService := ProvideMessageService(messageRepository)
 	messageHandler := ProvideMessageHandler(messageService)
@@ -164,7 +164,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	agentPersistenceService := ProvideAgentPersistenceService(sessionRepository, messageRepository)
 	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService, retrievalSettingRepository)
 	registryAgentHandler := ProvideRegistryAgentHandler(specRegistry)
-	llmChat := ProvideRAGLLMChat(llmClient)
+	llmChat := ProvideRAGLLMChat(v)
 	graphService := ProvideGraphService(graphRepository, graphQueryRepository, llmChat)
 	graphHandler := ProvideGraphHandler(graphService)
 	modelService := ProvideModelService(modelRepository, modelFactory)
@@ -215,7 +215,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	evaluationWorker := ProvideEvaluationWorker(progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, service)
 	worker := ProvideEvaluationJobWorker(redisQueue, evaluationWorker, evaluationTaskRepository, evaluationConfig)
 	collectionJobWorker := ProvideCollectionJobWorker(collectionJobQueue, collectionService, collectionRepository)
-	app := ProvideApp(featureServices, router, middlewares, specRegistry, chatConfig, evaluationConfig, worker, collectionJobWorker, collectionService, collectionRepository, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, service, agentHandler, embedder)
+	app := ProvideApp(featureServices, router, middlewares, specRegistry, chatConfig, evaluationConfig, worker, collectionJobWorker, collectionService, collectionRepository, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, service, agentHandler, researchService, embedder)
 	return app, nil
 }
 
@@ -338,8 +338,10 @@ func ProvideTenantUserRepository(db *gorm.DB) tenant.TenantUserRepository {
 	return mysql.NewTenantUserRepository(db)
 }
 
-func ProvideGraphQueryRepository(db *gorm.DB) knowledge.GraphQueryRepository {
-	return mysql.NewGraphQueryRepository(db, true)
+func ProvideGraphQueryRepository(db *gorm.DB, chunks knowledge.ChunkRepository) knowledge.GraphQueryRepository {
+	repo := mysql.NewGraphQueryRepository(db, true)
+	repo.SetChunkRepository(chunks)
+	return repo
 }
 
 func ProvideSessionService(
@@ -964,9 +966,8 @@ func ProvideMilvusRetriever(embedder embedding.Embedder) rag2.MilvusRetriever {
 	return retriever.NewMilvusAdapter(vectorRetriever)
 }
 
-func ProvideRAGGraphRepository() rag.GraphRepository {
-
-	return nil
+func ProvideRAGGraphRepository(repo knowledge.GraphRepository) rag2.GraphSearcher {
+	return rag2.NewGraphRepositoryAdapter(repo)
 }
 
 func ProvideRetriever(
@@ -974,11 +975,10 @@ func ProvideRetriever(
 	chunkRepo knowledge.ChunkRepository,
 	embedder embedding.Embedder,
 	milvusRetriever rag2.MilvusRetriever,
-	graphRepo rag.GraphRepository,
+	graphRepo rag2.GraphSearcher,
 	graphQueryRepo knowledge.GraphQueryRepository,
 ) rag.Retriever {
-
-	return rag2.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, nil, rag2.NewReranker())
+	return rag2.NewRetriever(kbSettingRepo, chunkRepo, embedder, milvusRetriever, graphRepo, rag2.NewGraphQueryAdapter(graphQueryRepo), rag2.NewReranker())
 }
 
 func ProvideReranker() rag.Reranker {
@@ -1198,7 +1198,8 @@ type App struct {
 	DataSourceService *datasource2.Service
 	// AgentHandler 暴露给组合根：构造 ToolRegistry 后经 SetToolGateway 注入工具网关
 	// （confirm-resume / UI 取数 / schema 查询），替代 tools 包级默认槽位。
-	AgentHandler *handler.AgentHandler
+	AgentHandler    *handler.AgentHandler
+	ResearchService *agent2.ResearchService
 	// Embedder 暴露给组合根：供 Agent 自我进化向量化任务/教训（experience 后台 worker 沉淀），
 	// 由初始化器下发给 data_agent 预设。（内联反思记忆路径已下线，改由 experience worker 承担。）
 	Embedder embedding.Embedder
@@ -1223,8 +1224,10 @@ func ProvideApp(
 	auditWriter *audit.Writer,
 	dataSourceService *datasource2.Service,
 	agentHandler *handler.AgentHandler,
+	researchService *agent2.ResearchService,
 	embedder embedding.Embedder,
 ) *App {
+	r.AddTenantRoutes(features.MemoryHandler.Register)
 	r.AddTenantRoutes(features.CatalogHandler.Register)
 	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
 	r.AddTenantRoutes(features.GovernanceHandler.Register)
@@ -1250,6 +1253,7 @@ func ProvideApp(
 		AuditWriter:             auditWriter,
 		DataSourceService:       dataSourceService,
 		AgentHandler:            agentHandler,
+		ResearchService:         researchService,
 		Embedder:                embedder,
 	}
 }

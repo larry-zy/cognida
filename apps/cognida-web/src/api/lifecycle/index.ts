@@ -79,12 +79,34 @@ export interface Template {
   version: number;
   stages: { id: string; agent_id: string; depends_on: string[] }[];
 }
+export type CleanOperation = "trim" | "normalize_ws" | "drop_empty" | "dedup" | "text_cleaner" | "pii_masker";
+export type EnrichmentFeature = "tags" | "entities" | "keywords" | "summary" | "category" | "sentiment" | "sensitivity";
+export interface ExpertOptions {
+  min_score?: number;
+  operations?: CleanOperation[];
+  columns?: string[];
+  keep?: "first" | "last";
+  method?: "rules" | "llm";
+  labels?: { name: string; keywords: string[] }[];
+  max_keywords?: number;
+  max_summary_chars?: number;
+  features?: EnrichmentFeature[];
+  knowledge_base_id?: string;
+  catalog_asset_id?: string;
+  prompt?: string;
+}
+export interface PublicationTarget { id: string; name: string; status?: number }
+export interface PublicationTargetPage { items: PublicationTarget[]; total: number; page: number; size: number }
 export interface Page<T> {
   items: T[];
   next_cursor: string;
   has_more: boolean;
 }
 export const lifecycleApi = {
+  // The existing knowledge-base endpoint uses numbered pages; do not truncate
+  // publication targets to the shared store's first cached page.
+  knowledgeBases: (page = 1) =>
+    http.get<PublicationTargetPage>("/knowledge-bases", { params: { page, page_size: 100 } }),
   agents: () => http.get<{ agents: Agent[] }>("/lifecycle/agents"),
   templates: () => http.get<{ templates: Template[] }>("/lifecycle/templates"),
   assets: (kind = "", cursor = "") =>

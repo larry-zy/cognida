@@ -45,40 +45,40 @@ func (t MessageType) IsContextMessage() bool {
 
 // Message 消息实体
 type Message struct {
-	ID           string
-	SessionID    string
-	TenantID     int64
-	UserID       int64
-	Type         MessageType
-	Role         string // system/user/assistant/tool
-	Content      string
-	Tokens       int
+	ID             string
+	SessionID      string
+	TenantID       int64
+	UserID         int64
+	Type           MessageType
+	Role           string // system/user/assistant/tool
+	Content        string
+	Tokens         int
 	IsIntermediate bool
-	Iteration    int // 多步迭代计数
+	Iteration      int // 多步迭代计数
 
 	// 工具调用相关（当 Type 为 tool_call 时）
-	ToolCalls    []ToolCallInfo
+	ToolCalls []ToolCallInfo
 
 	// 压缩相关
 	CompressedAt *time.Time
 	SummaryID    *string
 
 	// 追踪字段
-	RequestID    string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	DeletedAt    *time.Time
+	RequestID string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
 }
 
 // ToolCallInfo 工具调用信息
 type ToolCallInfo struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Arguments string                `json:"arguments"`
-	Result   string                 `json:"result"`
-	Error    string                 `json:"error,omitempty"`
-	Duration int64                  `json:"duration"` // 毫秒
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	Arguments string                 `json:"arguments"`
+	Result    string                 `json:"result"`
+	Error     string                 `json:"error,omitempty"`
+	Duration  int64                  `json:"duration"` // 毫秒
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // IsCompressed 判断消息是否已被压缩
@@ -106,16 +106,16 @@ func (m *Message) ShouldIncludeInContext(includeIntermediate bool) bool {
 
 // Summary 对话摘要实体
 type Summary struct {
-	ID                string
-	SessionID         string
-	TenantID          int64
+	ID        string
+	SessionID string
+	TenantID  int64
 
 	// 摘要内容
-	Content           string
+	Content string
 
 	// 时间范围
-	TimeRangeStart    time.Time
-	TimeRangeEnd      time.Time
+	TimeRangeStart time.Time
+	TimeRangeEnd   time.Time
 
 	// 统计信息
 	OriginalMessageCount int
@@ -126,8 +126,8 @@ type Summary struct {
 	CompressionRatio float64
 
 	// 元数据
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // CalculateCompressionRatio 计算压缩率
@@ -144,34 +144,21 @@ func (s *Summary) CalculateCompressionRatio() float64 {
 
 // LongTermMemory 长期记忆实体
 type LongTermMemory struct {
-	ID          string
-	TenantID    int64
-	UserID      *int64 // 可选，为空表示全局记忆
-
-	// 记忆内容
-	Content     string
-	Category    string // 类别（如 user_preferences, project_context 等）
-
-	// 语义检索
-	Embedding   []float32 // 向量嵌入
-
-	// 重要性评分
-	Importance  float64 // 0-1
-
-	// 访问统计
-	AccessCount int
-	LastAccessAt *time.Time
-
-	// 追踪字段
-	Metadata    map[string]interface{}
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
-}
-
-// IsGlobal 判断是否为全局记忆
-func (m *LongTermMemory) IsGlobal() bool {
-	return m.UserID == nil
+	ID             string     `json:"id"`
+	TenantID       int64      `json:"-"`
+	UserID         int64      `json:"-"`
+	Content        string     `json:"content"`
+	Category       string     `json:"category"` // fact / preference; always private to its owner.
+	Importance     float64    `json:"importance"`
+	Version        int64      `json:"version"`
+	Source         string     `json:"source"` // user / tool, never inferred from a conversation.
+	Embedding      []float32  `json:"-"`
+	EmbeddingModel string     `json:"-"`
+	AccessCount    int        `json:"access_count"`
+	LastAccessAt   *time.Time `json:"last_access_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DeletedAt      *time.Time `json:"-"`
 }
 
 // RecordAccess 记录访问
@@ -188,25 +175,25 @@ func (m *LongTermMemory) RecordAccess() {
 // ContextBuildMetadata 上下文构建元数据
 type ContextBuildMetadata struct {
 	// Token 统计
-	SystemPromptTokens  int
-	FewShotTokens       int
-	SummaryTokens       int
-	HistoryTokens       int
+	SystemPromptTokens   int
+	FewShotTokens        int
+	SummaryTokens        int
+	HistoryTokens        int
 	CurrentMessageTokens int
-	TotalTokens         int
+	TotalTokens          int
 
 	// 消息统计
-	SystemMessageCount  int
-	UserMessageCount    int
-	AssistantMessageCount int
-	SummaryMessageCount int
+	SystemMessageCount        int
+	UserMessageCount          int
+	AssistantMessageCount     int
+	SummaryMessageCount       int
 	ExcludedIntermediateCount int
 
 	// 性能统计
-	BuildTime           time.Duration
-	CacheLoadTime       time.Duration
-	DBLoadTime          time.Duration
-	CompressionTime     time.Duration
+	BuildTime       time.Duration
+	CacheLoadTime   time.Duration
+	DBLoadTime      time.Duration
+	CompressionTime time.Duration
 
 	// 压缩信息
 	CompressionApplied  bool

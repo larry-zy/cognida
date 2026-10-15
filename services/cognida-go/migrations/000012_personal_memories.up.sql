@@ -1,0 +1,23 @@
+CREATE TABLE user_memories (
+  id CHAR(36) NOT NULL,
+  tenant_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  category VARCHAR(32) NOT NULL,
+  content TEXT NOT NULL,
+  importance DOUBLE NOT NULL DEFAULT 0,
+  version BIGINT NOT NULL DEFAULT 1,
+  source VARCHAR(16) NOT NULL,
+  embedding JSON NULL,
+  embedding_model VARCHAR(200) NOT NULL DEFAULT '',
+  idempotency_key VARCHAR(128) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  access_count INT NOT NULL DEFAULT 0,
+  last_access_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  deleted_at DATETIME(6) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_memory_idempotency (tenant_id, user_id, idempotency_key),
+  KEY idx_memory_scope_page (tenant_id, user_id, deleted_at, id),
+  KEY idx_memory_scope_recall (tenant_id, user_id, deleted_at, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

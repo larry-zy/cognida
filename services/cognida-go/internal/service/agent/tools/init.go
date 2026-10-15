@@ -23,7 +23,10 @@ func (r *ToolRegistry) registerRAGTools() error {
 	if ragTool == nil {
 		return nil // RAG 工具可能未配置
 	}
-	return r.Register("rag", ragTool)
+	if err := r.Register("rag", ragTool); err != nil {
+		return err
+	}
+	return r.RegisterBatch("rag", NewRAGOptimizationTools(r.deps.RAGService, r.deps.RetrievalModel))
 }
 
 // registerSQLTools 注册 SQL 工具

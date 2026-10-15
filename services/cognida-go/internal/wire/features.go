@@ -22,8 +22,10 @@ import (
 	"cognida/internal/service/knowledge"
 	"cognida/internal/service/lifecycle"
 	"cognida/internal/service/lineage"
+	memorysvc "cognida/internal/service/memory"
 	"context"
 	"encoding/json"
+	"github.com/cloudwego/eino/components/embedding"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -35,6 +37,8 @@ import (
 // FeatureServices is assembled with the same storage and service dependencies
 // as the legacy endpoints, so the new console does not create parallel stores.
 type FeatureServices struct {
+	Memory             *memorysvc.Service
+	MemoryHandler      *handler.MemoryHandler
 	Catalog            *catalog.Service
 	Lineage            *lineage.Service
 	CatalogHandler     *handler.CatalogHandler
@@ -57,7 +61,7 @@ func ProvideObjectStore(cfg *config.Config) (objectstore.Store, error) {
 type featureClock struct{}
 
 func (featureClock) Now() time.Time { return time.Now() }
-func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Service, graph neo4j.DriverWithContext, auditWriter *audit.Writer, store objectstore.Store, redisClient *redis.Client, processor knowledge.DocumentProcessorService, fetcher collectionmodel.Fetcher, collections *collection.Service, collectionRepo collectionmodel.Repository) (*FeatureServices, error) {
+func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Service, graph neo4j.DriverWithContext, auditWriter *audit.Writer, store objectstore.Store, redisClient *redis.Client, processor knowledge.DocumentProcessorService, fetcher collectionmodel.Fetcher, collections *collection.Service, collectionRepo collectionmodel.Repository, embedder embedding.Embedder) (*FeatureServices, error) {
 	repo := mysql.NewCatalogRepository(db)
 	catalogService := catalog.NewService(repo, source.ConnectionManager(), source, catalog.AuditWriter{Writer: auditWriter})
 	var lineageService *lineage.Service
@@ -69,6 +73,12 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		lineageService = lineage.NewService(graphrepo.NewLineageRepository(graph, database), repo, mysql.NewSemanticRepository(db))
 	}
 	f := &FeatureServices{Catalog: catalogService, Lineage: lineageService, CatalogHandler: handler.NewCatalogHandler(catalogService)}
+	embeddingModelID := ""
+	if cfg.Embedding != nil && embedder != nil {
+		embeddingModelID = cfg.Embedding.Provider + ":" + cfg.Embedding.Model + ":" + cfg.Embedding.BaseURL + ":v1"
+	}
+	f.Memory = memorysvc.NewService(mysql.NewLongTermMemoryRepository(db), embedder, embeddingModelID)
+	f.MemoryHandler = handler.NewMemoryHandler(f.Memory)
 	if lineageService != nil {
 		f.LineageHandler = handler.NewLineageHandler(lineageService)
 	}
@@ -87,7 +97,7 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		}
 		requestID, _ := agentmodel.GetRequestID(ctx)
 		auditWriter.Enqueue(auditmodel.NewAuditLog(&p.TenantID, &p.UserID, "lifecycle", action).WithResource("lifecycle", &resource, nil).WithDetails(string(body)).WithRequest(&requestID, nil))
-	}, Compute: compute, Authorize: authorize, Access: featureAccess(db, source, catalogService, fetcher, store, resultstore.NewRedisStore(redisClient)), Publish: featurePublication(processor, catalogService)})
+	}, Compute: compute, Authorize: authorize, Access: featureAccess(db, source, catalogService, fetcher, store, resultstore.NewRedisStore(redisClient)), Publish: featurePublication(processor, catalogService), ValidatePublication: featurePublicationValidator(db, catalogService)})
 	if err != nil {
 		return nil, err
 	}
