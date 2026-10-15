@@ -10,6 +10,7 @@ import (
 	collectionmodel "cognida/internal/model/collection"
 	l "cognida/internal/model/lifecycle"
 	"cognida/internal/model/objectstore"
+	taskmodel "cognida/internal/model/taskcontrol"
 	"cognida/internal/repository/mysql"
 	graphrepo "cognida/internal/repository/neo4j"
 	"cognida/internal/service/agent/framework"
@@ -23,6 +24,7 @@ import (
 	"cognida/internal/service/lifecycle"
 	"cognida/internal/service/lineage"
 	memorysvc "cognida/internal/service/memory"
+	tasksvc "cognida/internal/service/taskcontrol"
 	"context"
 	"encoding/json"
 	"github.com/cloudwego/eino/components/embedding"
@@ -37,6 +39,8 @@ import (
 // FeatureServices is assembled with the same storage and service dependencies
 // as the legacy endpoints, so the new console does not create parallel stores.
 type FeatureServices struct {
+	TaskControl        *tasksvc.Service
+	TaskControlHandler *handler.TaskControlHandler
 	Memory             *memorysvc.Service
 	MemoryHandler      *handler.MemoryHandler
 	Catalog            *catalog.Service
@@ -104,6 +108,20 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	f.Lifecycle = life
 	f.LifecycleHandler = handler.NewLifecycleHandler(life)
 	f.LifecycleWorker = lifecycle.NewWorker(life)
+	validator, err := tasksvc.NewValidator(tasksvc.LifecycleCapabilities(lifecycle.Contracts()), func(ctx context.Context, p taskmodel.Scope, scope string) error {
+		return authorize(ctx, l.Principal{TenantID: p.TenantID, UserID: p.UserID}, scope)
+	}, func(ctx context.Context, p taskmodel.Scope, ref l.RefID) (l.Kind, error) {
+		asset, _, err := life.Resolve(ctx, p.TenantID, p.UserID, ref)
+		return asset.Kind, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	f.TaskControl, err = tasksvc.NewService(mysql.NewTaskControlRepository(db), validator)
+	if err != nil {
+		return nil, err
+	}
+	f.TaskControlHandler = handler.NewTaskControlHandler(f.TaskControl)
 	f.Governance = governance.NewService(mysql.NewGovernanceRepository(db), life, compute, job.NewRedisQueueWithPrefix(redisClient, "governance:jobs"), authorize)
 	f.Governance.ValidateSource, f.Governance.Apply, f.Governance.DiscoverSource = NewSuggestionHooks(db, processor)
 	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)

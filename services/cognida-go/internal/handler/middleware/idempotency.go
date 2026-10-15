@@ -75,7 +75,11 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 		// Private memories implement durable, payload-aware idempotency themselves.
 		// Never retain or replay their content after an update/deletion.
 		path := c.FullPath()
-		if path == "/api/v1/memories" || strings.HasPrefix(path, "/api/v1/memories/") {
+		// Governed task drafts likewise own durable payload-aware idempotency.
+		// Preflight and retries must recheck current source permissions, not replay
+		// a cached validation or hide a same-key/different-plan conflict.
+		if path == "/api/v1/memories" || strings.HasPrefix(path, "/api/v1/memories/") ||
+			path == "/api/v1/governed-tasks" || strings.HasPrefix(path, "/api/v1/governed-tasks/") {
 			c.Next()
 			return
 		}

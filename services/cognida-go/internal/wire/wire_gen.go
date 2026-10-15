@@ -1228,6 +1228,9 @@ func ProvideApp(
 	embedder embedding.Embedder,
 ) *App {
 	r.AddTenantRoutes(features.MemoryHandler.Register)
+	if features.TaskControlHandler != nil {
+		r.AddTenantRoutes(features.TaskControlHandler.Register)
+	}
 	r.AddTenantRoutes(features.CatalogHandler.Register)
 	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
 	r.AddTenantRoutes(features.GovernanceHandler.Register)
