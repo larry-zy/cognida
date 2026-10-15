@@ -26,6 +26,7 @@ import (
 	"cognida/internal/service/lineage"
 	memorysvc "cognida/internal/service/memory"
 	tasksvc "cognida/internal/service/taskcontrol"
+	"cognida/internal/service/taskcontrol/governanceadapter"
 	"cognida/internal/service/taskcontrol/lifecycleadapter"
 	"context"
 	"encoding/json"
@@ -35,6 +36,7 @@ import (
 	"gorm.io/gorm"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -95,7 +97,19 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	f.CatalogHandler.Authorize = func(ctx context.Context, tenant, user int64, scope string) error {
 		return authorize(ctx, l.Principal{TenantID: tenant, UserID: user}, scope)
 	}
-	life, err := lifecycle.NewService(mysql.NewLifecycleRepository(db), store, job.NewRedisQueueWithPrefix(redisClient, "lifecycle:jobs"), lifecycle.Config{Audit: func(ctx context.Context, p l.Principal, action, resource string, details map[string]any) {
+	originValidator := func(ctx context.Context, p l.Principal, ref l.DataAssetRef) error {
+		if f.Governance == nil {
+			return l.ErrForbidden
+		}
+		if strings.HasPrefix(ref.ProducerID, "feature-materialization:") {
+			return f.Governance.ValidateFeatureMaterializationOrigin(ctx, p, ref)
+		}
+		if strings.HasPrefix(ref.ProducerID, "governance-governed:") {
+			return f.Governance.ValidateGovernedOrigin(ctx, p, ref)
+		}
+		return l.ErrForbidden
+	}
+	life, err := lifecycle.NewService(mysql.NewLifecycleRepository(db), store, job.NewRedisQueueWithPrefix(redisClient, "lifecycle:jobs"), lifecycle.Config{ValidateGovernedOrigin: originValidator, Audit: func(ctx context.Context, p l.Principal, action, resource string, details map[string]any) {
 		if auditWriter == nil {
 			return
 		}
@@ -112,7 +126,21 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	f.Lifecycle = life
 	f.LifecycleHandler = handler.NewLifecycleHandler(life)
 	f.LifecycleWorker = lifecycle.NewWorker(life)
-	validator, err := tasksvc.NewValidator(tasksvc.LifecycleCapabilities(lifecycle.Contracts()), func(ctx context.Context, p taskmodel.Scope, scope string) error {
+	f.Governance = governance.NewService(mysql.NewGovernanceRepository(db), life, compute, job.NewRedisQueueWithPrefix(redisClient, "governance:jobs"), authorize)
+	f.Governance.ValidateSource, f.Governance.Apply, f.Governance.DiscoverSource = NewSuggestionHooks(db, processor)
+	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)
+	f.GovernanceWorker = governance.NewWorker(f.Governance)
+	adapters := map[string]tasksvc.ExecutionAdapter{}
+	capabilities := tasksvc.LifecycleCapabilities(lifecycle.Contracts())
+	for _, id := range []string{"governance.tagging", "governance.classification", "governance.named_entity", "governance.qa", "governance.feature-engineering"} {
+		adapter, err := governanceadapter.New(f.Governance, life, id)
+		if err != nil {
+			return nil, err
+		}
+		adapters[id] = adapter
+		capabilities = append(capabilities, adapter.Capability())
+	}
+	validator, err := tasksvc.NewValidator(capabilities, func(ctx context.Context, p taskmodel.Scope, scope string) error {
 		return authorize(ctx, l.Principal{TenantID: p.TenantID, UserID: p.UserID}, scope)
 	}, func(ctx context.Context, p taskmodel.Scope, ref l.RefID) (l.Kind, error) {
 		asset, _, err := life.Resolve(ctx, p.TenantID, p.UserID, ref)
@@ -132,7 +160,6 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		return nil, err
 	}
 	f.TaskControlHandler.SetSupervisor(supervisor)
-	adapters := map[string]tasksvc.ExecutionAdapter{}
 	for _, capability := range []string{"lifecycle.data-quality", "lifecycle.data-cleaning", "lifecycle.data-enrichment", "lifecycle.data-evaluation"} {
 		adapter, err := lifecycleadapter.New(life, capability)
 		if err != nil {
@@ -142,16 +169,14 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	}
 	// Disabling this flag blocks new starts. Existing executions still reconcile,
 	// honour deadlines and propagate cancellation while workers are enabled.
-	f.TaskRuntime, err = tasksvc.NewRuntime(f.TaskControl, taskRepo, adapters, os.Getenv("TASK_CONTROL_EXECUTION_ENABLED") != "false" && os.Getenv("BACKGROUND_WORKERS_ENABLED") != "false")
+	f.TaskRuntime, err = tasksvc.NewRuntime(f.TaskControl, taskRepo, adapters, os.Getenv("TASK_CONTROL_EXECUTION_ENABLED") != "false" && os.Getenv("BACKGROUND_WORKERS_ENABLED") != "false", func(ctx context.Context, p taskmodel.Scope, refs []l.RefID) error {
+		return life.ValidateGovernedInputs(ctx, l.Principal{TenantID: p.TenantID, UserID: p.UserID}, refs)
+	})
 	if err != nil {
 		return nil, err
 	}
 	f.TaskControlHandler.SetRuntime(f.TaskRuntime)
 	f.TaskRuntimeWorker = tasksvc.NewRuntimeWorker(f.TaskRuntime)
-	f.Governance = governance.NewService(mysql.NewGovernanceRepository(db), life, compute, job.NewRedisQueueWithPrefix(redisClient, "governance:jobs"), authorize)
-	f.Governance.ValidateSource, f.Governance.Apply, f.Governance.DiscoverSource = NewSuggestionHooks(db, processor)
-	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)
-	f.GovernanceWorker = governance.NewWorker(f.Governance)
 	f.CollectionSchedule = collection.NewScheduleDispatcher(collectionRepo, collections, featureClock{}, 100)
 	return f, nil
 }

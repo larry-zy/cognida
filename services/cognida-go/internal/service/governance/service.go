@@ -21,6 +21,7 @@ type AssetService interface {
 type SourceValidator func(context.Context, l.Principal, d.SuggestionSource) error
 type ApplySuggestion func(context.Context, l.Principal, d.Suggestion) (string, error)
 type Service struct {
+	governedInputs GovernedInputValidator
 	Repo           d.Repository
 	Assets         AssetService
 	Compute        lifecycle.Compute
@@ -96,6 +97,9 @@ func (s *Service) List(ctx context.Context, p l.Principal, f d.Filter) (*d.Page[
 	if f.Kind == "notification" || f.Kind == "subscription" || f.Kind == "subscription_run" {
 		f.UserID = p.UserID
 	}
+	if f.Kind == "annotation_task" || f.Kind == "tagging_task" {
+		f.GovernedOwnerID = p.UserID
+	}
 	if f.Kind == "suggestion" && s.authorize(ctx, p, "admin") != nil {
 		f.UserID = p.UserID
 	}
@@ -114,6 +118,18 @@ func View(record *d.Record) (map[string]any, error) {
 	var out map[string]any
 	if err := json.Unmarshal(record.Payload, &out); err != nil {
 		return nil, err
+	}
+	if record.Kind == "feature" || record.Kind == "feature_version" {
+		if exact, ok := out["definition_exact"].(string); ok && exact != "" {
+			var definition any
+			decoder := json.NewDecoder(strings.NewReader(exact))
+			decoder.UseNumber()
+			if err := decoder.Decode(&definition); err != nil {
+				return nil, err
+			}
+			out["definition"] = definition
+		}
+		delete(out, "definition_exact")
 	}
 	meta, _ := json.Marshal(record.Meta)
 	var fields map[string]any

@@ -25,7 +25,7 @@ const routes: RouteRecordRaw[] = [
       {path: '/experts', name: 'ExpertWorkbench', component: () => import('@/views/lifecycle/LifecycleWorkbench.vue'), meta: {title: '专家工作台'}},
       {path: '/subscriptions', name: 'Subscriptions', component: () => import('@/views/governance/SubscriptionsView.vue'), meta: {title: '报告与指标看护'}},
       {path: '/labeling', name: 'Labeling', component: () => import('@/views/governance/LabelingWorkbench.vue'), meta: {title: '标注与打标'}},
-      {path: '/features', name: 'Features', component: () => import('@/views/governance/FeaturesView.vue'), meta: {title: '特征存储'}},
+      {path: '/features', name: 'Features', component: () => import('@/views/governance/FeaturesView.vue'), meta: {title: '特征工程'}},
       {path: "/semantic-models", name: "SemanticModels", component: () => import("@/views/semantic/SemanticModels.vue"), meta: {title: "语义建模"}},
       {
         path: '/home',

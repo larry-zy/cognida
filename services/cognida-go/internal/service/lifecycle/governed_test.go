@@ -204,7 +204,7 @@ func TestGovernedSourcesRejectExternalLegacyCyclesAndBounds(t *testing.T) {
 	require.ErrorIs(t, s.ValidateGovernedInputs(ctx, p, []d.RefID{derived.RefID}), d.ErrInvalid)
 	r.assets[derived.RefID.String()] = derived
 	parent := root.RefID
-	for i := 0; i < 18; i++ {
+	for i := 0; i < 17; i++ {
 		next, e := s.ImportDerived(ctx, p, d.QualityReport, uuid.NewString(), []d.RefID{parent}, body, root.Policy)
 		require.NoError(t, e)
 		parent = next.RefID

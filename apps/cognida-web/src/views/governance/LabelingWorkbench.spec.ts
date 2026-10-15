@@ -1,8 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+vi.mock("@/stores/auth", () => ({
+  useAuthStore: () => ({
+    authEpoch: 0,
+    user: { id: 1 },
+    currentTenant: { id: 1 },
+    token: "test-token",
+  }),
+}));
+vi.mock("vue-router", () => ({ useRoute: () => ({ query: {} }) }));
 const api = vi.hoisted(() => ({
   list: vi.fn(),
+  get: vi.fn(),
+  previewFeature: vi.fn(),
   update: vi.fn(),
+  create: vi.fn(),
   action: vi.fn(),
 }));
 vi.mock("@/api/governance", () => ({ governanceApi: api }));
@@ -52,7 +64,9 @@ beforeEach(() => {
 });
 async function open(mode = "annotation", type = "classification") {
   task.type = type;
-  const wrapper = mount(LabelingWorkbench);
+  const wrapper = mount(LabelingWorkbench, {
+    global: { stubs: { RouterLink: true } },
+  });
   await flushPromises();
   if (mode === "tagging") {
     await wrapper

@@ -1,25 +1,23 @@
 package governance
 
 import (
-	"bytes"
 	d "cognida/internal/model/governance"
 	l "cognida/internal/model/lifecycle"
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/google/uuid"
 	"math"
 	"strconv"
 	"time"
 )
 
-type featureDefinition struct {
-	Kind        string `json:"kind"`
-	Field       string `json:"field"`
-	EntityField string `json:"entity_field"`
-}
-
 func (s *Service) validateFeature(ctx context.Context, p l.Principal, in d.Feature) error {
+	if s.Assets == nil {
+		return d.ErrForbidden
+	}
+	if err := s.authorize(ctx, p, "read"); err != nil {
+		return err
+	}
 	if in.Name == "" || len(in.Name) > 128 || len(in.Description) > 4000 {
 		return d.ErrInvalid
 	}
@@ -28,29 +26,54 @@ func (s *Service) validateFeature(ctx context.Context, p l.Principal, in d.Featu
 	default:
 		return d.ErrInvalid
 	}
-	var def featureDefinition
-	if json.Unmarshal(in.Definition, &def) != nil || def.Kind != "field" || def.Field == "" {
-		return fmt.Errorf("%w: field definition required", d.ErrInvalid)
+	def, err := parseFeatureDefinition(in.Definition)
+	if err != nil {
+		return err
 	}
 	_, input, err := s.input(ctx, p, in.SourceRefID, false)
 	if err != nil {
 		return err
 	}
-	if input.Kind != "table" {
-		return d.ErrInvalid
+	if input.Kind != "table" || len(input.Rows) > featureRowsLimit {
+		return featureErr("input_limit", "feature input must be a table of 1..1000 rows")
 	}
-	found := false
-	entityFound := def.EntityField == ""
-	for _, col := range input.Columns {
-		if col == def.Field {
-			found = true
+	fields := map[string]bool{}
+	for _, c := range input.Columns {
+		if fields[c] {
+			return featureErr("duplicate_column", "source columns must be unique")
 		}
-		if col == def.EntityField {
-			entityFound = true
+		fields[c] = true
+	}
+	check := func(field string) error {
+		if field != "" && !fields[field] {
+			return &d.FeatureError{Code: "missing_field", Field: field, Message: "column is absent in source"}
+		}
+		return nil
+	}
+	for _, field := range []string{def.Field, def.EntityField, def.EventTimeField} {
+		if err = check(field); err != nil {
+			return err
 		}
 	}
-	if !found || !entityFound {
-		return fmt.Errorf("%w: feature field absent in source", d.ErrInvalid)
+	var visit func(d.FeatureExpression) error
+	visit = func(e d.FeatureExpression) error {
+		if e.Op == "column" {
+			if err := check(e.Field); err != nil {
+				return err
+			}
+		}
+		for _, a := range e.Args {
+			if err := visit(a); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if def.Expression != nil {
+		return visit(*def.Expression)
+	}
+	if def.Kind == "window_aggregate" && in.Type != "numerical" {
+		return featureErr("invalid_type", "window aggregates produce numerical values")
 	}
 	return nil
 }
@@ -59,6 +82,7 @@ func (s *Service) CreateFeature(ctx context.Context, p l.Principal, in d.Feature
 		return nil, err
 	}
 	in.Meta = d.Meta{}
+	in.DefinitionExact = string(in.Definition)
 	var record *d.Record
 	err := s.Repo.Transaction(ctx, func(repo d.Repository) error {
 		tx := *s
@@ -69,8 +93,11 @@ func (s *Service) CreateFeature(ctx context.Context, p l.Principal, in d.Feature
 			return err
 		}
 		var original d.Feature
-		if err = json.Unmarshal(record.Payload, &original); err != nil {
+		if err = decodeStoredFeature(record.Payload, &original); err != nil {
 			return err
+		}
+		if original.Name != in.Name || original.Type != in.Type || original.Description != in.Description || original.SourceRefID != in.SourceRefID || !d.JSONEqual(original.Definition, in.Definition) {
+			return d.ErrConflict
 		}
 		return tx.storeFeatureVersion(ctx, record, original, record.Version)
 	})
@@ -91,7 +118,7 @@ func (s *Service) storeFeatureVersion(ctx context.Context, head *d.Record, in d.
 		return err
 	}
 	var old d.Feature
-	if err = json.Unmarshal(record.Payload, &old); err != nil {
+	if err = decodeStoredFeature(record.Payload, &old); err != nil {
 		return err
 	}
 	if old.Name != in.Name || old.Type != in.Type || old.SourceRefID != in.SourceRefID || !d.JSONEqual(old.Definition, in.Definition) || old.Description != in.Description {
@@ -111,6 +138,7 @@ func (s *Service) NewFeatureVersion(ctx context.Context, p l.Principal, id strin
 		return nil, d.ErrConflict
 	}
 	in.Meta = d.Meta{}
+	in.DefinitionExact = string(in.Definition)
 	err = s.Repo.Transaction(ctx, func(repo d.Repository) error {
 		tx := *s
 		tx.Repo = repo
@@ -137,7 +165,7 @@ func (s *Service) featureVersion(ctx context.Context, p l.Principal, id string, 
 		return d.Feature{}, err
 	}
 	var f d.Feature
-	err = json.Unmarshal(record.Payload, &f)
+	err = decodeStoredFeature(record.Payload, &f)
 	return f, err
 }
 func validateFeatureValue(kind string, raw json.RawMessage) error {
@@ -198,6 +226,16 @@ func (s *Service) WriteFeatures(ctx context.Context, p l.Principal, values []d.F
 		if v.EntityID == "" || len(v.EntityID) > 128 || v.Timestamp.IsZero() || v.Timestamp.After(time.Now().Add(time.Minute)) {
 			return d.ErrInvalid
 		}
+		if v.ValueExact != "" {
+			exact := json.RawMessage(v.ValueExact)
+			if len(v.Value) > 0 && string(v.Value) != "null" && !d.JSONEqual(v.Value, exact) {
+				return featureErr("conflicting_value", "value and value_exact must agree when both are provided")
+			}
+			if err := validateFeatureValue(f.Type, exact); err != nil {
+				return err
+			}
+			v.Value = exact
+		}
 		if err := validateFeatureValue(f.Type, v.Value); err != nil {
 			return err
 		}
@@ -219,74 +257,39 @@ func (s *Service) QueryFeatures(ctx context.Context, p l.Principal, entities []s
 	}
 	return s.Repo.FeatureQuery(ctx, p.TenantID, entities, features, at)
 }
+
+// ComputeFeatures retains the legacy endpoint while using the same atomic,
+// versioned materialization ledger as the new explicit API.
 func (s *Service) ComputeFeatures(ctx context.Context, p l.Principal, id string, version int) (int, error) {
+	r, err := s.MaterializeFeature(ctx, p, id, version, "legacy:"+id+":"+strconv.Itoa(version))
+	if err != nil {
+		return 0, err
+	}
+	return r.Count, nil
+}
+func (s *Service) GetFeatureVersion(ctx context.Context, p l.Principal, id string, version int) (d.Feature, error) {
+	return s.featureVersion(ctx, p, id, version)
+}
+func (s *Service) ValidateFeatureVersion(ctx context.Context, p l.Principal, id string, version int, sourceRef string) error {
 	f, err := s.featureVersion(ctx, p, id, version)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	var def featureDefinition
-	if err = json.Unmarshal(f.Definition, &def); err != nil {
-		return 0, err
+	if f.SourceRefID != sourceRef {
+		return d.ErrConflict
 	}
-	ref, input, err := s.input(ctx, p, f.SourceRefID, false)
-	if err != nil {
-		return 0, err
+	return s.validateFeature(ctx, p, f)
+}
+
+func decodeStoredFeature(raw json.RawMessage, f *d.Feature) error {
+	if err := json.Unmarshal(raw, f); err != nil {
+		return err
 	}
-	if input.Kind != "table" || len(input.Rows) > 1000 {
-		return 0, d.ErrInvalid
-	}
-	field, entity := -1, -1
-	for i, col := range input.Columns {
-		if col == def.Field {
-			field = i
+	if f.DefinitionExact != "" {
+		if !json.Valid([]byte(f.DefinitionExact)) {
+			return d.ErrInvalid
 		}
-		if col == def.EntityField {
-			entity = i
-		}
+		f.Definition = []byte(f.DefinitionExact)
 	}
-	if field < 0 || (def.EntityField != "" && entity < 0) {
-		return 0, d.ErrInvalid
-	}
-	values := []d.FeatureValue{}
-	for i, row := range input.Rows {
-		if row[field] == nil {
-			continue
-		}
-		v := row[field]
-		if f.Type == "numerical" {
-			// Validation may use float64 for finiteness, but never replace the
-			// original decimal spelling with a rounded floating-point value.
-			number := json.Number(fmt.Sprint(v))
-			parsed, e := number.Float64()
-			if e != nil || math.IsInf(parsed, 0) || math.IsNaN(parsed) || !json.Valid([]byte(number)) {
-				return 0, d.ErrInvalid
-			}
-			v = number
-		}
-		if f.Type == "vector" {
-			if raw, ok := v.(string); ok {
-				decoder := json.NewDecoder(bytes.NewReader([]byte(raw)))
-				decoder.UseNumber()
-				if !json.Valid([]byte(raw)) || decoder.Decode(&v) != nil {
-					return 0, d.ErrInvalid
-				}
-			}
-		}
-		raw, e := json.Marshal(v)
-		if e != nil {
-			return 0, e
-		}
-		entityID := fmt.Sprintf("%s:%d", ref.AssetID, i)
-		if entity >= 0 {
-			if row[entity] == nil {
-				return 0, d.ErrInvalid
-			}
-			entityID = fmt.Sprint(row[entity])
-		}
-		values = append(values, d.FeatureValue{FeatureID: id, Version: version, EntityID: entityID, Value: raw, Timestamp: ref.CreatedAt})
-	}
-	if len(values) == 0 {
-		return 0, nil
-	}
-	return len(values), s.WriteFeatures(ctx, p, values)
+	return nil
 }

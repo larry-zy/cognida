@@ -160,9 +160,15 @@ func (s *Service) authorizeGoverned(ctx context.Context, p d.Principal) error {
 	return s.authorize(ctx, p, "read")
 }
 
+// ValidateGovernedPrincipal lets trusted source adapters recheck the current
+// account and membership before outbound work without fabricating an asset.
+func (s *Service) ValidateGovernedPrincipal(ctx context.Context, p d.Principal) error {
+	return s.authorizeGoverned(ctx, p)
+}
+
 // ValidateGovernedInputs permits only integrity-checked, available snapshots
-// whose complete parent chain ends at a manual upload. External and legacy
-// unknown roots remain disabled until original-source revocation is supported.
+// whose complete parent chain ends at a manual upload or a registered origin
+// validated by its owning service. Unknown external and legacy roots are denied.
 func (s *Service) ValidateGovernedInputs(ctx context.Context, p d.Principal, refs []d.RefID) error {
 	if err := s.authorizeGoverned(ctx, p); err != nil {
 		return err
@@ -196,7 +202,7 @@ func (s *Service) ValidateGovernedInputs(ctx context.Context, p d.Principal, ref
 		if ref.TenantID != p.TenantID || ref.Provenance.SourceType != "lifecycle" || ref.Provenance.SourceID != ref.ProducerID {
 			return d.ErrForbidden
 		}
-		if len(ref.Parents) == 0 {
+		if len(ref.Parents) == 0 && !governedOrigin(ref) {
 			if ref.Kind != d.RawAsset || !strings.HasPrefix(ref.ProducerID, "upload:") || len(ref.ProducerID) <= len("upload:") {
 				return d.ErrForbidden
 			}

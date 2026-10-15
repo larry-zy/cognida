@@ -10,26 +10,14 @@ import (
 )
 
 func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.AnnotationTask, key string) (*d.Record, error) {
-	if in.Name == "" || len(in.Name) > 128 || len(in.Labels) == 0 || len(in.Labels) > 100 {
-		return nil, d.ErrInvalid
-	}
-	switch in.Type {
-	case "classification", "named_entity", "relation":
-	default:
-		return nil, d.ErrInvalid
-	}
-	labels := map[string]bool{}
-	for _, label := range in.Labels {
-		if label.ID == "" || label.Name == "" || labels[label.ID] || len(label.Name) > 128 {
-			return nil, d.ErrInvalid
-		}
-		labels[label.ID] = true
+	if err := validateAnnotationTask(in); err != nil {
+		return nil, err
 	}
 	_, input, err := s.input(ctx, p, in.SourceRefID, false)
 	if err != nil {
 		return nil, err
 	}
-	if _, err = texts(input); err != nil {
+	if _, err = annotationSources(input, in); err != nil {
 		return nil, err
 	}
 	in.Meta = d.Meta{}
@@ -37,6 +25,13 @@ func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.Anno
 	record, err := s.create(ctx, p, "annotation_task", "", "building", key, in, nil)
 	if err != nil {
 		return nil, err
+	}
+	var previous d.AnnotationTask
+	if json.Unmarshal(record.Payload, &previous) != nil {
+		return nil, d.ErrInvalid
+	}
+	if !sameAnnotationDefinition(in, previous) {
+		return nil, d.ErrConflict
 	}
 	if record.Status == "ready" {
 		return record, nil
@@ -48,12 +43,12 @@ func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.Anno
 	if err != nil {
 		return nil, err
 	}
-	contents, err := texts(input)
+	contents, err := annotationSources(input, in)
 	if err != nil {
 		return nil, err
 	}
-	for i, text := range contents {
-		item := d.AnnotationItem{TaskID: record.ID, Content: text, Annotation: d.Annotation{Labels: []string{}, Entities: []d.Entity{}, Relations: []d.Relation{}}, Provenance: d.Provenance{Source: "unlabeled", Evidence: []string{}}, ReviewStatus: "pending"}
+	for i, source := range contents {
+		item := d.AnnotationItem{TaskID: record.ID, Content: source.Content, Annotation: d.Annotation{Labels: []string{}, Entities: []d.Entity{}, Relations: []d.Relation{}}, Provenance: d.Provenance{Source: "unlabeled", DecisionStatus: "uncertain", Evidence: []string{}}, ReviewStatus: "pending"}
 		if _, err = s.create(ctx, p, "annotation_item", record.ID, "pending", fmt.Sprintf("%s:%d", record.ID, i), item, nil); err != nil {
 			return nil, err
 		}
@@ -66,6 +61,16 @@ func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.Anno
 	return record, nil
 }
 func validateAnnotation(task d.AnnotationTask, content string, a d.Annotation) error {
+	if task.Type == "qa" {
+		if a.QA == nil || strings.TrimSpace(a.QA.Question) == "" || strings.TrimSpace(a.QA.ReferenceAnswer) == "" || len([]rune(a.QA.Question)) > 20000 || len([]rune(a.QA.ReferenceAnswer)) > 100000 || len(a.Labels)+len(a.Entities)+len(a.Relations) > 0 {
+			return d.ErrInvalid
+		}
+		return nil
+	}
+	if a.QA != nil {
+		return d.ErrInvalid
+	}
+
 	labels := map[string]bool{}
 	for _, v := range task.Labels {
 		labels[v.ID] = true
@@ -129,7 +134,7 @@ func (s *Service) UpdateAnnotation(ctx context.Context, p l.Principal, taskID, i
 		return nil, err
 	}
 	item.Annotation = a
-	item.Provenance = d.Provenance{Source: "human", Method: "manual", Evidence: []string{}}
+	item.Provenance = d.Provenance{Source: "human", Method: "manual", DecisionStatus: "manual", Evidence: []string{}}
 	item.ReviewStatus = "pending"
 	item.ReviewedBy = 0
 	item.ReviewComment = ""
@@ -159,6 +164,19 @@ func (s *Service) ReviewAnnotation(ctx context.Context, p l.Principal, taskID, i
 	if err = json.Unmarshal(record.Payload, &item); err != nil {
 		return nil, err
 	}
+	if decision == "approved" {
+		taskRecord, e := s.Get(ctx, p, "annotation_task", taskID)
+		if e != nil {
+			return nil, e
+		}
+		var task d.AnnotationTask
+		if json.Unmarshal(taskRecord.Payload, &task) != nil {
+			return nil, d.ErrInvalid
+		}
+		if e = validateAnnotation(task, item.Content, item.Annotation); e != nil {
+			return nil, e
+		}
+	}
 	item.ReviewStatus = decision
 	item.ReviewedBy = p.UserID
 	item.ReviewComment = comment
@@ -173,11 +191,23 @@ func (s *Service) Preannotate(ctx context.Context, p l.Principal, id string) err
 		return err
 	}
 	var task d.AnnotationTask
-	if err = json.Unmarshal(taskRecord.Payload, &task); err != nil {
+	if json.Unmarshal(taskRecord.Payload, &task) != nil {
+		return d.ErrInvalid
+	}
+	if task.Type == "relation" {
+		return fmt.Errorf("%w: relation preannotation is not supported; annotate manually", d.ErrInvalid)
+	}
+	_, input, err := s.input(ctx, p, task.SourceRefID, false)
+	if err != nil {
 		return err
 	}
-	if task.Type != "classification" {
-		return fmt.Errorf("%w: rule preannotation supports classification; use manual spans for entity/relation tasks", d.ErrInvalid)
+	sources, err := annotationSources(input, task)
+	if err != nil {
+		return err
+	}
+	byContent := map[string]annotationSource{}
+	for _, source := range sources {
+		byContent[source.Content] = source
 	}
 	cursor := ""
 	for {
@@ -186,27 +216,29 @@ func (s *Service) Preannotate(ctx context.Context, p l.Principal, id string) err
 			return err
 		}
 		for _, record := range page.Items {
-			var item d.AnnotationItem
-			if err = json.Unmarshal(record.Payload, &item); err != nil {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if item.Provenance.Source == "human" || item.ReviewStatus == "approved" {
+			var item d.AnnotationItem
+			if json.Unmarshal(record.Payload, &item) != nil {
+				return d.ErrInvalid
+			}
+			if item.Provenance.Source == "human" || item.ReviewStatus == "approved" || item.ReviewStatus == "rejected" {
 				continue
 			}
-			matches := []string{}
-			evidence := []string{}
-			for _, label := range task.Labels {
-				if strings.Contains(strings.ToLower(item.Content), strings.ToLower(label.Name)) {
-					matches = append(matches, label.ID)
-					evidence = append(evidence, label.Name)
-				}
+			source, ok := byContent[item.Content]
+			if !ok {
+				return d.ErrConflict
 			}
-			confidence := 0.5
-			if len(matches) == 0 {
-				confidence = 0
+			annotation, provenance, err := candidateFor(task, source)
+			if err != nil {
+				return err
 			}
-			item.Annotation.Labels = matches
-			item.Provenance = d.Provenance{Source: "rules", Method: "literal_label_match", Confidence: &confidence, Evidence: evidence}
+			if err = validateAnnotation(task, item.Content, annotation); err != nil {
+				return err
+			}
+			item.Annotation = annotation
+			item.Provenance = provenance
 			item.ReviewStatus = "pending"
 			item.ReviewedBy = 0
 			item.ReviewComment = ""
@@ -219,4 +251,16 @@ func (s *Service) Preannotate(ctx context.Context, p l.Principal, id string) err
 		}
 		cursor = page.NextCursor
 	}
+}
+
+func sameAnnotationDefinition(a, b d.AnnotationTask) bool {
+	a.Meta = d.Meta{}
+	b.Meta = d.Meta{}
+	a.Status = ""
+	b.Status = ""
+	a.ItemCount = 0
+	b.ItemCount = 0
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return d.JSONEqual(x, y)
 }

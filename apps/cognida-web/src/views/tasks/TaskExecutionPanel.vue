@@ -23,7 +23,7 @@
         <p v-else class="wb-muted">当前计划尚不能启动。</p>
         <ul v-if="readiness.blockers?.length" class="execution-blockers"><li v-for="(blocker, index) in readiness.blockers" :key="index"><strong v-if="blocker.node_id">{{ nodeLabel(blocker.node_id) }}：</strong>{{ blocker.message }}<details><summary>阻塞标识</summary><span>{{ blocker.code }}</span></details></li></ul>
       </template>
-      <p class="wb-muted small">仅开放质量检查、清洗、规则增强与本地完整性评估的固定预置；输入限可信手工资产及其派生链。外部来源、发布、模型分析与任意脚本暂未接通。</p>
+      <p class="wb-muted small">按保存的领域参数执行。特征工程使用固定定义版本与来源；知识标签和训练／评测样本产出候选，等待人工审核。发布与任意脚本仍需独立接入。</p>
     </div>
     <dl v-if="task.started_at || task.deadline_at || task.finished_at" class="execution-times"><div v-if="task.started_at"><dt>开始时间</dt><dd>{{ timeLabel(task.started_at) }}</dd></div><div v-if="task.deadline_at"><dt>执行期限</dt><dd>{{ timeLabel(task.deadline_at) }}</dd></div><div v-if="task.finished_at"><dt>结束时间</dt><dd>{{ timeLabel(task.finished_at) }}</dd></div></dl>
     <template v-if="summary">
@@ -47,7 +47,7 @@ import type { ExecutionReadiness, GovernedTask, SavedPlan, TaskSummary } from '@
 import { assetLabel, capabilityLabel, statusLabel } from './labels'
 const props = defineProps<{ task: GovernedTask; summary?: TaskSummary; savedPlan?: SavedPlan; readiness?: ExecutionReadiness; error: string; readinessError: string; actionError: string; loading: boolean; busy: boolean; action: string; uncertain: boolean; candidatePending: boolean; canStart: boolean; canCancel: boolean; updatedAt: string }>()
 defineEmits<{ start: []; cancel: []; refresh: [] }>()
-function domainLink(item: { domain_kind?: string; domain_id?: string }) { if (!item.domain_id) return undefined; if (item.domain_kind === 'invocation') return { path: '/experts', query: { invocation_id: item.domain_id } }; if (item.domain_kind === 'run') return { path: '/pipelines', query: { run_id: item.domain_id } }; return undefined }
+function domainLink(item: { domain_kind?: string; domain_id?: string }) { if (!item.domain_id) return undefined; if (item.domain_kind === 'governance_execution') return { path: '/labeling', query: { execution_id: item.domain_id } }; if (item.domain_kind === 'feature_execution') return { path: '/features', query: { execution_id: item.domain_id } }; if (item.domain_kind === 'invocation') return { path: '/experts', query: { invocation_id: item.domain_id } }; if (item.domain_kind === 'run') return { path: '/pipelines', query: { run_id: item.domain_id } }; return undefined }
 const nodeLabel = (id: string) => { const node = props.savedPlan?.snapshot.nodes.find(node => node.id === id); return node ? `${capabilityLabel(node.capability)}（${id}）` : id }
 const timeLabel = (value: string) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN') }
 const orderedNodes = computed(() => {

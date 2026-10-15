@@ -6,7 +6,7 @@ const english: Record<string, string> = {
   报告与看护: "Reports and monitoring",
   标注与打标: "Annotation and tagging",
   标注与智能打标: "Annotation and tagging",
-  特征存储: "Feature store",
+  特征工程: "Feature engineering",
   反馈与改进: "Feedback and improvement",
   反馈与改进建议: "Improvement suggestions",
   语义建模: "Semantic modeling",

@@ -31,18 +31,19 @@ type InputBinding struct {
 }
 
 type Node struct {
-	ID                      string         `json:"id"`
-	Capability              string         `json:"capability"`
-	CapabilityVersion       int            `json:"capability_version"`
-	DependsOn               []string       `json:"depends_on"`
-	Inputs                  []InputBinding `json:"inputs"`
-	OutputKinds             []l.Kind       `json:"output_kinds"`
-	Tools                   []string       `json:"tools"`
-	Permissions             []string       `json:"permissions"`
-	MaxAttempts             int            `json:"max_attempts"`
-	MaxCallsPerAttempt      int            `json:"max_calls_per_attempt"`
-	MaxCostMicrosPerAttempt int64          `json:"max_cost_micros_per_attempt"`
-	TimeoutSeconds          int            `json:"timeout_seconds"`
+	Parameters              *NodeParameters `json:"parameters,omitempty"`
+	ID                      string          `json:"id"`
+	Capability              string          `json:"capability"`
+	CapabilityVersion       int             `json:"capability_version"`
+	DependsOn               []string        `json:"depends_on"`
+	Inputs                  []InputBinding  `json:"inputs"`
+	OutputKinds             []l.Kind        `json:"output_kinds"`
+	Tools                   []string        `json:"tools"`
+	Permissions             []string        `json:"permissions"`
+	MaxAttempts             int             `json:"max_attempts"`
+	MaxCallsPerAttempt      int             `json:"max_calls_per_attempt"`
+	MaxCostMicrosPerAttempt int64           `json:"max_cost_micros_per_attempt"`
+	TimeoutSeconds          int             `json:"timeout_seconds"`
 }
 
 type PlanSpec struct {
@@ -53,6 +54,7 @@ type PlanSpec struct {
 
 // Capability comes from trusted server configuration, never from a submitted plan.
 type Capability struct {
+	ParameterKind    string            `json:"parameter_kind,omitempty"`
 	ID               string            `json:"id"`
 	Version          int               `json:"version"`
 	Domain           string            `json:"domain"`
@@ -118,6 +120,11 @@ func NewValidator(capabilities []Capability, authorize Authorizer, resolve Resol
 		}
 		if _, ok := v.capabilities[c.ID]; ok {
 			return nil, d.ErrConflict
+		}
+		switch c.ParameterKind {
+		case "", "governance", "feature":
+		default:
+			return nil, d.ErrInvalid
 		}
 		if !uniqueIdentifiers(c.InputKinds) || !uniqueIdentifiers(c.OutputKinds) || !uniqueIdentifiers(c.Tools) || !uniqueIdentifiers(c.Permissions) || !uniqueIdentifiers(c.RequiredAnyInputKinds) || !uniqueIdentifiers(c.FirstInputPassthroughKinds) {
 			return nil, d.ErrInvalid
@@ -216,6 +223,9 @@ func (v *Validator) Validate(ctx context.Context, p d.Scope, plan PlanSpec) (*Va
 		}
 		if c.RequiresApproval {
 			result.ApprovalRequired = append(result.ApprovalRequired, n.ID)
+		}
+		if kind, valid := parameterKind(n.Parameters); !valid || kind != c.ParameterKind {
+			add(n.ID, "parameters", "parameter_mismatch", "provide exactly the typed parameter branch declared by the capability")
 		}
 		if len(n.Inputs) == 0 || len(n.Inputs) > 16 {
 			add(n.ID, "inputs", "invalid_inputs", "each node requires 1-16 input references")

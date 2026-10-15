@@ -40,15 +40,33 @@ func (s *Service) Handle(ctx context.Context, j job.Job) error {
 	if err := json.Unmarshal(j.Payload, &scope); err != nil {
 		return err
 	}
-	if scope.Kind != "subscription_run" && scope.Kind != "tagging_task" {
+	if scope.Kind != "subscription_run" && scope.Kind != "tagging_task" && scope.Kind != d.GovernedKind {
 		return d.ErrInvalid
 	}
-	record, err := s.Get(ctx, l.Principal{TenantID: scope.TenantID, UserID: scope.UserID}, scope.Kind, scope.ID)
+	p := l.Principal{TenantID: scope.TenantID, UserID: scope.UserID}
+	if p.Validate() != nil {
+		return d.ErrForbidden
+	}
+	var record *d.Record
+	var err error
+	if scope.Kind == d.GovernedKind {
+		// Recovery must still reconcile committed receipts after source access
+		// is revoked. New work validates full input authorization in runGoverned.
+		record, err = s.Repo.Get(ctx, p.TenantID, scope.Kind, scope.ID)
+		if err == nil && record.UserID != p.UserID {
+			return d.ErrForbidden
+		}
+	} else {
+		record, err = s.Get(ctx, p, scope.Kind, scope.ID)
+	}
 	if err != nil {
 		return err
 	}
-	if record.Status == "completed" || record.Status == "failed" {
+	if record.Status == "completed" || record.Status == "failed" || record.Status == "cancelled" {
 		return nil
+	}
+	if scope.Kind == d.GovernedKind {
+		return s.runGoverned(ctx, record)
 	}
 	if scope.Kind == "subscription_run" {
 		return s.runReport(ctx, record)
@@ -64,7 +82,39 @@ func (s *Service) Exhausted(ctx context.Context, j job.Job, cause error) error {
 	if err != nil {
 		return err
 	}
-	if record.Status == "completed" {
+	if record.UserID != scope.UserID || scope.UserID <= 0 {
+		return d.ErrForbidden
+	}
+	if scope.Kind == d.GovernedKind {
+		var state d.GovernedExecution
+		if json.Unmarshal(record.Payload, &state) != nil {
+			return d.ErrInvalid
+		}
+		if state.Invocation.Profile == d.FeatureProfile {
+			return s.finishGovernedFeature(ctx, record, state, nil, cause)
+		}
+		r, err := s.governedRepo()
+		if err != nil {
+			return err
+		}
+		_, err = r.UpdateGoverned(ctx, l.Principal{TenantID: scope.TenantID, UserID: scope.UserID}, scope.ID, func(op *d.Record, st *d.GovernedExecution, repo d.Repository) error {
+			if op.Status == "completed" || op.Status == "cancelled" || op.Status == "failed" {
+				return nil
+			}
+			task, err := repo.Get(ctx, scope.TenantID, st.DomainKind, st.DomainID)
+			if err != nil {
+				return err
+			}
+			task.Status = "failed"
+			if err = repo.Update(ctx, task, task.Version); err != nil {
+				return err
+			}
+			op.Status, st.Error = "failed", "candidate_generation_failed"
+			return nil
+		})
+		return err
+	}
+	if record.Status == "completed" || record.Status == "cancelled" {
 		return nil
 	}
 	var value map[string]any

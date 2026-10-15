@@ -1,6 +1,6 @@
 <template>
   <div class="workbench task-workbench">
-    <header class="wb-head"><div><span class="wb-kicker">SUPERVISOR / 任务规划</span><h1>先明确目标，再审阅计划</h1><p>选择输入版本，把目标拆成有依赖、有预算、可核对的处理步骤。</p></div><button :disabled="busy" @click="newDraft">＋ 新建任务</button></header>
+    <header class="wb-head"><div><span class="wb-kicker">SUPERVISOR / 任务规划</span><h1>先明确目标，再审阅计划</h1><p>明确来源与输入版本，把目标拆成有依赖、有预算、可核对的处理步骤。</p></div><button :disabled="busy" @click="newDraft">＋ 新建任务</button></header>
     <div class="planning-boundary"><span class="wb-badge">受控执行</span><p>保存只追加计划版本。执行需通过当前准入检查，再单独启动；候选与已保存计划均不代表已执行。</p></div>
     <p v-if="!hasIdentity" class="wb-empty" role="status">请登录并选择工作空间后规划任务。</p>
     <template v-else>
@@ -21,6 +21,7 @@
         <div class="wb-stack task-main">
           <p v-if="detailLoading" class="wb-panel wb-muted" role="status">正在读取任务与已保存计划…</p>
           <div v-if="detailError" class="wb-panel"><p class="wb-error" role="alert">{{ detailError }}</p><button @click="openTask(detailID)">重试任务详情</button></div>
+          <details v-if="!current && !detailLoading && !detailError" class="wb-panel domain-presets"><summary>使用领域专家：特征工程、知识打标与样本标注</summary><DomainTaskForm :key="`${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`" :capabilities="capabilities" :assets="assets" :busy="busy" @preview="previewDomain" /></details>
           <form v-if="!current && !detailLoading && !detailError" class="wb-panel wb-stack" aria-label="新建规划任务" @submit.prevent="beginPlanning">
             <div class="section-intro"><span class="step-number">01</span><div><h2>目标与输入</h2><p class="wb-muted small">描述需要的产物与判断标准。输入固定到具体版本，稍后由后端复查访问权限。</p></div></div>
             <fieldset :disabled="busy" class="draft-fields">
@@ -84,7 +85,8 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useAuthStore } from '@/stores/auth'
 import { useCursorOptions } from '@/composables/useCursorOptions'
 import { lifecycleApi, type AssetRef, type RefID } from '@/api/lifecycle'
-import { taskControlApi, type Answer, type Capability, type Clarification, type DraftInput, type GovernedTask, type Proposal, type SavedPlan, type TaskBudget, type TaskSummary } from '@/api/taskcontrol'
+import { taskControlApi, type Answer, type Capability, type Clarification, type DraftInput, type GovernedTask, type Proposal, type PlanSpec, type SavedPlan, type TaskBudget, type TaskSummary } from '@/api/taskcontrol'
+import DomainTaskForm from './DomainTaskForm.vue'
 import TaskPlanPreview from './TaskPlanPreview.vue'
 import TaskExecutionPanel from './TaskExecutionPanel.vue'
 import { useTaskRuntime } from './useTaskRuntime'
@@ -213,6 +215,23 @@ async function receiveProposal(task: GovernedTask, submittedAnswers: Answer[], g
   if (result.task_id !== task.id || result.task_version !== task.version || result.execution_enabled !== false || result.saved !== false || !['clarify', 'proposal', 'unsupported'].includes(result.decision?.kind)) throw new Error('候选计划的任务身份或状态不匹配，请刷新任务。')
   if (result.decision.kind === 'proposal' && (!result.decision.plan || !result.validation?.valid)) throw new Error('候选计划未通过后端预检，不能保存。')
   clearProposal(); proposal.value = result; answerHistory.value = submittedAnswers; proposalRound++
+}
+async function previewDomain(input: DraftInput, plan: PlanSpec) {
+  if (busy.value || !hasIdentity.value) return
+  const generation = epoch, sequence = ++actionSequence, abort = controller()
+  const active = () => live(generation) && sequence === actionSequence
+  error.value = ''; issues.value = []; notice.value = ''; action.value = 'assess'
+  try {
+    const validation = requireData(await taskControlApi.validate(plan, abort.signal))
+    if (!active()) return
+    const task = requireData(await taskControlApi.create(input, abort.signal))
+    if (!active()) return
+    current.value = task; detailID.value = task.id; clearProposal()
+    proposal.value = { task_id: task.id, task_version: task.version, decision: { kind: 'proposal', explanation: '参数来自本页明确填写的领域预置，请核对并保存计划。', plan }, validation, planning_calls: 0, execution_enabled: false, saved: false }
+    notice.value = '草稿已保存，领域计划尚未保存或执行。'
+    void loadTasks(false)
+  } catch (cause) { if (active()) error.value = failure(cause) }
+  finally { controllers.delete(abort); if (active()) action.value = '' }
 }
 async function beginPlanning() {
   if (busy.value || !hasIdentity.value) return

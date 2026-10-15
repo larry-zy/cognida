@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { reactive } from 'vue'
 import type { GovernedTask, PlanSpec, Proposal, TaskSummary } from '@/api/taskcontrol'
 
-const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn(), readiness: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
+const api = vi.hoisted(() => ({ validate: vi.fn(), capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn(), readiness: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
 const lifecycle = vi.hoisted(() => ({ assets: vi.fn() }))
 const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn(), leave: undefined as undefined | (() => boolean), update: undefined as undefined | (() => boolean) }))
 vi.mock('@/api/taskcontrol', () => ({ taskControlApi: api }))
@@ -13,6 +13,7 @@ const route = reactive({ query: {} as Record<string, unknown> })
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => navigation, onBeforeRouteLeave: (fn: () => boolean) => { navigation.leave = fn }, onBeforeRouteUpdate: (fn: () => boolean) => { navigation.update = fn } }))
 import TaskWorkbench from './TaskWorkbench.vue'
+import DomainTaskForm from './DomainTaskForm.vue'
 
 const input = { asset_id: 'asset-1', version: 2 }
 const budget = { max_nodes: 8, max_concurrency: 2, max_attempts: 16, max_calls: 64, max_cost_micros: 1000000, timeout_seconds: 600 }
@@ -45,10 +46,29 @@ describe('Supervisor task planning', () => {
     api.propose.mockResolvedValue({ data: proposal() }); api.summary.mockResolvedValue({ data: summary() })
     api.appendPlan.mockResolvedValue({ data: { plan: saved(), validation } }); api.plan.mockResolvedValue({ data: saved() })
   })
+  it('validates explicit specialist parameters before draft creation and never starts on preview', async () => {
+    api.validate.mockResolvedValue({ data: validation })
+    const wrapper = await setup()
+    wrapper.findComponent(DomainTaskForm).vm.$emit('preview', { goal: 'explicit expert', input_refs: [input], budget }, plan)
+    await flushPromises()
+    expect(api.validate).toHaveBeenCalledWith(plan, expect.any(AbortSignal))
+    expect(api.create).toHaveBeenCalledWith({ goal: 'explicit expert', input_refs: [input], budget }, expect.any(AbortSignal))
+    expect(api.propose).not.toHaveBeenCalled(); expect(api.appendPlan).not.toHaveBeenCalled(); expect(api.start).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('参数来自本页明确填写的领域预置')
+    wrapper.unmount()
+  })
+  it('does not create a specialist draft if its validation arrives after identity changes', async () => {
+    const pending = deferred<{ data: typeof validation }>(); api.validate.mockReturnValueOnce(pending.promise)
+    const wrapper = await setup()
+    wrapper.findComponent(DomainTaskForm).vm.$emit('preview', { goal: 'old tenant expert', input_refs: [input], budget }, plan)
+    await flushPromises(); auth.authEpoch++; auth.currentTenant.id = 2; await flushPromises()
+    pending.resolve({ data: validation }); await flushPromises()
+    expect(api.create).not.toHaveBeenCalled(); expect(wrapper.text()).not.toContain('old tenant expert'); wrapper.unmount()
+  })
   it('asks for missing inputs without creating a task or spending a planning call', async () => {
     api.assess.mockResolvedValue({ data: { ready: false, questions: [{ id: 'goal', question: '最终需要什么产物？' }, { id: 'inputs', question: '请选择输入资产。' }], execution_enabled: false } })
     const wrapper = await setup()
-    await wrapper.get('form').trigger('submit'); await flushPromises()
+    await wrapper.get('form[aria-label="新建规划任务"]').trigger('submit'); await flushPromises()
     expect(wrapper.text()).toContain('最终需要什么产物？'); expect(wrapper.text()).toContain('请在上方修改')
     expect(api.create).not.toHaveBeenCalled(); expect(api.propose).not.toHaveBeenCalled()
     expect(wrapper.findAll('button').some(item => /^(开始执行|批准|运行任务)$/.test(item.text()))).toBe(false)
@@ -132,7 +152,7 @@ describe('Supervisor task planning', () => {
   it('coalesces repeated submission while assessment is pending', async () => {
     const assess = deferred<{ data: { ready: boolean; questions: []; execution_enabled: false } }>(); api.assess.mockImplementationOnce(() => assess.promise)
     const wrapper = await setup(); await fill(wrapper)
-    await wrapper.get('form').trigger('submit'); await wrapper.get('form').trigger('submit')
+    await wrapper.get('form[aria-label="新建规划任务"]').trigger('submit'); await wrapper.get('form[aria-label="新建规划任务"]').trigger('submit')
     expect(api.assess).toHaveBeenCalledTimes(1)
     assess.resolve({ data: { ready: true, questions: [], execution_enabled: false } }); await flushPromises()
     expect(api.create).toHaveBeenCalledTimes(1); expect(api.propose).toHaveBeenCalledTimes(1); wrapper.unmount()
@@ -151,7 +171,7 @@ describe('Supervisor task planning', () => {
     lifecycle.assets.mockResolvedValueOnce(page([asset()], 'page-two')).mockResolvedValueOnce(page([asset('asset-2', '后页资产')]))
     const wrapper = await setup(); await button(wrapper, '加载更多资产').trigger('click'); await flushPromises()
     expect(lifecycle.assets).toHaveBeenLastCalledWith('', 'page-two'); expect(wrapper.get('[aria-label="可选资产"]').text()).toContain('后页资产')
-    await wrapper.get('[aria-label="最多并发数"]').setValue(2.5); await wrapper.get('form').trigger('submit'); await flushPromises()
+    await wrapper.get('[aria-label="最多并发数"]').setValue(2.5); await wrapper.get('form[aria-label="新建规划任务"]').trigger('submit'); await flushPromises()
     expect(wrapper.text()).toContain('之间的整数'); expect(api.assess).not.toHaveBeenCalled(); wrapper.unmount()
   })
   it('shows unsupported and invalid candidate outcomes without offering save', async () => {

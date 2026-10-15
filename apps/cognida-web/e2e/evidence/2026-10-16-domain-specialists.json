@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-16",
+  "environment": "isolated MySQL schema 15, Redis, Go, Python, Vite; real registration and UI login",
+  "browser_suite": {
+    "passed": 3,
+    "duration_seconds": 48.1
+  },
+  "multi": {
+    "task_id": "af83a655-8110-4fee-b225-0b3b3e5746db",
+    "status": "completed",
+    "terminal": true,
+    "nodes": [
+      {
+        "node_id": "quality",
+        "capability": "lifecycle.data-quality",
+        "status": "succeeded",
+        "attempt": 1,
+        "domain_kind": "invocation",
+        "domain_id": "2821c108-8e6a-4eb7-b3aa-74e87dfbfd41",
+        "output_refs": [
+          {
+            "asset_id": "bfa8858c-fd11-5ed0-870c-f37503d9b610",
+            "version": 1
+          },
+          {
+            "asset_id": "a453c30a-c74a-559e-93bd-33ef7ff44edf",
+            "version": 2
+          }
+        ]
+      },
+      {
+        "node_id": "features",
+        "capability": "governance.feature-engineering",
+        "status": "succeeded",
+        "attempt": 1,
+        "domain_kind": "feature_execution",
+        "domain_id": "5c352be9-47eb-5ac3-b976-104abb06d60a",
+        "output_refs": [
+          {
+            "asset_id": "61820243-7d1d-50a7-a32d-654aad532ed3",
+            "version": 2
+          }
+        ]
+      },
+      {
+        "node_id": "clean",
+        "capability": "lifecycle.data-cleaning",
+        "status": "succeeded",
+        "attempt": 1,
+        "domain_kind": "invocation",
+        "domain_id": "6a45034b-18a9-451d-9ac9-5cf9c55df009",
+        "output_refs": [
+          {
+            "asset_id": "8e0be1e7-6f91-5c2a-8323-8001c7dec2f5",
+            "version": 2
+          },
+          {
+            "asset_id": "2ac4c71d-db3e-504f-ab37-58457558e863",
+            "version": 3
+          }
+        ]
+      },
+      {
+        "node_id": "tag",
+        "capability": "governance.tagging",
+        "status": "succeeded",
+        "attempt": 1,
+        "domain_kind": "governance_execution",
+        "domain_id": "fc982c05-1bac-5d34-9192-bf8c8232b17d",
+        "output_refs": [
+          {
+            "asset_id": "026a0357-fac3-556c-8187-74210e2d73b3",
+            "version": 3
+          }
+        ]
+      }
+    ]
+  },
+  "feature": {
+    "task_id": "b051a10f-59e6-44b0-a113-944d4e388432",
+    "status": "completed",
+    "terminal": true,
+    "nodes": [
+      {
+        "node_id": "work",
+        "capability": "governance.feature-engineering",
+        "status": "succeeded",
+        "attempt": 1,
+        "domain_kind": "feature_execution",
+        "domain_id": "f383aec5-0200-5904-be2a-5130697c68aa",
+        "output_refs": [
+          {
+            "asset_id": "34713391-5be8-503d-ba5c-de2abac409c6",
+            "version": 2
+          }
+        ]
+      }
+    ]
+  },
+  "feature_execution": {
+    "status": "completed",
+    "feature_id": "f5b30366-1664-4c1c-9e23-e9938497ecf5",
+    "feature_version": 2,
+    "output_refs": [
+      {
+        "asset_id": "34713391-5be8-503d-ba5c-de2abac409c6",
+        "version": 2
+      }
+    ]
+  },
+  "qa": {
+    "task_id": "386bc9c5-bd48-4195-9074-9261d06d1dc1",
+    "type": "qa",
+    "items": [
+      {
+        "id": "8a67f8e6-abe2-47f3-98ef-0f87bafa094a",
+        "review_status": "approved",
+        "source": "human",
+        "decision_status": "manual"
+      }
+    ]
+  },
+  "mobile_document_overflow": false
+}

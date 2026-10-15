@@ -3,15 +3,35 @@
     <header class="wb-head">
       <div>
         <span class="wb-kicker">VERSIONED FEATURES</span>
-        <h1>{{ wt("特征存储") }}</h1>
-        <p>注册可追溯的特征定义，按实体写入与读取指定版本的特征值。</p>
+        <h1>{{ wt("特征工程") }}</h1>
+        <p>
+          定义字段、表达式或时间窗口，预览计算结果，再物化为可追溯的特征资产。
+        </p>
       </div>
-      <button class="primary" @click="newFeature">
+      <button class="primary" :disabled="busy" @click="newFeature">
         {{ wt("＋ 注册特征") }}
       </button>
     </header>
     <div v-if="error" role="alert" class="wb-error">{{ error }}</div>
     <div v-if="notice" role="status" class="wb-success">{{ notice }}</div>
+    <section v-if="execution" class="wb-panel" aria-label="领域执行结果">
+      <div class="wb-section-head">
+        <h2>领域执行结果</h2>
+        <span class="wb-badge">{{ executionStatus(execution.status) }}</span>
+      </div>
+      <p class="wb-footnote">恢复已保存的执行状态；打开本页不会再次运行。</p>
+      <div class="wb-actions">
+        <RouterLink
+          v-for="(output, index) in execution.output_refs"
+          :key="`${output.asset_id}:${output.version}`"
+          :to="{
+            path: '/analysis',
+            query: { asset: `${output.asset_id}:${output.version}` },
+          }"
+          >查看执行产物 {{ index + 1 }}</RouterLink
+        >
+      </div>
+    </section>
     <div
       v-if="
         assetOptions.state.hasMore ||
@@ -64,11 +84,22 @@
               }}<select v-model="form.type">
                 <option value="numerical">数值</option>
                 <option value="categorical">类别</option>
-                <option value="vector">向量</option>
+                <option value="vector" disabled>
+                  向量（暂不支持自动计算）
+                </option>
               </select></label
             ><label class="wb-full"
               >{{ wt("业务说明")
               }}<textarea v-model="form.description" /></label
+            ><label
+              >计算方式<select
+                v-model="form.definition.kind"
+                @change="changeDefinition"
+              >
+                <option value="field">字段映射</option>
+                <option value="expression">表达式转换</option>
+                <option value="window_aggregate">时间窗口聚合</option>
+              </select></label
             ><label
               >{{ wt("来源资产")
               }}<select v-model="form.source_ref_id" required>
@@ -93,25 +124,125 @@
                   {{ asset.name || asset.asset_id }}
                 </option>
               </select></label
-            ><label
+            ><label v-if="form.definition.kind !== 'expression'"
               >{{ wt("来源字段")
               }}<input
                 v-model="form.definition.field"
-                required
+                :required="form.definition.aggregate !== 'count'"
                 placeholder="如：total_spend"
             /></label>
           </div>
+          <FeatureExpressionEditor
+            v-if="
+              form.definition.kind === 'expression' &&
+              form.definition.expression
+            "
+            v-model="form.definition.expression"
+          />
           <label class="wb-label" style="margin-top: 14px"
-            >实体标识字段（可选）<input
+            >实体标识字段{{
+              form.definition.kind === "window_aggregate"
+                ? "（必填）"
+                : "（可选）"
+            }}<input
               v-model="form.definition.entity_field"
+              :required="form.definition.kind === 'window_aggregate'"
               placeholder="如：customer_id；留空按行生成实体ID"
           /></label>
-          <p class="wb-footnote">
-            定义采用字段映射。已有版本不可覆盖，修改定义将创建新版本。
+          <label class="wb-label" style="margin-top: 14px"
+            >事件时间字段{{
+              form.definition.kind === "window_aggregate"
+                ? "（必填）"
+                : "（可选）"
+            }}<input
+              v-model="form.definition.event_time_field"
+              :required="form.definition.kind === 'window_aggregate'"
+              placeholder="如：occurred_at"
+          /></label>
+          <p
+            v-if="form.definition.kind !== 'window_aggregate'"
+            class="wb-footnote"
+          >
+            同一实体有多条记录时，请指定事件时间字段以区分观测。
           </p>
-          <button class="primary" :disabled="busy">
-            {{ form.id ? "创建新版本" : "注册特征" }}
-          </button>
+          <div
+            v-if="form.definition.kind === 'window_aggregate'"
+            class="wb-form"
+            style="margin-top: 14px"
+          >
+            <label
+              >窗口秒数<input
+                v-model.number="form.definition.window_seconds"
+                required
+                type="number"
+                min="1"
+                step="1"
+            /></label>
+            <label
+              >聚合方法<select v-model="form.definition.aggregate">
+                <option value="sum">求和</option>
+                <option value="mean">均值</option>
+                <option value="min">最小值</option>
+                <option value="max">最大值</option>
+                <option value="count">计数</option>
+              </select></label
+            >
+          </div>
+          <p class="wb-footnote">
+            每次最多计算 1,000 行。窗口按实体与事件时间计算 (当前时间 − 窗口,
+            当前时间]。已有版本不可覆盖，修改定义将创建新版本。
+          </p>
+          <div class="wb-actions">
+            <button
+              type="button"
+              :disabled="busy || form.type === 'vector'"
+              @click="previewDefinition"
+            >
+              预览计算结果</button
+            ><button class="primary" :disabled="busy">
+              {{ form.id ? "创建新版本" : "注册特征" }}
+            </button>
+          </div>
+          <section
+            v-if="preview"
+            aria-label="特征预览"
+            style="margin-top: 18px"
+          >
+            <h3>预览结果 · 未写入</h3>
+            <p class="wb-footnote">
+              共 {{ preview.total_count }} 个值，展示前
+              {{ preview.values.length }} 个。编辑定义后需重新预览。
+            </p>
+            <p
+              v-for="warning in preview.warnings"
+              :key="warning"
+              class="wb-error"
+            >
+              {{ warning }}
+            </p>
+            <table class="wb-table">
+              <thead>
+                <tr>
+                  <th>实体</th>
+                  <th>计算值</th>
+                  <th>事件时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, index) in preview.values" :key="index">
+                  <td>{{ row.entity_id }}</td>
+                  <td>{{ row.value_exact ?? JSON.stringify(row.value) }}</td>
+                  <td>{{ row.timestamp }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <details>
+              <summary>来源与定义摘要</summary>
+              <p class="wb-footnote">
+                {{ preview.source_digest }}<br />{{ preview.definition_digest }}
+              </p>
+            </details>
+          </section>
           <div v-if="versions.length" style="margin-top: 20px">
             <h3>{{ wt("历史版本") }}</h3>
             <table class="wb-table">
@@ -127,7 +258,7 @@
                 <tr v-for="version in versions" :key="version.version">
                   <td>v{{ version.version }}</td>
                   <td>
-                    {{ version.definition.kind }} ·
+                    {{ kindLabel(version.definition.kind) }} ·
                     {{ version.definition.field }}
                   </td>
                   <td>{{ version.source_ref_id }}</td>
@@ -158,9 +289,30 @@
             }}
           </button>
           <h2>{{ wt("实体特征值") }}</h2>
-          <button :disabled="busy" @click="compute">
-            {{ wt("从来源资产计算所选版本") }}
-          </button>
+          <button :disabled="busy" @click="compute">计算并物化所选版本</button>
+          <div v-if="receipt" class="wb-success" role="status">
+            <strong
+              >已物化 {{ receipt.count }} 个特征值 · v{{
+                receipt.version
+              }}</strong
+            >
+            <p>可用时间：{{ receipt.available_at }}</p>
+            <RouterLink
+              :to="{
+                path: '/analysis',
+                query: { asset: receipt.output_ref_id },
+              }"
+              >查看物化产物</RouterLink
+            >
+            <details>
+              <summary>执行回执</summary>
+              <p>
+                回执：{{ receipt.receipt_id }}<br />来源：{{
+                  receipt.source_ref_id
+                }}<br />定义摘要：{{ receipt.definition_digest }}
+              </p>
+            </details>
+          </div>
           <form class="wb-form" @submit.prevent="writeValue">
             <label
               >{{ wt("实体 ID")
@@ -221,8 +373,12 @@
               >
                 <td>{{ item.entity_id }}</td>
                 <td>v{{ item.version }}</td>
-                <td>{{ JSON.stringify(item.value) }}</td>
-                <td>{{ item.timestamp }}<br />{{ item.source_ref_id }}</td>
+                <td>{{ item.value_exact ?? JSON.stringify(item.value) }}</td>
+                <td>
+                  {{ item.timestamp }}<br />可用：{{
+                    item.available_at || "未提供"
+                  }}<br />{{ item.source_ref_id }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -235,17 +391,46 @@
   </div>
 </template>
 <script setup lang="ts">
+import {
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  reactive,
+  ref,
+  watch,
+} from "vue";
+import { useRoute } from "vue-router";
+import { useAuthStore } from "@/stores/auth";
 import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
-
-import { computed, onMounted, reactive, ref } from "vue";
 import {
   governanceApi as api,
   type Feature,
   type FeatureValue,
+  type FeaturePreview,
+  type FeatureMaterialization,
+  type GovernanceExecution,
+  type FeatureExpression,
 } from "@/api/governance";
 import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
+import FeatureExpressionEditor from "./FeatureExpressionEditor.vue";
 import "@/components/workbench/workbench.css";
+const execution = ref<GovernanceExecution>();
+const executionStatus = (status: string) =>
+  ({
+    queued: "排队中",
+    running: "执行中",
+    completed: "已完成",
+    succeeded: "已完成",
+    cancelled: "已取消",
+    failed: "执行失败",
+    cancel_requested: "取消处理中",
+  })[status] || status;
+const route = useRoute(),
+  auth = useAuthStore();
+const identity = computed(
+  () => `${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`,
+);
 const empty = (): Feature => ({
   id: "",
   version: 0,
@@ -272,22 +457,33 @@ const form = reactive(empty()),
   queryEntities = ref(""),
   asOf = ref(""),
   values = ref<FeatureValue[]>([]),
-  queried = ref(false);
-const versionOptions = useCursorOptions(versions, (cursor) =>
-  api.list<Feature>(`/features/${form.id}/versions`, cursor),
-);
+  queried = ref(false),
+  preview = ref<FeaturePreview>(),
+  receipt = ref<FeatureMaterialization>();
+let generation = 0,
+  scope = 0,
+  listRequest = 0,
+  activeOperations = 0;
+const versionOptions = useCursorOptions(versions, async (cursor) => {
+  const epoch = generation;
+  const res = await api.list<Feature>(`/features/${form.id}/versions`, cursor);
+  current(epoch);
+  return res;
+});
 const assetOptions = useCursorOptions(assets, (cursor) =>
   lifecycleApi.assets("", cursor),
 );
-
 function localTime() {
   const date = new Date();
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16);
 }
-let activeOperations = 0;
+function current(epoch: number) {
+  if (epoch !== generation) throw new Error("请求已失效");
+}
 async function run(fn: () => Promise<void>) {
+  const epoch = generation;
   activeOperations++;
   busy.value = true;
   error.value = "";
@@ -295,54 +491,158 @@ async function run(fn: () => Promise<void>) {
   try {
     await fn();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "操作失败";
+    if (epoch === generation)
+      error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
     busy.value = --activeOperations > 0;
   }
 }
 async function load(append = false) {
+  const request = ++listRequest,
+    ownScope = scope;
   const res = await api.list<Feature>("/features", append ? next.value : "");
+  if (ownScope !== scope || request !== listRequest) return;
   features.value = append
     ? [...features.value, ...(res.data?.items || [])]
     : res.data?.items || [];
   next.value = res.data?.next_cursor || "";
 }
 function newFeature() {
+  execution.value = undefined;
+  generation++;
   Object.assign(form, empty());
   versions.value = [];
   values.value = [];
+  entityID.value = "";
+  value.value = "";
+  queryEntities.value = "";
+  asOf.value = "";
   queried.value = false;
-}
-async function loadVersions() {
-  await versionOptions.reset();
+  preview.value = undefined;
+  receipt.value = undefined;
+  error.value = "";
+  notice.value = "";
 }
 async function select(item: Feature) {
+  newFeature();
   Object.assign(form, JSON.parse(JSON.stringify(item)));
   valueVersion.value = item.version;
+  await run(() => versionOptions.reset());
+}
+const kindLabel = (kind: string) =>
+  ({
+    field: "字段映射",
+    expression: "表达式",
+    window_aggregate: "时间窗口聚合",
+  })[kind] || kind;
+function changeDefinition() {
+  const kind = form.definition.kind,
+    entity = form.definition.entity_field,
+    event = form.definition.event_time_field;
+  form.definition =
+    kind === "expression"
+      ? {
+          kind,
+          entity_field: entity,
+          event_time_field: event,
+          expression: { op: "column", field: "" },
+        }
+      : kind === "window_aggregate"
+        ? {
+            kind,
+            entity_field: entity,
+            field: "",
+            event_time_field: event || "",
+            window_seconds: 3600,
+            aggregate: "sum",
+          }
+        : { kind, field: "", entity_field: entity, event_time_field: event };
+}
+const draftKey = computed(() =>
+  JSON.stringify([form.name, form.type, form.definition, form.source_ref_id]),
+);
+watch(draftKey, () => {
+  preview.value = undefined;
+});
+watch(valueVersion, () => {
+  receipt.value = undefined;
   values.value = [];
   queried.value = false;
-  await run(loadVersions);
+});
+function validateExpression(expr?: FeatureExpression): void {
+  if (!expr) throw new Error("请配置表达式");
+  if (expr.op === "column" && !expr.field?.trim())
+    throw new Error("请填写表达式字段名");
+  if (
+    expr.op === "literal" &&
+    (expr.value == null ||
+      (typeof expr.value === "number" &&
+        (!Number.isFinite(expr.value) ||
+          (Number.isInteger(expr.value) && !Number.isSafeInteger(expr.value)))))
+  )
+    throw new Error("表达式常量必须是有效文本或有限安全数值");
+  if (
+    expr.op === "to_number" &&
+    expr.args?.[0]?.op === "literal" &&
+    typeof expr.args[0].value === "string" &&
+    (expr.args[0].value.length > 256 ||
+      !/^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(expr.args[0].value))
+  )
+    throw new Error("请输入有效的十进制数值");
+  for (const arg of expr.args || []) validateExpression(arg);
+}
+function draft() {
+  if (!form.name.trim() || !form.source_ref_id)
+    throw new Error("请填写名称并选择来源资产");
+  if (form.type === "vector") throw new Error("当前不支持自动计算向量特征");
+  const def = form.definition;
+  if (def.kind === "expression") validateExpression(def.expression);
+  else if (def.aggregate !== "count" && !def.field?.trim())
+    throw new Error("请填写来源字段");
+  if (
+    def.kind === "window_aggregate" &&
+    (!def.entity_field?.trim() ||
+      !def.event_time_field?.trim() ||
+      !Number.isSafeInteger(def.window_seconds) ||
+      Number(def.window_seconds) <= 0)
+  )
+    throw new Error("窗口聚合需实体字段、事件时间字段与正整数窗口秒数");
+  return JSON.parse(
+    JSON.stringify({
+      name: form.name,
+      type: form.type,
+      description: form.description,
+      definition: form.definition,
+      source_ref_id: form.source_ref_id,
+    }),
+  );
+}
+async function previewDefinition() {
+  if (busy.value) return;
+  const epoch = generation,
+    key = draftKey.value;
+  await run(async () => {
+    const res = await api.previewFeature(draft(), 20);
+    current(epoch);
+    if (key === draftKey.value) preview.value = res.data;
+  });
 }
 async function save() {
   if (busy.value) return;
+  const epoch = generation;
   await run(async () => {
     const res = await api.create<Feature>(
       form.id ? `/features/${form.id}/versions` : "/features",
-      {
-        name: form.name,
-        type: form.type,
-        description: form.description,
-        definition: form.definition,
-        source_ref_id: form.source_ref_id,
-        expected_version: form.version,
-      },
+      { ...draft(), expected_version: form.version },
     );
-    if (res.data) {
-      Object.assign(form, res.data);
-      valueVersion.value = form.version;
-    }
+    current(epoch);
+    if (!res.data) throw new Error("保存未返回特征版本");
+    Object.assign(form, res.data);
+    valueVersion.value = form.version;
     await load();
-    await loadVersions();
+    current(epoch);
+    await versionOptions.reset();
+    current(epoch);
     notice.value = `版本 v${form.version} 已保存`;
   });
 }
@@ -354,20 +654,25 @@ const selectedVersion = computed(
 function parsedValue() {
   if (!selectedVersion.value) throw new Error("请选择已有的特征版本");
   if (selectedVersion.value.type === "numerical") {
-    const n = Number(value.value);
-    if (!Number.isFinite(n)) throw new Error("请输入有效数值");
-    return n;
+    const exact = value.value.trim();
+    if (
+      exact.length > 256 ||
+      !/^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(exact)
+    )
+      throw new Error("请输入有效的十进制数值");
+    return { value: null, value_exact: exact };
   }
   if (selectedVersion.value.type === "vector") {
     const numbers = value.value.split(/[,，]/).map((v) => Number(v.trim()));
     if (!numbers.length || numbers.some((n) => !Number.isFinite(n)))
       throw new Error("向量必须为逗号分隔的有限数值");
-    return numbers;
+    return { value: numbers };
   }
-  return value.value;
+  return { value: value.value };
 }
 async function writeValue() {
   if (busy.value) return;
+  const epoch = generation;
   await run(async () => {
     await api.create("/feature-values", {
       values: [
@@ -375,26 +680,50 @@ async function writeValue() {
           feature_id: form.id,
           version: valueVersion.value,
           entity_id: entityID.value,
-          value: parsedValue(),
+          ...parsedValue(),
           timestamp: new Date(timestamp.value).toISOString(),
         },
       ],
     });
+    current(epoch);
     queryEntities.value = entityID.value;
     notice.value = "特征值已写入";
   });
 }
 async function compute() {
   if (busy.value) return;
+  const epoch = generation,
+    id = form.id,
+    version = valueVersion.value;
   await run(async () => {
-    const response = await api.action<{ count: number }>(
-      `/features/${form.id}/compute`,
+    if (!selectedVersion.value) throw new Error("请选择已有的特征版本");
+    const response = await api.action<FeatureMaterialization>(
+      `/features/${form.id}/materialize`,
       { version: valueVersion.value },
     );
-    notice.value = `已计算并写入 ${response.data?.count || 0} 个实体特征值`;
+    current(epoch);
+    if (id !== form.id || version !== valueVersion.value) return;
+    if (!response.data?.receipt_id || !response.data.output_ref_id)
+      throw new Error("物化未返回完整回执，请刷新核查状态");
+    receipt.value = response.data;
   });
 }
+const queryKey = computed(() =>
+  JSON.stringify([
+    form.id,
+    valueVersion.value,
+    queryEntities.value,
+    asOf.value,
+  ]),
+);
+watch(queryKey, () => {
+  values.value = [];
+  queried.value = false;
+});
 async function query() {
+  if (busy.value) return;
+  const epoch = generation,
+    requested = queryKey.value;
   await run(async () => {
     const res = await api.action<FeatureValue[] | { items: FeatureValue[] }>(
       "/feature-values/query",
@@ -407,14 +736,91 @@ async function query() {
         ...(asOf.value ? { as_of: new Date(asOf.value).toISOString() } : {}),
       },
     );
+    current(epoch);
+    if (requested !== queryKey.value) return;
     values.value = Array.isArray(res.data) ? res.data : res.data?.items || [];
     queried.value = true;
   });
 }
-onMounted(() =>
-  run(async () => {
-    await load();
-    await assetOptions.reset();
-  }),
+async function openLink() {
+  newFeature();
+  const epoch = generation;
+  await run(async () => {
+    let id =
+        typeof route?.query.feature_id === "string"
+          ? route.query.feature_id
+          : "",
+      version = 0;
+    const executionID =
+      typeof route?.query.execution_id === "string"
+        ? route.query.execution_id
+        : "";
+    if (executionID) {
+      const res = await api.get<GovernanceExecution>(
+        `/governance-executions/${encodeURIComponent(executionID)}`,
+      );
+      current(epoch);
+      execution.value = res.data;
+      if (!res.data?.feature_id) throw new Error("该执行尚无可查看的特征定义");
+      id = res.data.feature_id;
+      version = res.data.feature_version || 0;
+    }
+    if (!id) return;
+    const res = await api.get<Feature>(
+      `/features/${encodeURIComponent(id)}${version ? `/versions/${version}` : ""}`,
+    );
+    current(epoch);
+    if (!res.data) throw new Error("特征不存在或无权查看");
+    Object.assign(form, res.data);
+    valueVersion.value = version || res.data.version;
+    try {
+      await versionOptions.reset();
+      current(epoch);
+    } catch (e) {
+      if (epoch === generation) {
+        Object.assign(form, empty());
+        versions.value = [];
+      }
+      throw e;
+    }
+  });
+}
+watch(
+  () => [route?.query.execution_id, route?.query.feature_id],
+  () => void openLink(),
 );
+watch(identity, () => {
+  scope++;
+  newFeature();
+  features.value = [];
+  assets.value = [];
+  next.value = "";
+  void initialize();
+});
+async function initialize() {
+  const epoch = generation;
+  await run(async () => {
+    await Promise.all([load(), assetOptions.reset()]);
+  });
+  if (
+    epoch === generation &&
+    (route?.query.execution_id || route?.query.feature_id)
+  )
+    await openLink();
+}
+onMounted(initialize);
+onBeforeUnmount(() => {
+  scope++;
+  generation++;
+});
 </script>
+
+<style scoped>
+.wb-table {
+  table-layout: fixed;
+}
+.wb-table td,
+.wb-panel p {
+  overflow-wrap: anywhere;
+}
+</style>

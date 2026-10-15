@@ -12,15 +12,11 @@ import (
 )
 
 func (s *Service) CreateTagging(ctx context.Context, p l.Principal, in d.TaggingTask, key string) (*d.Record, error) {
-	if in.Name == "" || len(in.Name) > 128 || len(in.Config.TagSchema) > 30 {
+	if in.Name == "" || len(in.Name) > 128 || len(in.Config.TagSchema) > 30 || len(in.Config.LabelSchema) > 30 {
 		return nil, d.ErrInvalid
 	}
-	seen := map[string]bool{}
-	for _, label := range in.Config.TagSchema {
-		if strings.TrimSpace(label) == "" || utf8.RuneCountInString(label) > 80 || seen[label] {
-			return nil, d.ErrInvalid
-		}
-		seen[label] = true
+	if _, err := labelSchema(in.Config); err != nil {
+		return nil, err
 	}
 	_, input, err := s.input(ctx, p, in.SourceRefID, false)
 	if err != nil {
@@ -35,6 +31,22 @@ func (s *Service) CreateTagging(ctx context.Context, p l.Principal, in d.Tagging
 	record, err := s.create(ctx, p, "tagging_task", "", "queued", key, in, nil)
 	if err != nil {
 		return nil, err
+	}
+	var previous d.TaggingTask
+	if json.Unmarshal(record.Payload, &previous) != nil {
+		return nil, d.ErrInvalid
+	}
+	a, b := in, previous
+	a.Meta = d.Meta{}
+	b.Meta = d.Meta{}
+	a.Status = ""
+	b.Status = ""
+	a.Error = ""
+	b.Error = ""
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	if !d.JSONEqual(x, y) {
+		return nil, d.ErrConflict
 	}
 	if record.Status == "completed" {
 		return record, nil
@@ -78,9 +90,17 @@ func (s *Service) runTagging(ctx context.Context, record *d.Record) error {
 	if task.Config.EnableClassification {
 		features = append(features, "category")
 	}
+	scheme, e := labelSchema(task.Config)
+	if e != nil {
+		return e
+	}
 	labels := []map[string]any{}
-	for _, name := range task.Config.TagSchema {
-		labels = append(labels, map[string]any{"name": name, "keywords": []string{name}})
+	for _, label := range scheme {
+		keywords := label.Keywords
+		if len(keywords) == 0 {
+			keywords = []string{label.Name}
+		}
+		labels = append(labels, map[string]any{"name": label.Name, "keywords": keywords})
 	}
 	// Completed item records are durable checkpoints, including any later human
 	// edits. A timed-out batch resumes without recomputing completed items.
@@ -128,19 +148,7 @@ func (s *Service) runTagging(ctx context.Context, record *d.Record) error {
 		out.Content = text
 		out.Provenance = d.Provenance{Source: "rules", Method: result.Method, Evidence: []string{}}
 		out.ReviewStatus = "pending"
-		if category, ok := result.Result["category"].(map[string]any); ok {
-			if confidence, ok := confidenceValue(category["confidence"]); ok {
-				out.CategoryConfidence = &confidence
-			}
-		}
-		if tags, ok := result.Result["tags"].(map[string]any); ok {
-			if confidence, ok := confidenceValue(tags["confidence"]); ok {
-				out.TagConfidence = map[string]float64{}
-				for _, tag := range out.Tags {
-					out.TagConfidence[tag] = confidence
-				}
-			}
-		}
+		applyTagRules(&out, scheme, task.Config)
 		// Store the complete evidence-bearing compute envelope alongside the typed
 		// UI fields, rather than invent a numeric quality or confidence score.
 		data := map[string]any{}
@@ -210,7 +218,7 @@ func (s *Service) UpdateTagging(ctx context.Context, p l.Principal, taskID, id s
 	in.QualityScore = nil
 	in.CategoryConfidence = nil
 	in.TagConfidence = nil
-	in.Provenance = d.Provenance{Source: "human", Method: "manual", Evidence: []string{}}
+	in.Provenance = d.Provenance{Source: "human", Method: "manual", DecisionStatus: "manual", Evidence: []string{}}
 	in.ReviewStatus = "pending"
 	in.ReviewComment = ""
 	in.ReviewedBy = 0

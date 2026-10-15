@@ -47,10 +47,35 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 	// The legacy summary only resolves the artifact itself. Execution results
 	// also require the complete currently supported source chain.
 	summary.ResultRefs = []l.RefID{}
+	planKinds := map[int64]map[string]string{}
 	for _, child := range children {
 		kind := ""
-		if child.Domain == "lifecycle" && child.DomainID != "" {
-			kind = "invocation"
+		if child.DomainID != "" {
+			if child.Domain == "lifecycle" {
+				kind = "invocation"
+			}
+			if child.Domain == "governance" {
+				kinds, ok := planKinds[child.PlanVersion]
+				if !ok {
+					stored, err := r.repo.GetPlan(ctx, p, task.ID, child.PlanVersion)
+					if err != nil {
+						return err
+					}
+					plan, err := decodeStored[PlanSpec](stored.Snapshot)
+					if err != nil {
+						return err
+					}
+					kinds = map[string]string{}
+					for _, n := range plan.Nodes {
+						kinds[n.ID] = n.Capability
+					}
+					planKinds[child.PlanVersion] = kinds
+				}
+				kind = "governance_execution"
+				if kinds[child.NodeID] == "governance.feature-engineering" {
+					kind = "feature_execution"
+				}
+			}
 		}
 		summary.Children = append(summary.Children, SupervisorChildSummary{ID: child.ID, NodeID: child.NodeID, PlanVersion: child.PlanVersion, Attempt: child.Attempt, Domain: child.Domain, DomainID: child.DomainID, DomainKind: kind, DispatchStatus: child.Status, DomainStatus: child.DomainStatus, ReceiptPresent: len(child.Receipt) > 0 && string(child.Receipt) != "null"})
 		summary.Usage.ReservedAttempts++
@@ -71,8 +96,16 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 				if child.Status == d.ChildBound {
 					item.Status = child.DomainStatus
 				}
-				if child.Domain == "lifecycle" && child.DomainID != "" {
-					item.DomainKind = "invocation"
+				if child.DomainID != "" {
+					if child.Domain == "lifecycle" {
+						item.DomainKind = "invocation"
+					}
+					if child.Domain == "governance" {
+						item.DomainKind = "governance_execution"
+					}
+					if node.Capability == "governance.feature-engineering" {
+						item.DomainKind = "feature_execution"
+					}
 				}
 				if len(child.OutputRefs) > 0 {
 					refs, err := decodeStored[[]l.RefID](child.OutputRefs)

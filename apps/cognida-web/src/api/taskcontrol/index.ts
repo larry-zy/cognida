@@ -11,7 +11,12 @@ export interface TaskBudget {
   timeout_seconds: number
 }
 export interface PlanInput { asset?: RefID; from_node?: string; kind: string }
+export interface NodeParameters {
+  governance?: { labels?: string[]; label_schema?: { id: string; name: string; keywords?: string[]; terms?: string[] }[]; qa_mapping?: { question_column: string; reference_answer_column: string } }
+  feature?: { feature_id: string; version: number }
+}
 export interface PlanNode {
+  parameters?: NodeParameters
   id: string
   capability: string
   capability_version: number
@@ -40,6 +45,7 @@ export interface PlanValidation {
   reserved_seconds: number
 }
 export interface Capability {
+  parameter_kind?: string
   id: string
   version: number
   domain: string
@@ -104,6 +110,7 @@ export interface ExecutionReadiness {
 const base = '/governed-tasks'
 const taskPath = (id: string) => `${base}/${encodeURIComponent(id)}`
 export const taskControlApi = {
+  validate: (data: PlanSpec, signal?: AbortSignal) => http.post<PlanValidation>(`${base}/validate`, data, { signal }),
   capabilities: (signal?: AbortSignal) => http.get<{ capabilities: Capability[]; execution_enabled: boolean }>(`${base}/capabilities`, { signal }),
   list: (cursor = '', signal?: AbortSignal) => http.get<{ items: GovernedTask[]; next_cursor: string }>(base, { params: { cursor, page_size: 20 }, signal }),
   get: (id: string, signal?: AbortSignal) => http.get<GovernedTask>(taskPath(id), { signal }),

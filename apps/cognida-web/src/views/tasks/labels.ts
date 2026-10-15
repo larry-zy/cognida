@@ -1,4 +1,7 @@
 const capabilities: Record<string, string> = {
+  'governance.feature-engineering': '特征工程', 'governance.tagging': '知识标签候选',
+  'governance.classification': '分类预标注', 'governance.named_entity': '实体预标注',
+  'governance.qa': '问答样本标注',
   'lifecycle.data-access': '数据接入', 'lifecycle.data-quality': '质量检查',
   'lifecycle.data-cleaning': '数据清洗', 'lifecycle.data-enrichment': '数据增强',
   'lifecycle.data-asset': '资产发布', 'lifecycle.data-analysis': '数据分析',

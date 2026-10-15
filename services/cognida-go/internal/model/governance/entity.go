@@ -73,17 +73,28 @@ type Notification struct {
 	ReadAt      *time.Time `json:"read_at"`
 }
 type Label struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Keywords []string `json:"keywords,omitempty"`
+	Terms    []string `json:"terms,omitempty"`
+}
+type QAMapping struct {
+	QuestionColumn        string `json:"question_column"`
+	ReferenceAnswerColumn string `json:"reference_answer_column"`
+}
+type QAPair struct {
+	Question        string `json:"question"`
+	ReferenceAnswer string `json:"reference_answer"`
 }
 type AnnotationTask struct {
 	Meta
-	Name        string  `json:"name"`
-	Type        string  `json:"type"`
-	SourceRefID string  `json:"source_ref_id"`
-	Labels      []Label `json:"labels"`
-	Status      string  `json:"status"`
-	ItemCount   int     `json:"item_count"`
+	Name        string     `json:"name"`
+	Type        string     `json:"type"`
+	SourceRefID string     `json:"source_ref_id"`
+	Labels      []Label    `json:"labels"`
+	QAMapping   *QAMapping `json:"qa_mapping,omitempty"`
+	Status      string     `json:"status"`
+	ItemCount   int        `json:"item_count"`
 }
 type Entity struct {
 	ID    string `json:"id"`
@@ -101,13 +112,23 @@ type Annotation struct {
 	Labels    []string   `json:"labels"`
 	Entities  []Entity   `json:"entities"`
 	Relations []Relation `json:"relations"`
+	QA        *QAPair    `json:"qa,omitempty"`
+}
+type EvidenceSpan struct {
+	LabelID string `json:"label_id,omitempty"`
+	Rule    string `json:"rule"`
+	Match   string `json:"match"`
+	Start   int    `json:"start"`
+	End     int    `json:"end"`
 }
 type Provenance struct {
-	Source     string   `json:"source"`
-	Method     string   `json:"method"`
-	Model      string   `json:"model,omitempty"`
-	Confidence *float64 `json:"confidence"`
-	Evidence   []string `json:"evidence"`
+	Source         string         `json:"source"`
+	Method         string         `json:"method"`
+	Model          string         `json:"model,omitempty"`
+	Confidence     *float64       `json:"confidence"`
+	Evidence       []string       `json:"evidence"`
+	DecisionStatus string         `json:"decision_status"`
+	EvidenceSpans  []EvidenceSpan `json:"evidence_spans,omitempty"`
 }
 type AnnotationItem struct {
 	Meta
@@ -125,6 +146,7 @@ type TaggingConfig struct {
 	EnableExtraction     bool     `json:"enable_extraction"`
 	EnableClassification bool     `json:"enable_classification"`
 	TagSchema            []string `json:"tag_schema"`
+	LabelSchema          []Label  `json:"label_schema,omitempty"`
 }
 type TaggingTask struct {
 	Meta
@@ -158,14 +180,18 @@ type Feature struct {
 	Type        string          `json:"type"`
 	Description string          `json:"description"`
 	Definition  json.RawMessage `json:"definition"`
-	SourceRefID string          `json:"source_ref_id"`
+	// DefinitionExact preserves numeric literals through MySQL binary JSON. It is assigned by the service, never trusted from a request.
+	DefinitionExact string `json:"definition_exact,omitempty"`
+	SourceRefID     string `json:"source_ref_id"`
 }
 type FeatureValue struct {
 	FeatureID   string          `json:"feature_id"`
 	Version     int             `json:"version"`
 	EntityID    string          `json:"entity_id"`
 	Value       json.RawMessage `json:"value"`
+	ValueExact  string          `json:"value_exact,omitempty"`
 	Timestamp   time.Time       `json:"timestamp"`
+	AvailableAt time.Time       `json:"available_at,omitzero"`
 	SourceRefID string          `json:"source_ref_id"`
 }
 type SuggestionSource struct {
@@ -201,7 +227,10 @@ type Record struct {
 type Filter struct {
 	Kind, ParentID, Status, Cursor string
 	UserID                         int64
-	Limit                          int
+	// GovernedOwnerID filters private, parent-bound annotation/tagging tasks
+	// without changing the existing sharing policy for ordinary source tasks.
+	GovernedOwnerID int64
+	Limit           int
 }
 type Page[T any] struct {
 	Items      []T    `json:"items"`

@@ -33,9 +33,12 @@ type Config struct {
 	Compute             Compute
 	Publish             PublishFunc
 	ValidatePublication PublicationValidator
-	Authorize           Authorizer
-	Adapters            map[string]d.Adapter
-	Templates           []d.PipelineDefinition
+	// ValidateGovernedOrigin verifies the durable producer record and current
+	// external-source authority for registered cross-domain artifacts.
+	ValidateGovernedOrigin func(context.Context, d.Principal, d.DataAssetRef) error
+	Authorize              Authorizer
+	Adapters               map[string]d.Adapter
+	Templates              []d.PipelineDefinition
 }
 type Service struct {
 	repo      d.Repository
@@ -199,6 +202,9 @@ func (s *Service) resolve(ctx context.Context, tenantID, userID int64, id d.RefI
 	}
 	if ref.Status != "available" {
 		return ref, nil, d.ErrConflict
+	}
+	if e := s.validateOriginChain(ctx, d.Principal{TenantID: tenantID, UserID: userID}, ref); e != nil {
+		return ref, nil, e
 	}
 	reader, _, e := s.store.Get(ctx, ref.ObjectKey)
 	if e != nil {

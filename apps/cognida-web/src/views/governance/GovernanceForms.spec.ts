@@ -1,7 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+vi.mock("@/stores/auth", () => ({
+  useAuthStore: () => ({
+    authEpoch: 0,
+    user: { id: 1 },
+    currentTenant: { id: 1 },
+    token: "test-token",
+  }),
+}));
+vi.mock("vue-router", () => ({ useRoute: () => ({ query: {} }) }));
 const api = vi.hoisted(() => ({
   list: vi.fn(),
+  get: vi.fn(),
+  previewFeature: vi.fn(),
   create: vi.fn(),
   action: vi.fn(),
 }));
@@ -48,11 +59,16 @@ describe("governance create contracts", () => {
       expect(payload).not.toHaveProperty(field);
   });
   it("registers a versioned feature and calculates from its source", async () => {
-    const wrapper = mount(FeaturesView);
+    const wrapper = mount(FeaturesView, {
+      global: { stubs: { RouterLink: true } },
+    });
     await flushPromises();
     const form = wrapper.get("form");
     await form.find("input").setValue("Spend");
-    await form.findAll("select")[1].setValue("source:2");
+    await form
+      .findAll("select")
+      .find((s) => s.find('option[value="source:2"]').exists())!
+      .setValue("source:2");
     await form.find('input[placeholder="如：total_spend"]').setValue("amount");
     await form.trigger("submit");
     await flushPromises();
@@ -64,16 +80,25 @@ describe("governance create contracts", () => {
       definition: { kind: "field", field: "amount" },
     });
     expect(payload).not.toHaveProperty("created_at");
-    api.action.mockResolvedValue({ data: { count: 3 } });
+    api.action.mockResolvedValue({
+      data: {
+        count: 3,
+        receipt_id: "receipt",
+        feature_id: "created",
+        version: 1,
+        output_ref_id: "output:1",
+        available_at: "2026-10-16T00:00:00Z",
+      },
+    });
     await wrapper
       .findAll("button")
-      .find((b) => b.text() === "从来源资产计算所选版本")!
+      .find((b) => b.text() === "计算并物化所选版本")!
       .trigger("click");
     await flushPromises();
-    expect(api.action).toHaveBeenCalledWith("/features/created/compute", {
+    expect(api.action).toHaveBeenCalledWith("/features/created/materialize", {
       version: 1,
     });
-    expect(wrapper.text()).toContain("已计算并写入 3 个实体特征值");
+    expect(wrapper.text()).toContain("已物化 3 个特征值");
   });
   it("parses a selected historical version using its own type", async () => {
     const base = {
@@ -93,7 +118,9 @@ describe("governance create contracts", () => {
         },
       }),
     );
-    const wrapper = mount(FeaturesView);
+    const wrapper = mount(FeaturesView, {
+      global: { stubs: { RouterLink: true } },
+    });
     await flushPromises();
     await wrapper
       .findAll("button")
@@ -109,7 +136,13 @@ describe("governance create contracts", () => {
     expect(api.create).toHaveBeenCalledWith(
       "/feature-values",
       expect.objectContaining({
-        values: [expect.objectContaining({ version: 1, value: 12 })],
+        values: [
+          expect.objectContaining({
+            version: 1,
+            value: null,
+            value_exact: "12",
+          }),
+        ],
       }),
     );
     wrapper.unmount();

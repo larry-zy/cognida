@@ -23,7 +23,7 @@ export const navigationGroups: NavigationGroup[] = [
     { path: '/catalog', title: '数据目录', icon: 'datasource' },
     { path: '/quality', title: '数据质量', icon: 'quality' },
     { path: '/labeling', title: '标注与打标', icon: 'knowledge' },
-    { path: '/features', title: '特征存储', icon: 'datasets' },
+    { path: '/features', title: '特征工程', icon: 'datasets' },
     { path: '/semantic-models', title: '语义建模', icon: 'graph' },
     { path: '/evaluation', title: 'Agent 测评', icon: 'evaluation' },
     { path: '/datasets', title: '评测数据集', icon: 'datasets' },

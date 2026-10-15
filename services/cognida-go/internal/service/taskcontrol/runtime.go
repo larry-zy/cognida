@@ -13,17 +13,24 @@ import (
 )
 
 type Runtime struct {
-	tasks    *Service
-	repo     d.RuntimeRepository
-	adapters map[string]ExecutionAdapter
-	enabled  bool
+	tasks          *Service
+	repo           d.RuntimeRepository
+	adapters       map[string]ExecutionAdapter
+	enabled        bool
+	validateInputs func(context.Context, d.Scope, []l.RefID) error
 }
 
-func NewRuntime(tasks *Service, repo d.RuntimeRepository, adapters map[string]ExecutionAdapter, enabled bool) (*Runtime, error) {
+func NewRuntime(tasks *Service, repo d.RuntimeRepository, adapters map[string]ExecutionAdapter, enabled bool, sources ...func(context.Context, d.Scope, []l.RefID) error) (*Runtime, error) {
 	if tasks == nil || repo == nil || len(adapters) == 0 {
 		return nil, d.ErrInvalid
 	}
 	r := &Runtime{tasks: tasks, repo: repo, adapters: map[string]ExecutionAdapter{}, enabled: enabled}
+	if len(sources) > 1 || (len(sources) == 1 && sources[0] == nil) {
+		return nil, d.ErrInvalid
+	}
+	if len(sources) == 1 {
+		r.validateInputs = sources[0]
+	}
 	for id, adapter := range adapters {
 		capability, ok := tasks.validator.capabilities[id]
 		if !ok || adapter == nil || capability.RequiresApproval {
@@ -114,8 +121,8 @@ func (r *Runtime) Readiness(ctx context.Context, p d.Scope, id string) (*Executi
 				block(node.ID, "preset_constraints", "节点不符合固定预置操作或调用／时间预算要求。 ")
 				continue
 			}
-			if err := validateRootInputs(ctx, adapter, p, refs); err != nil {
-				block(node.ID, "source_not_supported", "输入不可访问，或来源链尚未支持执行；当前仅支持可信手工输入及其受控派生数据。")
+			if err := r.validateRootInputs(ctx, adapter, p, refs); err != nil {
+				block(node.ID, "source_not_supported", "输入不可访问，或来源链尚未支持执行；仅支持可信手工输入、已接入的受控来源及其派生数据。")
 			}
 		}
 		if outputs > 64 {
@@ -414,7 +421,16 @@ func (r *Runtime) Reconcile(parent context.Context, p d.Scope, id string) error 
 }
 
 func validateRootInputs(ctx context.Context, adapter ExecutionAdapter, p d.Scope, refs []l.RefID) error {
-	if len(refs) == 0 || len(refs) > 64 {
+	return validateInputBatches(ctx, adapter.ValidateInputs, p, refs)
+}
+func (r *Runtime) validateRootInputs(ctx context.Context, adapter ExecutionAdapter, p d.Scope, refs []l.RefID) error {
+	if r.validateInputs != nil {
+		return validateInputBatches(ctx, r.validateInputs, p, refs)
+	}
+	return validateRootInputs(ctx, adapter, p, refs)
+}
+func validateInputBatches(ctx context.Context, validate func(context.Context, d.Scope, []l.RefID) error, p d.Scope, refs []l.RefID) error {
+	if len(refs) > 64 {
 		return d.ErrInvalid
 	}
 	// A task may contain 64 roots even though each domain command takes 16.
@@ -423,7 +439,7 @@ func validateRootInputs(ctx context.Context, adapter ExecutionAdapter, p d.Scope
 		if end > len(refs) {
 			end = len(refs)
 		}
-		if err := adapter.ValidateInputs(ctx, p, refs[start:end]); err != nil {
+		if err := validate(ctx, p, refs[start:end]); err != nil {
 			return err
 		}
 	}
@@ -436,15 +452,20 @@ func (r *Runtime) validateSources(ctx context.Context, p d.Scope, task *d.Task, 
 	}
 	seen := map[string]bool{}
 	for _, node := range plan.Nodes {
-		if seen[node.Capability] {
-			continue
-		}
-		seen[node.Capability] = true
+		// Domain parameters may carry an explicit source (URL or KB scope), so
+		// revalidate them as well as asset roots on every reconciliation.
 		adapter := r.adapters[node.Capability]
 		if adapter == nil {
 			return d.ErrInvalid
 		}
-		if err := validateRootInputs(ctx, adapter, p, refs); err != nil {
+		if err := adapter.Validate(ctx, p, node); err != nil {
+			return err
+		}
+		if seen[node.Capability] {
+			continue
+		}
+		seen[node.Capability] = true
+		if err := r.validateRootInputs(ctx, adapter, p, refs); err != nil {
 			return err
 		}
 	}

@@ -4,12 +4,34 @@
       <div>
         <span class="wb-kicker">HUMAN REVIEW</span>
         <h1>{{ wt("标注与智能打标") }}</h1>
-        <p>保留 AI 建议的来源与置信度，用人工审核建立可追溯的数据集。</p>
+        <p>
+          配置关键词或实体字典，生成待审核候选；也可从真实表格映射问答数据，人工审核后导出。
+        </p>
       </div>
-      <button class="primary" @click="newTask">{{ wt("＋ 新建任务") }}</button>
+      <button class="primary" :disabled="busy" @click="newTask">
+        {{ wt("＋ 新建任务") }}
+      </button>
     </header>
     <div v-if="error" class="wb-error" role="alert">{{ error }}</div>
     <div v-if="notice" class="wb-success" role="status">{{ notice }}</div>
+    <section v-if="execution" class="wb-panel" aria-label="领域执行结果">
+      <div class="wb-section-head">
+        <h2>领域执行结果</h2>
+        <span class="wb-badge">{{ executionStatus(execution.status) }}</span>
+      </div>
+      <p class="wb-footnote">恢复已保存的执行状态；打开本页不会再次运行。</p>
+      <div class="wb-actions">
+        <RouterLink
+          v-for="(output, index) in execution.output_refs"
+          :key="`${output.asset_id}:${output.version}`"
+          :to="{
+            path: '/analysis',
+            query: { asset: `${output.asset_id}:${output.version}` },
+          }"
+          >查看执行产物 {{ index + 1 }}</RouterLink
+        >
+      </div>
+    </section>
     <div
       v-if="
         assetOptions.state.hasMore ||
@@ -39,7 +61,7 @@
         :class="{ selected: mode === 'annotation' }"
         @click="changeMode('annotation')"
       >
-        {{ wt("人工标注 / AI 预标注") }}</button
+        {{ wt("人工标注 / 规则预标注") }}</button
       ><button
         :class="{ selected: mode === 'tagging' }"
         @click="changeMode('tagging')"
@@ -54,6 +76,7 @@
             v-for="task in tasks"
             :key="task.id"
             :class="{ selected: currentID === task.id }"
+            :disabled="busy"
             @click="selectTask(task)"
           >
             <strong>{{ task.name }}</strong
@@ -95,16 +118,51 @@
                 <option value="classification">分类</option>
                 <option value="named_entity">命名实体</option>
                 <option value="relation">{{ wt("关系") }}</option>
+                <option value="qa">问答标注</option>
               </select></label
             >
           </div>
           <RecordEditor
-            v-if="mode === 'annotation'"
+            v-if="mode === 'tagging' || annotationType !== 'qa'"
             v-model="labels"
             title="标签"
-            :fields="[{ key: 'name', label: '标签名称' }]"
+            :fields="labelFields"
           />
-          <div v-else class="wb-form" style="margin-top: 18px">
+          <div
+            v-if="mode === 'annotation' && annotationType === 'qa'"
+            class="wb-form"
+            style="margin-top: 18px"
+          >
+            <label
+              >问题列<input
+                v-model="qaMapping.question_column"
+                required
+                placeholder="如：question"
+            /></label>
+            <label
+              >参考答案列<input
+                v-model="qaMapping.reference_answer_column"
+                required
+                placeholder="如：answer"
+            /></label>
+            <p class="wb-footnote wb-full">
+              选择表格资产中两个不同的文本列。预标注只复制原始问答，不生成或补造答案。
+            </p>
+          </div>
+          <p v-else class="wb-footnote">
+            {{
+              annotationType === "named_entity" && mode === "annotation"
+                ? "实体词条按 Unicode 原文精确匹配；重叠歧义保留为待确认。"
+                : annotationType === "relation" && mode === "annotation"
+                  ? "关系采用人工标注，请创建标签后逐项填写实体与关系。"
+                  : "关键词以逗号分隔。未命中时保留为未确定，不自动选择标签。"
+            }}
+          </p>
+          <div
+            v-if="mode === 'tagging'"
+            class="wb-form"
+            style="margin-top: 18px"
+          >
             <label
               v-for="field in tagOptions"
               :key="field.key"
@@ -112,11 +170,7 @@
               ><input v-model="tagConfig[field.key]" type="checkbox" />{{
                 field.label
               }}</label
-            ><label class="wb-full"
-              >标签体系<input
-                v-model="tagSchema"
-                placeholder="例如：价格,售后,交付"
-            /></label>
+            >
           </div>
           <button class="primary" :disabled="busy" style="margin-top: 18px">
             {{ mode === "annotation" ? "创建标注任务" : "创建并执行打标" }}
@@ -130,8 +184,13 @@
           <div class="wb-actions">
             <button @click="run(() => loadItems())">{{ wt("刷新结果") }}</button
             ><template v-if="mode === 'annotation'"
-              ><button :disabled="busy" @click="preannotate">
-                {{ wt("AI 预标注") }}</button
+              ><button
+                :disabled="
+                  busy || (activeTask as AnnotationTask)?.type === 'relation'
+                "
+                @click="preannotate"
+              >
+                {{ wt("生成预标注") }}</button
               ><button :disabled="busy" @click="exportData">
                 {{ wt("导出 JSONL") }}
               </button></template
@@ -141,14 +200,14 @@
             {{ (activeTask as TagTask)?.error }}
           </p>
           <p class="wb-footnote">
-            AI
-            生成结果待人工审核。修改后保存会保留来源记录；分类与实体使用任务定义的标签。
+            规则结果仍需人工审核；“未确定”表示未匹配或存在歧义，不是低概率预测。修改后需重新审核。导出仅包含审核通过的数据。
           </p>
           <div class="wb-list" style="margin-top: 16px">
             <button
               v-for="item in items"
               :key="item.id"
               :class="{ selected: currentItem?.id === item.id }"
+              :disabled="busy"
               @click="selectItem(item)"
             >
               <strong
@@ -156,7 +215,8 @@
                 }}{{ item.content.length > 90 ? "…" : "" }}</strong
               ><small
                 >{{ item.review_status }} · 来源 {{ item.provenance.source }} ·
-                置信 {{ confidence(item.provenance.confidence) }}</small
+                {{ decisionLabel(item.provenance.decision_status) }} · 置信
+                {{ confidence(item.provenance.confidence) }}</small
               >
             </button>
           </div>
@@ -180,6 +240,33 @@
               confidence(currentItem.provenance.confidence)
             }}
           </p>
+          <p
+            v-if="currentItem.provenance.decision_status === 'uncertain'"
+            class="wb-error"
+            role="status"
+          >
+            未确定：规则未命中或存在歧义，请核对原文并人工修正。
+          </p>
+          <p
+            v-else-if="currentItem.provenance.decision_status"
+            class="wb-footnote"
+          >
+            {{ decisionLabel(currentItem.provenance.decision_status) }}
+          </p>
+          <ul
+            v-if="currentItem.provenance.evidence_spans?.length"
+            class="wb-footnote"
+            aria-label="规则命中依据"
+          >
+            <li
+              v-for="(span, index) in currentItem.provenance.evidence_spans"
+              :key="index"
+            >
+              {{ span.match }} · 标签 {{ labelName(span.label_id) }} · 字符 [{{
+                span.start
+              }}, {{ span.end }}) · {{ span.rule }}
+            </li>
+          </ul>
           <p v-if="currentItem.reviewed_by" class="wb-muted">
             审核人：{{ currentItem.reviewed_by }} ·
             {{ currentItem.review_status }}<br />{{
@@ -187,6 +274,20 @@
             }}
           </p>
           <form v-if="mode === 'annotation'" @submit.prevent="saveItem">
+            <div
+              v-if="(activeTask as AnnotationTask)?.type === 'qa'"
+              class="wb-form"
+            >
+              <label class="wb-full"
+                >问题<textarea v-model="annotation.qa.question" required />
+              </label>
+              <label class="wb-full"
+                >参考答案<textarea
+                  v-model="annotation.qa.reference_answer"
+                  required
+                />
+              </label>
+            </div>
             <label
               v-if="(activeTask as AnnotationTask)?.type === 'classification'"
               class="wb-label"
@@ -201,7 +302,11 @@
                 </option>
               </select></label
             ><RecordEditor
-              v-if="(activeTask as AnnotationTask)?.type !== 'classification'"
+              v-if="
+                ['named_entity', 'relation'].includes(
+                  (activeTask as AnnotationTask)?.type,
+                )
+              "
               v-model="annotation.entities"
               title="实体"
               :fields="entityFields"
@@ -211,7 +316,14 @@
               title="关系"
               :fields="relationFields"
             />
-            <p class="wb-footnote">
+            <p
+              v-if="
+                ['named_entity', 'relation'].includes(
+                  (activeTask as AnnotationTask)?.type,
+                )
+              "
+              class="wb-footnote"
+            >
               实体位置使用 Unicode 字符索引，起点包含、终点不包含。当前文本
               {{ Array.from(currentItem.content).length }} 个字符。
             </p>
@@ -242,6 +354,13 @@
                 :fields="[
                   { key: 'text', label: '文本' },
                   { key: 'type', label: '类别' },
+                  {
+                    key: 'label',
+                    label: '字典标签',
+                    options: (
+                      (activeTask as TagTask)?.config?.label_schema || []
+                    ).map((label) => ({ value: label.id, label: label.name })),
+                  },
                   { key: 'start', label: '起点' },
                   { key: 'end', label: '终点' },
                 ]"
@@ -281,13 +400,21 @@
 import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
-import { computed, onMounted, reactive, ref } from "vue";
+import {
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import {
   governanceApi as api,
   type AnnotationTask,
   type AnnotationItem,
   type TagTask,
   type TagResult,
+  type GovernanceExecution,
 } from "@/api/governance";
 import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
 import RecordEditor, {
@@ -295,6 +422,26 @@ import RecordEditor, {
 } from "@/components/workbench/RecordEditor.vue";
 import "@/components/workbench/workbench.css";
 import { useAuthStore } from "@/stores/auth";
+import { useRoute } from "vue-router";
+const execution = ref<GovernanceExecution>();
+const executionStatus = (status: string) =>
+  ({
+    queued: "排队中",
+    running: "执行中",
+    completed: "已完成",
+    succeeded: "已完成",
+    cancelled: "已取消",
+    failed: "执行失败",
+    cancel_requested: "取消处理中",
+  })[status] || status;
+const route = useRoute(),
+  auth = useAuthStore();
+const identity = computed(
+  () => `${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`,
+);
+let generation = 0,
+  scope = 0;
+const detailTask = ref<Task>();
 type Task = AnnotationTask | TagTask;
 type Item = AnnotationItem | TagResult;
 const mode = ref("annotation"),
@@ -307,7 +454,7 @@ const mode = ref("annotation"),
   sourceRef = ref(""),
   annotationType = ref("classification"),
   labels = ref<Record<string, unknown>[]>([]),
-  tagSchema = ref(""),
+  qaMapping = reactive({ question_column: "", reference_answer_column: "" }),
   busy = ref(false),
   error = ref(""),
   notice = ref(""),
@@ -330,6 +477,7 @@ const annotation = reactive({
     labels: [] as string[],
     entities: [] as Record<string, unknown>[],
     relations: [] as Record<string, unknown>[],
+    qa: { question: "", reference_answer: "" },
   }),
   tagEdit = reactive({
     tags: "",
@@ -340,11 +488,45 @@ const annotation = reactive({
   }),
   tagEntities = ref<Record<string, unknown>[]>([]);
 const activeTask = computed(() =>
-    tasks.value.find((t) => t.id === currentID.value),
+    detailTask.value?.id === currentID.value
+      ? detailTask.value
+      : tasks.value.find((t) => t.id === currentID.value),
   ),
   base = computed(() =>
     mode.value === "annotation" ? "/annotation-tasks" : "/tagging-tasks",
   );
+const labelFields = computed<EditorField[]>(() => [
+  { key: "name", label: "标签名称" },
+  ...(mode.value === "annotation" && annotationType.value === "relation"
+    ? []
+    : [
+        {
+          key:
+            mode.value === "annotation" &&
+            annotationType.value === "named_entity"
+              ? "terms"
+              : "keywords",
+          label:
+            mode.value === "annotation" &&
+            annotationType.value === "named_entity"
+              ? "实体词条"
+              : "匹配关键词",
+          list: true,
+        },
+      ]),
+]);
+const decisionLabel = (value?: string) =>
+  ({ matched: "规则已命中", uncertain: "未确定", manual: "人工修正" })[
+    value || ""
+  ] ||
+  value ||
+  "未提供判断依据";
+const labelName = (id: string) =>
+  (
+    (activeTask.value as AnnotationTask)?.labels ||
+    (activeTask.value as TagTask)?.config?.label_schema ||
+    []
+  ).find((l) => l.id === id)?.name || id;
 const entityFields = computed<EditorField[]>(() => [
   {
     key: "label",
@@ -393,6 +575,7 @@ const split = (v: string) =>
     value == null ? "未评估" : `${(value * 100).toFixed(1)}%`;
 let activeOperations = 0;
 async function run(fn: () => Promise<void>) {
+  const epoch = generation;
   activeOperations++;
   busy.value = true;
   error.value = "";
@@ -400,7 +583,8 @@ async function run(fn: () => Promise<void>) {
   try {
     await fn();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "操作失败";
+    if (epoch === generation)
+      error.value = e instanceof Error ? e.message : "操作失败";
   } finally {
     busy.value = --activeOperations > 0;
   }
@@ -408,9 +592,11 @@ async function run(fn: () => Promise<void>) {
 let taskListEpoch = 0;
 async function load(append = false) {
   const source = base.value,
+    ownScope = scope,
     request = ++taskListEpoch;
   const res = await api.list<Task>(source, append ? next.value : "");
-  if (source !== base.value || request !== taskListEpoch) return;
+  if (ownScope !== scope || source !== base.value || request !== taskListEpoch)
+    return;
   tasks.value = append
     ? [...tasks.value, ...(res.data?.items || [])]
     : res.data?.items || [];
@@ -421,6 +607,17 @@ const assetOptions = useCursorOptions(assets, (cursor) =>
 );
 
 function newTask() {
+  execution.value = undefined;
+  generation++;
+  itemsEpoch++;
+  detailTask.value = undefined;
+  itemNext.value = "";
+  error.value = "";
+  notice.value = "";
+  labels.value = [];
+  annotationType.value = "classification";
+  qaMapping.question_column = "";
+  qaMapping.reference_answer_column = "";
   currentID.value = "";
   currentItem.value = undefined;
   items.value = [];
@@ -435,28 +632,49 @@ async function changeMode(value: string) {
 async function create() {
   if (busy.value) return;
   await run(async () => {
+    const epoch = generation;
+    if (!name.value.trim() || !sourceRef.value)
+      throw new Error("请填写任务名称并选择来源资产");
+    if (
+      mode.value === "annotation" &&
+      annotationType.value === "qa" &&
+      (!qaMapping.question_column.trim() ||
+        !qaMapping.reference_answer_column.trim() ||
+        qaMapping.question_column === qaMapping.reference_answer_column)
+    )
+      throw new Error("问答映射需要两个不同的非空文本列名");
     const input =
       mode.value === "annotation"
         ? {
             name: name.value,
             type: annotationType.value,
             source_ref_id: sourceRef.value,
-            labels: labels.value,
+            labels: annotationType.value === "qa" ? [] : labels.value,
+            ...(annotationType.value === "qa"
+              ? { qa_mapping: { ...qaMapping } }
+              : {}),
           }
         : {
             name: name.value,
             source_ref_id: sourceRef.value,
-            config: { ...tagConfig, tag_schema: split(tagSchema.value) },
+            config: { ...tagConfig, label_schema: labels.value },
           };
     const res = await api.create<Task>(base.value, input);
+    if (epoch !== generation) return;
     await load();
-    if (res.data) {
+    if (res.data && epoch === generation) {
+      detailTask.value = res.data;
       currentID.value = res.data.id;
       await loadItems();
     }
   });
 }
 async function selectTask(task: Task) {
+  generation++;
+  itemsEpoch++;
+  items.value = [];
+  itemNext.value = "";
+  detailTask.value = task;
   currentID.value = task.id;
   currentItem.value = undefined;
   await run(() => loadItems());
@@ -464,6 +682,7 @@ async function selectTask(task: Task) {
 let itemsEpoch = 0;
 async function loadItems(append = false) {
   const id = currentID.value,
+    epoch = generation,
     source = base.value,
     request = ++itemsEpoch;
   const suffix = mode.value === "annotation" ? "items" : "results";
@@ -471,7 +690,12 @@ async function loadItems(append = false) {
     `${base.value}/${currentID.value}/${suffix}`,
     append ? itemNext.value : "",
   );
-  if (id !== currentID.value || source !== base.value || request !== itemsEpoch)
+  if (
+    epoch !== generation ||
+    id !== currentID.value ||
+    source !== base.value ||
+    request !== itemsEpoch
+  )
     return;
   items.value = append
     ? [...items.value, ...(res.data?.items || [])]
@@ -492,6 +716,7 @@ function selectItem(item: Item) {
           labels: item.annotation?.labels || [],
           entities: item.annotation?.entities || [],
           relations: item.annotation?.relations || [],
+          qa: item.annotation?.qa || { question: "", reference_answer: "" },
         }),
       ),
     );
@@ -515,7 +740,14 @@ const entities = (rows: Record<string, unknown>[]) =>
     end: Number(row.end),
   }));
 function annotationValue() {
-  return { ...annotation, entities: entities(annotation.entities) };
+  return {
+    labels: annotation.labels,
+    entities: entities(annotation.entities),
+    relations: annotation.relations,
+    ...((activeTask.value as AnnotationTask)?.type === "qa"
+      ? { qa: { ...annotation.qa } }
+      : {}),
+  };
 }
 function tagValue() {
   return {
@@ -527,6 +759,8 @@ function tagValue() {
 }
 async function persist() {
   if (!currentItem.value) return;
+  const epoch = generation,
+    itemID = currentItem.value.id;
   const suffix = mode.value === "annotation" ? "items" : "results";
   const data =
     mode.value === "annotation"
@@ -542,6 +776,8 @@ async function persist() {
     `${base.value}/${currentID.value}/${suffix}/${currentItem.value.id}`,
     data,
   );
+  if (epoch !== generation || itemID !== currentItem.value?.id)
+    throw new Error("当前审核项已切换，请重新操作");
   if (res.data) selectItem(res.data);
   await loadItems();
 }
@@ -556,26 +792,37 @@ async function review(decision: string) {
   if (busy.value) return;
   await run(async () => {
     if (!currentItem.value) return;
+    const epoch = generation,
+      originalItem = currentItem.value.id;
+    const ensureCurrent = () => {
+      if (epoch !== generation || originalItem !== currentItem.value?.id)
+        throw new Error("当前审核项已切换，请重新操作");
+    };
     if (mode.value === "annotation") {
       const itemID = currentItem.value.id;
       const comment = reviewComment.value;
       if (JSON.stringify(annotationValue()) !== annotationSnapshot)
         await persist();
+      ensureCurrent();
       await api.action(
         `${base.value}/${currentID.value}/items/${itemID}/review`,
         { decision, comment, expected_version: currentItem.value?.version },
       );
+      ensureCurrent();
       await loadItems();
+      ensureCurrent();
       const updated = items.value.find((i) => i.id === itemID);
       if (updated) selectItem(updated);
     } else {
       const itemID = currentItem.value.id,
         comment = reviewComment.value;
       if (JSON.stringify(tagValue()) !== tagSnapshot) await persist();
+      ensureCurrent();
       const response = await api.action<TagResult>(
         `/tagging-results/${itemID}/review`,
         { decision, comment, expected_version: currentItem.value?.version },
       );
+      ensureCurrent();
       if (response.data) selectItem(response.data);
       await loadItems();
     }
@@ -583,36 +830,125 @@ async function review(decision: string) {
   });
 }
 async function preannotate() {
-  if (busy.value) return;
+  if (busy.value || (activeTask.value as AnnotationTask)?.type === "relation")
+    return;
+  const epoch = generation;
   await run(async () => {
     await api.action(`${base.value}/${currentID.value}/preannotate`);
+    if (epoch !== generation) return;
     await loadItems();
     notice.value = "预标注已提交，结果仍需人工审核。";
   });
 }
 async function exportData() {
+  if (busy.value) return;
+  const epoch = generation,
+    taskID = currentID.value;
   await run(async () => {
     const response = await fetch(
-      `/api/v1/annotation-tasks/${currentID.value}/export?format=jsonl`,
-      { headers: { Authorization: `Bearer ${useAuthStore().token}` } },
+      `/api/v1/annotation-tasks/${encodeURIComponent(taskID)}/export?format=jsonl`,
+      {
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+          ...(auth.currentTenant
+            ? { "X-Tenant-ID": String(auth.currentTenant.id) }
+            : {}),
+        },
+      },
     );
+    if (epoch !== generation) return;
     if (!response.ok) throw new Error(`导出失败 (${response.status})`);
-    const url = URL.createObjectURL(await response.blob());
-    const anchor = document.createElement("a");
+    const blob = await response.blob();
+    if (epoch !== generation) return;
+    const url = URL.createObjectURL(blob),
+      anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `annotations-${currentID.value}.jsonl`;
+    anchor.download = `annotations-${taskID}.jsonl`;
     anchor.click();
     URL.revokeObjectURL(url);
+    notice.value = "已导出审核通过的标注。";
   });
 }
-onMounted(() =>
-  run(async () => {
-    await load();
-    await assetOptions.reset();
-  }),
+async function openLink() {
+  newTask();
+  const epoch = generation;
+  await run(async () => {
+    let id =
+        typeof route?.query.task_id === "string" ? route.query.task_id : "",
+      kind =
+        route?.query.kind === "tagging" ? "tagging_task" : "annotation_task";
+    const executionID =
+      typeof route?.query.execution_id === "string"
+        ? route.query.execution_id
+        : "";
+    if (executionID) {
+      const res = await api.get<GovernanceExecution>(
+        `/governance-executions/${encodeURIComponent(executionID)}`,
+      );
+      if (epoch !== generation) return;
+      execution.value = res.data;
+      if (
+        !res.data?.domain_id ||
+        !["annotation_task", "tagging_task"].includes(res.data.domain_kind)
+      )
+        throw new Error("该执行尚无可查看的标注任务");
+      id = res.data.domain_id;
+      kind = res.data.domain_kind;
+    }
+    if (!id) return;
+    mode.value = kind === "tagging_task" ? "tagging" : "annotation";
+    const res = await api.get<Task>(`${base.value}/${encodeURIComponent(id)}`);
+    if (epoch !== generation) return;
+    if (!res.data) throw new Error("任务不存在或无权查看");
+    detailTask.value = res.data;
+    currentID.value = res.data.id;
+    try {
+      await loadItems();
+    } catch (e) {
+      if (epoch === generation) {
+        detailTask.value = undefined;
+        currentID.value = "";
+        items.value = [];
+        currentItem.value = undefined;
+      }
+      throw e;
+    }
+  });
+}
+watch(
+  () => [route?.query.execution_id, route?.query.task_id, route?.query.kind],
+  () => void openLink(),
 );
+watch(identity, () => {
+  scope++;
+  newTask();
+  tasks.value = [];
+  assets.value = [];
+  next.value = "";
+  void initialize();
+});
+async function initialize() {
+  const epoch = generation;
+  await run(async () => {
+    await Promise.all([load(), assetOptions.reset()]);
+  });
+  if (
+    epoch === generation &&
+    (route?.query.execution_id || route?.query.task_id)
+  )
+    await openLink();
+}
+onMounted(initialize);
+onBeforeUnmount(() => {
+  scope++;
+  generation++;
+});
 </script>
 <style scoped>
+.wb-panel p,
+.wb-panel li {
+  overflow-wrap: anywhere;
+}
 .labeling-content {
   margin: 16px 0;
   padding: 18px;

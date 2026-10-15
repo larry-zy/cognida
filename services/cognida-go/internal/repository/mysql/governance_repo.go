@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"time"
 )
 
@@ -77,6 +76,9 @@ func (r *governanceRepository) List(ctx context.Context, tenant int64, f d.Filte
 	if f.UserID > 0 {
 		q = q.Where("user_id=?", f.UserID)
 	}
+	if f.GovernedOwnerID > 0 && (f.Kind == "annotation_task" || f.Kind == "tagging_task") {
+		q = q.Where("(parent_id='' OR user_id=?)", f.GovernedOwnerID)
+	}
 	if f.Cursor != "" {
 		q = q.Where("id>?", f.Cursor)
 	}
@@ -118,59 +120,12 @@ func (r *governanceRepository) Due(ctx context.Context, now time.Time, limit int
 }
 func (r *governanceRepository) Pending(ctx context.Context, limit int) ([]d.Record, error) {
 	var rows []governanceRow
-	err := r.db.WithContext(ctx).Where("kind IN ? AND status IN ?", []string{"subscription_run", "tagging_task"}, []string{"queued", "running"}).Order("updated_at").Limit(catalogLimit(limit)).Find(&rows).Error
+	err := r.db.WithContext(ctx).Where("kind IN ? AND status IN ?", []string{"subscription_run", "tagging_task", d.GovernedKind}, []string{"queued", "running", "cancel_requested"}).Order("updated_at").Limit(catalogLimit(limit)).Find(&rows).Error
 	out := []d.Record{}
 	for _, row := range rows {
 		out = append(out, *row.domain())
 	}
 	return out, err
-}
-
-type featureValueRow struct {
-	TenantID    int64     `gorm:"primaryKey"`
-	FeatureID   string    `gorm:"primaryKey"`
-	Version     int       `gorm:"primaryKey"`
-	EntityID    string    `gorm:"primaryKey"`
-	ObservedAt  time.Time `gorm:"primaryKey"`
-	Value       []byte
-	SourceRefID string
-}
-
-func (featureValueRow) TableName() string { return "feature_values" }
-func (r *governanceRepository) FeatureWrite(ctx context.Context, tenant int64, values []d.FeatureValue) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, v := range values {
-			row := featureValueRow{TenantID: tenant, FeatureID: v.FeatureID, Version: v.Version, EntityID: v.EntityID, ObservedAt: v.Timestamp.UTC().Truncate(time.Microsecond), Value: v.Value, SourceRefID: v.SourceRefID}
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
-				return err
-			}
-			var existing featureValueRow
-			if err := tx.Where("tenant_id=? AND feature_id=? AND version=? AND entity_id=? AND observed_at=?", tenant, v.FeatureID, v.Version, v.EntityID, v.Timestamp.UTC().Truncate(time.Microsecond)).First(&existing).Error; err != nil {
-				return err
-			}
-			if !d.JSONEqual(existing.Value, v.Value) || existing.SourceRefID != v.SourceRefID {
-				return d.ErrConflict
-			}
-		}
-		return nil
-	})
-}
-func (r *governanceRepository) FeatureQuery(ctx context.Context, tenant int64, entities []string, features []d.FeatureValue, at time.Time) ([]d.FeatureValue, error) {
-	out := []d.FeatureValue{}
-	for _, feature := range features {
-		for _, entity := range entities {
-			var row featureValueRow
-			err := r.db.WithContext(ctx).Where("tenant_id=? AND feature_id=? AND version=? AND entity_id=? AND observed_at<=?", tenant, feature.FeatureID, feature.Version, entity, at).Order("observed_at DESC").First(&row).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, d.FeatureValue{FeatureID: row.FeatureID, Version: row.Version, EntityID: row.EntityID, Timestamp: row.ObservedAt, Value: row.Value, SourceRefID: row.SourceRefID})
-		}
-	}
-	return out, nil
 }
 
 // PublishedRefs uses a compound cursor so versions sharing an asset ID cannot
