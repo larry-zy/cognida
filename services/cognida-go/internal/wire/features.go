@@ -9,6 +9,7 @@ import (
 	auditmodel "cognida/internal/model/audit"
 	collectionmodel "cognida/internal/model/collection"
 	l "cognida/internal/model/lifecycle"
+	llmmodel "cognida/internal/model/llm"
 	"cognida/internal/model/objectstore"
 	taskmodel "cognida/internal/model/taskcontrol"
 	"cognida/internal/repository/mysql"
@@ -65,7 +66,7 @@ func ProvideObjectStore(cfg *config.Config) (objectstore.Store, error) {
 type featureClock struct{}
 
 func (featureClock) Now() time.Time { return time.Now() }
-func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Service, graph neo4j.DriverWithContext, auditWriter *audit.Writer, store objectstore.Store, redisClient *redis.Client, processor knowledge.DocumentProcessorService, fetcher collectionmodel.Fetcher, collections *collection.Service, collectionRepo collectionmodel.Repository, embedder embedding.Embedder) (*FeatureServices, error) {
+func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Service, graph neo4j.DriverWithContext, auditWriter *audit.Writer, store objectstore.Store, redisClient *redis.Client, processor knowledge.DocumentProcessorService, fetcher collectionmodel.Fetcher, collections *collection.Service, collectionRepo collectionmodel.Repository, embedder embedding.Embedder, plannerClient llmmodel.LLMClient) (*FeatureServices, error) {
 	repo := mysql.NewCatalogRepository(db)
 	catalogService := catalog.NewService(repo, source.ConnectionManager(), source, catalog.AuditWriter{Writer: auditWriter})
 	var lineageService *lineage.Service
@@ -122,6 +123,11 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		return nil, err
 	}
 	f.TaskControlHandler = handler.NewTaskControlHandler(f.TaskControl)
+	supervisor, err := tasksvc.NewSupervisor(f.TaskControl, tasksvc.NewLLMPlanner(plannerClient))
+	if err != nil {
+		return nil, err
+	}
+	f.TaskControlHandler.SetSupervisor(supervisor)
 	f.Governance = governance.NewService(mysql.NewGovernanceRepository(db), life, compute, job.NewRedisQueueWithPrefix(redisClient, "governance:jobs"), authorize)
 	f.Governance.ValidateSource, f.Governance.Apply, f.Governance.DiscoverSource = NewSuggestionHooks(db, processor)
 	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)

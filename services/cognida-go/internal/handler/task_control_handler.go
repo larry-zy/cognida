@@ -15,7 +15,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type TaskControlHandler struct{ service *svc.Service }
+type TaskControlHandler struct {
+	service    *svc.Service
+	supervisor *svc.Supervisor
+}
 
 func NewTaskControlHandler(s *svc.Service) *TaskControlHandler {
 	return &TaskControlHandler{service: s}
@@ -29,12 +32,20 @@ func (h *TaskControlHandler) Register(api *gin.RouterGroup) {
 			c.Abort()
 			return
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		timeout := 30 * time.Second
+		if c.FullPath() == g.BasePath()+"/:id/supervisor/propose" {
+			// Leave time for the bounded model request and post-call validation.
+			timeout = 60 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
 	g.GET("/capabilities", h.Capabilities)
+	g.POST("/supervisor/assess", h.AssessTask)
+	g.POST("/:id/supervisor/propose", h.ProposeTask)
+	g.GET("/:id/supervisor/summary", h.SummarizeTask)
 	g.POST("/validate", h.Validate)
 	g.POST("", h.Create)
 	g.GET("", h.List)
@@ -140,6 +151,12 @@ func asciiTaskKey(key string) bool {
 func taskControlError(c *gin.Context, e error) {
 	var validation *svc.ValidationError
 	switch {
+	case errors.Is(e, svc.ErrPlannerUnavailable):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "Supervisor 模型暂不可用，请检查模型配置后重试"})
+	case errors.Is(e, svc.ErrPlannerOutput):
+		c.JSON(http.StatusBadGateway, gin.H{"code": 502, "message": "Supervisor 未返回有效的受约束计划，请补充目标后重试"})
+	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, context.Canceled):
+		c.JSON(http.StatusGatewayTimeout, gin.H{"code": 504, "message": "任务规划已超时或取消"})
 	case errors.As(e, &validation):
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "任务计划校验未通过", "issues": validation.Issues})
 	case errors.Is(e, d.ErrForbidden):

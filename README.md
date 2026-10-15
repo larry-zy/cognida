@@ -73,17 +73,19 @@
 
 状态核对日期：**2026-10-15**。✅ 已有实现（须结合边界与验收范围） · 🟡 有基础，闭环待补 · 🚧 计划中 · ⏸ 后续阶段。本文区分代码实现与实际验收，不能把接口存在、流程执行成功或模型自评当作业务质量达标。
 
-当前工作范围为 **第 1 组：业务闭环 + 第 2 组：能力补全**，详见[调研与实施设计](docs/openspec/changes/complete-governed-data-loop/design.md)及[实施任务](docs/openspec/changes/complete-governed-data-loop/tasks.md)。首批已实现统一任务持久化、草稿／计划预检 API 和 Sandbox 契约校验，已通过隔离 MySQL、HTTP 与独立 Review；详见[接口与验收边界](services/cognida-go/internal/service/taskcontrol/README.md)。预检固定返回 `execution_enabled: false`，Supervisor、实际 Runner、运行时调度与统一任务页面仍需实现。Agentic RL、模型训练／微调和独立生产化工程延后。
+当前工作范围为 **第 1 组：业务闭环 + 第 2 组：能力补全**，详见[调研与实施设计](docs/openspec/changes/complete-governed-data-loop/design.md)及[实施任务](docs/openspec/changes/complete-governed-data-loop/tasks.md)。已实现统一任务持久化、草稿／预检 API、Supervisor 目标澄清与模型候选计划、事实汇总，以及 `/tasks` 规划和历史计划页面；另已有 Sandbox 契约校验。Supervisor 经隔离 MySQL、HTTP、实际模型与独立 Review 验证，详见[接口与验收边界](services/cognida-go/internal/service/taskcontrol/README.md)。当前固定返回 `execution_enabled: false`；后续依次接能力与控制器、验证多 Agent 协作和任务分发，最后实现 Sandbox。Agentic RL、模型训练／微调和独立生产化工程延后。
 
 | 生命周期 → | ①收集/接入 | ②清洗/达标 | ③沉淀/资产化 | ④分析/决策 | ⑤评测/改进 |
 | --- | --- | --- | --- | --- | --- |
 | **结构化数据** | MySQL/PostgreSQL ✅<br>表/结果/评测来源导入 ✅<br>通用 API 与数仓适配 🚧 | 质量检查与预置清洗 ✅<br>诊断与差异预览 🟡<br>审核标注闭环 🟡 | 语义层、版本资产 ✅<br>字段特征/版本/时点读取 ✅<br>自动变换与物化 🚧 | Data Analysis / Text2SQL / A2UI ✅<br>专门受控写入/ETL入口 🟡<br>数仓分析 🚧 | QA/RAG/Agent/SQL评测与比较 ✅<br>真实基线漂移监控 🟡<br>评测返工与发布闭环 🚧 |
 | **非结构化知识** | 文档上传解析 ✅<br>网页采集/调度/原始快照 ✅<br>逐格式和增量覆盖 🟡 | 质量/PII/去重/清洗 ✅<br>规则打标与人工审核 ✅<br>语义标注与审核结果应用 🟡 | 分块/向量化/知识图谱 ✅<br>私人长期记忆 ✅<br>审核样本→版本数据集 🚧 | Agentic RAG与优化器工具 ✅<br>DeepResearch规划/引用校验 ✅<br>主张支持与来源冲突核查 🚧 | 检索/生成/RAG评测 ✅<br>固定样本、返工、复测与撤回 🚧 |
-| **贯穿层** | 来源与凭据授权 | 领域专家与审批 | 不可变引用、审计、租户隔离 | ReAct/协作/持久化流水线 ✅ | 统一任务草稿／预检 🟡 · 跨域 Supervisor 🚧 · Sandbox 契约 🟡 |
+| **贯穿层** | 来源与凭据授权 | 领域专家与审批 | 不可变引用、审计、租户隔离 | ReAct/协作/持久化流水线 ✅ | Supervisor 规划／审阅 🟡 · 跨域调度 🚧 · Sandbox 契约 🟡 |
 
 现有 Collection 还保留直接入库路径；新计划将其新建／重跑迁移至统一候选与发布审批。下述审批验证针对生命周期流水线，不能推断所有旧入口都已有相同门禁。
 
 已有[真实页面验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-15-UI.md)覆盖文本、表格、网页、数据库表、SQL 结果、采集产物、知识文档、评测结果八类来源。文本类验证知识发布及真实向量命中；表格类验证版本资产与分析报告。该验收不代表全部文件格式、全部数仓、标签准确性、研究事实正确性或生产长期运行已经达标。
+
+[Supervisor 页面验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-15-SUPERVISOR.md)另覆盖真实输入→实际模型候选→显式保存→刷新恢复；质检与清洗两个节点目前仅作为已保存计划，不代表已派发执行。
 
 ### 已实现能力速览 ✅
 
@@ -110,7 +112,7 @@
 - **上下文工程**：三级压缩（① 单条 >32k 就地压缩 · ② 全对话累计 ≥128k 折叠回 ~64k，按整轮折叠保 tool 配对，A 级观测遮蔽 + B 级摘要 · ③ 陈旧推理驱逐 16k），配套 `bpecount` 真实 BPE 计数（内嵌 DeepSeek-V3 tokenizer，`//go:embed`）而非字符估算
 - **DeepResearch**：已实现有界规划、并发授权检索、综合报告和引用 ID／原文摘录校验，支持取消与部分失败说明；主张的语义支持、来源独立性与矛盾核查待补齐，引用有效不等于结论真实
 - **Multi-Agent 协作**：任务分解、智能分发、结果聚合；委托含「上下文防火墙」+ 委托轨迹穿透（供评测/审计）
-- **编排原语与领域执行**：Sequential / Parallel / Loop / Conditional / Supervisor 原语；七类数据专家与持久化流水线已具备审批、取消、重试和恢复。跨采集、标注、评测及研究的目标级 Supervisor 仍在规划，不能与现有原语或固定模板混为一谈
+- **编排原语与领域执行**：Sequential / Parallel / Loop / Conditional / Supervisor 原语；七类数据专家与持久化流水线已具备审批、取消、重试和恢复。目标级 Supervisor 已能澄清目标、生成受约束候选计划和汇总真实任务状态，支持页面审阅及显式保存；跨采集、标注、评测和研究的执行适配与统一调度仍待接通
 - **反思 / 评审（critic）**：可插拔 LLM / 规则评审子系统（Actor-Critic-Memory），按 Agent 配置启用
 - **Agent Hooks**：数据结论生成、意图澄清、反思、自我修正护栏、guardrail、工具策略（按预设装配）
 - **流式响应**：SSE 实时输出，结论/图表边推理边下发
@@ -417,7 +419,7 @@ cd apps/cognida-web && npm install && npm run dev
 
 | 工作组 | 模块 | 本轮计划范围 |
 | --- | --- | --- |
-| 1 业务闭环 | 上层 Supervisor | 已有任务存储与计划预检；继续接跨域执行、运行时总预算、审批、恢复与任务页面 |
+| 1 业务闭环 | 上层 Supervisor | 已有目标澄清、模型候选、事实汇总和规划页面；继续接跨域执行、运行时总预算、审批、恢复与执行工作台 |
 | 1 业务闭环 | Sandbox | 已有 Runner 契约与纯校验；继续实现隔离执行、资源/网络/文件限制、取消回收和真实候选产物校验 |
 | 1 业务闭环 | 清洗与两类打标 Agent | 清洗差异复检；知识标签审核后应用；分类/实体/关系/问答样本标注 |
 | 1 业务闭环 | 数据集与质量门禁 | 不可变样本版本、划分去重、评测固定输入和配置、候选验证 |

@@ -124,7 +124,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	documentIngestor := ProvideCollectionIngestor(documentProcessorService)
 	collectionJobQueue := ProvideCollectionJobQueue(client)
 	collectionService := ProvideCollectionService(collectionRepository, fetcher, documentIngestor, collectionJobQueue, store)
-	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, client, documentProcessorService, fetcher, collectionService, collectionRepository, embedder)
+	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, client, documentProcessorService, fetcher, collectionService, collectionRepository, embedder, v)
 	if err != nil {
 		return nil, err
 	}

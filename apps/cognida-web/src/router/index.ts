@@ -15,6 +15,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     redirect: '/home',
     children: [
+      {path: '/tasks', name: 'TaskWorkbench', component: () => import('@/views/tasks/TaskWorkbench.vue'), meta: {title: '任务规划'}},
       {path: "/memories", name: "MemoryWorkbench", component: () => import("@/views/memory/MemoryWorkbench.vue"), meta: {title: "长期记忆"}},
       {path: "/research", name: "DeepResearch", component: () => import("@/views/research/DeepResearchView.vue"), meta: {title: "深度研究"}},
       {path: "/analysis", name: "AnalysisWorkspace", component: () => import("@/views/lifecycle/LifecycleWorkbench.vue"), meta: {title: "数据分析"}},

@@ -4,6 +4,7 @@ export interface NavigationGroup { title: string; items: NavigationItem[] }
 export const navigationGroups: NavigationGroup[] = [
   { title: '工作流程', items: [
     { path: '/home', title: '工作总览', icon: 'home' },
+    { path: '/tasks', title: '任务规划', icon: 'trace' },
     { path: '/collection-tasks', title: '网页采集', icon: 'collection' },
     { path: '/datasource', title: '数据源', icon: 'datasource' },
     { path: '/pipelines', title: '处理与发布', icon: 'trace' },
