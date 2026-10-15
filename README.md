@@ -165,6 +165,14 @@
 
 ![Cognida 技术架构](assets/images/arch-hero.png)
 
+### 目标架构：业务闭环与能力补全
+
+下图结合现有实现与[本期计划](docs/openspec/changes/complete-governed-data-loop/design.md)，用「已有／增强／规划」区分状态。Supervisor、Sandbox、版本化数据集等仍待实施；右侧 A2A、外部 Agent、PowerContext 为可选扩展，尚未接入且非本期依赖。RL、训练及模型部署后续另议。
+
+![Cognida 数据与知识平台目标架构](assets/images/cognida-target-architecture.png)
+
+图中实线表示调用与数据流，虚线表示反馈或规划边界；分层表达职责，不表示所有请求必须依次经过每层。[高清原图](assets/images/cognida-target-architecture.png) · [生成提示词](assets/images/cognida-target-architecture.prompt.txt)。
+
 **依赖方向**：`handler → service → model ← repository`
 
 ### 存储约定

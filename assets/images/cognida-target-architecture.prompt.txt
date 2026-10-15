@@ -1,0 +1,112 @@
+Generation method: built-in image_gen
+Date: 2026-10-15
+Purpose: Cognida target architecture, distinguishing existing capabilities, enhancements and planned work.
+
+Create ONE high-resolution professional Chinese software architecture infographic, landscape approximately 3:2, for the Cognida enterprise data and knowledge platform. This is a NEW architectural diagram, not a modification of an existing image.
+
+Visual direction: polished white-background technical architecture poster, cobalt/navy typography, 8 stacked wide pastel-tinted horizontal layers in the center, a narrow data/input column on the left, and a narrow cross-cutting governance/extension column on the right. Fine clean borders, ample padding, crisp Chinese sans-serif text, restrained simple line icons. Strong hierarchy, readable at zoom, no 3D, no decorative illustration, no fake screenshots. Avoid overcrowding. Big page title. Give the center approximately 74% of width, each sidebar 12%. Align cards precisely. Use color subtly by layer, as in a modern reference architecture chart. Do not copy unrelated technology stacks. All labels below should be rendered accurately.
+
+TITLE exact: "Cognida 数据与知识平台 · 目标架构"
+Subtitle: "人机协作  ·  持久任务  ·  受控执行  ·  质量反馈"
+A prominent legend near title: green dot "已有" / amber dot "增强" / blue outlined dot "规划". Every main capability card has its small corresponding status label. Show the chart is a target architecture, not a claim of all functionality delivered.
+
+CENTER, eight layers top to bottom:
+
+L1 "协作工作台" (pale lavender):
+Cards: "任务中心与计划预览" [规划]; "采集 / 清洗 / 标注" [增强]; "知识 / 分析 / 研究" [已有]; "审批 / 评测 / 报告" [增强].
+Technology caption: "Vue 3 · TypeScript · Vite · A2UI 结果画布"
+
+L2 "接入与治理" (pale blue):
+Cards: "Go / Gin · REST / SSE" [已有]; "租户 / RBAC / 来源授权" [已有]; "MCP · gRPC · HTTP" [已有].
+Small subline: "所有入口共享权限、幂等与审计"
+
+L3 "任务规划与执行控制" (pale orange, visually central/important):
+Three connected cards with clear left-to-right arrows:
+"Supervisor" [规划] / sublabel "目标澄清 · 受约束计划"
+→ "持久化控制器" [增强] / sublabel "依赖 · 预算 · 审批 · 恢复"
+→ "领域执行器" [已有] / sublabel "采集 · 流水线 · 治理 · 评测"
+Small contract bar: "Task 目标与状态  /  Plan 版本与依赖  /  Run 执行记录  /  Artifact 不可变产物"
+Important: Supervisor does not directly approve or execute privileged shell operations. Existing domain executors are reused, not replaced.
+
+L4 "领域专家 Agent" (pale warm yellow):
+Eight small aligned cards, two rows of four if necessary:
+"采集专家" [已有], "质检专家" [已有], "清洗专家" [增强], "知识打标 Agent" [规划],
+"样本标注 Agent" [规划], "数据分析 Agent" [已有], "RAG 问答 Agent" [已有], "DeepResearch" [增强].
+One brief line beneath cards: "清洗生成新版本 · 标签与样本经人工复核 · 专家之间传递资产引用"
+
+L5 "运行时与工具执行" (pale cyan):
+Three larger cards:
+"Go / Eino" [已有] / "ReAct · Tools · Hooks · Skills"
+"Python 计算服务" [增强] / "解析 · 质量 · 统计 · 特征 · 漂移"
+"Sandbox Runner" [规划] / "代码隔离 · 默认禁网 · 资源限额" / "只输出候选产物"
+Sandbox card must have a BLUE DASHED outline and small shield icon, visually distinct boundary. Below it small text "无宿主密钥 · 无直接发布权限".
+A bottom inline strip: "QueryAdapter [规划]：数仓方言 · 精确类型 · 查询取消 · 费用限制"
+
+L6 "知识、上下文与资产" (pale mint):
+Cards:
+"统一 RAG 检索" [已有] / "向量 + BM25 · 重排 · 多跳"
+"私人长期记忆" [已有] / "tenant + user 隔离"
+"知识与版本资产" [增强] / "文档 · 表格 · 特征"
+"版本化数据集" [规划] / "审核样本 · 来源 · 固定快照"
+Small policy note: "私人记忆不自动进入共享知识或样本库"
+
+L7 "质量门禁与反馈闭环" (pale pink):
+Four horizontally connected cards:
+"候选验证" [规划] → "人工审批" [已有] → "发布 / 撤回" [增强] → "固定基线评测 / 返工" [规划]
+Subline: "QA · RAG · Agent · SQL 评测已有；跨环节反馈待接通"
+Draw ONE clearly labeled dashed orange feedback arrow from this layer back up along the outside edge of the central panel to L3, label "反馈 → 返工 → 重规划". Do not draw feedback to a model-training component. No RL loop.
+
+L8 "数据与基础设施" (pale gray-blue):
+Five clean cards with text (simple database icons optional):
+"MySQL" / "元数据 · 任务 · 版本"
+"Milvus" / "向量 · BM25"
+"Neo4j" / "图谱 · 血缘"
+"Redis" / "队列 · 缓存"
+"对象存储" / "Local / MinIO"
+These are existing storage components. Do NOT list PostgreSQL, MongoDB or Kafka as Cognida's platform state stores.
+
+LEFT SIDEBAR:
+Header "数据与来源"
+Group with green status:
+"已接入"
+"Web / 文档"
+"MySQL / PostgreSQL"
+"查询结果 / 知识 / 评测"
+Group with blue status:
+"计划扩展"
+"认证 HTTP API"
+"ClickHouse"
+"Doris / StarRocks"
+"Hive / BigQuery"
+Small note "逐来源、逐引擎真实验收"
+Separate lower box "模型服务" with "LLM / Embedding" and "OCR / CLIP（按配置）".
+Connect sources to L2 and tool execution through thin arrows. External PostgreSQL is a data source only.
+
+RIGHT SIDEBAR:
+Header "贯穿保障"
+"权限与敏感数据"
+"幂等 / 版本 / 审计"
+"request_id / OTel / Loki"
+"取消 / 恢复 / 配额"
+"来源删除与撤权传播 [增强]"
+Distinct dashed gray lower box:
+"可选外部协作"
+"MCP 对接外部能力"
+"A2A / 外部 Agent"
+"PowerContext"
+Small explicit note: "外部 Agent / A2A / PowerContext" followed by "未接入 · 非本期依赖"
+MCP tool integration itself is existing; do not claim the optional external integrations have shipped.
+
+At bottom a clear process ribbon with arrows, exact labels:
+"采集 → 质检 → 清洗 → 打标 / 标注 → 候选 → 审批发布 → 检索 / 分析 / 评测"
+Footer left: "本期：业务闭环 + 能力补全"
+Footer right: "RL / 训练 / 模型部署：后续"
+Fine final note: "实线：调用与数据流   虚线：反馈或规划边界   2026-10-15"
+
+Important content constraints:
+1. Preserve exact Chinese terms and English technology names. No gibberish or invented tech.
+2. Status is essential: the screenshot must not imply Supervisor, Sandbox, annotation Agents, dataset versioning or warehouse connectors are already implemented.
+3. There is one platform storage row at bottom; no duplicated database roof.
+4. Show clear Supervisor→Controller→Experts→Tools boundary, approvals before release, and feedback returning to planning.
+5. Do not include React, Next.js, MongoDB, Kafka, LangGraph, AgentScope, cloud product mapping, or model-training implementation.
+6. This is a clean, technically precise poster suitable for a README and design review. Use readable labels, minimal ornament, generous margins.
