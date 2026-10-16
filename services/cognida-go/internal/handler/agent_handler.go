@@ -516,37 +516,6 @@ func (h *AgentHandler) researchError(c *gin.Context, err error, report *agentuc.
 // 配置接口
 // ========================================
 
-// GetConfig 获取 Agent 配置
-func (h *AgentHandler) GetConfig(c *gin.Context) {
-	OK(c, gin.H{
-		"agentic_rag":   h.configUseCase.GetAgenticRAGConfig(),
-		"deep_research": h.configUseCase.GetDeepResearchConfig(),
-	})
-}
-
-// UpdateConfig 更新 Agent 配置
-func (h *AgentHandler) UpdateConfig(c *gin.Context) {
-	var req struct {
-		AgenticRAG   map[string]interface{} `json:"agentic_rag,omitempty"`
-		DeepResearch map[string]interface{} `json:"deep_research,omitempty"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err.Error())
-		return
-	}
-
-	// 更新配置（这里简化处理，实际需要更复杂的转换）
-	if req.AgenticRAG != nil {
-		log.Printf("[UpdateConfig] AgenticRAG config update: %v", req.AgenticRAG)
-	}
-	if req.DeepResearch != nil {
-		log.Printf("[UpdateConfig] DeepResearch config update: %v", req.DeepResearch)
-	}
-
-	log.Printf("[UpdateConfig] Config update requested")
-	OK(c, gin.H{"message": "配置更新请求已接收", "note": "完整配置更新功能待实现"})
-}
-
 // ========================================
 // 进度接口
 // ========================================

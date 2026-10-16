@@ -228,7 +228,7 @@ func applyRetrievalOverrides(ctx context.Context, q *svcknowledge.GovernedQuery)
 	if p.TopK != nil && *p.TopK > 0 {
 		q.TopK = *p.TopK
 	}
-	if p.MinScore != nil && *p.MinScore > 0 {
+	if p.MinScore != nil && *p.MinScore >= 0 && *p.MinScore <= 1 {
 		q.MinScore = *p.MinScore
 	}
 	if p.RerankEnabled != nil {

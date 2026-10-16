@@ -2,7 +2,8 @@
 package handler
 
 import (
-	"log"
+	"errors"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -67,15 +68,31 @@ func (h *GraphHandler) GetStats(c *gin.Context) {
 
 // GetRelationStats 获取关系统计
 func (h *GraphHandler) GetRelationStats(c *gin.Context) {
-	knowledgeBaseID := c.Query("kb_id")
-	if knowledgeBaseID == "" {
-		BadRequest(c, "知识库ID不能为空")
+	// Only middleware-verified int64 identities are accepted. The legacy helpers
+	// default missing identities to tenant/user 1 and must not be used here.
+	stats, err := h.graphService.GetRelationStats(c.Request.Context(), c.GetInt64("tenant_id"), c.GetInt64("user_id"), c.Query("kb_id"))
+	if err != nil {
+		respondGraphAccessError(c, err)
 		return
 	}
+	OK(c, stats)
+}
 
-	// NameSpace 参数由 knowledgeBaseID 和 tenantID 组成，需要传递给图谱服务
-	log.Printf("[GetRelationStats] KB ID: %s", knowledgeBaseID)
-	OK(c, gin.H{"kb_id": knowledgeBaseID, "note": "关系统计功能待实现"})
+func respondGraphAccessError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, knowledgeapp.ErrGraphIdentityRequired):
+		Unauthorized(c, err.Error())
+	case errors.Is(err, knowledgeapp.ErrGraphInvalidScope):
+		BadRequest(c, err.Error())
+	case errors.Is(err, knowledgeapp.ErrGraphKnowledgeBaseNotFound), errors.Is(err, domainGraph.ErrGraphNodeNotFound):
+		NotFound(c, "知识库或图谱节点不存在或不可用")
+	case errors.Is(err, knowledgeapp.ErrGraphForbidden):
+		Forbidden(c, err.Error())
+	case errors.Is(err, knowledgeapp.ErrGraphStatsUnavailable):
+		respond(c, http.StatusServiceUnavailable, Fail(http.StatusServiceUnavailable, err.Error()))
+	default:
+		RespondError(c, err)
+	}
 }
 
 // AddNode 添加节点
@@ -140,11 +157,7 @@ func (h *GraphHandler) AddRelation(c *gin.Context) {
 		return
 	}
 
-	// 获取租户ID和 KnowledgeBase ID 作为命名空间
-	tenantID := c.GetString("tenant_id")
-	if tenantID == "" {
-		tenantID = "1"
-	}
+	// Tenant/user come only from authenticated middleware, never a fallback.
 	knowledgeBaseID := c.Param("id")
 	if knowledgeBaseID == "" {
 		BadRequest(c, "知识库ID不能为空")
@@ -164,14 +177,9 @@ func (h *GraphHandler) AddRelation(c *gin.Context) {
 		ChunkIDs: req.ChunkIDs,
 	}
 
-	namespace := domainGraph.NameSpace{
-		TenantID:        tenantID,
-		KnowledgeBaseID: knowledgeBaseID,
-	}
-
-	result, err := h.graphService.AddRelation(c.Request.Context(), namespace, relation)
+	result, err := h.graphService.AddAuthorizedRelation(c.Request.Context(), c.GetInt64("tenant_id"), c.GetInt64("user_id"), knowledgeBaseID, relation)
 	if err != nil {
-		InternalError(c, err.Error())
+		respondGraphAccessError(c, err)
 		return
 	}
 

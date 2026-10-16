@@ -4,7 +4,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -20,11 +22,12 @@ import (
 // ToolRegistry 工具注册表：支持工具分组管理和统一访问。
 // 依赖经 ToolDeps 显式注入，构造时按分组注册全部工具，替代旧的包级全局单例与 init() 副作用。
 type ToolRegistry struct {
-	core   *agentframework.ToolRegistryImpl // 核心 ToolRegistry
-	groups map[string][]string              // 分组 -> 工具名列表
-	mu     sync.RWMutex
-	deps   ToolDeps // 注入的工具依赖
-	ops    *opTools // 操作工具依赖载体（registerOperationTools 装配；handler confirm-resume 复用）
+	core     *agentframework.ToolRegistryImpl // 核心 ToolRegistry
+	metadata map[string]ToolMetadata
+	groups   map[string][]string // 分组 -> 工具名列表
+	mu       sync.RWMutex
+	deps     ToolDeps // 注入的工具依赖
+	ops      *opTools // 操作工具依赖载体（registerOperationTools 装配；handler confirm-resume 复用）
 }
 
 // NewToolRegistry 构造工具注册表（唯一公开构造入口）：
@@ -143,35 +146,99 @@ func (r *ToolRegistry) FetchSchema(ctx context.Context, databaseID, tableName st
 	return FetchSchema(ctx, db, r.deps.DatasourceProvider, databaseID, tableName)
 }
 
-// Register 注册工具到指定分组
-// 如果分组为空，则注册到默认分组
+// ToolMetadata is trusted registration metadata, not inferred from descriptions.
+// The registration group is always included as a discoverable tag.
+type ToolMetadata struct {
+	Category string
+	Tags     []string
+}
+
+// Register registers a tool in a group, preserving the existing constructor API.
 func (r *ToolRegistry) Register(group string, t tool.BaseTool) error {
+	return r.RegisterWithTags(group, t)
+}
+
+// RegisterWithTags attaches explicit discovery tags. Replacing a name also
+// replaces its metadata/group membership; it cannot leave stale list entries.
+func (r *ToolRegistry) RegisterWithTags(group string, t tool.BaseTool, tags ...string) error {
 	if t == nil {
 		return fmt.Errorf("tool cannot be nil")
 	}
-
-	// 获取工具名称
-	info, err := t.Info(context.TODO())
-	if err != nil {
-		return fmt.Errorf("failed to get tool info: %w", err)
+	// Check typed nil before calling Info, using the same fail-closed boundary
+	// as the core registry.
+	value := reflect.ValueOf(t)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if value.IsNil() {
+			return fmt.Errorf("tool cannot be nil")
+		}
 	}
-
-	// 注册到核心注册表
-	if err := r.core.RegisterDirect(info.Name, t); err != nil {
-		return fmt.Errorf("failed to register tool %s: %w", info.Name, err)
-	}
-
-	// 添加到分组
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if group == "" {
 		group = "default"
 	}
-
-	r.groups[group] = append(r.groups[group], info.Name)
-
+	if err := validateSkillLabel(group); err != nil {
+		return fmt.Errorf("invalid tool category")
+	}
+	allTags := []string{group}
+	seen := map[string]bool{group: true}
+	if len(tags) > maxSkillFilterTags {
+		return fmt.Errorf("too many tool tags")
+	}
+	for _, tag := range tags {
+		if err := validateSkillLabel(tag); err != nil {
+			return fmt.Errorf("invalid tool tag")
+		}
+		if !seen[tag] {
+			allTags = append(allTags, tag)
+			seen[tag] = true
+		}
+	}
+	sort.Strings(allTags)
+	info, err := t.Info(context.Background())
+	if err != nil || info == nil {
+		return fmt.Errorf("failed to get tool info")
+	}
+	name := strings.ToLower(info.Name)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.core.RegisterDirect(info.Name, t); err != nil {
+		return fmt.Errorf("failed to register tool: %w", err)
+	}
+	r.removeGroupEntries(name)
+	if r.metadata == nil {
+		r.metadata = make(map[string]ToolMetadata)
+	}
+	if r.groups == nil {
+		r.groups = make(map[string][]string)
+	}
+	r.metadata[name] = ToolMetadata{Category: group, Tags: allTags}
+	r.groups[group] = append(r.groups[group], name)
 	return nil
+}
+
+// ToolMetadata returns a copy so discovery consumers cannot mutate registration.
+func (r *ToolRegistry) ToolMetadata(name string) (ToolMetadata, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	metadata, ok := r.metadata[strings.ToLower(name)]
+	metadata.Tags = append([]string(nil), metadata.Tags...)
+	return metadata, ok
+}
+
+func (r *ToolRegistry) removeGroupEntries(name string) {
+	for group, names := range r.groups {
+		kept := names[:0]
+		for _, candidate := range names {
+			if !strings.EqualFold(candidate, name) {
+				kept = append(kept, candidate)
+			}
+		}
+		if len(kept) == 0 {
+			delete(r.groups, group)
+		} else {
+			r.groups[group] = kept
+		}
+	}
 }
 
 // RegisterBatch 批量注册工具到指定分组
@@ -261,22 +328,12 @@ func (r *ToolRegistry) Size() int {
 
 // Unregister 注销工具
 func (r *ToolRegistry) Unregister(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err := r.core.Unregister(name); err != nil {
 		return err
 	}
-
-	// 从分组中移除
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for group, names := range r.groups {
-		for i, n := range names {
-			if n == name {
-				r.groups[group] = append(names[:i], names[i+1:]...)
-				break
-			}
-		}
-	}
-
+	r.removeGroupEntries(name)
+	delete(r.metadata, strings.ToLower(name))
 	return nil
 }

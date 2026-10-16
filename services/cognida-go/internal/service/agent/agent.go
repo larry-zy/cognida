@@ -16,7 +16,8 @@ import (
 
 // ExecuteService implements agent execution
 type ExecuteService struct {
-	executor agent.AgentExecutor
+	executor    agent.AgentExecutor
+	preferences *ConfigService
 }
 
 // NewExecuteService creates a new execute service
@@ -26,6 +27,26 @@ func NewExecuteService(executor agent.AgentExecutor) *ExecuteService {
 	}
 }
 
+// WithConfig connects private defaults at startup; runtime instances remain immutable.
+func (s *ExecuteService) WithConfig(config *ConfigService) *ExecuteService {
+	s.preferences = config
+	return s
+}
+func (s *ExecuteService) executionContext(ctx context.Context, req *AgenticRAGRequest) (context.Context, error) {
+	if req == nil {
+		return nil, agent.ErrConfigInvalid
+	}
+	// The data Agent and governed task runner keep their separately pinned settings.
+	if s.preferences != nil && (req.AgentID == "agent-rag-001" || req.AgentID == "" || req.AgentID == "default") {
+		next, err := s.preferences.ApplyRAG(ctx)
+		if err != nil {
+			return nil, agent.ErrConfigUnavailable
+		}
+		return next, nil
+	}
+	return ctx, nil
+}
+
 // SetExecutor sets the agent executor
 func (s *ExecuteService) SetExecutor(executor agent.AgentExecutor) {
 	s.executor = executor
@@ -33,6 +54,12 @@ func (s *ExecuteService) SetExecutor(executor agent.AgentExecutor) {
 
 // Execute executes an agent request
 func (s *ExecuteService) Execute(ctx context.Context, req *AgenticRAGRequest) (*AgenticRAGResponse, error) {
+	var err error
+	ctx, err = s.executionContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
 	if s.executor == nil {
 		return &AgenticRAGResponse{
 			Success: false,
@@ -63,6 +90,12 @@ func (s *ExecuteService) Execute(ctx context.Context, req *AgenticRAGRequest) (*
 
 // ExecuteStream executes an agent request with streaming response
 func (s *ExecuteService) ExecuteStream(ctx context.Context, req *AgenticRAGRequest) (<-chan *ChatChunkDTO, error) {
+	var err error
+	ctx, err = s.executionContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
 	if s.executor == nil {
 		return nil, fmt.Errorf("Agent执行器未初始化")
 	}
@@ -159,48 +192,6 @@ func (s *ExecuteService) GetStatus(ctx context.Context) agent.AgentStatus {
 
 	status, _ := s.executor.GetStatus("default")
 	return status
-}
-
-// ========================================
-// Config Service
-// ========================================
-
-// ConfigService manages agent configuration
-type ConfigService struct {
-	agenticRAGConfig   *agent.AgenticRAGConfig
-	deepResearchConfig *agent.DeepResearchConfig
-}
-
-// NewConfigService creates a new config service
-func NewConfigService() *ConfigService {
-	return &ConfigService{
-		agenticRAGConfig:   agent.DefaultAgenticRAGConfig(),
-		deepResearchConfig: agent.DefaultDeepResearchConfig(),
-	}
-}
-
-// GetAgenticRAGConfig returns the AgenticRAG configuration
-func (s *ConfigService) GetAgenticRAGConfig() *agent.AgenticRAGConfig {
-	return s.agenticRAGConfig
-}
-
-// GetDeepResearchConfig returns the DeepResearch configuration
-func (s *ConfigService) GetDeepResearchConfig() *agent.DeepResearchConfig {
-	return s.deepResearchConfig
-}
-
-// UpdateAgenticRAGConfig updates the AgenticRAG configuration
-func (s *ConfigService) UpdateAgenticRAGConfig(config *agent.AgenticRAGConfig) {
-	if config != nil {
-		s.agenticRAGConfig = config
-	}
-}
-
-// UpdateDeepResearchConfig updates the DeepResearch configuration
-func (s *ConfigService) UpdateDeepResearchConfig(config *agent.DeepResearchConfig) {
-	if config != nil {
-		s.deepResearchConfig = config
-	}
 }
 
 // ========================================

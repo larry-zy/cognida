@@ -32,9 +32,10 @@ type ResearchToolRegistry interface {
 }
 
 type ResearchService struct {
-	config *agent.DeepResearchConfig
-	model  model.BaseChatModel
-	tools  ResearchToolRegistry
+	config      *agent.DeepResearchConfig
+	preferences *ConfigService
+	model       model.BaseChatModel
+	tools       ResearchToolRegistry
 }
 
 func NewResearchService(_ agent.AgentExecutor, config *agent.DeepResearchConfig) *ResearchService {
@@ -42,6 +43,13 @@ func NewResearchService(_ agent.AgentExecutor, config *agent.DeepResearchConfig)
 		config = agent.DefaultDeepResearchConfig()
 	}
 	return &ResearchService{config: config}
+}
+
+// WithConfig connects per-user defaults only for interactive research. Governed
+// runs preserve the controller's explicit immutable limits and authorization.
+func (s *ResearchService) WithConfig(config *ConfigService) *ResearchService {
+	s.preferences = config
+	return s
 }
 
 func (s *ResearchService) WithDependencies(llm model.BaseChatModel, registry ResearchToolRegistry) *ResearchService {
@@ -69,7 +77,7 @@ func (s *ResearchService) ExecuteGovernedWithProgress(ctx context.Context, req *
 	copyReq.SessionID, copyReq.Context, copyReq.KBScopeMode = "", nil, "manual"
 	web := req.Options != nil && req.Options.EnableWebSearch
 	copyReq.Options = &DeepResearchOptions{MaxSubQuestions: 3, MaxConcurrency: 2, MaxSources: 20, TimeoutSeconds: 120, EnableWebSearch: web, EnableFactCheck: true}
-	limits, err := s.validate(ctx, &copyReq)
+	limits, err := s.validatePreferences(ctx, &copyReq, false)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +86,9 @@ func (s *ResearchService) ExecuteGovernedWithProgress(ctx context.Context, req *
 }
 
 func (s *ResearchService) validate(ctx context.Context, req *DeepResearchRequest) (researchLimits, error) {
+	return s.validatePreferences(ctx, req, true)
+}
+func (s *ResearchService) validatePreferences(ctx context.Context, req *DeepResearchRequest, interactive bool) (researchLimits, error) {
 	limits := researchLimits{questions: 3, concurrency: 2, sources: 20, timeout: 120 * time.Second}
 	if req == nil || strings.TrimSpace(req.Query) == "" || len([]rune(req.Query)) > 4000 || len(req.KBIDs) > 50 {
 		return limits, ErrResearchInvalid
@@ -92,6 +103,24 @@ func (s *ResearchService) validate(ctx context.Context, req *DeepResearchRequest
 	}
 	if req.KBScopeMode != "" && req.KBScopeMode != "manual" && req.KBScopeMode != "hybrid" && req.KBScopeMode != "auto" {
 		return limits, ErrResearchInvalid
+	}
+	if interactive && s.preferences != nil {
+		p, e := s.preferences.Research(ctx)
+		if e != nil {
+			return limits, ErrResearchUnavailable
+		}
+		if p.MaxSubQuestions != nil {
+			limits.questions = *p.MaxSubQuestions
+		}
+		if p.MaxConcurrency != nil {
+			limits.concurrency = *p.MaxConcurrency
+		}
+		if p.MaxSources != nil {
+			limits.sources = *p.MaxSources
+		}
+		if p.TimeoutSeconds != nil {
+			limits.timeout = time.Duration(*p.TimeoutSeconds) * time.Second
+		}
 	}
 	if opts := req.Options; opts != nil {
 		if opts.MaxSubQuestions != 0 {

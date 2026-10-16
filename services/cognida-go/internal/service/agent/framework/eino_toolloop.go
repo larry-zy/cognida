@@ -2,6 +2,7 @@
 package framework
 
 import (
+	domainagent "cognida/internal/model/agent"
 	"context"
 	"fmt"
 	"log"
@@ -159,7 +160,8 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	loopStart := time.Now()
 	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
 	guard := newFailureGuard()
-	for i := 0; i < a.maxIter; i++ {
+	maxIter := domainagent.EffectiveIterationLimit(ctx, a.maxIter)
+	for i := 0; i < maxIter; i++ {
 		// 三级压缩之①③：每轮生成前就地治理运行时上下文——单条超限压缩、累计超线折叠，
 		// 不停机（区别于 tokenBudget 的达标即终止）。未配置阈值时为空操作，零回归。
 		messages = a.normalizeContext(ctx, messages)
@@ -301,7 +303,7 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	// 以 naturalFinish 判定而非 Content==""：模型主动收尾但返回空内容时仍属自然结束。
 	if !naturalFinish && res.terminatedBy == "" {
 		res.terminatedBy = TerminatedByMaxIter
-		res.iterations = a.maxIter
+		res.iterations = maxIter
 	}
 
 	// wind-down：因达到 maxIter 或预算耗尽而被动终止（非自然收尾）时，做一次「无工具」收尾生成，

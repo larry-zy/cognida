@@ -167,15 +167,15 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	messageHandler := ProvideMessageHandler(messageService)
 	tenantHandler := ProvideTenantHandler(accountService)
 	agentExecutor := ProvideAgentOrchestrator(specRegistry)
-	executeService := ProvideExecuteService(agentExecutor)
-	researchService := ProvideResearchService(agentExecutor)
-	configService := ProvideConfigService()
+	configService := ProvideConfigService(db)
+	executeService := ProvideExecuteService(agentExecutor, configService)
+	researchService := ProvideResearchService(agentExecutor, configService)
 	progressService := ProvideProgressService()
 	agentPersistenceService := ProvideAgentPersistenceService(sessionRepository, messageRepository)
 	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService, retrievalSettingRepository)
 	registryAgentHandler := ProvideRegistryAgentHandler(specRegistry)
 	llmChat := ProvideRAGLLMChat(llmClient)
-	graphService := ProvideGraphService(graphRepository, graphQueryRepository, llmChat)
+	graphService := ProvideGraphService(graphRepository, graphQueryRepository, knowledgeBaseRepository, llmChat)
 	graphHandler := ProvideGraphHandler(graphService)
 	modelService := ProvideModelService(modelRepository, modelFactory)
 	modelHandler := ProvideModelHandler(modelService, chatService)
@@ -515,13 +515,16 @@ func ProvideNeo4jGraphRepository(driver neo4j.DriverWithContext, cfg *config.Neo
 func ProvideGraphService(
 	graphRepo knowledge.GraphRepository,
 	graphQueryRepo knowledge.GraphQueryRepository,
+	kbRepo knowledge.KnowledgeBaseRepository,
 	llmChat rag.LLMChat,
 ) *knowledge2.GraphService {
 	if graphRepo == nil {
 		return nil
 	}
 
-	return knowledge2.NewGraphServiceWithQuery(graphRepo, graphQueryRepo, graph.NewLLMExtractor(llmChat))
+	service := knowledge2.NewGraphServiceWithQuery(graphRepo, graphQueryRepo, graph.NewLLMExtractor(llmChat))
+	service.SetKnowledgeBaseRepository(kbRepo)
+	return service
 }
 
 func ProvideEvaluationService(
@@ -592,21 +595,21 @@ func ProvideAgentOrchestrator(registry *framework.SpecRegistry) agent.AgentExecu
 	return orchestrator
 }
 
-func ProvideExecuteService(executor agent.AgentExecutor) *agent2.ExecuteService {
-	return agent2.NewExecuteService(executor)
+func ProvideExecuteService(executor agent.AgentExecutor, configService *agent2.ConfigService) *agent2.ExecuteService {
+	return agent2.NewExecuteService(executor).WithConfig(configService)
 }
 
-func ProvideResearchService(executor agent.AgentExecutor) *agent2.ResearchService {
+func ProvideResearchService(executor agent.AgentExecutor, configService *agent2.ConfigService) *agent2.ResearchService {
 	config2 := agent.DefaultDeepResearchConfig()
-	return agent2.NewResearchService(executor, config2)
+	return agent2.NewResearchService(executor, config2).WithConfig(configService)
 }
 
 func ProvideProgressService() *agent2.ProgressService {
 	return agent2.NewProgressService()
 }
 
-func ProvideConfigService() *agent2.ConfigService {
-	return agent2.NewConfigService()
+func ProvideConfigService(db *gorm.DB) *agent2.ConfigService {
+	return agent2.NewConfigService(mysql.NewAgentPreferencesRepository(db))
 }
 
 func ProvideAgentPersistenceService(

@@ -559,6 +559,7 @@ func ProvideNeo4jGraphRepository(driver neo4j.DriverWithContext, cfg *config.Neo
 func ProvideGraphService(
 	graphRepo domain_knowledge.GraphRepository,
 	graphQueryRepo domain_knowledge.GraphQueryRepository,
+	kbRepo domain_knowledge.KnowledgeBaseRepository,
 	llmChat domain_rag.LLMChat,
 ) *app_kb.GraphService {
 	if graphRepo == nil {
@@ -567,7 +568,9 @@ func ProvideGraphService(
 	// Create GraphService with basic dependencies
 	// Note: llmChat is optional and only needed for extraction features
 	// 抽取器(基础设施实现)在 Wire 层装配，service 仅依赖 GraphExtractor 接口
-	return app_kb.NewGraphServiceWithQuery(graphRepo, graphQueryRepo, infragraph.NewLLMExtractor(llmChat))
+	service := app_kb.NewGraphServiceWithQuery(graphRepo, graphQueryRepo, infragraph.NewLLMExtractor(llmChat))
+	service.SetKnowledgeBaseRepository(kbRepo)
+	return service
 }
 
 func ProvideEvaluationService(
@@ -642,21 +645,21 @@ func ProvideAgentOrchestrator(registry *agentframework.SpecRegistry) agent.Agent
 	return orchestrator
 }
 
-func ProvideExecuteService(executor agent.AgentExecutor) *agentuc.ExecuteService {
-	return agentuc.NewExecuteService(executor)
+func ProvideExecuteService(executor agent.AgentExecutor, configService *agentuc.ConfigService) *agentuc.ExecuteService {
+	return agentuc.NewExecuteService(executor).WithConfig(configService)
 }
 
-func ProvideResearchService(executor agent.AgentExecutor) *agentuc.ResearchService {
+func ProvideResearchService(executor agent.AgentExecutor, configService *agentuc.ConfigService) *agentuc.ResearchService {
 	config := agent.DefaultDeepResearchConfig()
-	return agentuc.NewResearchService(executor, config)
+	return agentuc.NewResearchService(executor, config).WithConfig(configService)
 }
 
 func ProvideProgressService() *agentuc.ProgressService {
 	return agentuc.NewProgressService()
 }
 
-func ProvideConfigService() *agentuc.ConfigService {
-	return agentuc.NewConfigService()
+func ProvideConfigService(db *gorm.DB) *agentuc.ConfigService {
+	return agentuc.NewConfigService(mysql.NewAgentPreferencesRepository(db))
 }
 
 func ProvideAgentPersistenceService(

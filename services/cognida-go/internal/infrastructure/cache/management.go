@@ -3,6 +3,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -83,9 +84,9 @@ func (s *CacheManagementService) GetCacheStats(ctx context.Context) (*CacheStats
 	}
 
 	return &CacheStatsResponse{
-		Hits:          stats.Hits,
-		Misses:        stats.Misses,
-		HitRate:       stats.HitRate,
+		Hits:           stats.Hits,
+		Misses:         stats.Misses,
+		HitRate:        stats.HitRate,
 		SimilarityDist: stats.SimilarityDist,
 	}, nil
 }
@@ -253,26 +254,143 @@ func (s *CacheManagementService) clearByAgentAndModel(ctx context.Context, tenan
 }
 
 // CleanupOrphanVectors 清理孤儿向量
-func (s *CacheManagementService) CleanupOrphanVectors(ctx context.Context) (int, error) {
-	// 获取 Redis 中所有有效的 cache_id
-	// 这里简化处理，实际需要扫描所有租户索引
-	validCacheIDs := make([]string, 0)
-
-	// TODO: 从所有租户索引中收集有效 cache_id
-
-	if milvusRepo, ok := s.vectorRepo.(*milvuscache.CacheVectorRepository); ok {
-		err := milvusRepo.DeleteOrphanVectors(ctx, validCacheIDs)
-		if err != nil {
-			return 0, fmt.Errorf("cleanup orphan vectors failed: %w", err)
-		}
-		return 0, nil
+func (s *CacheManagementService) CleanupOrphanVectors(ctx context.Context, req domaincache.OrphanCleanupRequest) (*domaincache.OrphanCleanupResult, error) {
+	result := &domaincache.OrphanCleanupResult{}
+	if req.GracePeriod == 0 {
+		req.GracePeriod = time.Minute
 	}
-
-	return 0, fmt.Errorf("vector repo type assertion failed")
+	if req.MaxVectors == 0 {
+		req.MaxVectors = 10000
+	}
+	if req.BatchSize == 0 {
+		req.BatchSize = 256
+	}
+	if req.TenantID < 1 || req.GracePeriod < time.Minute || req.GracePeriod > 30*24*time.Hour || req.MaxVectors < 1 || req.MaxVectors > 100000 || req.BatchSize < 1 || req.BatchSize > 1000 {
+		return result, domaincache.ErrCleanupInvalid
+	}
+	vectors, vok := s.vectorRepo.(domaincache.CacheCleanupVectorRepository)
+	contents, cok := s.contentRepo.(domaincache.CacheCleanupContentRepository)
+	if !vok || !cok {
+		return result, domaincache.ErrCleanupUnsupported
+	}
+	cutoff := time.Now().Add(-req.GracePeriod).Unix()
+	rows, err := vectors.ListCleanupCandidates(ctx, req.TenantID, cutoff, req.MaxVectors, req.BatchSize)
+	if err != nil {
+		return result, fmt.Errorf("enumerate cache vectors: %w", err)
+	}
+	if len(rows) > req.MaxVectors {
+		return result, domaincache.ErrCleanupIncomplete
+	}
+	fences, err := contents.ListCleanupFences(ctx, req.TenantID, req.MaxVectors, req.BatchSize)
+	if err != nil {
+		return result, fmt.Errorf("enumerate cleanup receipts: %w", err)
+	}
+	pending := make(map[string]domaincache.CacheVectorIdentity, len(fences))
+	fencedIDs := make(map[string]bool, len(fences))
+	for _, f := range fences {
+		if f.Identity.Validate() != nil || f.Identity.TenantID != req.TenantID || f.Token == "" {
+			return result, domaincache.ErrCacheOwnership
+		}
+		switch f.State {
+		case "unknown":
+			return result, domaincache.ErrCleanupReconcile
+		case "active":
+			return result, errors.Join(domaincache.ErrCleanupBusy, domaincache.ErrCleanupReconcile)
+		case "failed":
+		default:
+			return result, domaincache.ErrCleanupReconcile
+		}
+		if _, exists := pending[f.Identity.CacheID]; exists {
+			return result, domaincache.ErrCleanupIncomplete
+		}
+		pending[f.Identity.CacheID] = f.Identity
+		fencedIDs[f.Identity.CacheID] = true
+	}
+	// Include definite-failure receipts whose vectors disappeared separately.
+	// An exact acknowledged delete of zero rows can safely release those fences.
+	for _, row := range rows {
+		if f, exists := pending[row.CacheID]; exists {
+			if f != row {
+				return result, domaincache.ErrCacheOwnership
+			}
+			delete(pending, row.CacheID)
+		}
+	}
+	for _, row := range pending {
+		rows = append(rows, row)
+	}
+	if len(rows) > req.MaxVectors {
+		return result, domaincache.ErrCleanupIncomplete
+	}
+	seen := make(map[string]bool, len(rows))
+	candidates := make([]domaincache.CacheVectorIdentity, 0, len(rows))
+	// Complete all reads before the first fence/delete. A late page, malformed
+	// primary hash, ownership mismatch or Redis failure cannot authorize a sweep.
+	for _, row := range rows {
+		if row.Validate() != nil || row.TenantID != req.TenantID || row.CreatedAt > cutoff || seen[row.CacheID] {
+			return result, domaincache.ErrCacheOwnership
+		}
+		seen[row.CacheID] = true
+		present, err := contents.CleanupContentPresent(ctx, row)
+		if err != nil {
+			return result, fmt.Errorf("inspect cache content: %w", err)
+		}
+		result.Scanned++
+		if present {
+			if fencedIDs[row.CacheID] {
+				return result, domaincache.ErrCleanupReconcile
+			}
+			result.Preserved++
+		} else {
+			candidates = append(candidates, row)
+		}
+	}
+	result.Candidates = len(candidates)
+	for _, row := range candidates {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		fence, err := contents.ClaimCleanup(ctx, row)
+		if err != nil {
+			return result, fmt.Errorf("fence absent cache: %w", err)
+		}
+		if fence == nil {
+			result.Preserved++
+			continue
+		}
+		count, deleteErr := vectors.DeleteCleanupCandidate(ctx, row)
+		if deleteErr == nil && (count < 0 || count > 1) {
+			deleteErr = domaincache.ErrCleanupReconcile
+		}
+		state := "deleted"
+		if deleteErr != nil {
+			state = "unknown"
+			var failure *domaincache.CacheDeleteError
+			if errors.As(deleteErr, &failure) && failure.NotApplied {
+				state = "failed"
+			}
+		} else {
+			result.Deleted += count
+		}
+		// Preserve a receipt/fence even if the operation deadline just elapsed.
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		finishErr := contents.FinishCleanup(final, *fence, state)
+		cancel()
+		if deleteErr != nil || finishErr != nil {
+			if state == "unknown" {
+				deleteErr = errors.Join(deleteErr, domaincache.ErrCleanupReconcile)
+			}
+			return result, errors.Join(deleteErr, finishErr)
+		}
+	}
+	return result, nil
 }
 
 // ScheduleCleanup 定时清理任务
-func (s *CacheManagementService) ScheduleCleanup(ctx context.Context, interval time.Duration) {
+func (s *CacheManagementService) ScheduleCleanup(ctx context.Context, interval time.Duration, req domaincache.OrphanCleanupRequest) {
+	if interval <= 0 || req.TenantID < 1 {
+		return
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -283,11 +401,11 @@ func (s *CacheManagementService) ScheduleCleanup(ctx context.Context, interval t
 			return
 		case <-ticker.C:
 			log.Printf("[Cache] Running scheduled cleanup...")
-			count, err := s.CleanupOrphanVectors(ctx)
+			result, err := s.CleanupOrphanVectors(ctx, req)
 			if err != nil {
 				log.Printf("[Cache] Cleanup failed: %v", err)
 			} else {
-				log.Printf("[Cache] Cleanup completed: %d orphan vectors removed", count)
+				log.Printf("[Cache] Cleanup completed: %d orphan vectors removed", result.Deleted)
 			}
 		}
 	}

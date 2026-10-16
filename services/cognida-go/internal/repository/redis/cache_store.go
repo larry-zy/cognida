@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -73,28 +74,37 @@ func (r *CacheContentRepository) SetContent(ctx context.Context, entry *cache.Ca
 		return err
 	}
 
-	// 设置 Hash 字段 - 使用 HMSet 兼容 Redis 3.2+
-	pipe := r.client.Pipeline()
-	pipe.HMSet(ctx, key, data)
-	pipe.Expire(ctx, key, ttl)
-
-	// 添加到租户索引
-	tenantKey := r.buildTenantKey(entry.TenantID)
-	pipe.SAdd(ctx, tenantKey, entry.CacheID)
-	pipe.Expire(ctx, tenantKey, ttl)
-
-	// 添加到 Agent 类型索引
-	agentKey := r.buildAgentKey(entry.TenantID, entry.AgentType)
-	pipe.SAdd(ctx, agentKey, entry.CacheID)
-	pipe.Expire(ctx, agentKey, ttl)
-
-	_, err = pipe.Exec(ctx)
+	// The absent-fence check and primary write must be atomic. A late writer
+	// receives a recognizable error; it must not publish a vector for this ID.
+	fields := make([]string, 0, len(data))
+	for field := range data {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	args := []any{ttl.Milliseconds(), entry.CacheID}
+	for _, field := range fields {
+		args = append(args, field, data[field])
+	}
+	keys := []string{key, r.buildTenantKey(entry.TenantID), r.buildAgentKey(entry.TenantID, entry.AgentType), cleanupFenceKey(cache.CacheVectorIdentity{TenantID: entry.TenantID, CacheID: entry.CacheID})}
+	n, err := setCacheContent.Run(ctx, r.client, keys, args...).Int()
 	if err != nil {
 		return fmt.Errorf("failed to set cache content: %w", err)
+	}
+	if n != 1 {
+		return cache.ErrCacheWriteFenced
 	}
 
 	return nil
 }
+
+var setCacheContent = redis.NewScript(`
+if redis.call('EXISTS',KEYS[4])==1 then return 0 end
+redis.call('HMSET',KEYS[1],unpack(ARGV,3))
+redis.call('PEXPIRE',KEYS[1],ARGV[1])
+redis.call('SADD',KEYS[2],ARGV[2]);redis.call('PEXPIRE',KEYS[2],ARGV[1])
+redis.call('SADD',KEYS[3],ARGV[2]);redis.call('PEXPIRE',KEYS[3],ARGV[1])
+return 1
+`)
 
 // MGetContents 批量获取缓存内容
 func (r *CacheContentRepository) MGetContents(ctx context.Context, cacheIDs []string) (map[string]*cache.CacheEntry, error) {
@@ -216,10 +226,10 @@ func (r *CacheContentRepository) GetStats(ctx context.Context) (*cache.CacheStat
 	}
 
 	return &cache.CacheStats{
-		Hits:          hits,
-		Misses:        misses,
-		HitRate:       hitRate,
-		TotalSaved:    0, // 需要另外计算
+		Hits:           hits,
+		Misses:         misses,
+		HitRate:        hitRate,
+		TotalSaved:     0, // 需要另外计算
 		SimilarityDist: similarityDist,
 	}, nil
 }
@@ -371,18 +381,18 @@ func (r *CacheContentRepository) marshalEntry(entry *cache.CacheEntry) (map[stri
 	}
 
 	return map[string]interface{}{
-		"cache_id":     entry.CacheID,
-		"query":        entry.Query,
-		"response":     entry.Response,
-		"model":        entry.Model,
-		"agent_type":   entry.AgentType,
-		"tenant_id":    entry.TenantID,
-		"prompt_hash":  entry.PromptHash,
-		"vector":       vectorJSON,
-		"created_at":   entry.CreatedAt,
-		"updated_at":   entry.UpdatedAt,
-		"hit_count":    entry.HitCount,
-		"metadata":     metadataJSON,
+		"cache_id":    entry.CacheID,
+		"query":       entry.Query,
+		"response":    entry.Response,
+		"model":       entry.Model,
+		"agent_type":  entry.AgentType,
+		"tenant_id":   entry.TenantID,
+		"prompt_hash": entry.PromptHash,
+		"vector":      vectorJSON,
+		"created_at":  entry.CreatedAt,
+		"updated_at":  entry.UpdatedAt,
+		"hit_count":   entry.HitCount,
+		"metadata":    metadataJSON,
 	}, nil
 }
 

@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -117,37 +120,37 @@ func (t *skillInvokeTool) selectToolForTask(task string) string {
 	switch {
 	case // SQL 相关
 		strings.Contains(taskLower, "sql") ||
-		strings.Contains(taskLower, "query") ||
-		strings.Contains(taskLower, "database") ||
-		strings.Contains(taskLower, "表") ||
-		strings.Contains(taskLower, "数据查询"):
+			strings.Contains(taskLower, "query") ||
+			strings.Contains(taskLower, "database") ||
+			strings.Contains(taskLower, "表") ||
+			strings.Contains(taskLower, "数据查询"):
 		return "sql_execute"
 
 	case // RAG 相关
 		strings.Contains(taskLower, "rag") ||
-		strings.Contains(taskLower, "检索") ||
-		strings.Contains(taskLower, "知识库") ||
-		strings.Contains(taskLower, "搜索") && strings.Contains(taskLower, "向量"):
+			strings.Contains(taskLower, "检索") ||
+			strings.Contains(taskLower, "知识库") ||
+			strings.Contains(taskLower, "搜索") && strings.Contains(taskLower, "向量"):
 		return "rag_query"
 
 	case // Web 搜索相关
 		strings.Contains(taskLower, "web") ||
-		strings.Contains(taskLower, "网络") ||
-		strings.Contains(taskLower, "互联网") ||
-		strings.Contains(taskLower, "百度") ||
-		strings.Contains(taskLower, "谷歌"):
+			strings.Contains(taskLower, "网络") ||
+			strings.Contains(taskLower, "互联网") ||
+			strings.Contains(taskLower, "百度") ||
+			strings.Contains(taskLower, "谷歌"):
 		return "web_search"
 
 	case // 知识库相关
 		strings.Contains(taskLower, "kb") ||
-		strings.Contains(taskLower, "知识") && strings.Contains(taskLower, "库"):
+			strings.Contains(taskLower, "知识") && strings.Contains(taskLower, "库"):
 		// kb_select 已随工具重设计移除；知识库检索统一走 rag_query（范围由会话入口选定并强制）。
 		return "rag_query"
 
 	case // 图谱相关
 		strings.Contains(taskLower, "graph") ||
-		strings.Contains(taskLower, "图谱") ||
-		strings.Contains(taskLower, "关系"):
+			strings.Contains(taskLower, "图谱") ||
+			strings.Contains(taskLower, "关系"):
 		return "graph_query"
 
 	default:
@@ -174,7 +177,7 @@ func NewSkillListTool(reg *ToolRegistry) (tool.InvokableTool, error) {
 func (t *skillListTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "skill_list",
-		Desc: "列出所有可用的工具及其描述。可选参数：category（按分类过滤）、tags（按标签过滤）。",
+		Desc: "列出已注册工具及可信分类/标签。category 与标签条件取交集；多个 tags 默认 any（OR），tag_match=all 时为 AND。标签区分大小写。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"category": {
 				Type:     schema.String,
@@ -183,37 +186,30 @@ func (t *skillListTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 			},
 			"tags": {
 				Type:     schema.String,
-				Desc:     "（可选）按标签过滤（未实现）",
+				Desc:     "（可选）注册标签，逗号分隔；默认匹配任一标签（OR），区分大小写。",
 				Required: false,
 			},
+			"tag_match": {Type: schema.String, Desc: "any（默认 OR）或 all（AND）", Enum: []string{"any", "all"}},
 		}),
 	}, nil
 }
 
 // InvokableRun 执行工具调用
 func (t *skillListTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-	// 解析参数
-	var arguments map[string]interface{}
-	if err := json.Unmarshal([]byte(argumentsInJSON), &arguments); err != nil {
-		// 参数为空或解析失败，使用默认行为
-		arguments = make(map[string]interface{})
+	filter, err := ParseSkillListFilter(argumentsInJSON)
+	if err != nil {
+		return "", err
 	}
-
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var tools []schema.ToolInfo
-
-	// 获取分类过滤参数
-	category, hasCategory := arguments["category"].(string)
-
-	if hasCategory && category != "" {
-		// 按分类获取工具
-		for _, toolName := range t.reg.ListToolsByGroup(category) {
-			if info, ok := t.reg.GetToolInfo(toolName); ok {
-				tools = append(tools, info)
-			}
+	for _, info := range t.reg.ListToolInfo() {
+		metadata, ok := t.reg.ToolMetadata(info.Name)
+		if !ok || !filter.Matches(metadata.Category, metadata.Tags) {
+			continue
 		}
-	} else {
-		// 获取所有工具
-		tools = t.reg.ListToolInfo()
+		tools = append(tools, info)
 	}
 
 	// 构造结果
@@ -223,7 +219,10 @@ func (t *skillListTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	}
 
 	for _, info := range tools {
+		metadata, _ := t.reg.ToolMetadata(info.Name)
 		toolInfo := map[string]interface{}{
+			"category":    metadata.Category,
+			"tags":        metadata.Tags,
 			"name":        info.Name,
 			"description": info.Desc,
 		}
@@ -240,4 +239,129 @@ func (t *skillListTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	}
 
 	return string(resultBytes), nil
+}
+
+const maxSkillFilterTags = 32
+
+// SkillListFilter is shared by document Skill discovery and tool discovery.
+// Matching is case-sensitive, as in existing Skill metadata; category is ANDed
+// with tags. The default any mode preserves the production Skill OR behavior.
+type SkillListFilter struct {
+	Category string
+	Tags     []string
+	TagMatch string
+}
+
+// ParseSkillListFilter accepts a bounded JSON object with exact known keys.
+// Bad types/JSON/duplicates must not silently turn a filter into an unfiltered list.
+func ParseSkillListFilter(input string) (SkillListFilter, error) {
+	filter := SkillListFilter{TagMatch: "any"}
+	invalid := func() (SkillListFilter, error) {
+		return SkillListFilter{}, fmt.Errorf("invalid skill_list filter: expected category/tags strings and tag_match any or all")
+	}
+	if len(input) > 16*1024 || !utf8.ValidString(input) {
+		return invalid()
+	}
+	dec := json.NewDecoder(strings.NewReader(input))
+	first, err := dec.Token()
+	if err != nil || first != json.Delim('{') {
+		return invalid()
+	}
+	values := make(map[string]string)
+	for dec.More() {
+		token, err := dec.Token()
+		if err != nil {
+			return invalid()
+		}
+		key, ok := token.(string)
+		if !ok {
+			return invalid()
+		}
+		if key != "category" && key != "tags" && key != "tag_match" {
+			return invalid()
+		}
+		if _, exists := values[key]; exists {
+			return invalid()
+		}
+		token, err = dec.Token()
+		if err != nil {
+			return invalid()
+		}
+		value, ok := token.(string)
+		if !ok {
+			return invalid()
+		}
+		values[key] = value
+	}
+	if end, err := dec.Token(); err != nil || end != json.Delim('}') {
+		return invalid()
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return invalid()
+	}
+	if mode, ok := values["tag_match"]; ok {
+		if mode != "any" && mode != "all" {
+			return invalid()
+		}
+		filter.TagMatch = mode
+	}
+	filter.Category = strings.TrimSpace(values["category"])
+	if filter.Category != "" && validateSkillLabel(filter.Category) != nil {
+		return invalid()
+	}
+	raw := strings.TrimSpace(values["tags"])
+	if raw == "" {
+		return filter, nil
+	}
+	parts := strings.Split(raw, ",")
+	if len(parts) > maxSkillFilterTags {
+		return invalid()
+	}
+	seen := make(map[string]bool)
+	for _, part := range parts {
+		tag := strings.TrimSpace(part)
+		if validateSkillLabel(tag) != nil {
+			return invalid()
+		}
+		if !seen[tag] {
+			filter.Tags = append(filter.Tags, tag)
+			seen[tag] = true
+		}
+	}
+	return filter, nil
+}
+
+func validateSkillLabel(label string) error {
+	if label == "" || len(label) > 128 || !utf8.ValidString(label) {
+		return fmt.Errorf("invalid label")
+	}
+	for _, char := range label {
+		if unicode.IsControl(char) || char == ',' || unicode.IsSpace(char) {
+			return fmt.Errorf("invalid label")
+		}
+	}
+	return nil
+}
+
+// Matches implements category intersection plus explicit any/all tag matching.
+func (f SkillListFilter) Matches(category string, tags []string) bool {
+	if f.Category != "" && f.Category != category {
+		return false
+	}
+	if len(f.Tags) == 0 {
+		return true
+	}
+	available := make(map[string]bool, len(tags))
+	for _, tag := range tags {
+		available[tag] = true
+	}
+	for _, tag := range f.Tags {
+		if f.TagMatch == "any" && available[tag] {
+			return true
+		}
+		if f.TagMatch == "all" && !available[tag] {
+			return false
+		}
+	}
+	return f.TagMatch == "all"
 }

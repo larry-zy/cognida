@@ -9,7 +9,7 @@ import (
 )
 
 func TestDurableDomainReplayRechecksRevocation(t *testing.T) {
-	for _, path := range []string{"/api/v1/feature-jobs", "/api/v1/drift/compare", "/api/v1/annotation-tasks/t/preannotate", "/api/v1/tagging-results/r/apply", "/api/v1/evaluation/dataset-versions", "/api/v1/research/runs", "/api/v1/collection-tasks", "/api/v1/lifecycle/assets", "/api/v1/query-jobs", "/api/v1/feedback-cases", "/api/v1/feedback-publications/p/approve", "/api/v1/quality/evaluate/datasource"} {
+	for _, path := range []string{"/api/v1/agent/config", "/api/v1/feature-jobs", "/api/v1/drift/compare", "/api/v1/annotation-tasks/t/preannotate", "/api/v1/tagging-results/r/apply", "/api/v1/evaluation/dataset-versions", "/api/v1/research/runs", "/api/v1/collection-tasks", "/api/v1/lifecycle/assets", "/api/v1/query-jobs", "/api/v1/feedback-cases", "/api/v1/feedback-publications/p/approve", "/api/v1/quality/evaluate/datasource"} {
 		t.Run(path, func(t *testing.T) {
 			r := gin.New()
 			r.Use(NewIdempotency(nil).Apply())

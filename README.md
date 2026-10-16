@@ -63,6 +63,8 @@ flowchart TB
 
 Supervisor 负责规划和汇总，不持有审批权限；控制器决定何时向哪项领域服务分发，领域服务执行实际工作。模型建议、机器通过和人工批准分别留痕。共享协议包含 Task、Plan、ChildHandle、Artifact、Approval，子任务以持久操作键重放，未知提交先核对再决定后续动作。
 
+个人 Agent 默认配置通过 `/api/v1/agent/config` 按用户和工作空间保存，支持版本冲突检查、幂等重试与字段重置，并在新知识问答/交互研究中生效。已启动任务保持原参数；详见[配置字段与生效规则](services/cognida-go/internal/service/agent/preferences.md)。图谱关系统计使用真实完整聚合，Skill 列表支持分类与标签的组合过滤；旧占位拆解/派发入口已移除。语义缓存提供[按租户安全清理](services/cognida-go/internal/infrastructure/cache/cleanup.md)，尚未自动启用生产调度。
+
 | 层次 | 技术与存储 |
 | --- | --- |
 | Web | Vue 3、TypeScript、Vite、Pinia、Element Plus、Playwright |

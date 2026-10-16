@@ -659,3 +659,20 @@ func TestRAGAdapterAuthorizationFailureIsVisible(t *testing.T) {
 		t.Fatalf("cancellation lost: %v", err)
 	}
 }
+
+// Explicit zero supplied by a private preference/session must override the tool
+// threshold and reach the actual retrieval capability's options unchanged.
+func TestRAGAdapter_ExplicitZeroPreferenceReachesRetriever(t *testing.T) {
+	spy := &optsSpyRetriever{}
+	repo := &fakeKBRepo{kbs: []*knowledge.KnowledgeBase{{ID: "kb1", Status: 1}}}
+	adapter := newTestAdapter(spy, repo)
+	ctx := agentctx.WithAllowedKBIDs(baseCtx(), []string{"kb1"})
+	ctx = agentctx.WithRetrievalParams(ctx, &agentctx.RetrievalParams{MinScore: float64Ptr(0)})
+	_, err := adapter.Query(ctx, &tools.RAGQueryRequest{Query: "query", TopK: 5, MinScore: float64Ptr(0.9)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spy.last == nil || spy.last.SimilarityThreshold != 0 {
+		t.Fatalf("zero override lost: %+v", spy.last)
+	}
+}

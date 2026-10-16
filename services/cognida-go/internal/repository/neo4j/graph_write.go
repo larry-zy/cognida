@@ -222,7 +222,7 @@ func (r *Neo4jRepository) AddRelation(ctx context.Context, namespace knowledge.N
 	cypher := `
 		MATCH (s:Entity {name: $source, tenant_id: $tenantId, kb_id: $kbId})
 		MATCH (t:Entity {name: $target, tenant_id: $tenantId, kb_id: $kbId})
-		MERGE (s)-[r:RELATION {id: $id}]->(t)
+		MERGE (s)-[r:RELATION {id: $id, tenant_id: $tenantId, kb_id: $kbId}]->(t)
 		SET r.type = $type,
 		    r.strength = $strength,
 		    r.weight = $weight,
@@ -237,7 +237,7 @@ func (r *Neo4jRepository) AddRelation(ctx context.Context, namespace knowledge.N
 	// 写库前算好权重，使 DB 中的 weight 与返回值一致
 	relation.Weight = calculateRelationWeight(relation)
 
-	_, err := session.Run(ctx, cypher, map[string]interface{}{
+	result, err := session.Run(ctx, cypher, map[string]interface{}{
 		"id":         relation.ID,
 		"source":     relation.Source,
 		"target":     relation.Target,
@@ -250,6 +250,18 @@ func (r *Neo4jRepository) AddRelation(ctx context.Context, namespace knowledge.N
 		"kbId":       namespace.KnowledgeBaseID,
 	})
 	if err != nil {
+		return nil, err
+	}
+	// MATCH may find no source/target; returning the request in that case would
+	// falsely claim a persisted relation. Consume the stream to observe commit
+	// failures as well as the actual RETURN row before acknowledging the write.
+	if !result.Next(ctx) {
+		if err := result.Err(); err != nil {
+			return nil, err
+		}
+		return nil, knowledge.ErrGraphNodeNotFound
+	}
+	if _, err := result.Consume(ctx); err != nil {
 		return nil, err
 	}
 

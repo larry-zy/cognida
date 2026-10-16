@@ -21,6 +21,8 @@ type GraphService struct {
 	chunkRepo      ChunkRepository                       // Chunk 仓储
 	domainService  *domain_knowledge.GraphService        // 领域服务
 	llmExtractor   domain_knowledge.GraphExtractor       // 图谱抽取器（经接口注入）
+
+	knowledgeBaseRepo domain_knowledge.KnowledgeBaseRepository
 }
 
 // ChunkRepository Chunk 仓储接口（用于图谱关联查询）

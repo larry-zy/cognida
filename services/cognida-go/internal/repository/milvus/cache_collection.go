@@ -36,7 +36,9 @@ const (
 
 // CacheVectorRepository 缓存向量仓储实现
 type CacheVectorRepository struct {
-	client *milvusclient.Client
+	client         *milvusclient.Client
+	collectionName string
+	cleanupClient  cacheCleanupClient
 
 	// dim 向量维度。由构造方按 embedder 实际输出探测传入（DashScope text-embedding-v3
 	// 默认 1024，而非早期硬编码的 1536）。<=0 时回退到 SemanticCacheVectorDim。
@@ -76,20 +78,20 @@ func (r *CacheVectorRepository) CreateCacheCollection(ctx context.Context) error
 	schema := r.buildSchema()
 
 	// 创建 collection
-	createOpt := milvusclient.NewCreateCollectionOption(SemanticCacheCollectionName, schema)
+	createOpt := milvusclient.NewCreateCollectionOption(r.collection(), schema)
 	err := r.client.CreateCollection(ctx, createOpt)
 	if err != nil {
 		return fmt.Errorf("create cache collection failed: %w", err)
 	}
 
-	log.Printf("[Milvus] Cache collection created: %s", SemanticCacheCollectionName)
+	log.Printf("[Milvus] Cache collection created: %s", r.collection())
 	return nil
 }
 
 // buildSchema 构建 Collection Schema
 func (r *CacheVectorRepository) buildSchema() *entity.Schema {
 	schema := entity.NewSchema().
-		WithName(SemanticCacheCollectionName).
+		WithName(r.collection()).
 		WithDescription("Semantic cache vectors for LLM responses")
 
 	// 主键字段
@@ -151,7 +153,7 @@ func (r *CacheVectorRepository) CreateCacheIndex(ctx context.Context) error {
 	idx := index.NewHNSWIndex(entity.COSINE, 16, 256)
 
 	createIndexOpt := milvusclient.NewCreateIndexOption(
-		SemanticCacheCollectionName,
+		r.collection(),
 		"vector",
 		idx,
 	)
@@ -161,13 +163,13 @@ func (r *CacheVectorRepository) CreateCacheIndex(ctx context.Context) error {
 		return fmt.Errorf("create cache index failed: %w", err)
 	}
 
-	log.Printf("[Milvus] Cache index created on %s.vector", SemanticCacheCollectionName)
+	log.Printf("[Milvus] Cache index created on %s.vector", r.collection())
 	return nil
 }
 
 // LoadCacheCollection 加载缓存 Collection 到内存
 func (r *CacheVectorRepository) LoadCacheCollection(ctx context.Context) error {
-	loadOpt := milvusclient.NewLoadCollectionOption(SemanticCacheCollectionName)
+	loadOpt := milvusclient.NewLoadCollectionOption(r.collection())
 	task, err := r.client.LoadCollection(ctx, loadOpt)
 	if err != nil {
 		return fmt.Errorf("load cache collection failed: %w", err)
@@ -180,13 +182,13 @@ func (r *CacheVectorRepository) LoadCacheCollection(ctx context.Context) error {
 		return fmt.Errorf("await cache collection load (cap %s): %w", loadCollectionAwaitCap, err)
 	}
 
-	log.Printf("[Milvus] Cache collection loaded: %s", SemanticCacheCollectionName)
+	log.Printf("[Milvus] Cache collection loaded: %s", r.collection())
 	return nil
 }
 
 // HasCacheCollection 检查缓存 Collection 是否存在
 func (r *CacheVectorRepository) HasCacheCollection(ctx context.Context) (bool, error) {
-	hasOpt := milvusclient.NewHasCollectionOption(SemanticCacheCollectionName)
+	hasOpt := milvusclient.NewHasCollectionOption(r.collection())
 	has, err := r.client.HasCollection(ctx, hasOpt)
 	if err != nil {
 		return false, fmt.Errorf("check cache collection exists failed: %w", err)
@@ -210,7 +212,7 @@ func (r *CacheVectorRepository) Search(ctx context.Context, vector []float32, te
 	expr := r.buildFilterExpr(tenantID, agentType)
 
 	// 执行搜索
-	searchOpt := milvusclient.NewSearchOption(SemanticCacheCollectionName, topK, vectors)
+	searchOpt := milvusclient.NewSearchOption(r.collection(), topK, vectors)
 	searchOpt.WithANNSField("vector")
 	searchOpt.WithFilter(expr)
 	searchOpt.WithOutputFields("cache_id")
@@ -264,14 +266,14 @@ func (r *CacheVectorRepository) Insert(ctx context.Context, entry *cache.CacheEn
 	}
 
 	// 插入数据
-	insertOpt := milvusclient.NewColumnBasedInsertOption(SemanticCacheCollectionName, columns...)
+	insertOpt := milvusclient.NewColumnBasedInsertOption(r.collection(), columns...)
 	_, err := r.client.Insert(ctx, insertOpt)
 	if err != nil {
 		return fmt.Errorf("insert cache vector failed: %w", err)
 	}
 
 	// 刷新以确保可搜索
-	flushOpt := milvusclient.NewFlushOption(SemanticCacheCollectionName)
+	flushOpt := milvusclient.NewFlushOption(r.collection())
 	_, err = r.client.Flush(ctx, flushOpt)
 	if err != nil {
 		return fmt.Errorf("flush cache collection failed: %w", err)
@@ -285,7 +287,7 @@ func (r *CacheVectorRepository) Insert(ctx context.Context, entry *cache.CacheEn
 func (r *CacheVectorRepository) Delete(ctx context.Context, cacheID string) error {
 	expr := fmt.Sprintf("cache_id == '%s'", cacheID)
 
-	deleteOpt := milvusclient.NewDeleteOption(SemanticCacheCollectionName)
+	deleteOpt := milvusclient.NewDeleteOption(r.collection())
 	deleteOpt.WithExpr(expr)
 
 	_, err := r.client.Delete(ctx, deleteOpt)
@@ -301,7 +303,7 @@ func (r *CacheVectorRepository) Delete(ctx context.Context, cacheID string) erro
 func (r *CacheVectorRepository) DeleteByTenant(ctx context.Context, tenantID int64) error {
 	expr := fmt.Sprintf("tenant_id == %d", tenantID)
 
-	deleteOpt := milvusclient.NewDeleteOption(SemanticCacheCollectionName)
+	deleteOpt := milvusclient.NewDeleteOption(r.collection())
 	deleteOpt.WithExpr(expr)
 
 	_, err := r.client.Delete(ctx, deleteOpt)
@@ -317,7 +319,7 @@ func (r *CacheVectorRepository) DeleteByTenant(ctx context.Context, tenantID int
 func (r *CacheVectorRepository) DeleteByAgent(ctx context.Context, tenantID int64, agentType string) error {
 	expr := fmt.Sprintf("tenant_id == %d && agent_type == '%s'", tenantID, agentType)
 
-	deleteOpt := milvusclient.NewDeleteOption(SemanticCacheCollectionName)
+	deleteOpt := milvusclient.NewDeleteOption(r.collection())
 	deleteOpt.WithExpr(expr)
 
 	_, err := r.client.Delete(ctx, deleteOpt)
@@ -344,7 +346,7 @@ func (r *CacheVectorRepository) DeleteByKB(ctx context.Context, tenantID int64, 
 
 	expr := fmt.Sprintf("tenant_id == %d && kb_scope like \"%%,%s,%%\"", tenantID, kbID)
 
-	deleteOpt := milvusclient.NewDeleteOption(SemanticCacheCollectionName)
+	deleteOpt := milvusclient.NewDeleteOption(r.collection())
 	deleteOpt.WithExpr(expr)
 
 	if _, err := r.client.Delete(ctx, deleteOpt); err != nil {
@@ -372,52 +374,9 @@ func (r *CacheVectorRepository) buildFilterExpr(tenantID int64, agentType string
 // Cleanup Operations
 // ========================================
 
-// DeleteOrphanVectors 删除孤儿向量（Redis 中已删除的）
-func (r *CacheVectorRepository) DeleteOrphanVectors(ctx context.Context, validCacheIDs []string) error {
-	// 获取所有向量
-	queryOpt := milvusclient.NewQueryOption(SemanticCacheCollectionName)
-	queryOpt.WithOutputFields("cache_id")
-	queryOpt.WithFilter("cache_id != ''") // 匹配所有
-
-	queryResult, err := r.client.Query(ctx, queryOpt)
-	if err != nil {
-		return fmt.Errorf("query cache vectors failed: %w", err)
-	}
-
-	// 构建有效 ID 集合
-	validSet := make(map[string]bool)
-	for _, id := range validCacheIDs {
-		validSet[id] = true
-	}
-
-	// 找出孤儿向量
-	orphanIDs := make([]string, 0)
-	col := queryResult.GetColumn("cache_id")
-	if col != nil {
-		if varcharCol, ok := col.(*column.ColumnVarChar); ok {
-			for i := 0; i < queryResult.Len(); i++ {
-				cacheID, _ := varcharCol.Value(i)
-				if !validSet[cacheID] {
-					orphanIDs = append(orphanIDs, cacheID)
-				}
-			}
-		}
-	}
-
-	// 批量删除孤儿向量
-	if len(orphanIDs) > 0 {
-		for _, cacheID := range orphanIDs {
-			_ = r.Delete(ctx, cacheID)
-		}
-		log.Printf("[Milvus] Deleted %d orphan vectors", len(orphanIDs))
-	}
-
-	return nil
-}
-
 // GetCacheCollectionStats 获取缓存 Collection 统计信息
 func (r *CacheVectorRepository) GetCacheCollectionStats(ctx context.Context) (map[string]interface{}, error) {
-	statsOpt := milvusclient.NewGetCollectionStatsOption(SemanticCacheCollectionName)
+	statsOpt := milvusclient.NewGetCollectionStatsOption(r.collection())
 	stats, err := r.client.GetCollectionStats(ctx, statsOpt)
 	if err != nil {
 		return nil, fmt.Errorf("get cache collection stats failed: %w", err)

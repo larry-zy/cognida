@@ -86,7 +86,7 @@ type CacheManager interface {
 	GetCacheStats(ctx context.Context) (*CacheStatsResponse, error)
 	WarmupCache(ctx context.Context, req *WarmupCacheRequest) (*WarmupCacheResponse, error)
 	ResetStats(ctx context.Context) error
-	CleanupOrphanVectors(ctx context.Context) (int, error)
+	CleanupOrphanVectors(ctx context.Context, req OrphanCleanupRequest) (*OrphanCleanupResult, error)
 	GetHealth(ctx context.Context) (*CacheHealthResponse, error)
 }
 

@@ -11,6 +11,8 @@ golang-migrate 命名：`NNNNNN_描述.up.sql` / `NNNNNN_描述.down.sql`，成�
 
 - `000001_baseline.up.sql` —— 32 张业务表基线（由切换时的 GORM model AutoMigrate 空库同步后
   `mysqldump --no-data` 生成，忠实反映既有结构）。`down` 删除全部业务表。
+- `000036_agent_preferences.up.sql` —— 用户＋工作空间范围的 Agent 默认配置与幂等更新回执。
+  新服务启动前应用；`down` 会删除这两张表及其中的个人配置，须先停止相关写入并备份。
 
 迁移文件经 `migrations/embed.go` 以 `embed.FS` 内嵌进二进制，`cmd/migrate-db` 用 iofs 源读取，
 无需在运行环境额外拷贝 `.sql`。

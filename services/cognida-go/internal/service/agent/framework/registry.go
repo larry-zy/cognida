@@ -4,6 +4,8 @@ package framework
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -13,22 +15,18 @@ import (
 	"cognida/internal/model/agent"
 )
 
-// ========================================
-// ToolRegistry - Domain ToolRegistry 接口实现
-// ========================================
-
-// toolRegistryImpl implements the domain.ToolRegistry interface.
-// It manages Eino framework tools and adapts them to domain concepts.
+// ToolRegistryImpl stores executable Eino tools. Domain agent.Tool values are
+// metadata only and deliberately cannot be registered as executable tools.
 type ToolRegistryImpl struct {
 	mu      sync.RWMutex
 	tools   map[string]tool.BaseTool
 	enabled map[string]bool
 }
 
-// Ensure ToolRegistryImpl implements domain.ToolRegistry
+// Ensure ToolRegistryImpl implements the framework registry used by Builder.
 var _ ToolRegistry = (*ToolRegistryImpl)(nil)
 
-// NewToolRegistry creates a new tool registry implementing domain.ToolRegistry.
+// NewToolRegistry creates an executable tool registry.
 func NewToolRegistry() *ToolRegistryImpl {
 	return &ToolRegistryImpl{
 		tools:   make(map[string]tool.BaseTool),
@@ -36,40 +34,9 @@ func NewToolRegistry() *ToolRegistryImpl {
 	}
 }
 
-// Register registers a tool. It accepts an Eino BaseTool and wraps it as a domain Tool.
-func (r *ToolRegistryImpl) Register(domainTool agent.Tool) error {
-	if domainTool.ID == "" {
-		return fmt.Errorf("tool ID cannot be empty")
-	}
-
-	// TODO: Convert domain.Tool to Eino tool.BaseTool
-	// For now, store the domain tool metadata
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Store the tool - in future this will hold the actual Eino tool
-	r.tools[strings.ToLower(domainTool.ID)] = nil // Placeholder
-	r.enabled[strings.ToLower(domainTool.ID)] = domainTool.Enabled
-
-	return nil
-}
-
-// RegisterEinoTool registers an Eino tool directly (convenience method).
+// RegisterEinoTool registers a concrete executable, never a metadata placeholder.
 func (r *ToolRegistryImpl) RegisterEinoTool(name string, einoTool tool.BaseTool) error {
-	if name == "" {
-		return fmt.Errorf("tool name cannot be empty")
-	}
-	if einoTool == nil {
-		return fmt.Errorf("tool cannot be nil")
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.tools[strings.ToLower(name)] = einoTool
-	r.enabled[strings.ToLower(name)] = true
-
-	return nil
+	return r.RegisterDirect(name, einoTool)
 }
 
 // Unregister removes a tool by name.
@@ -114,7 +81,7 @@ func (r *ToolRegistryImpl) GetEinoTool(toolName string) (tool.BaseTool, bool) {
 	defer r.mu.RUnlock()
 
 	t, exists := r.tools[name]
-	return t, exists && t != nil
+	return t, exists && t != nil && r.enabled[name]
 }
 
 // GetTools returns all enabled tools as Eino tools.
@@ -155,6 +122,7 @@ func (r *ToolRegistryImpl) List() []string {
 	for name := range r.tools {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -239,7 +207,7 @@ func (r *ToolRegistryImpl) einoToDomainTool(name string, einoTool tool.BaseTool)
 	if einoTool != nil {
 		// Try to get info from Eino tool
 		info, err := einoTool.Info(context.Background())
-		if err == nil {
+		if err == nil && info != nil {
 			domainTool.Description = info.Desc
 			// Map Eino tool types to domain types
 			domainTool.Type = r.mapToolType(info.Desc)
@@ -272,20 +240,36 @@ func (r *ToolRegistryImpl) mapToolType(desc string) agent.ToolType {
 
 // RegisterDirect registers a tool directly (core-compatible method).
 func (r *ToolRegistryImpl) RegisterDirect(name string, t tool.BaseTool) error {
-	if name == "" {
-		return fmt.Errorf("tool name cannot be empty")
+	if name == "" || strings.TrimSpace(name) != name {
+		return fmt.Errorf("tool name must be nonempty without surrounding whitespace")
 	}
-	if t == nil {
+	if t == nil || isNilTool(t) {
 		return fmt.Errorf("tool cannot be nil")
 	}
-
+	switch t.(type) {
+	case tool.InvokableTool, tool.StreamableTool, tool.EnhancedInvokableTool, tool.EnhancedStreamableTool:
+	default:
+		return fmt.Errorf("tool must provide an executable invocation or stream")
+	}
+	info, err := t.Info(context.Background())
+	if err != nil || info == nil || !strings.EqualFold(info.Name, name) {
+		return fmt.Errorf("tool info must be valid and match its registered name")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	r.tools[strings.ToLower(name)] = t
 	r.enabled[strings.ToLower(name)] = true
-
 	return nil
+}
+
+func isNilTool(t tool.BaseTool) bool {
+	value := reflect.ValueOf(t)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 // GetDirect retrieves a tool.BaseTool directly (core-compatible method).
@@ -296,7 +280,7 @@ func (r *ToolRegistryImpl) GetDirect(name string) (tool.BaseTool, bool) {
 	defer r.mu.RUnlock()
 
 	t, exists := r.tools[lowerName]
-	return t, exists
+	return t, exists && t != nil && r.enabled[lowerName]
 }
 
 // GetInfo retrieves tool info by name (core-compatible method).
@@ -307,12 +291,12 @@ func (r *ToolRegistryImpl) GetInfo(name string) (schema.ToolInfo, bool) {
 	defer r.mu.RUnlock()
 
 	t, exists := r.tools[lowerName]
-	if !exists {
+	if !exists || !r.enabled[lowerName] {
 		return schema.ToolInfo{}, false
 	}
 
 	info, err := t.Info(context.Background())
-	if err != nil {
+	if err != nil || info == nil {
 		return schema.ToolInfo{}, false
 	}
 
@@ -325,13 +309,14 @@ func (r *ToolRegistryImpl) ListInfo() []schema.ToolInfo {
 	defer r.mu.RUnlock()
 
 	infos := make([]schema.ToolInfo, 0, len(r.tools))
-	for _, t := range r.tools {
-		if t != nil {
-			if info, err := t.Info(context.Background()); err == nil {
+	for name, t := range r.tools {
+		if t != nil && r.enabled[name] {
+			if info, err := t.Info(context.Background()); err == nil && info != nil {
 				infos = append(infos, *info)
 			}
 		}
 	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
 	return infos
 }
 
