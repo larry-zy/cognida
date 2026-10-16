@@ -476,3 +476,27 @@ async def test_request_capacity_rejects_before_reading_and_recovers(monkeypatch)
         await first
     assert middleware.capacity.acquire(blocking=False)
     middleware.capacity.release()
+
+
+def test_clean_diagnosis_attributes_real_changes_and_preserves_precision(client):
+    exact = "9007199254740993.123456789012345678"
+    source = {"kind": "table", "columns": ["id", "amount"],
+              "column_types": {"id": "VARCHAR", "amount": "DECIMAL"},
+              "rows": [[" 00123 ", exact], [" 00123 ", exact], [None, None]]}
+    response = client.post(PREFIX + "/clean", json={"input": source,
+        "options": {"operations": ["trim", "drop_empty", "dedup"], "keep": "last"}})
+    assert response.status_code == 200, response.text
+    r = response.json()["result"]
+    assert r["data"]["rows"] == [["00123", exact]]
+    assert r["source_row_indices"] == [1]
+    diag = r["diagnostics"]
+    assert diag["before"]["row_count"] == 3
+    assert diag["before"]["missing_cells"] == 2
+    assert diag["after"]["missing_cells"] == 0
+    assert diag["retention_rate"] == pytest.approx(1 / 3)
+    changes = {item["source_row"]: item for item in diag["row_changes"]}
+    assert changes[0]["operations"] == ["trim", "dedup"]
+    assert changes[0]["removed_by"] == "dedup"
+    assert changes[1]["operations"] == ["trim"]
+    assert changes[2]["removed_by"] == "drop_empty"
+    assert source["rows"][0][0] == " 00123 "

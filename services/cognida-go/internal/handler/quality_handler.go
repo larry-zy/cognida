@@ -2,6 +2,7 @@
 package handler
 
 import (
+	ds "cognida/internal/model/datasource"
 	"errors"
 	"io"
 	"strings"
@@ -144,7 +145,7 @@ func (h *QualityHandler) EvaluateDatasource(c *gin.Context) {
 		return
 	}
 	report, err := h.service.EvaluateDatasource(
-		c.Request.Context(), GetTenantID(c), GetUserID(c),
+		ds.WithQueryIdentity(c.Request.Context(), GetUserID(c), c.GetHeader("Idempotency-Key")), GetTenantID(c), GetUserID(c),
 		req.DatasourceID, req.Table, req.SampleSize, req.Dimensions)
 	if err != nil {
 		respondEvalError(c, err)

@@ -292,6 +292,14 @@ func (t *dataAnalysisTool) enrichAttributionEnvelope(ctx context.Context, out ma
 			Columns: attributionDriverColumns,
 			Rows:    rows,
 		}
+		if sourceResultID != "" {
+			source, err := t.resultStore.Get(ctx, driverResult.Owner, sourceResultID)
+			if err != nil {
+				return
+			}
+			driverResult.DatasourceID = source.DatasourceID
+			driverResult.SourceVersion = source.SourceVersion
+		}
 		if id, err := t.resultStore.Put(ctx, driverResult, resultstore.DefaultTTL); err == nil {
 			out["result_id"] = id
 		}

@@ -466,8 +466,11 @@ func (r *TaskControlRepository) ClaimOutboxWithLease(ctx context.Context, scope 
 		if err := tcExecutionOpen(tx, scope, task); err != nil {
 			return err
 		}
-		if event.Version != expected || event.Status != d.OutboxPending || child.Status != d.ChildPending || task.CancelRequestedAt != nil || task.CurrentPlanVersion != child.PlanVersion || (task.Status != d.StatusReady && task.Status != d.StatusRunning) {
+		if event.Version != expected || event.Status != d.OutboxPending || child.Status != d.ChildPending || task.CancelRequestedAt != nil || (task.Status != d.StatusReady && task.Status != d.StatusRunning) {
 			return d.ErrConflict
+		}
+		if err := tcFrozenChild(tx, scope, task, child); err != nil {
+			return err
 		}
 		if err := tcUpdateChild(tx, scope, child, map[string]any{"status": d.ChildDispatching}); err != nil {
 			return err

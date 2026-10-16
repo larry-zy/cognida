@@ -414,6 +414,12 @@ func (s *knowledgeBaseService) DeleteKnowledge(ctx context.Context, kbID, knowle
 	if _, err := s.requireKB(ctx, kbID, tenantID); err != nil {
 		return err
 	}
+	return s.deleteKnowledgeProjection(ctx, kbID, knowledgeID, tenantID)
+}
+
+// deleteKnowledgeProjection is shared only after the caller has established its
+// authorization boundary. HTTP deletion still requires an accessible KB above.
+func (s *knowledgeBaseService) deleteKnowledgeProjection(ctx context.Context, kbID, knowledgeID string, tenantID int64) error {
 	if s.statsQuerier == nil {
 		// Fallback: simple delete through knowledge repository
 		// Note: This won't delete chunks, so statsQuerier should be provided

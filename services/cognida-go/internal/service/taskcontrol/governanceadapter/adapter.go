@@ -75,11 +75,11 @@ func (a *Adapter) validateNode(ctx context.Context, p m.Scope, n tc.Node) error 
 	probe.PayloadHash = strings.Repeat("b", 64)
 	probe.Deadline = time.Now().Add(time.Minute)
 	if a.profile == d.FeatureProfile {
-		if n.Parameters.Feature == nil || n.Parameters.Governance != nil || n.MaxAttempts != 1 {
+		if !tc.HasOnlyParameter(n.Parameters, "feature") || n.MaxAttempts != 1 {
 			return m.ErrInvalid
 		}
 	} else {
-		if n.Parameters.Governance == nil || n.Parameters.Feature != nil {
+		if !tc.HasOnlyParameter(n.Parameters, "governance") {
 			return m.ErrInvalid
 		}
 	}
@@ -91,6 +91,13 @@ func (a *Adapter) Validate(ctx context.Context, p m.Scope, n tc.Node) error {
 	}
 	if a.profile == d.FeatureProfile && n.Inputs[0].Asset != nil {
 		params := n.Parameters.Feature
+		calls, embedding, err := a.service.FeatureExecutionRequirements(ctx, principal(p), params.FeatureID, params.Version)
+		if err != nil {
+			return mapped(err)
+		}
+		if n.MaxCallsPerAttempt < calls || (embedding && n.MaxCostMicrosPerAttempt != 0) {
+			return m.ErrInvalid
+		}
 		return mapped(a.service.ValidateGovernedFeature(ctx, principal(p), params.FeatureID, params.Version, *n.Inputs[0].Asset))
 	}
 	return nil
@@ -100,6 +107,7 @@ func (a *Adapter) nodeInvocation(n tc.Node, ref l.RefID) d.GovernedInvocation {
 	if n.Parameters != nil && n.Parameters.Feature != nil {
 		in.FeatureID = n.Parameters.Feature.FeatureID
 		in.FeatureVersion = n.Parameters.Feature.Version
+		in.CallsReserved = n.MaxCallsPerAttempt
 	}
 	if n.Parameters != nil && n.Parameters.Governance != nil {
 		params := n.Parameters.Governance

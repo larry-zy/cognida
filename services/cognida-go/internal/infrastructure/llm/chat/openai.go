@@ -36,7 +36,7 @@ func (e *HTTPStatusError) Error() string {
 
 // openaiClient OpenAI客户端
 // defaultMaxOutputTokens 是调用方未显式指定 max_tokens 时的兜底输出上限。
-// 取 DeepSeek 单轮生成上限 8192：thinking 模型的 reasoning_content 计入输出预算，
+// 本地默认预算为 8192（不是供应商最大值）：thinking 模型的 reasoning_content 计入输出预算，
 // 依赖 provider 较小的默认上限会在 tool_call 发出前被长思维链耗尽（finish_reason=length），
 // 显式抬到 8192 给 thinking + 正文 + tool_call 留足空间，避免截断导致 agent"卡住"。
 const defaultMaxOutputTokens = 8192
@@ -50,7 +50,8 @@ type openaiClient struct {
 	// roundTripReasoning 是否在请求中回传 assistant 轮的 reasoning_content。
 	// DeepSeek V4 thinking 模式要求"有工具调用的轮次必须原样回传 reasoning_content"，
 	// 否则 400；而旧版 deepseek-reasoner 规则相反（回传反而报错）。按模型名判定。
-	roundTripReasoning bool
+	roundTripReasoning   bool
+	boundedJSONSupported bool
 }
 
 // needsReasoningRoundTrip 判定该模型是否需要回传 reasoning_content。
@@ -79,8 +80,9 @@ func newOpenAIClient(config *ChatConfig) (*openaiClient, error) {
 		apiKey:  config.APIKey,
 		model:   config.ModelName,
 		// 流式(SSE)不设整体超时，由 ctx 控制；共享调优 transport 提供连接复用与连接阶段超时。
-		client:             &http.Client{Transport: httpx.SharedTransport()},
-		roundTripReasoning: needsReasoningRoundTrip(config.ModelName),
+		client:               &http.Client{Transport: httpx.SharedTransport()},
+		roundTripReasoning:   needsReasoningRoundTrip(config.ModelName),
+		boundedJSONSupported: supportsBoundedJSON(config.Provider, config.ModelName),
 	}, nil
 }
 
@@ -467,8 +469,12 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 		// DeepSeek thinking 模型的 reasoning_content 计入输出预算：重型 agent 首轮的长思维链
 		// 会在 provider 较小的默认上限（常见 4096）内、于发出 tool_call 之前就把预算耗尽，
 		// finish_reason=length 截断 → 上层把半句正文误当最终答案 → 前端空轮询"卡住"。
-		// 给到 DeepSeek 单轮上限 8192，让 thinking + 正文 + tool_call 有足够空间落地。
+		// 使用本地默认预算 8192，为 thinking + 正文 + tool_call 留出空间。
 		req.MaxTokens = defaultMaxOutputTokens
+	}
+	if c.boundedJSONSupported && model.GetImplSpecificOptions[structuredOptions](nil, opts...).boundedJSON {
+		req.Thinking = &openaiThinking{Type: "disabled"}
+		req.ResponseFormat = &openaiResponseFormat{Type: "json_object"}
 	}
 
 	return req
@@ -504,14 +510,23 @@ func (c *openaiClient) sendRequest(ctx context.Context, reqBody openaiRequest) (
 // ========================================
 
 type openaiRequest struct {
-	Model         string               `json:"model"`
-	Messages      []openaiMessage      `json:"messages"`
-	Temperature   float64              `json:"temperature,omitempty"`
-	TopP          float64              `json:"top_p,omitempty"`
-	MaxTokens     int                  `json:"max_tokens,omitempty"`
-	Stream        bool                 `json:"stream,omitempty"`
-	StreamOptions *openaiStreamOptions `json:"stream_options,omitempty"`
-	Tools         []openaiTool         `json:"tools,omitempty"`
+	Model          string                `json:"model"`
+	Messages       []openaiMessage       `json:"messages"`
+	Temperature    float64               `json:"temperature,omitempty"`
+	TopP           float64               `json:"top_p,omitempty"`
+	MaxTokens      int                   `json:"max_tokens,omitempty"`
+	Stream         bool                  `json:"stream,omitempty"`
+	StreamOptions  *openaiStreamOptions  `json:"stream_options,omitempty"`
+	Tools          []openaiTool          `json:"tools,omitempty"`
+	Thinking       *openaiThinking       `json:"thinking,omitempty"`
+	ResponseFormat *openaiResponseFormat `json:"response_format,omitempty"`
+}
+
+type openaiThinking struct {
+	Type string `json:"type"`
+}
+type openaiResponseFormat struct {
+	Type string `json:"type"`
 }
 
 // openaiStreamOptions 流式选项。include_usage=true 让服务端在流末追发一个仅含 usage 的 chunk，

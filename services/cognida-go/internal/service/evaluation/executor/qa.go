@@ -2,6 +2,7 @@
 package executor
 
 import (
+	strategies "cognida/internal/service/strategy"
 	"context"
 	"fmt"
 	"log"
@@ -38,6 +39,7 @@ func (e *QAExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskCo
 
 	// 为每个 QA 创建超时上下文
 	for i, qa := range dataset {
+		started := time.Now()
 		results[i] = &domeval.QAResult{
 			Question:        qa.Question,
 			ReferenceAnswer: qa.ReferenceAnswer,
@@ -51,11 +53,14 @@ func (e *QAExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskCo
 		if err != nil {
 			results[i].Success = false
 			results[i].Error = fmt.Sprintf("generation failed: %v", err)
+			results[i].LatencyMs = max(1, time.Since(started).Milliseconds())
 			continue
 		}
 
 		results[i].GeneratedAnswer = answer
 		results[i].Success = true
+		results[i].LatencyMs = max(1, time.Since(started).Milliseconds())
+		results[i].LLMCalls = 1
 	}
 
 	return results, nil
@@ -67,7 +72,7 @@ func (e *QAExecutor) generate(ctx context.Context, question string) (string, err
 
 	messages := []rag.LLMMessage{
 		{Role: "system", Content: prompts.MustGet("evaluation", "qa_system")},
-		{Role: "user", Content: question},
+		{Role: "user", Content: strategies.GuidanceMessage(strategies.FromContext(ctx), question)},
 	}
 
 	opts := &rag.ChatOptions{

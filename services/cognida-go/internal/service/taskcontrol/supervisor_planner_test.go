@@ -72,7 +72,7 @@ func TestLLMPlannerSingleBoundedCallAndStrictBranches(t *testing.T) {
 					t.Fatalf("lost typed planning context: %v", err)
 				}
 				opt := req.Options
-				if opt == nil || opt.Temperature == nil || *opt.Temperature != 0 || opt.MaxTokens != 4096 || len(opt.Tools) != 0 || opt.ToolChoice != nil || opt.Extra != nil || opt.Stream || req.Model != "" || req.SessionID != "" {
+				if opt == nil || opt.Temperature == nil || *opt.Temperature != 0 || opt.MaxTokens != 4096 || !opt.BoundedJSONOutput || len(opt.Tools) != 0 || opt.ToolChoice != nil || opt.Extra != nil || opt.Stream || req.Model != "" || req.SessionID != "" {
 					t.Fatal("unbounded or tool-enabled provider request")
 				}
 				return &llm.ChatResponse{Content: plannerDecisionJSON(t, want), FinishReason: "stop"}, nil

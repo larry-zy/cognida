@@ -99,6 +99,9 @@ func FetchSchema(ctx context.Context, db *gorm.DB, dsp model_datasource.Connecti
 	if err := validatePrivateDataAccess(tableName); err != nil {
 		return nil, err
 	}
+	if result, handled, err := remoteSchema(ctx, dsp, databaseID, tableName, "", true); handled {
+		return result, err
+	}
 	target, err := resolveQueryTarget(ctx, databaseID, db, dsp)
 	if err != nil {
 		return nil, err
@@ -127,6 +130,9 @@ func FetchSchema(ctx context.Context, db *gorm.DB, dsp model_datasource.Connecti
 func getSchema(ctx context.Context, req *GetSchemaRequest, businessDB *gorm.DB, dsp model_datasource.ConnectionProvider, profileStore dataprofile.Store) (*GetSchemaResult, error) {
 	if err := validatePrivateDataAccess(req.TableName); err != nil {
 		return nil, err
+	}
+	if result, handled, err := remoteSchema(ctx, dsp, req.DatabaseID, req.TableName, req.Keywords, false); handled {
+		return result, err
 	}
 	target, err := resolveQueryTarget(ctx, req.DatabaseID, businessDB, dsp)
 	if err != nil {

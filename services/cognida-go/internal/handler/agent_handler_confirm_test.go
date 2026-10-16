@@ -108,14 +108,11 @@ func putPendingMutation(t *testing.T, pending *pendingaction.MemoryStore) *pendi
 	return action
 }
 
-// TestConfirmOperation_CommitsOnValidToken token 匹配 → 提交事务并落审计（任务 6.4 确认落库）。
-func TestConfirmOperation_CommitsOnValidToken(t *testing.T) {
+// A legacy confirmation token grants no durable operation authorization.
+// Real commits now require the immutable /operations plan and explicit hash-bound confirmation.
+func TestConfirmOperation_LegacyValidTokenCannotCommit(t *testing.T) {
 	mock, pending, audit, h := setupConfirmTest(t)
 	action := putPendingMutation(t, pending)
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE agent_etl_orders").WillReturnResult(sqlmock.NewResult(0, 250))
-	mock.ExpectCommit()
 
 	w, data := callConfirm(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
@@ -125,17 +122,19 @@ func TestConfirmOperation_CommitsOnValidToken(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("确认执行应成功, code=%d body=%s", w.Code, w.Body.String())
 	}
-	if data["status"] != operations.StatusSuccess {
-		t.Errorf("期望 success, got %v", data["status"])
+	if data["status"] != operations.StatusRejected {
+		t.Fatalf("legacy token must be rejected, got %v", data["status"])
 	}
-	if data["rows_affected"].(float64) != 250 {
-		t.Errorf("影响行数期望 250, got %v", data["rows_affected"])
+	if _, exists := data["rows_affected"]; exists {
+		t.Fatal("rejection must not fabricate a SQL commit receipt")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("事务未按预期提交: %v", err)
+		t.Fatalf("legacy confirmation must not execute SQL: %v", err)
 	}
-	if len(audit.records) == 0 || audit.records[len(audit.records)-1].Status != operations.StatusSuccess {
-		t.Errorf("确认执行必须留痕 success 审计: %+v", audit.records)
+	for _, event := range audit.records {
+		if event.Status == operations.StatusSuccess {
+			t.Fatal("legacy token must not create a successful commit audit")
+		}
 	}
 
 	// 已消费：同凭据再次确认 → expired 占位
@@ -206,17 +205,17 @@ func TestConfirmOperation_OwnerMismatchNotConsumed(t *testing.T) {
 		t.Fatalf("跨会话确认应返回 expired, code=%d status=%v", w.Code, data["status"])
 	}
 
-	// 原归属者仍可确认执行
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE agent_etl_orders").WillReturnResult(sqlmock.NewResult(0, 250))
-	mock.ExpectCommit()
+	// 原归属者仍能消费凭据，但旧凭据不再允许绕过持久计划写入。
 	w2, data2 := callConfirm(t, h, map[string]interface{}{
 		"pending_action_id": action.ID,
 		"token":             action.Token,
 		"session_id":        "sess-cf",
 	})
-	if w2.Code != http.StatusOK || data2["status"] != operations.StatusSuccess {
-		t.Errorf("原归属者应仍可确认, code=%d status=%v", w2.Code, data2["status"])
+	if w2.Code != http.StatusOK || data2["status"] != operations.StatusRejected {
+		t.Errorf("legacy owner confirmation must reject direct writes, code=%d status=%v", w2.Code, data2["status"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

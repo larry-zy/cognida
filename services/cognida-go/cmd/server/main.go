@@ -22,7 +22,10 @@ import (
 	llmchat "cognida/internal/infrastructure/llm/chat"
 	"cognida/internal/infrastructure/mcp"
 	obstel "cognida/internal/infrastructure/observability"
+	agentctx "cognida/internal/model/agent"
 	domaincache "cognida/internal/model/cache"
+	operationmodel "cognida/internal/model/governedops"
+	lifecyclemodel "cognida/internal/model/lifecycle"
 	"cognida/internal/pkg/safego"
 	"cognida/internal/repository/milvus"
 	milvusretriever "cognida/internal/repository/milvus/retriever"
@@ -44,6 +47,7 @@ import (
 	"cognida/internal/service/agent/uibinding"
 	knowledgesvc "cognida/internal/service/knowledge"
 	memorysvc "cognida/internal/service/memory"
+	strategysvc "cognida/internal/service/strategy"
 
 	"github.com/cloudwego/eino/components/embedding"
 	neo4jsdk "github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -406,6 +410,9 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				rs = resultstore.NewMemoryStore()
 				log.Println("⚠️  Redis 未配置，Result Store 降级为进程内内存后端")
 			}
+			if app.DataSourceService != nil {
+				rs = app.DataSourceService.GuardResults(rs)
+			}
 
 			// 初始化 UI 交互绑定存储（surface ↔ result_id + token，会话 TTL）：
 			// 支撑 render_ui 的 Filter/Pagination 等组件回调路由。经 ToolDeps.UIBinding
@@ -444,6 +451,17 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 			// 缺 result_id 时回退到会话最近取数（收敛「取数→分析」委派链的空转与重查）。
 			sessionResults := resultstore.NewSessionRegistry(resultstore.DefaultTTL)
 
+			app.Features.Operations.WithReadQuery(func(ctx context.Context, query string) (string, error) {
+				return ragtool.RunGovernedReadSQL(ctx, query, db, rs)
+			})
+			operationPrincipal := func(ctx context.Context) (lifecyclemodel.Principal, error) {
+				tenant, tok := agentctx.GetTenantID(ctx)
+				user, uok := agentctx.GetUserID(ctx)
+				if !tok || !uok || tenant <= 0 || user <= 0 {
+					return lifecyclemodel.Principal{}, operationmodel.ErrForbidden
+				}
+				return lifecyclemodel.Principal{TenantID: tenant, UserID: user}, nil
+			}
 			deps := ragtool.ToolDeps{
 				RetrievalModel:       toolModel,
 				CatalogContext:       app.Features.Catalog,
@@ -467,6 +485,20 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				MetasoClient: ragtool.NewMetasoClient(cfg.Search),
 				// 操作工具（sql_mutate / etl_run / data_export）：审计仓储走 MySQL
 				Operation: ragtool.OperationConfig{
+					PrepareSQL: func(ctx context.Context, sql, key string) (*operationmodel.Job, error) {
+						p, e := operationPrincipal(ctx)
+						if e != nil {
+							return nil, e
+						}
+						return app.Features.Operations.PrepareAgentSQL(ctx, p, sql, key)
+					},
+					PrepareETL: func(ctx context.Context, target, resultID, sql, key string, replace bool) (*operationmodel.Job, error) {
+						p, e := operationPrincipal(ctx)
+						if e != nil {
+							return nil, e
+						}
+						return app.Features.Operations.PrepareAgentETL(ctx, p, target, resultID, sql, key, replace)
+					},
 					DB:      db,
 					Audit:   mysql.NewOperationAuditRepository(db),
 					Pending: pendingStore,
@@ -544,7 +576,7 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				if vr, verr := milvusretriever.NewVectorRetriever(app.Embedder); verr != nil {
 					log.Printf("⚠️  向量检索器初始化失败，kb_fetch_chunks 工具未接线: %v", verr)
 				} else {
-					deps.ChunkFetcher = agentadapters.NewChunkFetchAdapter(vr, app.KnowledgeBaseRepository)
+					deps.ChunkFetcher = agentadapters.NewChunkFetchAdapter(vr, app.KnowledgeBaseRepository).WithConsumptionGuard(app.Features.Feedback)
 					log.Println("✅ 知识块精确拉取工具（kb_fetch_chunks）已接线向量库")
 				}
 			} else {
@@ -598,7 +630,7 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				//   - Data Agent → 软 few-shot 读侧（Before hook）+ 软写穿写侧（NewWriteThroughAgent）
 				// 仅在真正装配（非 nil）时挂接 With*，避免把 typed-nil 具体指针混入接口字段。
 				var semanticCache *cachesvc.SemanticCacheService
-				if app.Features.Memory == nil {
+				if app.Features.Memory == nil && app.Features.Strategies == nil {
 					semanticCache = buildSemanticCache(ctx, app.Embedder)
 				}
 
@@ -607,7 +639,8 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 				initializer := agentinit.NewInitializer(app.AgentRegistry, reg, msgRepo).
 					WithEmbedder(app.Embedder).
 					WithExperienceRecall(experienceRecall).
-					WithPersonalMemory(memorysvc.NewRecallHook(app.Features.Memory))
+					WithPersonalMemory(memorysvc.NewRecallHook(app.Features.Memory)).
+					WithGovernedStrategies(strategysvc.NewGuidanceHook(app.Features.Strategies))
 				if semanticCache != nil {
 					initializer = initializer.
 						WithSemanticFewShot(semanticCache).

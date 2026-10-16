@@ -98,7 +98,11 @@ func save(path string, f *fixture) error {
 	}
 	return os.WriteFile(path, append(body, '\n'), 0600)
 }
-func run(dir string, statusOnly, cleanup bool) error {
+func run(dir string, statusOnly, cleanup bool, warehouseEngines ...string) error {
+	warehouseEngine := ""
+	if len(warehouseEngines) > 0 {
+		warehouseEngine = warehouseEngines[0]
+	}
 	cfg, err := driver.ParseDSN(os.Getenv("MYSQL_DSN"))
 	if err != nil || !strings.HasPrefix(cfg.DBName, "cognida_review_") {
 		return fmt.Errorf("MYSQL_DSN must select an isolated cognida_review_* database")
@@ -174,7 +178,10 @@ func run(dir string, statusOnly, cleanup bool) error {
 		}
 		return save(output, &f)
 	}
-	db, err := gorm.Open(gormmysql.Open(os.Getenv("MYSQL_DSN")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	// Match the server's config.GetMySQLDSN (loc=Local). MySQL DATETIME has
+	// no timezone; reading it as UTC here would mint a different source version.
+	cfg.Loc = time.Local
+	db, err := gorm.Open(gormmysql.Open(cfg.FormatDSN()), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		return fmt.Errorf("cannot open isolated database")
 	}
@@ -183,6 +190,9 @@ func run(dir string, statusOnly, cleanup bool) error {
 		return err
 	}
 	defer sqlDB.Close()
+	if warehouseEngine != "" {
+		return seedWarehouse(api, db, dir, &f, warehouseEngine)
+	}
 	if f.Table == "" {
 		f.Table = "browser_source_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		if err = db.Exec("CREATE TABLE `" + f.Table + "` (id BIGINT PRIMARY KEY, region VARCHAR(32) NOT NULL, amount DECIMAL(12,2) NOT NULL, account_code VARCHAR(32) NOT NULL DEFAULT '00123', precise_amount DECIMAL(38,18) NOT NULL DEFAULT 9007199254740993.123456789012345678)").Error; err != nil {
@@ -385,16 +395,17 @@ func main() {
 	dir := flag.String("dir", "", "isolated run directory containing account.json; output is source-fixtures.json")
 	statusOnly := flag.Bool("status-only", false, "refresh the actual evaluation status without creating resources")
 	cleanup := flag.Bool("cleanup", false, "delete only the upstream resources tracked in the manifest")
+	warehouseEngine := flag.String("warehouse", "", "seed a real semantic-query result for one isolated warehouse engine")
 	flag.Parse()
 	if *dir == "" {
 		fmt.Fprintln(os.Stderr, "-dir is required")
 		os.Exit(1)
 	}
-	if *cleanup && *statusOnly {
+	if (*cleanup && *statusOnly) || (*warehouseEngine != "" && (*cleanup || *statusOnly)) {
 		fmt.Fprintln(os.Stderr, "choose either -cleanup or -status-only")
 		os.Exit(1)
 	}
-	if err := run(*dir, *statusOnly, *cleanup); err != nil {
+	if err := run(*dir, *statusOnly, *cleanup, *warehouseEngine); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

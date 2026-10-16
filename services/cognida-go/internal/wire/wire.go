@@ -577,6 +577,7 @@ func ProvideEvaluationService(
 	progressCache *evaluationcache.ProgressCache,
 	evalQueue domain_evaluation.TaskEnqueuer,
 	evalConfig *config.EvaluationConfig,
+	features *FeatureServices,
 ) *app_evaluation.Service {
 	// 可用指标目录代理到 Python 注册表（唯一事实来源），端点来自评测配置带默认兜底
 	pythonEndpoint := "http://localhost:18888"
@@ -584,7 +585,10 @@ func ProvideEvaluationService(
 		pythonEndpoint = evalConfig.PythonEndpoint
 	}
 	graderCatalog := app_evaluation.NewPythonEvaluationClient(pythonEndpoint)
-	return app_evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue, graderCatalog)
+	service := app_evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue, graderCatalog).WithSnapshots(features.EvaluationSnapshots).WithOfflineReadAuthorizer(features.OfflineEvaluation.AuthorizeRead)
+	features.Strategies.WithRegressionReader(service.StrategyRegression)
+	features.evaluationSourceRead = service.AuthorizeTask
+	return service
 }
 
 // ProvideDatasetLoader provides the dataset loader
@@ -716,6 +720,7 @@ func ProvideEvaluationWorker(
 	evalConfig *config.EvaluationConfig,
 	db *gorm.DB,
 	datasourceProvider datasourcemodel.ConnectionProvider,
+	features *FeatureServices,
 ) *app_evaluation.EvaluationWorker {
 	// 注册评测执行器：QA（LLMChat）、RAG（检索+LLMChat）、Agent（注册中心适配器）。
 	// 三类共存，Worker 按任务 type 路由；qa/llm 别名由注册表内部归一。
@@ -775,7 +780,7 @@ func ProvideEvaluationWorker(
 		taskRepo,
 		resultRepo,
 		workerConfig,
-	)
+	).WithSnapshots(features.EvaluationSnapshots)
 }
 
 // ProvideEvaluationJobWorker binds evaluation's typed payload/status adapter
@@ -889,9 +894,9 @@ func ProvideCollectionHandler(service *collectionsvc.Service, repo domain_collec
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
 // 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
-func ProvideRetrievalCapability(retriever domain_rag.Retriever, knowledgeRepo domain_knowledge.KnowledgeRepository) *app_kb.RetrievalCapability {
+func ProvideRetrievalCapability(retriever domain_rag.Retriever, knowledgeRepo domain_knowledge.KnowledgeRepository, db *gorm.DB) *app_kb.RetrievalCapability {
 	// 注入启用状态过滤器（MySQL 权威）：检索命中后回查 MySQL 剔除停用/已删条目。
-	return app_kb.NewRetrievalCapability(retriever, ragpipeline.NewReranker()).WithEnabledFilter(knowledgeRepo)
+	return app_kb.NewRetrievalCapability(retriever, ragpipeline.NewReranker()).WithEnabledFilter(knowledgeRepo).WithAppliedLabelFilter(mysql.NewKnowledgeLabelRepository(db))
 }
 
 func ProvideSessionHandler(
@@ -1315,6 +1320,13 @@ type App struct {
 }
 
 func ProvideApp(
+	db *gorm.DB,
+	knowledgeRepo domain_knowledge.KnowledgeRepository,
+	chunkRepo domain_knowledge.ChunkRepository,
+	processor app_kb.DocumentProcessorService,
+	vectors domain_knowledge.VectorRepository,
+	evaluationService *app_evaluation.Service,
+	knowledgeHandler *handler.KnowledgeBaseHandler,
 	features *FeatureServices,
 	r *router.Router,
 	m *Middlewares,
@@ -1335,14 +1347,39 @@ func ProvideApp(
 	agentHandler *handler.AgentHandler,
 	researchService *agentuc.ResearchService,
 	embedder embedding.Embedder,
-) *App {
+) (*App, error) {
+	if err := features.configureFeedback(db, kbRepo, knowledgeRepo, chunkRepo, processor, vectors, kbService, evaluationService, retriever, retrievalCapability, knowledgeHandler); err != nil {
+		return nil, err
+	}
+	r.AddTenantRoutes(features.FeedbackHandler.Register)
 	r.AddTenantRoutes(features.MemoryHandler.Register)
 	if features.TaskControlHandler != nil {
 		r.AddTenantRoutes(features.TaskControlHandler.Register)
 	}
 	r.AddTenantRoutes(features.CatalogHandler.Register)
-	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
+	r.AddTenantRoutes(func(group *gin.RouterGroup) {
+		g := group.Group("/lifecycle")
+		features.LifecycleHandler.Register(g)
+		features.LifecycleHandler.RegisterCleaningReview(g)
+	})
 	r.AddTenantRoutes(features.GovernanceHandler.Register)
+	r.AddTenantRoutes(features.GovernanceHandler.RegisterKnowledgeLabelRoutes)
+	r.AddTenantRoutes(features.GovernanceHandler.RegisterFeatureOperations)
+	r.AddTenantRoutes(features.GovernanceHandler.RegisterLabelSuggestionRoutes)
+	r.AddTenantRoutes(features.SandboxHandler.Register)
+	r.AddTenantRoutes(features.APISourceHandler.Register)
+	r.AddTenantRoutes(features.WarehouseHandler.Register)
+	r.AddTenantRoutes(features.OperationHandler.Register)
+	r.AddTenantRoutes(features.StrategyHandler.Register)
+	r.AddTenantRoutes(features.QueryJobHandler.Register)
+	retrievalCapability.WithStrategies(features.Strategies)
+	r.AddTenantRoutes(features.DatasetVersionHandler.Register)
+	if features.ResearchRunHandler != nil {
+		r.AddTenantRoutes(features.ResearchRunHandler.Register)
+	}
+	if features.ResearchRuns != nil {
+		features.ResearchRuns.SetEngine(researchService)
+	}
 	if features.LineageHandler != nil {
 		r.AddTenantRoutes(features.LineageHandler.Register)
 	}
@@ -1367,7 +1404,7 @@ func ProvideApp(
 		AgentHandler:            agentHandler,
 		ResearchService:         researchService,
 		Embedder:                embedder,
-	}
+	}, nil
 }
 
 // Shutdown 关闭应用程序：flush 审计写入器，确保积压审计落库不丢。

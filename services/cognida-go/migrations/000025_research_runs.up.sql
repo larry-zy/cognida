@@ -1,0 +1,22 @@
+CREATE TABLE research_runs (
+  tenant_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  operation_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  submission JSON NOT NULL,
+  status VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  stage VARCHAR(64) NOT NULL DEFAULT 'queued',
+  progress DOUBLE NOT NULL DEFAULT 0,
+  version BIGINT NOT NULL DEFAULT 1,
+  owner VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+  lease_until_us BIGINT NOT NULL DEFAULT 0,
+  report JSON NULL,
+  output_refs JSON NOT NULL,
+  error VARCHAR(2000) NOT NULL DEFAULT '',
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (tenant_id, user_id, id),
+  UNIQUE KEY uq_research_operation (tenant_id, user_id, operation_key),
+  KEY idx_research_pending (status, lease_until_us, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

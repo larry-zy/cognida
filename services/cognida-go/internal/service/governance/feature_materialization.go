@@ -20,7 +20,7 @@ func (s *Service) previewFeature(ctx context.Context, p l.Principal, f d.Feature
 	if err != nil {
 		return nil, ref, err
 	}
-	values, warnings, err := computeFeatureValues(ctx, f, ref, input)
+	values, warnings, err := s.computeFeature(ctx, f, ref, input)
 	if err != nil {
 		return nil, ref, err
 	}
@@ -103,6 +103,13 @@ func (s *Service) materializeFeature(ctx context.Context, p l.Principal, id stri
 	f, err := s.featureVersion(ctx, p, id, version)
 	if err != nil {
 		return nil, err
+	}
+	def, err := parseFeatureDefinition(f.Definition)
+	if err != nil {
+		return nil, err
+	}
+	if def.Kind == "embedding" {
+		return nil, featureErr("durable_job_required", "embedding materialization requires a durable feature job; unconfirmed paid calls are not replayed")
 	}
 	preview, ref, err := s.previewFeature(ctx, p, f)
 	if err != nil {

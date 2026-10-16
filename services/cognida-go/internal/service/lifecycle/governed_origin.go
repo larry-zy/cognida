@@ -9,7 +9,7 @@ import (
 )
 
 func governedOrigin(ref d.DataAssetRef) bool {
-	for _, prefix := range []string{"governance-governed:", "feature-materialization:"} {
+	for _, prefix := range []string{"access:", "governance-governed:", "feature-materialization:", "feature-job:", "collection-governed:", "evaluation-governed:", "research-governed:", "sandbox-governed:", "api-ingestion:", "warehouse-candidate:", "warehouse-approved:", "governed-operation:"} {
 		if strings.HasPrefix(ref.ProducerID, prefix) {
 			return true
 		}

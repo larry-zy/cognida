@@ -32,14 +32,14 @@ type QAPair struct {
 
 // QAResult QA 评测结果（用于执行器返回）
 type QAResult struct {
-	Question         string   `json:"question"`
-	ReferenceAnswer  string   `json:"reference_answer"`
-	GeneratedAnswer  string   `json:"generated_answer"`
-	RetrievedChunks  []string `json:"retrieved_chunks,omitempty"` // 检索到的分块正文（用于生成与忠实度类指标）
-	RetrievedPIDs    []string `json:"retrieved_pids,omitempty"`   // 检索到的分块ID（用于检索指标：precision/recall/ndcg/mrr）
-	RelevantPIDs     []string `json:"relevant_pids,omitempty"`
-	Success          bool     `json:"success"`
-	Error            string   `json:"error,omitempty"`
+	Question        string   `json:"question"`
+	ReferenceAnswer string   `json:"reference_answer"`
+	GeneratedAnswer string   `json:"generated_answer"`
+	RetrievedChunks []string `json:"retrieved_chunks,omitempty"` // 检索到的分块正文（用于生成与忠实度类指标）
+	RetrievedPIDs   []string `json:"retrieved_pids,omitempty"`   // 检索到的分块ID（用于检索指标：precision/recall/ndcg/mrr）
+	RelevantPIDs    []string `json:"relevant_pids,omitempty"`
+	Success         bool     `json:"success"`
+	Error           string   `json:"error,omitempty"`
 
 	// Agent 评测轨迹（仅 Agent 类型填充，供 tool_selection/trajectory/step_efficiency）
 	ToolsUsed  []string `json:"tools_used,omitempty"`  // 实际调用的工具名（按调用顺序）
@@ -97,12 +97,12 @@ type QAResult struct {
 
 // EvaluationTaskConfig 评测任务配置
 type EvaluationTaskConfig struct {
-	DatasetID string                 `json:"dataset_id"`
-	Type      EvaluationType         `json:"type"`
+	DatasetID       string                 `json:"dataset_id"`
+	Type            EvaluationType         `json:"type"`
 	KnowledgeBaseID string                 `json:"knowledge_base_id,omitempty"`
-	AgentID   string                 `json:"agent_id,omitempty"`
-	ModelID   string                 `json:"model_id,omitempty"`
-	Config    map[string]interface{} `json:"config,omitempty"`
+	AgentID         string                 `json:"agent_id,omitempty"`
+	ModelID         string                 `json:"model_id,omitempty"`
+	Config          map[string]interface{} `json:"config,omitempty"`
 }
 
 // Validate 验证配置
@@ -158,24 +158,25 @@ type TaskMetrics struct {
 
 // EvaluationTask 评测任务实体
 type EvaluationTask struct {
-	ID           string          `json:"id"`
-	TenantID     int64           `json:"tenant_id"`
-	UserID       int64           `json:"user_id"`
-	DatasetID    string          `json:"dataset_id"`
-	Type         EvaluationType  `json:"type"`
+	Snapshot        json.RawMessage `json:"snapshot,omitempty"`
+	ID              string          `json:"id"`
+	TenantID        int64           `json:"tenant_id"`
+	UserID          int64           `json:"user_id"`
+	DatasetID       string          `json:"dataset_id"`
+	Type            EvaluationType  `json:"type"`
 	KnowledgeBaseID string          `json:"knowledge_base_id,omitempty"`
-	AgentID      string          `json:"agent_id,omitempty"`
-	ModelID      string          `json:"model_id,omitempty"`
-	Config       json.RawMessage `json:"config,omitempty"`
-	Status       TaskStatus      `json:"status"`
-	ErrorMessage string          `json:"error_message,omitempty"`
-	TotalCount   int             `json:"total_count"`
-	SuccessCount int             `json:"success_count"`
-	FailureCount int             `json:"failure_count"`
-	Metrics      *TaskMetrics    `json:"metrics,omitempty"` // 任务级聚合指标（完成后写入）
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	DeletedAt    *time.Time      `json:"deleted_at,omitempty"`
+	AgentID         string          `json:"agent_id,omitempty"`
+	ModelID         string          `json:"model_id,omitempty"`
+	Config          json.RawMessage `json:"config,omitempty"`
+	Status          TaskStatus      `json:"status"`
+	ErrorMessage    string          `json:"error_message,omitempty"`
+	TotalCount      int             `json:"total_count"`
+	SuccessCount    int             `json:"success_count"`
+	FailureCount    int             `json:"failure_count"`
+	Metrics         *TaskMetrics    `json:"metrics,omitempty"` // 任务级聚合指标（完成后写入）
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	DeletedAt       *time.Time      `json:"deleted_at,omitempty"`
 }
 
 // NewEvaluationTask 创建新的评测任务
@@ -232,15 +233,15 @@ func (t *EvaluationTask) IsCompleted() bool {
 
 // EvaluationResult 评测结果实体
 type EvaluationResult struct {
-	ID                 int64     `json:"id"`
-	TaskID             string    `json:"task_id"`
-	Question           string    `json:"question"`
-	ReferenceAnswer    string    `json:"reference_answer"`
-	GeneratedAnswer    string    `json:"generated_answer"`
-	RetrievedPIDs      []string  `json:"retrieved_pids,omitempty"`
-	RelevantPIDs       []string  `json:"relevant_pids,omitempty"`
-	Success            bool      `json:"success"`
-	Error              string    `json:"error,omitempty"`
+	ID              int64    `json:"id"`
+	TaskID          string   `json:"task_id"`
+	Question        string   `json:"question"`
+	ReferenceAnswer string   `json:"reference_answer"`
+	GeneratedAnswer string   `json:"generated_answer"`
+	RetrievedPIDs   []string `json:"retrieved_pids,omitempty"`
+	RelevantPIDs    []string `json:"relevant_pids,omitempty"`
+	Success         bool     `json:"success"`
+	Error           string   `json:"error,omitempty"`
 
 	// 检索指标
 	Precision *float64 `json:"precision,omitempty"`
@@ -287,18 +288,18 @@ func NewEvaluationResult(taskID string, index int) *EvaluationResult {
 
 // Dataset 数据集实体
 type Dataset struct {
-	ID             int64     `json:"id"`
-	DatasetID      string    `json:"dataset_id"`
-	TenantID       int64     `json:"tenant_id"`
-	UserID         int64     `json:"user_id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Type           DatasetType `json:"type"`
+	ID             int64          `json:"id"`
+	DatasetID      string         `json:"dataset_id"`
+	TenantID       int64          `json:"tenant_id"`
+	UserID         int64          `json:"user_id"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	Type           DatasetType    `json:"type"`
 	EvaluationType EvaluationType `json:"evaluation_type"`
-	QACount        int       `json:"qa_count"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	QACount        int            `json:"qa_count"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	DeletedAt      *time.Time     `json:"deleted_at,omitempty"`
 
 	// 关联的样本数据（非持久化字段）
 	QAPairs []*QAPair `json:"qa_pairs,omitempty"`
@@ -374,13 +375,13 @@ func (d *Dataset) MarkDeleted() {
 
 // DatasetRecord 数据集样本记录实体
 type DatasetRecord struct {
-	ID              int64     `json:"id"`
-	DatasetID       string    `json:"dataset_id"`
-	TenantID        int64     `json:"tenant_id"`
-	Question        string    `json:"question"`
-	ReferenceAnswer string    `json:"reference_answer"`
-	RelevantPIDs    []string  `json:"relevant_pids,omitempty"`
-	Context         string    `json:"context,omitempty"`
+	ID              int64    `json:"id"`
+	DatasetID       string   `json:"dataset_id"`
+	TenantID        int64    `json:"tenant_id"`
+	Question        string   `json:"question"`
+	ReferenceAnswer string   `json:"reference_answer"`
+	RelevantPIDs    []string `json:"relevant_pids,omitempty"`
+	Context         string   `json:"context,omitempty"`
 	// Agent 评测期望标注（仅 Agent 样本使用，QA/RAG 留空）
 	ExpectedTools []string  `json:"expected_tools,omitempty"`
 	ExpectedSteps []string  `json:"expected_steps,omitempty"`

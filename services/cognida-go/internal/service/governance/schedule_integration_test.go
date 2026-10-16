@@ -194,7 +194,7 @@ func TestGovernanceIntegrationFeatureProjectionExactNumbersAndBoundedReads(t *te
 	require.Equal(t, 100, n)
 }
 
-func TestGovernanceIntegrationNotificationConcurrentReadAndPreannotationReviewReset(t *testing.T) {
+func TestGovernanceIntegrationNotificationConcurrentReadAndPreannotationPreservesReview(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	raw, _ := json.Marshal(d.Notification{Title: "ready"})
@@ -229,9 +229,11 @@ func TestGovernanceIntegrationNotificationConcurrentReadAndPreannotationReviewRe
 	require.NoError(t, e)
 	var result d.AnnotationItem
 	require.NoError(t, json.Unmarshal(record.Payload, &result))
-	require.Equal(t, "pending", result.ReviewStatus)
-	require.Zero(t, result.ReviewedBy)
-	require.Empty(t, result.ReviewComment)
+	require.Equal(t, "rejected", result.ReviewStatus)
+	require.Equal(t, f.p.UserID, result.ReviewedBy)
+	require.Equal(t, "check labels", result.ReviewComment)
+	require.Equal(t, rejected.Version, record.Version, "preannotation does not overwrite or revise a human-reviewed item")
+	require.JSONEq(t, string(rejected.Payload), string(record.Payload))
 }
 
 func TestGovernanceIntegrationScheduleSuspensionRequiresExplicitReenable(t *testing.T) {

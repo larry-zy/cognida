@@ -11,10 +11,12 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/model/knowledge"
+	"cognida/internal/model/rag"
 	"cognida/internal/repository/milvus/retriever"
 	"cognida/internal/service/agent/tools"
 )
@@ -29,6 +31,12 @@ type chunkQuerier interface {
 type ChunkFetchAdapter struct {
 	retriever chunkQuerier
 	kbRepo    knowledge.KnowledgeBaseRepository
+	guard     rag.ConsumptionGuard
+}
+
+func (a *ChunkFetchAdapter) WithConsumptionGuard(guard rag.ConsumptionGuard) *ChunkFetchAdapter {
+	a.guard = guard
+	return a
 }
 
 // NewChunkFetchAdapter 创建知识块精确拉取适配器。
@@ -86,6 +94,31 @@ func (a *ChunkFetchAdapter) FetchChunks(ctxAny interface{}, req *tools.FetchChun
 	if err != nil {
 		return nil, fmt.Errorf("知识块拉取失败: %w", err)
 	}
+	if a.guard != nil {
+		candidates := make([]*rag.Document, 0, len(docs))
+		for _, doc := range docs {
+			if doc != nil {
+				candidates = append(candidates, &rag.Document{ChunkID: doc.ChunkID, KnowledgeID: doc.KnowledgeID, KnowledgeBaseID: doc.KnowledgeBaseID, Content: doc.Content})
+			}
+		}
+		allowed, err := a.guard.Filter(ctx, strconv.FormatInt(tenantID, 10), "", candidates)
+		if err != nil {
+			return nil, err
+		}
+		ids := map[string]bool{}
+		for _, doc := range allowed {
+			if doc != nil {
+				ids[doc.ChunkID] = true
+			}
+		}
+		visible := docs[:0]
+		for _, doc := range docs {
+			if doc != nil && ids[doc.ChunkID] {
+				visible = append(visible, doc)
+			}
+		}
+		docs = visible
+	}
 
 	chunks := make([]tools.FetchedChunk, 0, len(docs))
 	for _, d := range docs {
@@ -122,8 +155,8 @@ func (a *ChunkFetchAdapter) FetchChunks(ctxAny interface{}, req *tools.FetchChun
 // chunk_id / knowledge_id / is_enabled 为可选收窄条件；各子句以 and 连接。
 func buildChunkFilter(tenantID int64, kbIDs []string, req *tools.FetchChunksRequest) string {
 	clauses := []string{
-		fmt.Sprintf("tenant_id == %d", tenantID),          // 强制：租户边界
-		"kb_id in " + milvusStrList(kbIDs),                // 强制：授权范围内的 KB
+		fmt.Sprintf("tenant_id == %d", tenantID), // 强制：租户边界
+		"kb_id in " + milvusStrList(kbIDs),       // 强制：授权范围内的 KB
 	}
 	if len(req.ChunkIDs) > 0 {
 		clauses = append(clauses, "chunk_id in "+milvusStrList(req.ChunkIDs))

@@ -2,9 +2,15 @@
 package executor
 
 import (
+	agentctx "cognida/internal/model/agent"
+	feedback "cognida/internal/model/feedback"
+	policy "cognida/internal/model/strategy"
+	strategies "cognida/internal/service/strategy"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,8 +21,8 @@ import (
 
 // RAGExecutor RAG 评测执行器
 type RAGExecutor struct {
-	retriever  rag.Retriever
-	llmChat    rag.LLMChat
+	retriever       rag.Retriever
+	llmChat         rag.LLMChat
 	retrieveTimeout time.Duration
 	generateTimeout time.Duration
 }
@@ -51,6 +57,7 @@ func (e *RAGExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskC
 
 	// 执行评测
 	for i, qa := range dataset {
+		started := time.Now()
 		results[i] = &domeval.QAResult{
 			Question:        qa.Question,
 			ReferenceAnswer: qa.ReferenceAnswer,
@@ -65,6 +72,7 @@ func (e *RAGExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskC
 		if err != nil {
 			results[i].Success = false
 			results[i].Error = fmt.Sprintf("retrieval failed: %v", err)
+			results[i].LatencyMs = max(1, time.Since(started).Milliseconds())
 			continue
 		}
 
@@ -86,11 +94,14 @@ func (e *RAGExecutor) Execute(ctx context.Context, task *domeval.EvaluationTaskC
 		if err != nil {
 			results[i].Success = false
 			results[i].Error = fmt.Sprintf("generation failed: %v", err)
+			results[i].LatencyMs = max(1, time.Since(started).Milliseconds())
 			continue
 		}
 
 		results[i].GeneratedAnswer = answer
 		results[i].Success = true
+		results[i].LatencyMs = max(1, time.Since(started).Milliseconds())
+		results[i].LLMCalls = 1
 	}
 
 	return results, nil
@@ -102,8 +113,33 @@ func (e *RAGExecutor) retrieve(ctx context.Context, task *domeval.EvaluationTask
 		TopK: topK,
 	}
 
+	if snapshot := strategies.FromContext(ctx); snapshot != nil && snapshot.Kind == "retrieval" {
+		var p policy.RetrievalPolicy
+		if json.Unmarshal(snapshot.EffectiveBody, &p) != nil {
+			return nil, policy.ErrInvalid
+		}
+		opts.TopK = p.TopK
+		opts.SimilarityThreshold = p.ScoreThreshold
+		opts.RerankEnabled = p.Rerank
+	}
+
+	if raw, ok := task.Config["applied_labels"]; ok {
+		items, valid := raw.([]any)
+		if !valid || len(items) > 30 {
+			return nil, fmt.Errorf("invalid applied_labels")
+		}
+		labels := []string{}
+		for _, item := range items {
+			v, ok := item.(string)
+			if !ok || v == "" {
+				return nil, fmt.Errorf("invalid applied_labels")
+			}
+			labels = append(labels, v)
+		}
+		ctx = feedback.WithLabels(ctx, labels)
+	}
 	// 使用混合检索
-	resp, err := e.retriever.HybridRetrieve(ctx, "", task.KnowledgeBaseID, query, opts)
+	resp, err := e.retriever.HybridRetrieve(ctx, strconv.FormatInt(agentctx.MustGetTenantID(ctx), 10), task.KnowledgeBaseID, query, opts)
 	if err != nil {
 		return nil, fmt.Errorf("hybrid retrieve failed: %w", err)
 	}

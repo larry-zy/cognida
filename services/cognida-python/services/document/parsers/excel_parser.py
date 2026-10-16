@@ -28,7 +28,7 @@ class ExcelParser(BaseParser):
             extract_tables: 是否提取表格
             extract_images: 是否提取图片
             **kwargs: 其他选项
-                - sheet_name: 工作表名称（默认第一个）
+                - sheet_name: 工作表名称（默认读取全部工作表）
 
         Returns:
             解析结果
@@ -43,34 +43,37 @@ class ExcelParser(BaseParser):
                 workbook = openpyxl.load_workbook(BytesIO(source))
 
             sheet_name = kwargs.get("sheet_name")
-            if sheet_name:
-                sheet = workbook[sheet_name]
-            else:
-                sheet = workbook.active
-
-            # 提取文本
-            text_parts = []
-            for row in sheet.iter_rows(values_only=True):
-                row_text = "\t".join(str(cell) if cell is not None else "" for cell in row)
-                text_parts.append(row_text)
-            text = "\n".join(text_parts)
-
-            # 构建元数据
-            metadata = {}
-            if include_metadata:
-                metadata = {
-                    "format": "xlsx",
-                    "sheet_count": len(workbook.worksheets),
-                    "sheet_name": sheet.title,
-                    "row_count": sheet.max_row or 0,
-                    "column_count": sheet.max_column or 0,
-                    "char_count": len(text),
-                }
-
-            # 提取表格（Excel 本身就是表格）
-            tables = None
-            if extract_tables:
-                tables = self._extract_tables(sheet)
+            try:
+                sheets = [workbook[sheet_name]] if sheet_name else workbook.worksheets
+                # A workbook upload includes every worksheet; selecting only the
+                # active sheet silently dropped valid rows from the other sheets.
+                text_parts = []
+                for sheet in sheets:
+                    if len(sheets) > 1:
+                        text_parts.append(f"[Worksheet: {sheet.title}]")
+                    for row in sheet.iter_rows(values_only=True):
+                        text_parts.append("\t".join(str(cell) if cell is not None else "" for cell in row))
+                text = "\n".join(text_parts)
+                metadata = {}
+                if include_metadata:
+                    metadata = {
+                        "format": "xlsx",
+                        "sheet_count": len(workbook.worksheets),
+                        "sheet_name": sheet_name or ", ".join(sheet.title for sheet in sheets),
+                        "row_count": sum(sheet.max_row or 0 for sheet in sheets),
+                        "column_count": max((sheet.max_column or 0 for sheet in sheets), default=0),
+                        "char_count": len(text),
+                    }
+                tables = None
+                if extract_tables:
+                    tables = []
+                    for sheet in sheets:
+                        for table in self._extract_tables(sheet):
+                            table["table_index"] = len(tables)
+                            table["sheet_name"] = sheet.title
+                            tables.append(table)
+            finally:
+                workbook.close()
 
             return ParseResult(
                 success=True,

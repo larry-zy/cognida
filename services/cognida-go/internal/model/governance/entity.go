@@ -109,10 +109,11 @@ type Relation struct {
 	Label string `json:"label"`
 }
 type Annotation struct {
-	Labels    []string   `json:"labels"`
-	Entities  []Entity   `json:"entities"`
-	Relations []Relation `json:"relations"`
-	QA        *QAPair    `json:"qa,omitempty"`
+	EvaluationProfile *EvaluationProfile `json:"evaluation_profile,omitempty"`
+	Labels            []string           `json:"labels"`
+	Entities          []Entity           `json:"entities"`
+	Relations         []Relation         `json:"relations"`
+	QA                *QAPair            `json:"qa,omitempty"`
 }
 type EvidenceSpan struct {
 	LabelID string `json:"label_id,omitempty"`
@@ -122,13 +123,16 @@ type EvidenceSpan struct {
 	End     int    `json:"end"`
 }
 type Provenance struct {
-	Source         string         `json:"source"`
-	Method         string         `json:"method"`
-	Model          string         `json:"model,omitempty"`
-	Confidence     *float64       `json:"confidence"`
-	Evidence       []string       `json:"evidence"`
-	DecisionStatus string         `json:"decision_status"`
-	EvidenceSpans  []EvidenceSpan `json:"evidence_spans,omitempty"`
+	ModelCallID      string         `json:"model_call_id,omitempty"`
+	SchemeDigest     string         `json:"scheme_digest,omitempty"`
+	GuidelinesDigest string         `json:"guidelines_digest,omitempty"`
+	Source           string         `json:"source"`
+	Method           string         `json:"method"`
+	Model            string         `json:"model,omitempty"`
+	Confidence       *float64       `json:"confidence"`
+	Evidence         []string       `json:"evidence"`
+	DecisionStatus   string         `json:"decision_status"`
+	EvidenceSpans    []EvidenceSpan `json:"evidence_spans,omitempty"`
 }
 type AnnotationItem struct {
 	Meta

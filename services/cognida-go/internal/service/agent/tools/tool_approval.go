@@ -35,6 +35,36 @@ type approvalPendingPayload struct {
 // handleWriteApproval 是挂接到 framework.SetToolApprovalHandler 的策略级写审批处理器。
 // 返回值是回灌 LLM 的 ToolMessage 载荷；error 表示审批通道自身异常（门降级为不执行 + 说明）。
 func (o *opTools) handleWriteApproval(ctx context.Context, req framework.ApprovalRequest) (string, error) {
+	// Governed SQL/ETL only create plans; the old token gate must not pretend to
+	// confirm a new plan or hide its durable confirmation URL.
+	if req.Tool == "sql_mutate" {
+		var in SQLMutateRequest
+		if json.Unmarshal([]byte(req.Arguments), &in) != nil {
+			return "", fmt.Errorf("invalid mutation arguments")
+		}
+		result, err := o.sqlMutate(ctx, &in)
+		if err != nil {
+			return "", err
+		}
+		raw, err := json.Marshal(result)
+		return string(raw), err
+	}
+	if req.Tool == "etl_run" {
+		var in ETLRunRequest
+		if json.Unmarshal([]byte(req.Arguments), &in) != nil {
+			return "", fmt.Errorf("invalid ETL arguments")
+		}
+		if in.TargetTable == "" {
+			return "", fmt.Errorf("target_table required")
+		}
+		result, err := o.etlRun(ctx, &in)
+		if err != nil {
+			return "", err
+		}
+		raw, err := json.Marshal(result)
+		return string(raw), err
+	}
+
 	if o.cfg.Pending == nil {
 		// 宁拒不闯：无待确认存储时审批通道不可用。
 		return "", fmt.Errorf("待确认操作存储未启用，无法发起写审批")
@@ -143,12 +173,9 @@ func (o *opTools) buildApprovalAction(ctx context.Context, req framework.Approva
 
 // ExecuteConfirmedETL 执行已人工确认的策略级审批 ETL（confirm-resume 端点按 Kind=etl 分派）。
 // 从暂存的原始参数重建请求后走既有 etlRun 全量校验与执行（框架门已在审批阶段放行）。
-func (o *opTools) ExecuteConfirmedETL(ctx context.Context, action *pendingaction.PendingAction) (*ETLRunResult, error) {
-	req, err := decodeApprovalArguments[ETLRunRequest](action)
-	if err != nil {
-		return nil, err
-	}
-	return o.etlRun(ctx, req)
+func (o *opTools) ExecuteConfirmedETL(ctx context.Context, _ *pendingaction.PendingAction) (*ETLRunResult, error) {
+	o.recordAudit(ctx, operations.OpETL, "", "", "", operations.StatusRejected, "legacy confirmation cannot authorize governed ETL", nil)
+	return &ETLRunResult{Status: operations.StatusRejected, Message: "旧确认记录已停用；请重新生成受控 ETL 计划并在确认页提交。未执行写入。"}, nil
 }
 
 // ExecuteConfirmedExport 执行已人工确认的策略级审批导出（confirm-resume 端点按 Kind=export 分派）。

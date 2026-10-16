@@ -38,6 +38,9 @@ func (h *TaskControlHandler) Register(api *gin.RouterGroup) {
 			// Leave time for the bounded model request and post-call validation.
 			timeout = 60 * time.Second
 		}
+		if c.FullPath() == g.BasePath()+"/:id/events" {
+			timeout = 5 * time.Minute
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)
@@ -47,6 +50,7 @@ func (h *TaskControlHandler) Register(api *gin.RouterGroup) {
 	g.POST("/supervisor/assess", h.AssessTask)
 	g.POST("/:id/supervisor/propose", h.ProposeTask)
 	g.GET("/:id/supervisor/summary", h.SummarizeTask)
+	g.GET("/:id/events", h.TaskEvents)
 	g.POST("/validate", h.Validate)
 	g.POST("", h.Create)
 	g.GET("", h.List)
@@ -56,6 +60,7 @@ func (h *TaskControlHandler) Register(api *gin.RouterGroup) {
 	g.GET("/:id/execution-readiness", h.ExecutionReadiness)
 	g.POST("/:id/start", h.StartTask)
 	g.POST("/:id/cancel", h.CancelTask)
+	g.POST("/:id/replan", h.ReplanTask)
 }
 func taskControlScope(c *gin.Context) d.Scope {
 	return d.Scope{TenantID: c.GetInt64("tenant_id"), UserID: c.GetInt64("user_id")}
@@ -158,7 +163,7 @@ func taskControlError(c *gin.Context, e error) {
 	case errors.Is(e, svc.ErrPlannerUnavailable):
 		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "Supervisor 模型暂不可用，请检查模型配置后重试"})
 	case errors.Is(e, svc.ErrPlannerOutput):
-		c.JSON(http.StatusBadGateway, gin.H{"code": 502, "message": "Supervisor 未返回有效的受约束计划，请补充目标后重试"})
+		c.JSON(http.StatusBadGateway, gin.H{"code": 502, "message": "Supervisor 未返回有效的受约束计划，请补充目标后重试", "diagnostic": svc.PlannerDiagnostic(e)})
 	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, context.Canceled):
 		c.JSON(http.StatusGatewayTimeout, gin.H{"code": 504, "message": "任务请求已超时或取消，请重新核对任务状态"})
 	case errors.As(e, &validation):

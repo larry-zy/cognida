@@ -45,6 +45,15 @@ func (s *Service) CheckHealthOnce(ctx context.Context) (HealthReport, error) {
 
 // probe 对单个数据源做一次带超时的连通性探测，返回 active 或 error。
 func (s *Service) probe(ctx context.Context, ds *model.DataSource) string {
+	if ds.Type == model.TypeBigQuery {
+		pingCtx, cancel := context.WithTimeout(ctx, s.healthPingTimeout)
+		defer cancel()
+		a, e := newBigQueryAdapter(pingCtx, ds)
+		if e != nil || a.ping(pingCtx) != nil {
+			return model.StatusError
+		}
+		return model.StatusActive
+	}
 	db, _, err := s.cm.Acquire(ctx, ds.TenantID, ds.ID)
 	if err != nil {
 		return model.StatusError

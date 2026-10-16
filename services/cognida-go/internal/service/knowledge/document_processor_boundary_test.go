@@ -79,3 +79,12 @@ func TestDocumentProcessorLoadsKnowledgeBaseSettings(t *testing.T) {
 		t.Fatalf("settings ignored: %v %v", setting, err)
 	}
 }
+
+func TestDocumentParserRejectsEmptyExtractedText(t *testing.T) {
+	reader := &captureDocumentReader{}
+	svc := &documentProcessorService{grpcClient: reader}
+	for _, text := range []string{"", " \n\t"} {
+		_, _, err := svc.parseDocument(context.Background(), &ProcessDocumentRequest{Content: []byte(text)})
+		require.ErrorContains(t, err, "no extractable text")
+	}
+}

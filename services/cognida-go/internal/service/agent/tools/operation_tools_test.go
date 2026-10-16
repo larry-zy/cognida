@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/csv"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -192,110 +191,6 @@ func TestSQLMutate_RejectRedlineTable(t *testing.T) {
 	}
 }
 
-func TestSQLMutate_IdempotentDuplicate(t *testing.T) {
-	o, _, audit, _, ctx := setupOperationTest(t)
-	audit.prior = &operations.OperationAudit{
-		IdempotencyKey: "k-dup",
-		Target:         "orders",
-		Status:         operations.StatusSuccess,
-		Result:         "影响 3 行",
-	}
-
-	// 幂等命中：不应有任何 DB 交互（sqlmock 未设置期望，若交互会报错）
-	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET a = 1", IdempotencyKey: "k-dup"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Duplicate || res.Status != operations.StatusSuccess {
-		t.Fatalf("expected duplicate success, got %+v", res)
-	}
-}
-
-func TestSQLMutate_SafeCommit(t *testing.T) {
-	o, mock, audit, _, ctx := setupOperationTest(t)
-
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE orders SET status = 'done' WHERE id = 5")).
-		WillReturnResult(sqlmock.NewResult(0, 3))
-	mock.ExpectCommit()
-
-	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET status = 'done' WHERE id = 5", IdempotencyKey: "k-ok"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Status != operations.StatusSuccess || res.RowsAffected != 3 {
-		t.Fatalf("expected success 3 rows, got %+v", res)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("db expectations: %v", err)
-	}
-	last := audit.lastAudit(t)
-	if last.Status != operations.StatusSuccess || last.IdempotencyKey != "k-ok" {
-		t.Fatalf("audit mismatch: %+v", last)
-	}
-}
-
-func TestSQLMutate_DangerThresholdSuspends(t *testing.T) {
-	o, mock, audit, pending, ctx := setupOperationTest(t)
-
-	// 影响 250 行 ≥ 阈值 100 → 回滚 + 暂停
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM orders WHERE created_at < '2020-01-01'")).
-		WillReturnResult(sqlmock.NewResult(0, 250))
-	mock.ExpectRollback()
-
-	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM orders WHERE created_at < '2020-01-01'", IdempotencyKey: "k-danger"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Status != operations.StatusPendingConfirm {
-		t.Fatalf("expected pending_confirm, got %+v", res)
-	}
-	if res.PendingActionID == "" || res.ConfirmToken == "" {
-		t.Fatalf("expected pending_action_id + token, got %+v", res)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("db expectations (must rollback): %v", err)
-	}
-	if audit.lastAudit(t).Status != operations.StatusPendingConfirm {
-		t.Fatalf("suspension must be audited as pending_confirm")
-	}
-
-	// 暂存的 action 可被正确的 owner+token 消费
-	owner := resultstore.OwnerKey(1, "sess-op")
-	action, err := pending.Consume(ctx, owner, res.PendingActionID, res.ConfirmToken)
-	if err != nil {
-		t.Fatalf("consume pending action: %v", err)
-	}
-	if action.SQL != "DELETE FROM orders WHERE created_at < '2020-01-01'" {
-		t.Fatalf("pending action SQL mismatch: %q", action.SQL)
-	}
-	if key, _ := action.Params["idempotency_key"].(string); key != "k-danger" {
-		t.Fatalf("pending action should carry idempotency_key, got %v", action.Params)
-	}
-}
-
-func TestSQLMutate_DangerWithoutPendingStoreRejects(t *testing.T) {
-	o, mock, audit, _, ctx := setupOperationTest(t)
-	o.cfg.Pending = nil // 宁拒不闯
-
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM orders")).
-		WillReturnResult(sqlmock.NewResult(0, 500))
-	mock.ExpectRollback()
-
-	res, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "DELETE FROM orders", IdempotencyKey: "k-nopending"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Status != operations.StatusRejected {
-		t.Fatalf("expected rejected without pending store, got %+v", res)
-	}
-	if audit.lastAudit(t).Status != operations.StatusRejected {
-		t.Fatalf("rejection must be audited")
-	}
-}
-
 func TestSQLMutate_MissingIdempotencyKey(t *testing.T) {
 	o, _, _, _, ctx := setupOperationTest(t)
 	if _, err := o.sqlMutate(ctx, &SQLMutateRequest{SQL: "UPDATE orders SET a = 1"}); err == nil {
@@ -342,29 +237,6 @@ func TestETLRun_RejectNonSelectSource(t *testing.T) {
 	}
 	if audit.lastAudit(t).Status != operations.StatusFailed {
 		t.Fatalf("source validation failure must be audited")
-	}
-}
-
-func TestETLRun_FromSQL(t *testing.T) {
-	o, mock, audit, _, ctx := setupOperationTest(t)
-
-	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE `agent_etl_sales` AS (SELECT region, gmv FROM sales)")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM `agent_etl_sales`")).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
-
-	res, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_sales", SQL: "SELECT region, gmv FROM sales"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Status != operations.StatusSuccess || res.RowCount != 42 {
-		t.Fatalf("expected success 42 rows, got %+v", res)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("db expectations: %v", err)
-	}
-	if audit.lastAudit(t).Status != operations.StatusSuccess {
-		t.Fatalf("etl success must be audited")
 	}
 }
 

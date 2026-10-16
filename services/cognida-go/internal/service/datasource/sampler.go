@@ -32,6 +32,29 @@ func (s *Service) SampleCSV(ctx context.Context, tenantID int64, datasourceID, t
 		limit = maxSampleSize
 	}
 
+	if result, handled, err := s.sampleREST(ctx, tenantID, datasourceID, table, limit); handled {
+		if err != nil {
+			return nil, 0, err
+		}
+		var buf bytes.Buffer
+		writer := csv.NewWriter(&buf)
+		if err = writer.Write(result.Columns); err != nil {
+			return nil, 0, err
+		}
+		for _, row := range result.Rows {
+			line := make([]string, len(result.Columns))
+			for i, c := range result.Columns {
+				if row[c] != nil {
+					line[i] = fmt.Sprint(row[c])
+				}
+			}
+			if err = writer.Write(line); err != nil {
+				return nil, 0, err
+			}
+		}
+		writer.Flush()
+		return buf.Bytes(), len(result.Rows), writer.Error()
+	}
 	db, ds, err := s.cm.Acquire(ctx, tenantID, datasourceID)
 	if err != nil {
 		return nil, 0, err

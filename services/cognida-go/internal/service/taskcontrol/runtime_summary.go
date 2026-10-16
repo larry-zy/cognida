@@ -51,6 +51,9 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 	for _, child := range children {
 		kind := ""
 		if child.DomainID != "" {
+			if child.Domain == "collection" || child.Domain == "evaluation" || child.Domain == "research" || child.Domain == "warehouse" || child.Domain == "sandbox" {
+				kind = runtimeDomainKind(child.Domain)
+			}
 			if child.Domain == "lifecycle" {
 				kind = "invocation"
 			}
@@ -97,6 +100,9 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 					item.Status = child.DomainStatus
 				}
 				if child.DomainID != "" {
+					if child.Domain == "collection" || child.Domain == "evaluation" || child.Domain == "research" || child.Domain == "warehouse" || child.Domain == "sandbox" {
+						item.DomainKind = runtimeDomainKind(child.Domain)
+					}
 					if child.Domain == "lifecycle" {
 						item.DomainKind = "invocation"
 					}
@@ -151,4 +157,11 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 		return d.ErrConflict
 	}
 	return nil
+}
+
+func runtimeDomainKind(domain string) string {
+	if domain == "warehouse" || domain == "sandbox" {
+		return domain + "_run"
+	}
+	return domain
 }

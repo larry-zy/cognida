@@ -23,6 +23,7 @@ golang-migrate 命名：`NNNNNN_描述.up.sql` / `NNNNNN_描述.down.sql`，成�
 cd services/cognida-go && set -a && source .env && set +a
 
 go run ./cmd/migrate-db up            # 应用全部未执行迁移（默认动作）
+go run ./cmd/migrate-db up N          # 只应用后续 N 个迁移，N 必须为正整数
 go run ./cmd/migrate-db version       # 查看当前版本 / dirty 状态
 go run ./cmd/migrate-db down [N]      # 回滚 N 步；省略 N 则回滚全部（谨慎）
 go run ./cmd/migrate-db force <V>     # 将版本强制标记为 V（不执行 SQL）

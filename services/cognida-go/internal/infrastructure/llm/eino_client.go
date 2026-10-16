@@ -292,6 +292,9 @@ func fromSchemaToolCalls(in []schema.ToolCall) []*domainllm.ToolCall {
 // toModelOptions 把 domainllm.ChatOptions 中受支持的采样参数转成 eino model.Option。
 func toModelOptions(o *domainllm.ChatOptions) []model.Option {
 	var opts []model.Option
+	if o.BoundedJSONOutput {
+		opts = append(opts, chat.WithBoundedJSONOutput())
+	}
 	// 指针非 nil 即显式指定（含 0），如实下传，保证确定性采样不被丢弃。
 	if o.Temperature != nil {
 		opts = append(opts, model.WithTemperature(float32(*o.Temperature)))

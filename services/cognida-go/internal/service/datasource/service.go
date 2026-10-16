@@ -27,10 +27,12 @@ var ErrNotFound = errors.New("datasource: 数据源不存在")
 
 // Service 数据源应用服务
 type Service struct {
-	repo   model.Repository
-	cipher *Cipher
-	cm     *ConnectionManager
-	idGen  IDGenerator
+	durableQuery  model.DurableQueryExecutor
+	remoteFactory func(context.Context, *model.DataSource) (*bigQueryAdapter, error)
+	repo          model.Repository
+	cipher        *Cipher
+	cm            *ConnectionManager
+	idGen         IDGenerator
 	// testTimeout 测试连接超时
 	testTimeout time.Duration
 	// healthPingTimeout 健康检查单次 ping 超时
@@ -67,23 +69,25 @@ type SaveInput struct {
 
 // Sanitized 对外安全视图：不含密码（明文与密文均不含）
 type Sanitized struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Description       string     `json:"description,omitempty"`
-	Type              string     `json:"type"`
-	Host              string     `json:"host"`
-	Port              int        `json:"port"`
-	DatabaseName      string     `json:"database_name"`
-	Username          string     `json:"username"`
-	Status            string     `json:"status"`
-	LastHealthCheckAt *time.Time `json:"last_health_check_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                string          `json:"id"`
+	Extra             json.RawMessage `json:"extra,omitempty"`
+	Name              string          `json:"name"`
+	Description       string          `json:"description,omitempty"`
+	Type              string          `json:"type"`
+	Host              string          `json:"host"`
+	Port              int             `json:"port"`
+	DatabaseName      string          `json:"database_name"`
+	Username          string          `json:"username"`
+	Status            string          `json:"status"`
+	LastHealthCheckAt *time.Time      `json:"last_health_check_at,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
 func sanitize(ds *model.DataSource) *Sanitized {
 	return &Sanitized{
 		ID:                ds.ID,
+		Extra:             safeExtra(ds),
 		Name:              ds.Name,
 		Description:       ds.Description,
 		Type:              string(ds.Type),
@@ -105,6 +109,10 @@ func (in *SaveInput) validate(isCreate bool) error {
 	if _, err := DriverFor(model.Type(in.Type)); err != nil {
 		return err
 	}
+	if in.Type == string(model.TypeBigQuery) {
+		_, err := parseBigQueryOptions(&model.DataSource{Host: in.Host, Port: in.Port, Username: in.Username, DatabaseName: in.DatabaseName, Extra: in.Extra})
+		return err
+	}
 	if strings.TrimSpace(in.Host) == "" {
 		return errors.New("datasource: host 不能为空")
 	}
@@ -117,7 +125,12 @@ func (in *SaveInput) validate(isCreate bool) error {
 	if strings.TrimSpace(in.Username) == "" {
 		return errors.New("datasource: username 不能为空")
 	}
-	if isCreate && in.Password == "" {
+	if in.Type == string(model.TypeHive) {
+		if _, err := (hiveDriver{}).BuildDSN(&model.DataSource{Host: in.Host, Port: in.Port, Username: in.Username, DatabaseName: in.DatabaseName, Extra: in.Extra}, in.Password); err != nil {
+			return err
+		}
+	}
+	if isCreate && in.Password == "" && requiresPassword(model.Type(in.Type), in.Extra) {
 		return errors.New("datasource: 创建数据源必须提供密码")
 	}
 	return nil
@@ -262,13 +275,14 @@ type TestInput struct {
 
 // TestConnection 用临时连接测试连通性（不进缓存），错误已脱敏。
 func (s *Service) TestConnection(ctx context.Context, tenantID int64, in *TestInput) error {
-	cfg := &model.DataSource{
+	cfg := &model.DataSource{TenantID: tenantID,
 		Name:         in.Name,
 		Type:         model.Type(in.Type),
 		Host:         in.Host,
 		Port:         in.Port,
 		DatabaseName: in.DatabaseName,
 		Username:     in.Username,
+		Extra:        in.Extra,
 	}
 	password := in.Password
 
@@ -289,7 +303,14 @@ func (s *Service) TestConnection(ctx context.Context, tenantID int64, in *TestIn
 			cfg = stored
 		}
 	}
-	if password == "" {
+	if cfg.Type == model.TypeBigQuery {
+		a, e := newBigQueryAdapter(ctx, cfg)
+		if e != nil {
+			return e
+		}
+		return a.ping(ctx)
+	}
+	if password == "" && requiresPassword(cfg.Type, cfg.Extra) {
 		return errors.New("datasource: 测试连接需要密码")
 	}
 
@@ -322,6 +343,13 @@ func (s *Service) TestConnection(ctx context.Context, tenantID int64, in *TestIn
 
 // ListTables 外部数据源表清单（经受管连接池）
 func (s *Service) ListTables(ctx context.Context, tenantID int64, id string) ([]TableInfo, error) {
+	remote, _, err := s.bigQuery(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if remote != nil {
+		return remote.tables(ctx)
+	}
 	db, ds, err := s.cm.Acquire(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
@@ -337,6 +365,13 @@ func (s *Service) ListTables(ctx context.Context, tenantID int64, id string) ([]
 
 // DescribeTable 外部数据源单表结构
 func (s *Service) DescribeTable(ctx context.Context, tenantID int64, id, table string) (*TableSchema, error) {
+	remote, _, err := s.bigQuery(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if remote != nil {
+		return remote.table(ctx, table)
+	}
 	db, ds, err := s.cm.Acquire(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
@@ -354,4 +389,48 @@ func (s *Service) DescribeTable(ctx context.Context, tenantID int64, id, table s
 // 供 agent 工具按 database_id 路由查询。
 func (s *Service) Acquire(ctx context.Context, tenantID int64, datasourceID string) (*sql.DB, *model.DataSource, error) {
 	return s.cm.Acquire(ctx, tenantID, datasourceID)
+}
+
+// Only documented nonsecret connection flags may be echoed to the editor.
+func safeExtra(ds *model.DataSource) json.RawMessage {
+	var input map[string]any
+	if json.Unmarshal(ds.Extra, &input) != nil {
+		return nil
+	}
+	output := map[string]any{}
+	if ds.Type == model.TypeBigQuery {
+		v, err := parseBigQueryOptions(ds)
+		if err != nil {
+			return nil
+		}
+		b, _ := json.Marshal(v)
+		return b
+	}
+	if ds.Type == model.TypeClickHouse || ds.Type == model.TypeHive {
+		if v, ok := input["tls"].(bool); ok {
+			output["tls"] = v
+		}
+	}
+	if ds.Type == model.TypeHive {
+		if v, ok := input["auth"].(string); ok {
+			output["auth"] = v
+		}
+	}
+	if len(output) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(output)
+	return b
+}
+func requiresPassword(engine model.Type, extra json.RawMessage) bool {
+	if engine == model.TypeBigQuery {
+		return false
+	}
+	if engine != model.TypeHive {
+		return true
+	}
+	var v struct {
+		Auth string `json:"auth"`
+	}
+	return json.Unmarshal(extra, &v) != nil || (v.Auth != "NONE" && v.Auth != "NOSASL")
 }

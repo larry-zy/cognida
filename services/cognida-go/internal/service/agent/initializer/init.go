@@ -24,7 +24,8 @@ import (
 
 // Initializer Agent 初始化器
 type Initializer struct {
-	personalMemory infraagent.BeforeHook
+	personalMemory     infraagent.BeforeHook
+	governedStrategies infraagent.BeforeHook
 	// registry 是声明式 Agent 注册表：RegisterSpec 按 AgentSpec 构建实例并登记元信息，
 	// 取代了此前各包的 Set*Agent 单例 + GetAgentByID switch。
 	registry *infraagent.SpecRegistry
@@ -129,9 +130,17 @@ func (init *Initializer) WithPersonalMemory(hook infraagent.BeforeHook) *Initial
 	init.personalMemory = hook
 	return init
 }
+func (init *Initializer) WithGovernedStrategies(hook infraagent.BeforeHook) *Initializer {
+	init.governedStrategies = hook
+	return init
+}
+
 func (init *Initializer) decoratePersonalAgent(builder *infraagent.Builder) *infraagent.Builder {
 	if init.personalMemory != nil {
 		builder = builder.Before(init.personalMemory)
+	}
+	if init.governedStrategies != nil {
+		builder = builder.Before(init.governedStrategies)
 	}
 	return init.guardrail.Apply(builder)
 }
@@ -378,7 +387,7 @@ func (init *Initializer) buildRAGAgent(ctx context.Context, toolModel model.Tool
 	}
 	// 硬语义缓存装饰（默认 nil/未启用 → 返回 ragAgent 本身，恒等透传，零回归）：
 	// 命中高相似历史问答即短路返回旧答案、跳过 LLM。知识相对稳定，硬缓存安全。
-	if init.personalMemory != nil {
+	if init.personalMemory != nil || init.governedStrategies != nil {
 		return ragAgent, nil
 	}
 	return infraagent.NewCachingAgent(ragAgent, init.ragHardCache, ragCacheKey), nil
@@ -396,7 +405,7 @@ func (init *Initializer) registerDataAgent(ctx context.Context, chatModel any) e
 	// 声明式注册：预设 Build 工厂内部装配子代理协作注册表 + ReAct 内核 + 委派能力，
 	// msgRepo 非 nil 时启用跨轮对话记忆。
 	fewShot, softCache := init.semanticFewShot, init.dataSoftCache
-	if init.personalMemory != nil {
+	if init.personalMemory != nil || init.governedStrategies != nil {
 		fewShot, softCache = nil, nil
 	}
 	if err := init.registry.RegisterSpec(ctx, dataagent.Spec(toolModel, init.messageRepo, init.tools, init.experienceRecall, fewShot, softCache, init.decoratePersonalAgent)); err != nil {

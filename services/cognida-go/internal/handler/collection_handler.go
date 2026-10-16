@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	domain "cognida/internal/model/collection"
+	l "cognida/internal/model/lifecycle"
 	collectionsvc "cognida/internal/service/collection"
 	knowledge "cognida/internal/service/knowledge"
 )
@@ -34,7 +36,7 @@ type createCollectionTaskRequest struct {
 // List returns the tenant's collection tasks. Task details remain available
 // from Get so the list remains bounded and inexpensive for the console.
 func (h *CollectionHandler) List(c *gin.Context) {
-	tenantID, ok := MustGetTenantID(c)
+	tenantID, userID, ok := MustGetTenantAndUserID(c)
 	if !ok {
 		return
 	}
@@ -48,7 +50,13 @@ func (h *CollectionHandler) List(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
-	OK(c, gin.H{"tasks": tasks})
+	visible := make([]*domain.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.UserID == userID {
+			visible = append(visible, task)
+		}
+	}
+	OK(c, gin.H{"tasks": visible})
 }
 
 const (
@@ -104,8 +112,11 @@ func (h *CollectionHandler) Create(c *gin.Context) {
 }
 
 func (h *CollectionHandler) Start(c *gin.Context) {
-	tenantID, ok := MustGetTenantID(c)
+	tenantID, userID, ok := MustGetTenantAndUserID(c)
 	if !ok {
+		return
+	}
+	if !h.requireOwner(c, tenantID, userID) {
 		return
 	}
 	if err := h.service.Start(c.Request.Context(), tenantID, c.Param("id")); err != nil {
@@ -116,8 +127,11 @@ func (h *CollectionHandler) Start(c *gin.Context) {
 }
 
 func (h *CollectionHandler) Cancel(c *gin.Context) {
-	tenantID, ok := MustGetTenantID(c)
+	tenantID, userID, ok := MustGetTenantAndUserID(c)
 	if !ok {
+		return
+	}
+	if !h.requireOwner(c, tenantID, userID) {
 		return
 	}
 	if err := h.service.Cancel(c.Request.Context(), tenantID, c.Param("id")); err != nil {
@@ -131,13 +145,17 @@ func (h *CollectionHandler) Cancel(c *gin.Context) {
 // item outcomes. Finished run history will be added when the repository grows
 // a paged ListRuns port.
 func (h *CollectionHandler) Get(c *gin.Context) {
-	tenantID, ok := MustGetTenantID(c)
+	tenantID, userID, ok := MustGetTenantAndUserID(c)
 	if !ok {
 		return
 	}
 	task, err := h.repo.FindTask(c.Request.Context(), tenantID, c.Param("id"))
 	if err != nil {
 		h.writeError(c, err)
+		return
+	}
+	if task.UserID != userID {
+		Forbidden(c, "无权查看此采集任务")
 		return
 	}
 	sources, err := h.repo.ListSources(c.Request.Context(), tenantID, task.ID)
@@ -165,9 +183,58 @@ func (h *CollectionHandler) Get(c *gin.Context) {
 	OK(c, response)
 }
 
+// GetRun reads an exact historical run. It never starts collection or expands
+// the latest-run cursor, and ownership is checked before returning sources.
+func (h *CollectionHandler) GetRun(c *gin.Context) {
+	tenant, user, ok := MustGetTenantAndUserID(c)
+	if !ok {
+		return
+	}
+	reader, valid := h.repo.(interface {
+		FindRun(context.Context, int64, string) (*domain.Run, error)
+	})
+	if !valid {
+		InternalError(c, "采集运行读取不可用")
+		return
+	}
+	run, err := reader.FindRun(c.Request.Context(), tenant, c.Param("id"))
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	task, err := h.repo.FindTask(c.Request.Context(), tenant, run.TaskID)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	if task.UserID != user {
+		Forbidden(c, "无权查看此采集任务")
+		return
+	}
+	sources, err := h.repo.ListSources(c.Request.Context(), tenant, task.ID)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	items, err := h.repo.ListItems(c.Request.Context(), tenant, run.ID)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	summary := domain.SummarizeItems(len(sources), items)
+	if run.Status != domain.RunStatusCompleted {
+		summary.Outcome = string(run.Status)
+	}
+	OK(c, gin.H{"task": task, "sources": sources, "run": run, "items": items, "summary": summary})
+}
+
 func (h *CollectionHandler) writeError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, domain.ErrTaskNotFound):
+	case errors.Is(err, l.ErrForbidden):
+		Forbidden(c, "无权访问采集任务")
+	case errors.Is(err, l.ErrConflict):
+		Conflict(c, "idempotency key conflicts", nil)
+	case errors.Is(err, domain.ErrTaskNotFound), errors.Is(err, domain.ErrRunNotFound):
 		NotFound(c, "collection task not found")
 	case errors.Is(err, domain.ErrInvalidTask), errors.Is(err, domain.ErrInvalidSource):
 		BadRequest(c, err.Error())
@@ -176,4 +243,21 @@ func (h *CollectionHandler) writeError(c *gin.Context, err error) {
 	default:
 		InternalError(c, "collection task operation failed")
 	}
+}
+
+func (h *CollectionHandler) requireOwner(c *gin.Context, tenant, user int64) bool {
+	task, e := h.repo.FindTask(c.Request.Context(), tenant, c.Param("id"))
+	if e != nil {
+		h.writeError(c, e)
+		return false
+	}
+	if task.UserID != user {
+		Forbidden(c, "无权操作此采集任务")
+		return false
+	}
+	if task.Mode == domain.SnapshotMode {
+		Conflict(c, "请通过统一任务控制受控采集", nil)
+		return false
+	}
+	return true
 }

@@ -133,7 +133,7 @@ func (l *DatasetLoader) LoadFromDB(ctx context.Context, datasetID string) (*Data
 	}
 
 	// 加载样本数据
-	page, pageSize := 1, 10000 // 最多加载 10000 条样本
+	page, pageSize := 1, 1000 // 最多加载 10000 条样本
 	var allQAPairs []*QAPair
 
 	for {
@@ -403,12 +403,14 @@ func (l *DatasetLoader) CreateEvaluationTask(ctx context.Context, req *CreateEva
 
 // CreateEvaluationTaskRequest 创建评测任务请求
 type CreateEvaluationTaskRequest struct {
-	DatasetID       string                 `json:"dataset_id" binding:"required"`
-	Type            EvaluationType         `json:"type" binding:"required"`
-	KnowledgeBaseID string                 `json:"kb_id,omitempty"`
-	AgentID         string                 `json:"agent_id,omitempty"`
-	ModelID         string                 `json:"model_id,omitempty"`
-	Config          map[string]interface{} `json:"config,omitempty"`
+	StrategyVersionID string                 `json:"strategy_version_id,omitempty"`
+	DatasetVersionID  string                 `json:"dataset_version_id,omitempty"`
+	DatasetID         string                 `json:"dataset_id" binding:"required"`
+	Type              EvaluationType         `json:"type" binding:"required"`
+	KnowledgeBaseID   string                 `json:"kb_id,omitempty"`
+	AgentID           string                 `json:"agent_id,omitempty"`
+	ModelID           string                 `json:"model_id,omitempty"`
+	Config            map[string]interface{} `json:"config,omitempty"`
 }
 
 // Validate 验证评测配置

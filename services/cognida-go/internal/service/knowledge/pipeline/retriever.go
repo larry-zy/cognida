@@ -2,6 +2,7 @@
 package rag
 
 import (
+	feedback "cognida/internal/model/feedback"
 	"context"
 	"errors"
 	"fmt"
@@ -25,13 +26,14 @@ import (
 
 // RetrieverImpl 检索器实现
 type RetrieverImpl struct {
-	kbSettingRepo   knowledge.KnowledgeBaseSettingRepository
-	chunkRepo       knowledge.ChunkRepository
-	embedder        embedding.Embedder
-	milvusRetriever MilvusRetriever
-	neo4jRepo       GraphSearcher
-	graphQueryRepo  domainrag.GraphQueryRepository
-	reranker        domainrag.Reranker
+	consumptionGuard domainrag.ConsumptionGuard
+	kbSettingRepo    knowledge.KnowledgeBaseSettingRepository
+	chunkRepo        knowledge.ChunkRepository
+	embedder         embedding.Embedder
+	milvusRetriever  MilvusRetriever
+	neo4jRepo        GraphSearcher
+	graphQueryRepo   domainrag.GraphQueryRepository
+	reranker         domainrag.Reranker
 }
 
 // MilvusRetriever Milvus 检索器接口
@@ -82,6 +84,9 @@ func (r *RetrieverImpl) Retrieve(ctx context.Context, tenantID, kbID, query stri
 
 // RetrieveWithEmbedding 使用提供的向量执行检索
 func (r *RetrieverImpl) RetrieveWithEmbedding(ctx context.Context, tenantID, kbID, query string, embedding []float32, opts *domainrag.RetrieveOptions) (*domainrag.RetrieveResponse, error) {
+	if err := r.prepareConsumption(ctx, tenantID, kbID); err != nil {
+		return nil, err
+	}
 	if opts == nil {
 		opts = domainrag.DefaultRetrieveOptions()
 	}
@@ -94,9 +99,7 @@ func (r *RetrieverImpl) RetrieveWithEmbedding(ctx context.Context, tenantID, kbI
 
 	// 向量检索
 	if r.milvusRetriever != nil {
-		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embedding, opts.TopK, map[string]string{
-			"tenant_id": tenantID,
-		})
+		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embedding, opts.TopK, viewMilvusFilter(ctx, tenantID, kbID))
 		if err == nil && len(vectorDocs) > 0 {
 			vectorDocs = documentsFromSource(vectorDocs, "milvus_vector")
 			results = append(results, vectorDocs...)
@@ -111,6 +114,10 @@ func (r *RetrieverImpl) RetrieveWithEmbedding(ctx context.Context, tenantID, kbI
 
 	// 应用相似度阈值
 	filtered := r.filterByThreshold(results, opts.SimilarityThreshold)
+	filtered, guardErr := r.filterConsumption(ctx, tenantID, kbID, filtered)
+	if guardErr != nil {
+		return nil, guardErr
+	}
 
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {
@@ -144,6 +151,9 @@ func milvusFilter(tenantID, kbID string) map[string]string {
 
 // VectorRetrieve 向量检索
 func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, query string, opts *domainrag.RetrieveOptions) (*domainrag.RetrieveResponse, error) {
+	if err := r.prepareConsumption(ctx, tenantID, kbID); err != nil {
+		return nil, err
+	}
 	if opts == nil {
 		opts = domainrag.DefaultRetrieveOptions()
 	}
@@ -176,7 +186,7 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 
 	// Milvus 向量检索
 	if r.milvusRetriever != nil && len(embeddingVec) > 0 {
-		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embeddingVec, opts.TopK, milvusFilter(tenantID, kbID))
+		vectorDocs, err := r.milvusRetriever.Search(ctx, kbID, embeddingVec, opts.TopK, viewMilvusFilter(ctx, tenantID, kbID))
 		if err != nil {
 			warnings = append(warnings, "vector search failed: "+err.Error())
 			backendErrors = append(backendErrors, err)
@@ -230,6 +240,10 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 		return nil, errors.Join(backendErrors...)
 	}
 	filtered := r.filterByThreshold(results, opts.SimilarityThreshold)
+	filtered, guardErr := r.filterConsumption(ctx, tenantID, kbID, filtered)
+	if guardErr != nil {
+		return nil, guardErr
+	}
 
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {
@@ -252,6 +266,9 @@ func (r *RetrieverImpl) VectorRetrieve(ctx context.Context, tenantID, kbID, quer
 
 // BM25Retrieve BM25 关键词检索
 func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query string, opts *domainrag.RetrieveOptions) (*domainrag.RetrieveResponse, error) {
+	if err := r.prepareConsumption(ctx, tenantID, kbID); err != nil {
+		return nil, err
+	}
 	if opts == nil {
 		opts = domainrag.DefaultRetrieveOptions()
 	}
@@ -267,7 +284,7 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 
 	// 优先使用 Milvus BM25 全文搜索
 	if r.milvusRetriever != nil {
-		bm25Docs, err := r.milvusRetriever.FullTextSearch(ctx, kbID, query, opts.TopK, milvusFilter(tenantID, kbID))
+		bm25Docs, err := r.milvusRetriever.FullTextSearch(ctx, kbID, query, opts.TopK, viewMilvusFilter(ctx, tenantID, kbID))
 		if err != nil {
 			warnings = append(warnings, "BM25 index search failed: "+err.Error())
 			backendErrors = append(backendErrors, err)
@@ -287,7 +304,7 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 	// Fallback: 从数据库检索（如果 Milvus 未启用或无结果）。
 	// 按查询词的词项重合度打分排序，而非固定分数，保证降级结果仍按相关性排序。
 	if len(results) == 0 && r.chunkRepo != nil {
-		chunks, err := r.chunkRepo.FindEnabledChunks(ctx, kbID, opts.TopK*10)
+		chunks, err := r.consumptionChunks(ctx, kbID, opts.TopK*10)
 		if err != nil {
 			warnings = append(warnings, "database keyword search failed: "+err.Error())
 			backendErrors = append(backendErrors, err)
@@ -338,6 +355,10 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 		return nil, errors.Join(backendErrors...)
 	}
 	filtered := r.filterByThreshold(results, opts.SimilarityThreshold)
+	filtered, guardErr := r.filterConsumption(ctx, tenantID, kbID, filtered)
+	if guardErr != nil {
+		return nil, guardErr
+	}
 
 	return &domainrag.RetrieveResponse{
 		Warnings:    warnings,
@@ -352,6 +373,9 @@ func (r *RetrieverImpl) BM25Retrieve(ctx context.Context, tenantID, kbID, query 
 
 // HybridRetrieve 混合检索（向量+BM25）
 func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, query string, opts *domainrag.RetrieveOptions) (*domainrag.RetrieveResponse, error) {
+	if err := r.prepareConsumption(ctx, tenantID, kbID); err != nil {
+		return nil, err
+	}
 	if opts == nil {
 		opts = domainrag.DefaultRetrieveOptions()
 	}
@@ -447,6 +471,10 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 	// 与余弦相似度阈值（0.5~0.7）不同，若在此过滤会误删全部命中导致检索恒为空。
 	// 阈值已在向量分量侧按余弦量纲正确应用。
 	filtered := fusedResults
+	filtered, guardErr := r.filterConsumption(ctx, tenantID, kbID, filtered)
+	if guardErr != nil {
+		return nil, guardErr
+	}
 
 	// 重排
 	if opts.RerankEnabled && r.reranker != nil {
@@ -469,6 +497,9 @@ func (r *RetrieverImpl) HybridRetrieve(ctx context.Context, tenantID, kbID, quer
 
 // GraphRetrieve 图谱检索
 func (r *RetrieverImpl) GraphRetrieve(ctx context.Context, tenantID, kbID, query string, opts *domainrag.RetrieveOptions) (*domainrag.RetrieveResponse, error) {
+	if err := r.prepareConsumption(ctx, tenantID, kbID); err != nil {
+		return nil, err
+	}
 	if opts == nil {
 		opts = domainrag.DefaultRetrieveOptions()
 	}
@@ -550,6 +581,10 @@ func (r *RetrieverImpl) GraphRetrieve(ctx context.Context, tenantID, kbID, query
 
 	// 应用相似度阈值
 	filtered := r.filterByThreshold(results, opts.SimilarityThreshold)
+	filtered, guardErr := r.filterConsumption(ctx, tenantID, kbID, filtered)
+	if guardErr != nil {
+		return nil, guardErr
+	}
 
 	return &domainrag.RetrieveResponse{
 		Results:     filtered,
@@ -570,7 +605,7 @@ func (r *RetrieverImpl) GraphRetrieve(ctx context.Context, tenantID, kbID, query
 // 退化为按查询词的词项重合度做词法排序，保证降级结果按相关性而非固定分数返回。
 // 真正的向量相似度由 Milvus 路径负责。embedding 参数保留以兼容签名。
 func (r *RetrieverImpl) vectorRetrieveWithEmbedding(ctx context.Context, tenantID, kbID, query string, embedding []float32, opts *domainrag.RetrieveOptions) ([]*domainrag.Document, error) {
-	chunks, err := r.chunkRepo.FindEnabledChunks(ctx, kbID, 1000)
+	chunks, err := r.consumptionChunks(ctx, kbID, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -745,4 +780,35 @@ func sortDocsByScoreDesc(docs []*domainrag.Document) {
 	sort.Slice(docs, func(i, j int) bool {
 		return docs[i].Score > docs[j].Score
 	})
+}
+
+// SetConsumptionGuard is configured once during application wiring.
+func (r *RetrieverImpl) SetConsumptionGuard(g domainrag.ConsumptionGuard) { r.consumptionGuard = g }
+func (r *RetrieverImpl) prepareConsumption(ctx context.Context, tenant, kb string) error {
+	if r.consumptionGuard != nil {
+		return r.consumptionGuard.Prepare(ctx, tenant, kb)
+	}
+	if _, _, ok := feedback.FromContext(ctx); ok {
+		return fmt.Errorf("candidate view guard unavailable")
+	}
+	return nil
+}
+func (r *RetrieverImpl) filterConsumption(ctx context.Context, tenant, kb string, docs []*domainrag.Document) ([]*domainrag.Document, error) {
+	if r.consumptionGuard != nil {
+		return r.consumptionGuard.Filter(ctx, tenant, kb, docs)
+	}
+	return docs, nil
+}
+func viewMilvusFilter(ctx context.Context, tenant, kb string) map[string]string {
+	out := milvusFilter(tenant, kb)
+	if _, view, ok := feedback.FromContext(ctx); ok {
+		out["knowledge_id"] = view.KnowledgeID
+	}
+	return out
+}
+func (r *RetrieverImpl) consumptionChunks(ctx context.Context, kb string, limit int) ([]*knowledge.Chunk, error) {
+	if _, view, ok := feedback.FromContext(ctx); ok {
+		return r.chunkRepo.FindByKnowledgeID(ctx, view.KnowledgeID, true)
+	}
+	return r.chunkRepo.FindEnabledChunks(ctx, kb, limit)
 }

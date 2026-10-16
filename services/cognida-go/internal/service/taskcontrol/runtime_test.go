@@ -71,3 +71,14 @@ func TestRuntimeImmutableDispatchPayloadRejectsChangedNodeAndHash(t *testing.T) 
 	_, err = r.command(testScope, "task", plan, child, event)
 	require.ErrorIs(t, err, d.ErrInvalid)
 }
+
+func TestRuntimeReplanIncludesOriginalReceiptsWithoutResettingAttempts(t *testing.T) {
+	children := []d.Child{{ID: "original", NodeID: "first", PlanVersion: 1, Attempt: 1, DomainStatus: d.DomainSucceeded}, {ID: "retry", NodeID: "first", PlanVersion: 2, Attempt: 2, DomainStatus: d.DomainFailed}, {ID: "future", NodeID: "second", PlanVersion: 3, Attempt: 1}}
+	latest := latestChildren(children, 2)
+	require.Len(t, latest, 1)
+	require.Equal(t, "retry", latest["first"].ID)
+	require.Equal(t, 2, latest["first"].Attempt)
+	latest = latestChildren(children[:1], 2)
+	require.Equal(t, "original", latest["first"].ID)
+	require.Equal(t, d.DomainSucceeded, latest["first"].DomainStatus)
+}

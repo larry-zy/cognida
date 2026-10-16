@@ -13,9 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	evaluationcache "cognida/internal/infrastructure/cache/evaluation"
 	domeval "cognida/internal/model/evaluation"
 	"cognida/internal/service/evaluation"
-	evaluationcache "cognida/internal/infrastructure/cache/evaluation"
 )
 
 // ========================================
@@ -23,9 +23,9 @@ import (
 // ========================================
 
 type handlerMockDatasetRepo struct {
-	datasets  map[string]*domeval.Dataset
-	records   map[string][]*domeval.DatasetRecord
-	nextID    int64
+	datasets map[string]*domeval.Dataset
+	records  map[string][]*domeval.DatasetRecord
+	nextID   int64
 }
 
 func newHandlerMockDatasetRepo() *handlerMockDatasetRepo {
@@ -176,6 +176,7 @@ func setupTestDatasetRouter(repo domeval.DatasetRepository) *gin.Engine {
 	_ = datasetManager // Used in handler creation
 
 	handler := &EvaluationHandler{
+		service:        evaluation.NewService(loader, nil, nil, nil, nil, nil).WithSnapshots(evaluation.NewSnapshotService(nil, loader, nil)),
 		datasetManager: datasetManager,
 		progressCache:  evaluationcache.NewProgressCache(nil),
 	}

@@ -18,6 +18,7 @@ import (
 	"cognida/internal/service/agent/metricsql"
 	"cognida/internal/service/agent/semanticcache"
 	"cognida/internal/service/agent/termgrounding"
+	source "cognida/internal/service/datasource"
 )
 
 // ========================================
@@ -280,13 +281,15 @@ func semanticQuery(ctx context.Context, req *SemanticQueryRequest, semanticRepo 
 		OrderBy:    req.OrderBy,
 		Limit:      req.Limit,
 	}
-	// 时间智能：仅在指定 time_grain 时按数据源方言生成日期分桶，避免为无时间需求的
-	// 请求平白引入方言维度（否则会拆散缓存键）。方言从模型绑定数据源推导，缺省 MySQL（业务库）。
+	// Bound external sources determine identifier escaping as well as time grains.
+	// REST metadata supports BigQuery without acquiring a database/sql connection.
 	// dialectConfident=false 表示方言是在数据源解析失败时的兜底猜测，此时不得写入受信缓存
 	// （避免把可能错方言的 SQL 固化，污染后续同签名请求）。
 	dialectConfident := true
 	if grain := strings.TrimSpace(req.TimeGrain); grain != "" {
 		query.TimeGrain = metricsql.TimeGrain(strings.ToLower(grain))
+	}
+	if dbID != "" && dsp != nil || query.TimeGrain != "" {
 		query.Dialect, dialectConfident = resolveDialect(ctx, tenantID, dbID, dsp)
 	}
 
@@ -389,21 +392,45 @@ func bundleDatabaseID(bundle *semantic.ModelBundle) string {
 
 // resolveDialect 推导治理 SQL 目标数据源的方言，用于时间智能的日期分桶。
 //   - dbID 为空 / dsp 为空 → 模型未绑定外部数据源，SQL 打向业务库（MySQL），返回 (MySQL, true)；
-//   - Acquire 失败 → best-effort 回落 MySQL，但标记 confident=false（真正连接错误会在 sql_execute
-//     阶段暴露；调用方据此跳过写缓存，避免固化可能错方言的 SQL）；
-//   - 命中外部数据源 → 按其 Type 映射（postgres → Postgres，其余 → MySQL），confident=true。
+//   - 优先读取已鉴权的数据源元数据；旧 provider 才通过 Acquire 获取类型；
+//   - 元数据不可用 → MySQL 兼容返回但 confident=false，禁止固化缓存；
+//   - 命中外部数据源 → 按 Type 映射各真实方言，BigQuery 不打开 SQL 连接。
 //
 // 返回值 confident 表示方言是否可信推导得到（false 仅用于避免缓存污染）。
 func resolveDialect(ctx context.Context, tenantID int64, dbID string, dsp model_datasource.ConnectionProvider) (metricsql.Dialect, bool) {
 	if dbID == "" || dsp == nil {
 		return metricsql.DialectMySQL, true
 	}
-	_, ds, err := dsp.Acquire(ctx, tenantID, dbID)
-	if err != nil || ds == nil {
-		return metricsql.DialectMySQL, false
+	var ds *model_datasource.DataSource
+	if metadata, ok := dsp.(interface {
+		Get(context.Context, int64, string) (*source.Sanitized, error)
+	}); ok {
+		row, err := metadata.Get(ctx, tenantID, dbID)
+		if err != nil || row == nil || row.Status == "disabled" || row.Status == "inactive" || row.Status == "need_credentials" {
+			return metricsql.DialectMySQL, false
+		}
+		ds = &model_datasource.DataSource{Type: model_datasource.Type(row.Type)}
+	} else {
+		var err error
+		_, ds, err = dsp.Acquire(ctx, tenantID, dbID)
+		if err != nil || ds == nil {
+			return metricsql.DialectMySQL, false
+		}
 	}
 	if ds.Type == model_datasource.TypePostgres {
 		return metricsql.DialectPostgres, true
+	}
+	switch ds.Type {
+	case model_datasource.TypeClickHouse:
+		return metricsql.DialectClickHouse, true
+	case model_datasource.TypeDoris:
+		return metricsql.DialectDoris, true
+	case model_datasource.TypeStarRocks:
+		return metricsql.DialectStarRocks, true
+	case model_datasource.TypeHive:
+		return metricsql.DialectHive, true
+	case model_datasource.TypeBigQuery:
+		return metricsql.DialectBigQuery, true
 	}
 	return metricsql.DialectMySQL, true
 }

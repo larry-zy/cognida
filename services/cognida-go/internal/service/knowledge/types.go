@@ -279,6 +279,7 @@ type KnowledgeBaseSettingResponse struct {
 
 // ProcessDocumentRequest 文档处理请求
 type ProcessDocumentRequest struct {
+	candidateOnly   bool
 	ChunkOverlapSet bool   `json:"-"`
 	IdempotencyKey  string `json:"idempotency_key,omitempty"`
 	creationID      string

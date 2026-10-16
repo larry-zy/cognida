@@ -112,6 +112,9 @@ func (s *documentProcessorService) processDocument(
 		log.Printf("[DocumentProcessor] Warning: failed to get KB setting: %v", err)
 	}
 	graphEnabled := req.GraphEnabled || (setting != nil && setting.GraphEnabled)
+	if req.candidateOnly {
+		graphEnabled = false
+	}
 
 	// 4. 解析文档（调用 Python gRPC）
 	text, metadata, err := s.parseDocument(ctx, req)
@@ -160,6 +163,9 @@ func (s *documentProcessorService) processDocument(
 		knowledge.ParseStatus = domain_knowledge.ParseStatusProcessing
 		// 新入库文档默认启用，可被检索命中；停用是显式管理动作（见 SetKnowledgeEnabled）。
 		knowledge.EnableStatus = domain_knowledge.EnableStatusEnabled
+		if req.candidateOnly {
+			knowledge.EnableStatus = domain_knowledge.EnableStatusDisabled
+		}
 		knowledge.StorageSize = int64(len(text))
 
 		if err := s.knowledgeRepo.Create(ctx, knowledge); err != nil {
@@ -379,6 +385,10 @@ func (s *documentProcessorService) parseDocument(
 	if !resp.Success {
 		log.Printf("[DocumentProcessor] ParseDocument failed: %s", resp.Error)
 		return "", nil, fmt.Errorf("parse failed: %s", resp.Error)
+	}
+
+	if strings.TrimSpace(resp.Text) == "" {
+		return "", nil, fmt.Errorf("document contains no extractable text; scanned PDFs and images require OCR before upload")
 	}
 
 	log.Printf("[DocumentProcessor] ParseDocument succeeded, text length: %d", len(resp.Text))

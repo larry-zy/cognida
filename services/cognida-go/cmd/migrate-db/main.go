@@ -7,7 +7,7 @@
 // 用法（先加载环境变量）：
 //
 //	cd services/cognida-go && set -a && source .env && set +a
-//	go run ./cmd/migrate-db up            # 应用全部未执行迁移（默认动作）
+//	go run ./cmd/migrate-db up [N]        # 应用全部或指定 N 步未执行迁移
 //	go run ./cmd/migrate-db down [N]      # 回滚 N 步；省略 N 则回滚全部
 //	go run ./cmd/migrate-db version       # 查看当前版本与 dirty 状态
 //	go run ./cmd/migrate-db force <V>     # 将版本强制标记为 V（存量库接入基线用 force 1）
@@ -46,7 +46,7 @@ func env(k, def string) string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: migrate-db <up|down [N]|version|force V>")
+	fmt.Fprintln(os.Stderr, "usage: migrate-db <up [N]|down [N]|version|force V>")
 	os.Exit(2)
 }
 
@@ -105,7 +105,15 @@ func main() {
 		if preflightErr != nil {
 			log.Fatalf("migration preflight failed: %v", preflightErr)
 		}
-		err = m.Up()
+		if len(os.Args) > 2 {
+			n, convErr := strconv.Atoi(os.Args[2])
+			if convErr != nil || n <= 0 || len(os.Args) != 3 {
+				usage()
+			}
+			err = m.Steps(n)
+		} else {
+			err = m.Up()
+		}
 	case "down":
 		if len(os.Args) > 2 {
 			n, convErr := strconv.Atoi(os.Args[2])

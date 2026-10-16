@@ -30,12 +30,20 @@ func (s *Service) validateFeature(ctx context.Context, p l.Principal, in d.Featu
 	if err != nil {
 		return err
 	}
+	if def.Kind == "embedding" {
+		if in.Type != "vector" {
+			return featureErr("invalid_type", "embedding produces vector features")
+		}
+		if err = s.checkFeatureEmbedding(def); err != nil {
+			return err
+		}
+	}
 	_, input, err := s.input(ctx, p, in.SourceRefID, false)
 	if err != nil {
 		return err
 	}
-	if input.Kind != "table" || len(input.Rows) > featureRowsLimit {
-		return featureErr("input_limit", "feature input must be a table of 1..1000 rows")
+	if input.Kind != "table" || len(input.Rows) > 10000 {
+		return featureErr("input_limit", "feature definition input must be a table of 1..10000 rows; direct previews are limited to 1000")
 	}
 	fields := map[string]bool{}
 	for _, c := range input.Columns {
@@ -255,7 +263,26 @@ func (s *Service) QueryFeatures(ctx context.Context, p l.Principal, entities []s
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	return s.Repo.FeatureQuery(ctx, p.TenantID, entities, features, at)
+	var values []d.FeatureValue
+	var err error
+	if jobs, ok := s.Repo.(d.FeatureJobRepository); ok {
+		values, err = jobs.FeatureQueryOwned(ctx, p.TenantID, p.UserID, entities, features, at)
+	} else {
+		values, err = s.Repo.FeatureQuery(ctx, p.TenantID, entities, features, at)
+	}
+	if err != nil {
+		return nil, err
+	}
+	checked := map[string]bool{}
+	for _, value := range values {
+		if !checked[value.SourceRefID] {
+			if _, _, err = s.input(ctx, p, value.SourceRefID, false); err != nil {
+				return nil, err
+			}
+			checked[value.SourceRefID] = true
+		}
+	}
+	return values, nil
 }
 
 // ComputeFeatures retains the legacy endpoint while using the same atomic,

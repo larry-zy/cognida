@@ -17,6 +17,12 @@ type FeatureDefinition struct {
 	Expression     *FeatureExpression `json:"expression,omitempty"`
 	WindowSeconds  int64              `json:"window_seconds,omitempty"`
 	Aggregate      string             `json:"aggregate,omitempty"`
+	Embedding      *FeatureEmbedding  `json:"embedding,omitempty"`
+}
+type FeatureEmbedding struct {
+	ModelID   string `json:"model_id"`
+	Revision  string `json:"revision"`
+	Dimension int    `json:"dimension"`
 }
 type FeatureExpression struct {
 	Op      string              `json:"op"`

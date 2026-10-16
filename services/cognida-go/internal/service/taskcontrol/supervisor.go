@@ -75,13 +75,14 @@ type ProposeInput struct {
 	Answers         []SupervisorAnswer `json:"answers"`
 }
 type SupervisorProposal struct {
-	TaskID           string          `json:"task_id"`
-	TaskVersion      int64           `json:"task_version"`
-	Decision         PlannerDecision `json:"decision"`
-	Validation       *Validation     `json:"validation,omitempty"`
-	ExecutionEnabled bool            `json:"execution_enabled"`
-	PlanningCalls    int             `json:"planning_calls"`
-	Saved            bool            `json:"saved"`
+	TaskID            string             `json:"task_id"`
+	TaskVersion       int64              `json:"task_version"`
+	Decision          PlannerDecision    `json:"decision"`
+	Validation        *Validation        `json:"validation,omitempty"`
+	BudgetAdjustments []BudgetAdjustment `json:"budget_adjustments,omitempty"`
+	ExecutionEnabled  bool               `json:"execution_enabled"`
+	PlanningCalls     int                `json:"planning_calls"`
+	Saved             bool               `json:"saved"`
 }
 
 func (s *Supervisor) sources(ctx context.Context, p d.Scope, refs []l.RefID) ([]SupervisorSource, error) {
@@ -251,10 +252,16 @@ func (s *Supervisor) Propose(ctx context.Context, p d.Scope, id string, in Propo
 				return nil, d.ErrForbidden
 			}
 		}
-		result.Validation, e = s.tasks.Validate(ctx, p, *decision.Plan)
+		compiled, adjustments, compileErr := compileSupervisorBudget(*decision.Plan, budget)
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		result.Validation, e = s.tasks.Validate(ctx, p, compiled)
 		if e != nil {
 			return nil, e
 		}
+		result.Decision.Plan = &compiled
+		result.BudgetAdjustments = adjustments
 	}
 	return result, nil
 }

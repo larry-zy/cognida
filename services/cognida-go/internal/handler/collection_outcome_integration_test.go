@@ -76,9 +76,9 @@ func TestCollectionOutcomeMySQLAPI(t *testing.T) {
 	}{
 		{"all fetch failures", []string{"fail", "fail"}, domain.RunStatusFailed, "failed", 0, false},
 		{"all rejected", []string{"empty"}, domain.RunStatusFailed, "failed", 0, false},
-		{"index failed", []string{"index-fail"}, domain.RunStatusFailed, "failed", 0, false},
-		{"partial keeps artifacts", []string{"success", "fail", "index-fail"}, domain.RunStatusCompleted, "partial", 1, false},
-		{"unchanged replay", []string{"success"}, domain.RunStatusCompleted, "success", 1, true},
+		{"legacy ingestor is never called", []string{"index-fail"}, domain.RunStatusCompleted, "success", 1, false},
+		{"partial keeps candidates", []string{"success", "fail"}, domain.RunStatusCompleted, "partial", 1, false},
+		{"unchanged rerun remains candidate", []string{"success"}, domain.RunStatusCompleted, "success", 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tenant := time.Now().UnixNano() & 0x1fffffffffffff
@@ -120,14 +120,15 @@ func TestCollectionOutcomeMySQLAPI(t *testing.T) {
 					if err := service.ExecuteRun(ctx, svc.RunJobPayload{RunID: run.ID, TaskID: taskID, TenantID: tenant}); err != nil {
 						return err
 					}
-					require.Equal(t, 1, ingestor.calls, "unchanged content must reuse its persisted knowledge receipt")
+					require.Zero(t, ingestor.calls, "a rerun cannot bypass candidate review by ingesting knowledge")
 				}
+				require.Zero(t, ingestor.calls, "collection workers must never call the legacy publishing port")
 				return nil
 			}))
 			// Read back using a fresh repository/HTTP handler after transaction commit.
 			repo := repository.NewCollectionRepository(db)
 			router := gin.New()
-			router.Use(func(c *gin.Context) { c.Set("tenant_id", tenant); c.Next() })
+			router.Use(func(c *gin.Context) { c.Set("tenant_id", tenant); c.Set("user_id", int64(1)); c.Next() })
 			h := NewCollectionHandler(nil, repo, nil)
 			router.GET("/collection/:id", h.Get)
 			response := httptest.NewRecorder()
@@ -149,10 +150,14 @@ func TestCollectionOutcomeMySQLAPI(t *testing.T) {
 			if tc.outcome != "success" {
 				require.Contains(t, result.Data.Task.ErrorMessage, "failed=")
 			}
-			if tc.repeat {
-				require.Equal(t, 1, result.Data.Summary.Skipped)
-			}
+			require.Equal(t, tc.usable, result.Data.Summary.Candidates)
+			require.Zero(t, result.Data.Summary.Accepted)
+			require.Zero(t, result.Data.Summary.Skipped)
+			var documents int64
+			require.NoError(t, db.Table("knowledge").Where("tenant_id = ?", tenant).Count(&documents).Error)
+			require.Zero(t, documents, "candidate creation and reruns never publish knowledge")
 			for _, item := range result.Data.Items {
+				require.Empty(t, item.KnowledgeID)
 				if item.NormalizedObjectKey != "" {
 					r, _, err := objects.Get(ctx, item.NormalizedObjectKey)
 					require.NoError(t, err)

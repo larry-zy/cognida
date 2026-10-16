@@ -78,8 +78,7 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 		// Governed task drafts likewise own durable payload-aware idempotency.
 		// Preflight and retries must recheck current source permissions, not replay
 		// a cached validation or hide a same-key/different-plan conflict.
-		if path == "/api/v1/memories" || strings.HasPrefix(path, "/api/v1/memories/") ||
-			path == "/api/v1/governed-tasks" || strings.HasPrefix(path, "/api/v1/governed-tasks/") {
+		if ownsDurableIdempotency(path) {
 			c.Next()
 			return
 		}
@@ -130,6 +129,18 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 		}
 		m.complete(context.Background(), full, rec)
 	}
+}
+
+// These domains bind replay keys to persisted content and reauthorize sources
+// inside their services. HTTP response caching would bypass those checks.
+func ownsDurableIdempotency(path string) bool {
+	for _, root := range []string{"memories", "governed-tasks", "lifecycle", "features", "feature-values", "feature-jobs", "drift", "annotation-tasks", "tagging-tasks", "tagging-results", "research/runs", "evaluation/dataset-versions", "collection-tasks", "sandbox", "warehouse", "api-credentials", "api-sources", "api-ingestion-runs", "strategies", "operations", "query-jobs", "feedback-cases", "feedback-publications", "quality/evaluate/datasource"} {
+		prefix := "/api/v1/" + root
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // serveExisting 处理命中既有记录：done 回放、processing 返回 409。

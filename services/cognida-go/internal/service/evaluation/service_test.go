@@ -561,6 +561,7 @@ func TestService_ListEvaluationResults_FilterPushdown(t *testing.T) {
 // 首页返回 nextCursor 且 HasMore=true，用该游标取下一页取回剩余结果并到达末页。
 func TestService_GetQAResultsByCursor(t *testing.T) {
 	taskRepo := newMockTaskRepo()
+	taskRepo.tasks["task-001"] = &domeval.EvaluationTask{ID: "task-001", Type: domeval.EvaluationTypeQA}
 	resultRepo := newMockResultRepo()
 	dsService := newMockDatasetLoader()
 	progressCache := evaluationcache.NewProgressCache(nil)

@@ -54,3 +54,19 @@ func (h *TaskControlHandler) CancelTask(c *gin.Context) {
 	}
 	OK(c, result)
 }
+
+func (h *TaskControlHandler) ReplanTask(c *gin.Context) {
+	if !h.requireRuntime(c) {
+		return
+	}
+	var in svc.ReplanInput
+	if !readTaskJSON(c, &in) {
+		return
+	}
+	result, err := h.runtime.Replan(c.Request.Context(), taskControlScope(c), c.Param("id"), in, c.GetHeader("Idempotency-Key"))
+	if err != nil {
+		taskControlError(c, err)
+		return
+	}
+	OK(c, result)
+}

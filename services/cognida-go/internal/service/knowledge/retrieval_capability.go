@@ -1,8 +1,10 @@
 package knowledge
 
 import (
+	strategies "cognida/internal/service/strategy"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strconv"
@@ -54,12 +56,13 @@ const (
 
 // GovernedQuery 是一次受治理检索的入参（范围已由调用方按租户边界确定）。
 type GovernedQuery struct {
-	Query        string
-	Mode         string  // vector / bm25 / hybrid（其它值按 hybrid 处理）
-	TopK         int     // ≤0 时用 capDefaultMaxChunks 兜底
-	MinScore     float64 // 单模式（vector/bm25）的余弦相似度阈值，透传给底层检索器
-	Alpha        float64 // 混合检索向量/关键词融合权重，透传
-	EnableRerank bool    // 可插拔重排开关，默认关；开启且注入了 reranker 时对合并结果单次重排
+	AppliedLabels []string
+	Query         string
+	Mode          string  // vector / bm25 / hybrid（其它值按 hybrid 处理）
+	TopK          int     // ≤0 时用 capDefaultMaxChunks 兜底
+	MinScore      float64 // 单模式（vector/bm25）的余弦相似度阈值，透传给底层检索器
+	Alpha         float64 // 混合检索向量/关键词融合权重，透传
+	EnableRerank  bool    // 可插拔重排开关，默认关；开启且注入了 reranker 时对合并结果单次重排
 }
 
 // GovernedChunk 是受治理后回灌上下文的单个片段（已截断、带出处）。
@@ -84,10 +87,22 @@ type GovernedResult struct {
 }
 
 // RetrievalCapability 封装底层检索器 + 可插拔重排器。
+type AppliedLabelFilter interface {
+	FilterKnowledgeLabels(context.Context, int64, []string, []string) (map[string]bool, error)
+}
+
+func (c *RetrievalCapability) WithAppliedLabelFilter(f AppliedLabelFilter) *RetrievalCapability {
+	c.labelFilter = f
+	return c
+}
+
 type RetrievalCapability struct {
-	retriever     rag.Retriever
-	reranker      rag.Reranker           // 可插拔；为 nil 或 GovernedQuery.EnableRerank=false 时跳过重排
-	enabledFilter EnabledKnowledgeFilter // 可插拔；为 nil 时不做启用状态过滤（保持旧行为）
+	consumptionGuard rag.ConsumptionGuard
+	strategies       *strategies.Service
+	labelFilter      AppliedLabelFilter
+	retriever        rag.Retriever
+	reranker         rag.Reranker           // 可插拔；为 nil 或 GovernedQuery.EnableRerank=false 时跳过重排
+	enabledFilter    EnabledKnowledgeFilter // 可插拔；为 nil 时不做启用状态过滤（保持旧行为）
 }
 
 // NewRetrievalCapability 创建检索能力封装。reranker 可为 nil（重排能力缺省关闭）。
@@ -104,6 +119,11 @@ func (c *RetrievalCapability) WithEnabledFilter(f EnabledKnowledgeFilter) *Retri
 
 // Retrieve 在给定知识库范围内执行受治理检索。kbIDs 须已由调用方完成租户边界强制。
 func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbIDs []string, q GovernedQuery) (*GovernedResult, error) {
+	var strategyErr error
+	ctx, q, strategyErr = c.strategyQuery(ctx, tenantID, q)
+	if strategyErr != nil {
+		return nil, strategyErr
+	}
 	if c.retriever == nil {
 		return nil, errRetrieverNotWired
 	}
@@ -207,9 +227,43 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 	// 启用状态后过滤：MySQL 权威，回查命中的 knowledge_id，剔除停用/已删条目。放在去重之后、
 	// 质量下限与重排之前——先按业务权威把停用内容清出候选集，再对干净候选集做质量筛选与排序。
 	var filterErr error
-	merged, filterErr = c.filterByEnabled(ctx, merged)
+	if c.consumptionGuard != nil {
+		merged, filterErr = c.consumptionGuard.Filter(ctx, strconv.FormatInt(tenantID, 10), "", merged)
+	} else {
+		merged, filterErr = c.filterByEnabled(ctx, merged)
+	}
 	if filterErr != nil {
 		return nil, filterErr
+	}
+
+	if len(q.AppliedLabels) > 0 {
+		labelFilter := c.labelFilter
+		if guard, ok := c.consumptionGuard.(interface {
+			FilterKnowledgeLabels(context.Context, int64, []string, []string) (map[string]bool, error)
+		}); ok {
+			labelFilter = guard
+		}
+		if labelFilter == nil || len(q.AppliedLabels) > 30 {
+			return nil, fmt.Errorf("applied label filter unavailable or invalid")
+		}
+		ids := []string{}
+		for _, doc := range merged {
+			if doc != nil && doc.KnowledgeID != "" {
+				ids = append(ids, doc.KnowledgeID)
+			}
+		}
+		allowed, err := labelFilter.FilterKnowledgeLabels(ctx, tenantID, ids, q.AppliedLabels)
+		if err != nil {
+			return nil, err
+		}
+		filtered := merged[:0]
+		for _, doc := range merged {
+			if doc != nil && allowed[doc.KnowledgeID] {
+				filtered = append(filtered, doc)
+			}
+		}
+		merged = filtered
+		warnings = append(warnings, "标签过滤仅在本次有界检索候选中执行；空结果不代表整个知识库不存在该标签")
 	}
 
 	// 混合模式相对质量下限：丢弃 RRF 量纲下明显弱相关的命中（vector/bm25 已在底层按余弦阈值过滤）。
@@ -242,6 +296,9 @@ func (c *RetrievalCapability) Retrieve(ctx context.Context, tenantID int64, kbID
 			ChunkIndex:      d.ChunkIndex,
 			Metadata:        d.Metadata,
 		})
+	}
+	if err := c.validateStrategy(ctx, tenantID); err != nil {
+		return nil, err
 	}
 	return &GovernedResult{Chunks: chunks, HasAnswer: len(chunks) > 0, Warnings: warnings}, nil
 }
@@ -351,3 +408,5 @@ func chunkSourceLabel(d *rag.Document) string {
 	}
 	return d.KnowledgeBaseID
 }
+
+func (c *RetrievalCapability) SetConsumptionGuard(g rag.ConsumptionGuard) { c.consumptionGuard = g }

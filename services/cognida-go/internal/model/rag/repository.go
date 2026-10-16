@@ -5,6 +5,13 @@ import (
 	"context"
 )
 
+// ConsumptionGuard checks authoritative version/source state before any
+// retrieved body reaches a reranker, generator or caller.
+type ConsumptionGuard interface {
+	Prepare(context.Context, string, string) error
+	Filter(context.Context, string, string, []*Document) ([]*Document, error)
+}
+
 // ========================================
 // Retriever 检索器接口
 // ========================================
@@ -68,7 +75,7 @@ type Pipeline interface {
 // PipelineRequest 管道请求
 type PipelineRequest struct {
 	TenantID        string
-	KnowledgeBaseID            string
+	KnowledgeBaseID string
 	Query           string
 	Options         *PipelineConfig
 	Context         *RAGContext
@@ -77,20 +84,20 @@ type PipelineRequest struct {
 
 // PipelineResponse 管道响应
 type PipelineResponse struct {
-	Answer          string
-	Documents       []*Document
-	Context         *RAGContext
-	Metadata        map[string]interface{}
-	ProcessingTime  int64
+	Answer         string
+	Documents      []*Document
+	Context        *RAGContext
+	Metadata       map[string]interface{}
+	ProcessingTime int64
 }
 
 // PipelineEvent 管道事件（流式）
 type PipelineEvent struct {
-	Event       string // retrieve/rerank/generate/done/error
-	Content     string
-	Document    *Document
-	Metadata    map[string]interface{}
-	Error       error
+	Event    string // retrieve/rerank/generate/done/error
+	Content  string
+	Document *Document
+	Metadata map[string]interface{}
+	Error    error
 }
 
 // ========================================
@@ -190,14 +197,14 @@ type GraphQueryRepository interface {
 
 // NameSpace 命名空间
 type NameSpace struct {
-	TenantID string
-	KnowledgeBaseID     string
+	TenantID        string
+	KnowledgeBaseID string
 }
 
 // GraphStatistics 图谱统计信息
 type GraphStatistics struct {
-	NodeCount     int    // 节点数量
-	RelationCount int    // 关系数量
+	NodeCount     int     // 节点数量
+	RelationCount int     // 关系数量
 	AvgDegree     float64 // 平均度数
 }
 
@@ -242,17 +249,17 @@ type ChatOptions struct {
 
 // LLMResponse LLM 响应
 type LLMResponse struct {
-	Content    string
-	MessageID  string
-	TokenCount int
+	Content      string
+	MessageID    string
+	TokenCount   int
 	FinishReason string
 }
 
 // LLMStreamEvent LLM 流式事件
 type LLMStreamEvent struct {
-	Content   string
-	Done      bool
-	Error     error
+	Content string
+	Done    bool
+	Error   error
 }
 
 // ========================================
@@ -300,21 +307,21 @@ type VectorRepository interface {
 
 // VectorDocument 向量文档
 type VectorDocument struct {
-	ID           int64                  // 主键ID
-	DenseVector  []float32              // 稠密向量
-	SparseVector SparseEmbedding        // 稀疏向量
-	ChunkID      string                 // 分块ID
-	KnowledgeID  string                 // 知识条目ID
-	KnowledgeBaseID         string                 // 知识库ID
-	TenantID     int64                  // 租户ID
-	ChunkIndex   int                    // 分块索引
-	Content      string                 // 分块内容
-	IsEnabled    bool                   // 是否启用
-	StartAt      int64                  // 起始位置
-	EndAt        int64                  // 结束位置
-	TokenCount   int64                  // Token数量
-	Score        float32                // 相似度分数
-	Metadata     map[string]interface{} // 元数据
+	ID              int64                  // 主键ID
+	DenseVector     []float32              // 稠密向量
+	SparseVector    SparseEmbedding        // 稀疏向量
+	ChunkID         string                 // 分块ID
+	KnowledgeID     string                 // 知识条目ID
+	KnowledgeBaseID string                 // 知识库ID
+	TenantID        int64                  // 租户ID
+	ChunkIndex      int                    // 分块索引
+	Content         string                 // 分块内容
+	IsEnabled       bool                   // 是否启用
+	StartAt         int64                  // 起始位置
+	EndAt           int64                  // 结束位置
+	TokenCount      int64                  // Token数量
+	Score           float32                // 相似度分数
+	Metadata        map[string]interface{} // 元数据
 }
 
 // SparseEmbedding 稀疏向量
@@ -322,16 +329,16 @@ type SparseEmbedding map[uint32]float32
 
 // CollectionOptions 集合选项
 type CollectionOptions struct {
-	Description  string // 描述
-	AutoID       bool   // 是否自动生成ID
+	Description   string // 描述
+	AutoID        bool   // 是否自动生成ID
 	EnableDynamic bool   // 是否启用动态字段
 }
 
 // SearchOptions 搜索选项
 type SearchOptions struct {
-	TopK          int     // 返回结果数量
+	TopK           int     // 返回结果数量
 	ScoreThreshold float32 // 相似度阈值
-	Filter        string  // 过滤表达式
+	Filter         string  // 过滤表达式
 }
 
 // IndexType 索引类型
@@ -361,7 +368,7 @@ const (
 
 // CollectionStats 集合统计信息
 type CollectionStats struct {
-	Name       string              // 集合名称
-	FieldCount int                 // 字段数量
-	Statistics map[string]string   // 统计信息
+	Name       string            // 集合名称
+	FieldCount int               // 字段数量
+	Statistics map[string]string // 统计信息
 }

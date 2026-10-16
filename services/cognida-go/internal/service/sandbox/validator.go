@@ -39,9 +39,10 @@ type Validator struct {
 
 // ValidatedSubmission is a contract snapshot, not an execution or asset permit.
 type ValidatedSubmission struct {
-	Binding d.Binding
-	Request d.SubmitRequest
-	Profile d.Profile
+	Governed *GovernedBinding `json:"governed,omitempty"`
+	Binding  d.Binding
+	Request  d.SubmitRequest
+	Profile  d.Profile
 }
 
 func profileKey(id string, version int) string { return fmt.Sprintf("%s:%d", id, version) }
@@ -131,6 +132,11 @@ func executionID(p lifecycle.Principal, key string) string {
 }
 
 func (v *Validator) ValidateSubmission(ctx context.Context, p lifecycle.Principal, req d.SubmitRequest) (ValidatedSubmission, error) {
+	return v.validateSubmission(ctx, p, req, true)
+}
+
+// validateSubmission(false) only creates cancellation bindings; it never authorizes execution.
+func (v *Validator) validateSubmission(ctx context.Context, p lifecycle.Principal, req d.SubmitRequest, checkSources bool) (ValidatedSubmission, error) {
 	var empty ValidatedSubmission
 	if p.Validate() != nil {
 		return empty, d.ErrForbidden
@@ -174,6 +180,9 @@ func (v *Validator) ValidateSubmission(ctx context.Context, p lifecycle.Principa
 		}
 		seen[input.Name] = true
 		total += input.SizeBytes
+		if !checkSources {
+			continue
+		}
 		actual, err := v.authorize(ctx, p, input.Ref)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {

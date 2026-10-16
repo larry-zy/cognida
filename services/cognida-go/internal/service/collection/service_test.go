@@ -1,6 +1,7 @@
 package collection
 
 import (
+	storage "cognida/internal/infrastructure/objectstore"
 	knowledge "cognida/internal/service/knowledge"
 	"context"
 	"errors"
@@ -67,7 +68,7 @@ func (f ingestFunc) Ingest(ctx context.Context, req domain.IngestRequest) (*doma
 	return f(ctx, req)
 }
 func workflowFixture() *workflowRepo {
-	return &workflowRepo{task: domain.Task{ID: "task", TenantID: 1, UserID: 2, KnowledgeBaseID: "kb", Status: domain.TaskStatusRunning}, run: domain.Run{ID: "run", TaskID: "task", TenantID: 1, Status: domain.RunStatusRunning}, sources: []*domain.Source{{ID: "source", TaskID: "task", URL: "https://example.com"}}}
+	return &workflowRepo{task: domain.Task{ID: "task", TenantID: 1, UserID: 2, KnowledgeBaseID: "kb", Status: domain.TaskStatusRunning}, run: domain.Run{CandidateOnly: true, ID: "run", TaskID: "task", TenantID: 1, Status: domain.RunStatusRunning}, sources: []*domain.Source{{ID: "source", TaskID: "task", URL: "https://example.com"}}}
 }
 func TestCollectionCancelDuringFinalFetchDoesNotIngest(t *testing.T) {
 	repo := workflowFixture()
@@ -80,7 +81,7 @@ func TestCollectionCancelDuringFinalFetchDoesNotIngest(t *testing.T) {
 		calls++
 		return &domain.IngestResult{}, nil
 	})
-	svc := NewService(repo, fetch, ingest, TextNormalizer{})
+	svc := candidateTestService(t, repo, fetch, ingest, TextNormalizer{})
 	require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
 	require.Zero(t, calls)
 	require.Equal(t, domain.RunStatusCancelled, repo.finished)
@@ -96,16 +97,16 @@ func TestCollectionRetriesPersistenceFailureAndResumesCommittedItems(t *testing.
 		calls++
 		return &domain.IngestResult{KnowledgeID: "doc"}, nil
 	})
-	svc := NewService(repo, fetch, ingest, TextNormalizer{})
+	svc := candidateTestService(t, repo, fetch, ingest, TextNormalizer{})
 	require.ErrorIs(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}), repo.updateErr)
 	require.Empty(t, repo.finished, "failed persistence must not acknowledge completion")
 	// A redelivery with a committed accepted item skips re-fetch/ingestion.
 	repo.updateErr = nil
 	require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
-	require.Equal(t, 1, calls)
+	require.Zero(t, calls, "candidate collection cannot call direct ingestion")
 	require.Equal(t, domain.RunStatusCompleted, repo.finished)
 }
-func TestCollectionDeduplicatesPreviouslyAcceptedContent(t *testing.T) {
+func TestCollectionNewRunDoesNotReuseLegacyPublishedReceipt(t *testing.T) {
 	repo := workflowFixture()
 	repo.accepted = &domain.Item{KnowledgeID: "existing-doc"}
 	fetch := fetchFunc(func(context.Context, domain.FetchRequest) (*domain.FetchResponse, error) {
@@ -115,10 +116,10 @@ func TestCollectionDeduplicatesPreviouslyAcceptedContent(t *testing.T) {
 		t.Fatal("duplicate ingested")
 		return nil, nil
 	})
-	svc := NewService(repo, fetch, ingest, TextNormalizer{})
+	svc := candidateTestService(t, repo, fetch, ingest, TextNormalizer{})
 	require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
-	require.Equal(t, domain.ItemStatusSkipped, repo.items[0].Status)
-	require.Equal(t, "existing-doc", repo.items[0].KnowledgeID)
+	require.Equal(t, domain.ItemStatusCandidate, repo.items[0].Status)
+	require.Empty(t, repo.items[0].KnowledgeID)
 	require.Equal(t, domain.RunStatusCompleted, repo.finished)
 	require.Empty(t, repo.run.ErrorMessage)
 }
@@ -143,19 +144,14 @@ func TestCollectionValidatesTargetBeforeReusingDuplicate(t *testing.T) {
 		if unavailable {
 			ingestor.err = errors.New("target no longer active")
 		}
-		svc := NewService(repo, fetchFunc(func(context.Context, domain.FetchRequest) (*domain.FetchResponse, error) {
+		svc := candidateTestService(t, repo, fetchFunc(func(context.Context, domain.FetchRequest) (*domain.FetchResponse, error) {
 			return &domain.FetchResponse{ContentType: "text/plain", Body: []byte("unchanged")}, nil
 		}), ingestor, TextNormalizer{})
 		require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
-		if unavailable {
-			require.Equal(t, domain.RunStatusFailed, repo.finished)
-			require.Equal(t, domain.ItemStatusFailed, repo.items[0].Status)
-			require.Empty(t, repo.items[0].KnowledgeID)
-		} else {
-			require.Equal(t, domain.RunStatusCompleted, repo.finished)
-			require.Equal(t, domain.ItemStatusSkipped, repo.items[0].Status)
-			require.Equal(t, "previous-doc", repo.items[0].KnowledgeID)
-		}
+		require.Equal(t, domain.RunStatusCompleted, repo.finished)
+		require.Equal(t, domain.ItemStatusCandidate, repo.items[0].Status)
+		require.Empty(t, repo.items[0].KnowledgeID)
+
 	}
 }
 
@@ -169,9 +165,9 @@ func TestCollectionFinishReflectsEverySourceOutcome(t *testing.T) {
 		{"all accepted", "success", []string{"accepted", "accepted"}, domain.RunStatusCompleted, 2},
 		{"all fetch failures", "failed", []string{"fetch_failed", "fetch_failed"}, domain.RunStatusFailed, 0},
 		{"all rejected", "failed", []string{"rejected"}, domain.RunStatusFailed, 0},
-		{"all ingestion failures", "failed", []string{"ingest_failed"}, domain.RunStatusFailed, 0},
-		{"missing receipt", "failed", []string{"missing_receipt"}, domain.RunStatusFailed, 0},
-		{"partial", "partial", []string{"accepted", "fetch_failed", "rejected", "ingest_failed"}, domain.RunStatusCompleted, 1},
+		{"ingestor unavailable does not publish", "success", []string{"ingest_failed"}, domain.RunStatusCompleted, 1},
+		{"no ingestion receipt required for candidate", "success", []string{"missing_receipt"}, domain.RunStatusCompleted, 1},
+		{"partial", "partial", []string{"accepted", "fetch_failed", "rejected", "ingest_failed"}, domain.RunStatusCompleted, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := workflowFixture()
@@ -202,7 +198,7 @@ func TestCollectionFinishReflectsEverySourceOutcome(t *testing.T) {
 					return &domain.IngestResult{KnowledgeID: "doc-" + req.SourceURL}, nil
 				}
 			})
-			svc := NewService(repo, fetch, ingest, TextNormalizer{})
+			svc := candidateTestService(t, repo, fetch, ingest, TextNormalizer{})
 			require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
 			require.Equal(t, tc.status, repo.finished)
 			summary := domain.SummarizeItems(len(repo.sources), repo.items)
@@ -225,7 +221,7 @@ func TestCollectionResumedFailureSummaryIncludesCommittedItems(t *testing.T) {
 		{SourceID: "source", Status: domain.ItemStatusSkipped, KnowledgeID: "existing"},
 		{SourceID: "other", Status: domain.ItemStatusFailed, ErrorReason: "previous failure"},
 	}
-	svc := NewService(repo, nil, nil, TextNormalizer{})
+	svc := candidateTestService(t, repo, nil, nil, TextNormalizer{})
 	require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
 	require.Equal(t, domain.RunStatusCompleted, repo.finished)
 	require.Contains(t, repo.run.ErrorMessage, "Partial collection")
@@ -274,7 +270,7 @@ type submitFunc func(context.Context, *domain.Run) error
 func (f submitFunc) Submit(ctx context.Context, run *domain.Run) error { return f(ctx, run) }
 func TestCollectionQueueFailureKeepsPersistedRunRecoverable(t *testing.T) {
 	repo := workflowFixture()
-	svc := NewService(repo, nil, nil, TextNormalizer{})
+	svc := candidateTestService(t, repo, nil, nil, TextNormalizer{})
 	want := errors.New("redis unavailable")
 	calls := 0
 	svc.SetRunSubmitter(submitFunc(func(_ context.Context, run *domain.Run) error {
@@ -296,7 +292,7 @@ func (r *workflowRepo) ListRunningRuns(context.Context, int) ([]*domain.Run, err
 }
 func TestCollectionPeriodicRecoveryResubmitsPersistedRun(t *testing.T) {
 	repo := workflowFixture()
-	svc := NewService(repo, nil, nil, TextNormalizer{})
+	svc := candidateTestService(t, repo, nil, nil, TextNormalizer{})
 	calls := 0
 	want := errors.New("redis unavailable")
 	svc.SetRunSubmitter(submitFunc(func(context.Context, *domain.Run) error {
@@ -310,4 +306,33 @@ func TestCollectionPeriodicRecoveryResubmitsPersistedRun(t *testing.T) {
 	require.NoError(t, svc.RecoverPendingRuns(context.Background(), 100))
 	require.Equal(t, 2, calls)
 	require.Empty(t, repo.finished)
+}
+
+func candidateTestService(t *testing.T, r domain.Repository, f domain.Fetcher, i domain.DocumentIngestor, n Normalizer) *Service {
+	t.Helper()
+	s := NewService(r, f, i, n)
+	store, e := storage.NewLocal(t.TempDir())
+	require.NoError(t, e)
+	s.SetArtifactStore(store)
+	return s
+}
+func (r *workflowRepo) FindLegacyReceipt(context.Context, int64, string, string) (string, error) {
+	if r.accepted != nil {
+		return r.accepted.KnowledgeID, nil
+	}
+	return "", nil
+}
+func TestCollectionLegacyRecoveryOnlyBindsExistingReceipt(t *testing.T) {
+	repo := workflowFixture()
+	repo.run.CandidateOnly = false
+	repo.accepted = &domain.Item{KnowledgeID: "historical-doc"}
+	svc := candidateTestService(t, repo, fetchFunc(func(context.Context, domain.FetchRequest) (*domain.FetchResponse, error) {
+		return &domain.FetchResponse{ContentType: "text/plain", Body: []byte("legacy content")}, nil
+	}), ingestFunc(func(context.Context, domain.IngestRequest) (*domain.IngestResult, error) {
+		t.Fatal("legacy recovery must never write knowledge")
+		return nil, nil
+	}), TextNormalizer{})
+	require.NoError(t, svc.ExecuteRun(context.Background(), RunJobPayload{RunID: "run", TaskID: "task", TenantID: 1}))
+	require.Equal(t, "historical-doc", repo.items[0].KnowledgeID)
+	require.Equal(t, domain.ItemStatusAccepted, repo.items[0].Status)
 }

@@ -206,6 +206,7 @@ func (r *Router) setupCollectionRoutes(api *gin.RouterGroup) {
 	if r.collectionHandler == nil {
 		return
 	}
+	api.GET("/collection-runs/:id", r.collectionHandler.GetRun)
 	collection := api.Group("/collection-tasks")
 	{
 		collection.POST("", r.collectionHandler.Create)

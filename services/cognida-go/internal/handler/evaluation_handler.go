@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	domagent "cognida/internal/model/agent"
 	domeval "cognida/internal/model/evaluation"
+	l "cognida/internal/model/lifecycle"
 	"cognida/internal/pkg/pagination"
 	"cognida/internal/service/evaluation"
 )
@@ -43,18 +45,30 @@ func NewEvaluationHandler(
 	}
 }
 
+// Bridge authenticated Gin identity into the typed service context. Missing
+// identity stays zero: never use the legacy default-1 convenience getters.
+func evaluationPrincipal(c *gin.Context) l.Principal {
+	return l.Principal{TenantID: c.GetInt64("tenant_id"), UserID: c.GetInt64("user_id")}
+}
+func evaluationRequestContext(c *gin.Context) context.Context {
+	p := evaluationPrincipal(c)
+	return domagent.WithUserID(domagent.WithTenantID(c.Request.Context(), p.TenantID), p.UserID)
+}
+
 // ========================================
 // 请求结构
 // ========================================
 
 // CreateEvaluationTaskRequest 创建评测任务请求
 type CreateEvaluationTaskRequest struct {
-	DatasetID       string                 `json:"dataset_id" binding:"required"`
-	Type            string                 `json:"type" binding:"required"`
-	KnowledgeBaseID string                 `json:"kb_id,omitempty"`
-	AgentID         string                 `json:"agent_id,omitempty"`
-	ModelID         string                 `json:"model_id,omitempty"`
-	Config          map[string]interface{} `json:"config,omitempty"`
+	StrategyVersionID string                 `json:"strategy_version_id,omitempty"`
+	DatasetVersionID  string                 `json:"dataset_version_id,omitempty"`
+	DatasetID         string                 `json:"dataset_id" binding:"required"`
+	Type              string                 `json:"type" binding:"required"`
+	KnowledgeBaseID   string                 `json:"kb_id,omitempty"`
+	AgentID           string                 `json:"agent_id,omitempty"`
+	ModelID           string                 `json:"model_id,omitempty"`
+	Config            map[string]interface{} `json:"config,omitempty"`
 }
 
 // ListDatasetsRequest 列出数据集请求参数
@@ -90,7 +104,7 @@ func (h *EvaluationHandler) CreateTask(c *gin.Context) {
 			return
 		}
 		if h.agentRegistry != nil {
-			exists, err := h.agentRegistry.Exists(c.Request.Context(), req.AgentID)
+			exists, err := h.agentRegistry.Exists(evaluationRequestContext(c), req.AgentID)
 			if err != nil {
 				h.handleError(c, err)
 				return
@@ -104,16 +118,18 @@ func (h *EvaluationHandler) CreateTask(c *gin.Context) {
 
 	// 构建配置
 	evalConfig := &evaluation.CreateEvaluationTaskRequest{
-		DatasetID:       req.DatasetID,
-		Type:            evaluation.EvaluationType(req.Type),
-		KnowledgeBaseID: req.KnowledgeBaseID,
-		AgentID:         req.AgentID,
-		ModelID:         req.ModelID,
-		Config:          req.Config,
+		StrategyVersionID: req.StrategyVersionID,
+		DatasetVersionID:  req.DatasetVersionID,
+		DatasetID:         req.DatasetID,
+		Type:              evaluation.EvaluationType(req.Type),
+		KnowledgeBaseID:   req.KnowledgeBaseID,
+		AgentID:           req.AgentID,
+		ModelID:           req.ModelID,
+		Config:            req.Config,
 	}
 
 	// 创建任务
-	task, err := h.service.CreateEvaluation(c.Request.Context(), tenantIDInt, userIDInt, evalConfig)
+	task, err := h.service.CreateEvaluation(evaluationRequestContext(c), tenantIDInt, userIDInt, evalConfig)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -131,13 +147,17 @@ func (h *EvaluationHandler) CreateTask(c *gin.Context) {
 // GetTask 获取评测任务状态
 // GET /api/v1/evaluation/tasks/:id
 func (h *EvaluationHandler) GetTask(c *gin.Context) {
+	if err := h.service.AuthorizeTask(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	taskID := c.Param("id")
 	if taskID == "" {
 		BadRequest(c, "task id is required")
 		return
 	}
 
-	result, err := h.service.GetEvaluationResult(c.Request.Context(), taskID)
+	result, err := h.service.GetEvaluationResult(evaluationRequestContext(c), taskID)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -166,6 +186,7 @@ func (h *EvaluationHandler) ListTasks(c *gin.Context) {
 	// 解析查询参数
 	page, pageSize := GetPageParams(c)
 	f := evaluation.ListEvaluationFilter{
+		UserID:      GetUserID(c),
 		Status:      strings.TrimSpace(c.Query("status")),
 		EvalType:    strings.TrimSpace(c.Query("type")),
 		TaskID:      strings.TrimSpace(c.Query("task_id")),
@@ -174,7 +195,7 @@ func (h *EvaluationHandler) ListTasks(c *gin.Context) {
 	}
 
 	// 调用服务：过滤条件下推到 DB 层，保证 Total 真实、跨页命中不丢失。
-	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantIDInt, page, pageSize, f)
+	resultList, err := h.service.ListEvaluationResults(evaluationRequestContext(c), tenantIDInt, page, pageSize, f)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -194,6 +215,10 @@ func (h *EvaluationHandler) ListTasks(c *gin.Context) {
 // StreamTask SSE 流式推送任务进度
 // GET /api/v1/evaluation/tasks/:id/stream
 func (h *EvaluationHandler) StreamTask(c *gin.Context) {
+	if err := h.service.AuthorizeTask(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	taskID := c.Param("id")
 	if taskID == "" {
 		BadRequest(c, "task id is required")
@@ -219,7 +244,7 @@ func (h *EvaluationHandler) StreamTask(c *gin.Context) {
 	defer timeout.Stop()
 
 	// 客户端断开检测
-	ctx := c.Request.Context()
+	ctx := evaluationRequestContext(c)
 
 	// 上次进度（用于去重）
 	var lastProgress string
@@ -301,6 +326,10 @@ func (h *EvaluationHandler) StreamTask(c *gin.Context) {
 // GetResults 获取评测结果
 // GET /api/v1/evaluation/results/:task_id
 func (h *EvaluationHandler) GetResults(c *gin.Context) {
+	if err := h.service.AuthorizeTask(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("task_id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	// 路由参数名为 task_id（见 router setupEvaluationRoutes），
 	// 曾误读 c.Param("id") 恒为空 → 400，导致前端「查看」拉详情失败、弹窗打不开。
 	taskID := c.Param("task_id")
@@ -309,7 +338,7 @@ func (h *EvaluationHandler) GetResults(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.GetEvaluationResult(c.Request.Context(), taskID)
+	result, err := h.service.GetEvaluationResult(evaluationRequestContext(c), taskID)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -321,6 +350,10 @@ func (h *EvaluationHandler) GetResults(c *gin.Context) {
 // GetQAResults 获取 QA 级别评测结果（分页）
 // GET /api/v1/evaluation/results/:task_id/qa
 func (h *EvaluationHandler) GetQAResults(c *gin.Context) {
+	if err := h.service.AuthorizeTask(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("task_id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	taskID := c.Param("task_id")
 	if taskID == "" {
 		BadRequest(c, "task id is required")
@@ -333,7 +366,7 @@ func (h *EvaluationHandler) GetQAResults(c *gin.Context) {
 	// 游标（keyset）分页〔M5〕：携带 cursor 参数即走 keyset，返回 next_cursor（空=末页）；
 	// 未携带则维持既有 offset 分页（返回 total/page），保持前端契约向后兼容。
 	if _, hasCursor := c.GetQuery("cursor"); hasCursor {
-		cursorResult, err := h.service.GetQAResultsByCursor(c.Request.Context(), taskID, c.Query("cursor"), pageSize)
+		cursorResult, err := h.service.GetQAResultsByCursor(evaluationRequestContext(c), taskID, c.Query("cursor"), pageSize)
 		if err != nil {
 			h.handleError(c, err)
 			return
@@ -343,7 +376,7 @@ func (h *EvaluationHandler) GetQAResults(c *gin.Context) {
 	}
 
 	// 获取 QA 结果
-	result, err := h.service.GetQAResults(c.Request.Context(), taskID, page, pageSize)
+	result, err := h.service.GetQAResults(evaluationRequestContext(c), taskID, page, pageSize)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -365,6 +398,7 @@ func (h *EvaluationHandler) ListResults(c *gin.Context) {
 	// 解析查询参数
 	page, pageSize := GetPageParams(c)
 	f := evaluation.ListEvaluationFilter{
+		UserID:      GetUserID(c),
 		Status:      strings.TrimSpace(c.Query("status")),
 		EvalType:    strings.TrimSpace(c.Query("type")),
 		TaskID:      strings.TrimSpace(c.Query("task_id")),
@@ -374,7 +408,7 @@ func (h *EvaluationHandler) ListResults(c *gin.Context) {
 
 	// 调用服务：过滤条件下推到 DB 层，保证 Total 真实、跨页命中不丢失。
 	// 注：评测「结果」列表按任务维度组织，与任务共享过滤维度，故同样下推。
-	resultList, err := h.service.ListEvaluationResults(c.Request.Context(), tenantID.(int64), page, pageSize, f)
+	resultList, err := h.service.ListEvaluationResults(evaluationRequestContext(c), tenantID.(int64), page, pageSize, f)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -392,13 +426,17 @@ func (h *EvaluationHandler) ListResults(c *gin.Context) {
 // DeleteTask 删除评测任务
 // DELETE /api/v1/evaluation/tasks/:id
 func (h *EvaluationHandler) DeleteTask(c *gin.Context) {
+	if err := h.service.AuthorizeTask(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	taskID := c.Param("id")
 	if taskID == "" {
 		BadRequest(c, "task id is required")
 		return
 	}
 
-	if err := h.service.DeleteEvaluationTask(c.Request.Context(), taskID); err != nil {
+	if err := h.service.DeleteEvaluationTask(evaluationRequestContext(c), taskID); err != nil {
 		h.handleError(c, err)
 		return
 	}
@@ -420,7 +458,7 @@ func (h *EvaluationHandler) ListDatasets(c *gin.Context) {
 	}
 
 	// 获取数据集列表
-	datasets, err := h.service.GetDatasetList(c.Request.Context())
+	datasets, err := h.service.ListDatasetsFor(evaluationRequestContext(c), evaluationPrincipal(c))
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -466,13 +504,17 @@ func (h *EvaluationHandler) ListDatasets(c *gin.Context) {
 // GetDatasetInfo 获取数据集信息
 // GET /api/v1/evaluation/datasets/:id
 func (h *EvaluationHandler) GetDatasetInfo(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
 		return
 	}
 
-	info, err := h.service.GetDatasetInfo(c.Request.Context(), datasetID)
+	info, err := h.service.GetDatasetInfo(evaluationRequestContext(c), datasetID)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -487,6 +529,10 @@ func (h *EvaluationHandler) GetDatasetInfo(c *gin.Context) {
 
 // handleError 处理错误并返回适当的 HTTP 响应
 func (h *EvaluationHandler) handleError(c *gin.Context, err error) {
+	if errors.Is(err, domeval.ErrVersionForbidden) || errors.Is(err, domeval.ErrVersionInvalid) || errors.Is(err, domeval.ErrVersionNotFound) || errors.Is(err, domeval.ErrVersionConflict) || errors.Is(err, domeval.ErrOfflineConflict) || errors.Is(err, domeval.ErrOfflineForbidden) {
+		datasetVersionErr(c, err)
+		return
+	}
 	switch {
 	case errors.Is(err, domeval.ErrTaskNotFound):
 		NotFound(c, err.Error())
@@ -533,7 +579,7 @@ func (h *EvaluationHandler) CreateDataset(c *gin.Context) {
 	}
 
 	// 创建数据集
-	result, err := h.datasetManager.CreateDataset(c.Request.Context(), tenantID.(int64), userID.(int64), &req)
+	result, err := h.datasetManager.CreateDataset(evaluationRequestContext(c), tenantID.(int64), userID.(int64), &req)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -545,6 +591,10 @@ func (h *EvaluationHandler) CreateDataset(c *gin.Context) {
 // GetDatasetDetail 获取数据集详情
 // GET /api/v1/evaluation/datasets/:id
 func (h *EvaluationHandler) GetDatasetDetail(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
@@ -557,7 +607,7 @@ func (h *EvaluationHandler) GetDatasetDetail(c *gin.Context) {
 		return
 	}
 
-	result, err := h.datasetManager.GetDataset(c.Request.Context(), datasetID, tenantID.(int64))
+	result, err := h.datasetManager.GetDataset(evaluationRequestContext(c), datasetID, tenantID.(int64))
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -569,6 +619,10 @@ func (h *EvaluationHandler) GetDatasetDetail(c *gin.Context) {
 // UpdateDataset 更新数据集
 // PUT /api/v1/evaluation/datasets/:id
 func (h *EvaluationHandler) UpdateDataset(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
@@ -587,7 +641,7 @@ func (h *EvaluationHandler) UpdateDataset(c *gin.Context) {
 		return
 	}
 
-	result, err := h.datasetManager.UpdateDataset(c.Request.Context(), datasetID, tenantID.(int64), &req)
+	result, err := h.datasetManager.UpdateDataset(evaluationRequestContext(c), datasetID, tenantID.(int64), &req)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -599,6 +653,10 @@ func (h *EvaluationHandler) UpdateDataset(c *gin.Context) {
 // DeleteDataset 删除数据集
 // DELETE /api/v1/evaluation/datasets/:id
 func (h *EvaluationHandler) DeleteDataset(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
@@ -611,7 +669,7 @@ func (h *EvaluationHandler) DeleteDataset(c *gin.Context) {
 		return
 	}
 
-	if err := h.datasetManager.DeleteDataset(c.Request.Context(), datasetID, tenantID.(int64)); err != nil {
+	if err := h.datasetManager.DeleteDataset(evaluationRequestContext(c), datasetID, tenantID.(int64)); err != nil {
 		h.handleError(c, err)
 		return
 	}
@@ -625,6 +683,10 @@ func (h *EvaluationHandler) DeleteDataset(c *gin.Context) {
 // ListSamples 列出数据集样本
 // GET /api/v1/evaluation/datasets/:id/samples
 func (h *EvaluationHandler) ListSamples(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
@@ -644,7 +706,7 @@ func (h *EvaluationHandler) ListSamples(c *gin.Context) {
 		return
 	}
 
-	result, err := h.datasetManager.ListSamples(c.Request.Context(), datasetID, tenantID.(int64), &req)
+	result, err := h.datasetManager.ListSamples(evaluationRequestContext(c), datasetID, tenantID.(int64), &req)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -656,6 +718,10 @@ func (h *EvaluationHandler) ListSamples(c *gin.Context) {
 // AddSamples 添加样本
 // POST /api/v1/evaluation/datasets/:id/samples
 func (h *EvaluationHandler) AddSamples(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
@@ -674,7 +740,7 @@ func (h *EvaluationHandler) AddSamples(c *gin.Context) {
 		return
 	}
 
-	if err := h.datasetManager.AddSamples(c.Request.Context(), datasetID, tenantID.(int64), &req); err != nil {
+	if err := h.datasetManager.AddSamples(evaluationRequestContext(c), datasetID, tenantID.(int64), &req); err != nil {
 		h.handleError(c, err)
 		return
 	}
@@ -689,6 +755,10 @@ func (h *EvaluationHandler) AddSamples(c *gin.Context) {
 // DeleteSample 删除样本
 // DELETE /api/v1/evaluation/datasets/:id/samples/:sample_id
 func (h *EvaluationHandler) DeleteSample(c *gin.Context) {
+	if err := h.service.AuthorizeDataset(evaluationRequestContext(c), evaluationPrincipal(c), c.Param("id")); err != nil {
+		datasetVersionErr(c, err)
+		return
+	}
 	datasetID := c.Param("id")
 	if datasetID == "" {
 		BadRequest(c, "dataset id is required")
@@ -714,7 +784,7 @@ func (h *EvaluationHandler) DeleteSample(c *gin.Context) {
 		return
 	}
 
-	if err := h.datasetManager.DeleteSample(c.Request.Context(), datasetID, tenantID.(int64), sampleIDInt); err != nil {
+	if err := h.datasetManager.DeleteSample(evaluationRequestContext(c), datasetID, tenantID.(int64), sampleIDInt); err != nil {
 		h.handleError(c, err)
 		return
 	}
@@ -739,7 +809,7 @@ func (h *EvaluationHandler) ListGraders(c *gin.Context) {
 		return
 	}
 
-	catalog, err := h.service.ListAvailableGraders(c.Request.Context(), evalType)
+	catalog, err := h.service.ListAvailableGraders(evaluationRequestContext(c), evalType)
 	if err != nil {
 		h.handleError(c, err)
 		return

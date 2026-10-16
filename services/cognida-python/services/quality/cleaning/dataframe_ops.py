@@ -22,7 +22,9 @@ _WHITESPACE_RUN = re.compile(r"\s+")
 
 def _string_columns(data: pd.DataFrame) -> list[str]:
     """返回可作文本处理的列（object / StringDtype 均覆盖）。"""
-    return [col for col in data.columns if pd.api.types.is_string_dtype(data[col])]
+    # Object columns containing nulls or mixed scalars are still eligible.
+    # Each operation transforms only actual str cells and leaves exact numeric values alone.
+    return [col for col in data.columns if any(isinstance(value, str) for value in data[col])]
 
 
 @register_cleaner("trim")

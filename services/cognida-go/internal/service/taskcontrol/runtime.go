@@ -18,6 +18,7 @@ type Runtime struct {
 	adapters       map[string]ExecutionAdapter
 	enabled        bool
 	validateInputs func(context.Context, d.Scope, []l.RefID) error
+	orchestration  func(context.Context, d.Scope, string, PlanSpec) (int, error)
 }
 
 func NewRuntime(tasks *Service, repo d.RuntimeRepository, adapters map[string]ExecutionAdapter, enabled bool, sources ...func(context.Context, d.Scope, []l.RefID) error) (*Runtime, error) {
@@ -45,6 +46,26 @@ func NewRuntime(tasks *Service, repo d.RuntimeRepository, adapters map[string]Ex
 		r.adapters[id] = adapter
 	}
 	return r, nil
+}
+
+// WithOrchestration installs a trusted persisted strategy resolver. It cannot
+// raise the approved plan concurrency or change node payloads and budgets.
+func (r *Runtime) WithOrchestration(resolve func(context.Context, d.Scope, string, PlanSpec) (int, error)) *Runtime {
+	r.orchestration = resolve
+	return r
+}
+func (r *Runtime) orchestrationLimit(ctx context.Context, p d.Scope, id string, plan PlanSpec) (int, error) {
+	if r.orchestration == nil {
+		return plan.Budget.MaxConcurrency, nil
+	}
+	limit, err := r.orchestration(ctx, p, id, plan)
+	if err != nil {
+		return 0, err
+	}
+	if limit < 1 || limit > plan.Budget.MaxConcurrency {
+		return 0, d.ErrInvalid
+	}
+	return limit, nil
 }
 
 type ExecutionBlocker struct {
@@ -173,6 +194,9 @@ func (r *Runtime) Start(ctx context.Context, p d.Scope, id string, in StartInput
 			return nil, &ValidationError{Issues: issues}
 		}
 	}
+	if _, err = r.orchestrationLimit(ctx, p, id, plan); err != nil {
+		return nil, err
+	}
 	return r.repo.BeginExecution(ctx, p, id, in.ExpectedVersion, d.StartExecutionInput{PlanVersion: in.PlanVersion, IdempotencyKey: key, TimeoutSeconds: plan.Budget.TimeoutSeconds})
 }
 
@@ -199,7 +223,7 @@ func childTerminal(child d.Child) bool {
 func latestChildren(children []d.Child, version int64) map[string]d.Child {
 	out := map[string]d.Child{}
 	for _, child := range children {
-		if child.PlanVersion == version && child.Attempt > out[child.NodeID].Attempt {
+		if child.PlanVersion <= version && child.Attempt > out[child.NodeID].Attempt {
 			out[child.NodeID] = child
 		}
 	}
@@ -268,6 +292,7 @@ func (r *Runtime) Reconcile(parent context.Context, p d.Scope, id string) error 
 	if task.StartedAt == nil || task.DeadlineAt == nil || task.ExecutionPlanVersion != task.CurrentPlanVersion {
 		return d.ErrConflict
 	}
+	concurrencyLimit := plan.Budget.MaxConcurrency
 	if task.CancelRequestedAt == nil {
 		reason := ""
 		if !time.Now().Before(*task.DeadlineAt) {
@@ -276,6 +301,13 @@ func (r *Runtime) Reconcile(parent context.Context, p d.Scope, id string) error 
 			reason = "authorization_or_plan_invalid"
 		} else if e := r.validateSources(ctx, p, task, plan); e != nil {
 			reason = "source_authorization_revoked"
+		}
+		if reason == "" {
+			var strategyErr error
+			concurrencyLimit, strategyErr = r.orchestrationLimit(ctx, p, id, plan)
+			if strategyErr != nil {
+				reason = "orchestration_policy_unavailable"
+			}
 		}
 		if reason != "" {
 			task, err = r.stop(ctx, p, task, fence, reason)
@@ -293,7 +325,7 @@ func (r *Runtime) Reconcile(parent context.Context, p d.Scope, id string) error 
 		return err
 	}
 	for _, child := range children {
-		if child.PlanVersion != task.ExecutionPlanVersion || childTerminal(child) {
+		if child.PlanVersion > task.ExecutionPlanVersion || childTerminal(child) {
 			continue
 		}
 		event, ok := events[child.ID]
@@ -361,7 +393,7 @@ func (r *Runtime) Reconcile(parent context.Context, p d.Scope, id string) error 
 		return r.finalize(ctx, p, task, children, fence, d.StatusCompleted, "")
 	}
 	for _, node := range plan.Nodes {
-		if active >= plan.Budget.MaxConcurrency {
+		if active >= concurrencyLimit {
 			break
 		}
 		child, exists := latest[node.ID]

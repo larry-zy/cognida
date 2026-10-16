@@ -74,29 +74,10 @@ import (
 
 //go:generate wire
 func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
-	repository := ProvideDataSourceRepository(db)
-	idGenerator := ProvideIDGenerator()
-	service := ProvideDataSourceService(repository, idGenerator)
-	neo4jConfig := ProvideNeo4jConfig(cfg)
-	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
-	if err != nil {
-		return nil, err
-	}
-	auditRepository := ProvideAuditRepository(db)
-	writer := ProvideAuditWriter(auditRepository)
-	store, err := ProvideObjectStore(cfg)
-	if err != nil {
-		return nil, err
-	}
-	redisConfig := ProvideRedisConfig(cfg)
-	client, err := ProvideRedisClient(redisConfig)
-	if err != nil {
-		return nil, err
-	}
-	knowledgeBaseRepository := ProvideKnowledgeBaseRepository(db)
-	knowledgeBaseSettingRepository := ProvideKnowledgeBaseSettingRepository(db)
 	knowledgeRepository := ProvideKnowledgeRepository(db)
 	chunkRepository := ProvideChunkRepository(db)
+	knowledgeBaseRepository := ProvideKnowledgeBaseRepository(db)
+	knowledgeBaseSettingRepository := ProvideKnowledgeBaseSettingRepository(db)
 	embeddingConfig := ProvideEmbeddingConfig(cfg)
 	embedder, err := ProvideEmbedder(embeddingConfig)
 	if err != nil {
@@ -107,27 +88,66 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 	vectorRepository := ProvideVectorRepository(vectorRetriever)
+	neo4jConfig := ProvideNeo4jConfig(cfg)
+	driverWithContext, err := ProvideNeo4jDriver(neo4jConfig)
+	if err != nil {
+		return nil, err
+	}
 	graphRepository, err := ProvideNeo4jGraphRepository(driverWithContext, neo4jConfig)
 	if err != nil {
 		return nil, err
 	}
 	pythonGrpcConfig := ProvidePythonGrpcConfig(cfg)
-	docreaderClient, err := ProvideDocReaderClient(pythonGrpcConfig)
+	client, err := ProvideDocReaderClient(pythonGrpcConfig)
 	if err != nil {
 		return nil, err
 	}
 	chatConfig := ProvideChatConfig(cfg)
-	v := ProvideLLMClient(chatConfig)
-	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, docreaderClient, embedder, v, idGenerator)
-	fetcher := ProvideCollectionFetcher()
-	collectionRepository := ProvideCollectionRepository(db)
-	documentIngestor := ProvideCollectionIngestor(documentProcessorService)
-	collectionJobQueue := ProvideCollectionJobQueue(client)
-	collectionService := ProvideCollectionService(collectionRepository, fetcher, documentIngestor, collectionJobQueue, store)
-	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, client, documentProcessorService, fetcher, collectionService, collectionRepository, embedder, v)
+	llmClient := ProvideLLMClient(chatConfig)
+	idGenerator := ProvideIDGenerator()
+	documentProcessorService := ProvideDocumentProcessorService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, vectorRepository, graphRepository, client, embedder, llmClient, idGenerator)
+	datasetRepository := ProvideDatasetRepository(db)
+	datasetLoader := ProvideDatasetLoader(db, datasetRepository)
+	datasetService := ProvideDatasetService(datasetLoader)
+	evaluationTaskRepository := ProvideEvaluationTaskRepository(db)
+	evaluationResultRepository := ProvideEvaluationResultRepository(db)
+	redisConfig := ProvideRedisConfig(cfg)
+	redisClient, err := ProvideRedisClient(redisConfig)
 	if err != nil {
 		return nil, err
 	}
+	progressCache := ProvideEvaluationProgressCache(redisClient)
+	redisQueue := ProvideEvaluationJobQueue(redisClient)
+	taskEnqueuer := ProvideEvaluationJobEnqueuer(redisQueue)
+	evaluationConfig := ProvideEvaluationConfig(cfg)
+	repository := ProvideDataSourceRepository(db)
+	service := ProvideDataSourceService(repository, idGenerator)
+	auditRepository := ProvideAuditRepository(db)
+	writer := ProvideAuditWriter(auditRepository)
+	store, err := ProvideObjectStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	fetcher := ProvideCollectionFetcher()
+	collectionRepository := ProvideCollectionRepository(db)
+	documentIngestor := ProvideCollectionIngestor(documentProcessorService)
+	collectionJobQueue := ProvideCollectionJobQueue(redisClient)
+	collectionService := ProvideCollectionService(collectionRepository, fetcher, documentIngestor, collectionJobQueue, store)
+	specRegistry := ProvideAgentRegistry()
+	featureServices, err := NewFeatureServices(db, cfg, service, driverWithContext, writer, store, redisClient, documentProcessorService, fetcher, collectionService, collectionRepository, embedder, llmClient, specRegistry, datasetLoader)
+	if err != nil {
+		return nil, err
+	}
+	evaluationService := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, taskEnqueuer, evaluationConfig, featureServices)
+	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
+	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
+	milvusRetriever := ProvideMilvusRetriever(embedder)
+	graphSearcher := ProvideRAGGraphRepository(graphRepository)
+	graphQueryRepository := ProvideGraphQueryRepository(db, chunkRepository)
+	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, graphSearcher, graphQueryRepository)
+	retrievalCapability := ProvideRetrievalCapability(retriever, knowledgeRepository, db)
+	uploadConfig := ProvideUploadConfig(cfg)
+	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability, uploadConfig)
 	userRepository := ProvideUserRepository(db)
 	refreshTokenRepository := ProvideRefreshTokenRepository(db)
 	jwtConfig := ProvideJWTConfig(cfg)
@@ -135,27 +155,17 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	transactionManager := ProvideTransactionManager(db)
 	accountService := ProvideAccountService(userRepository, refreshTokenRepository, jwtConfig, tenantRepository, transactionManager)
 	authHandler := ProvideAuthHandler(accountService)
-	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
-	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
-	milvusRetriever := ProvideMilvusRetriever(embedder)
-	graphSearcher := ProvideRAGGraphRepository(graphRepository)
-	graphQueryRepository := ProvideGraphQueryRepository(db, chunkRepository)
-	retriever := ProvideRetriever(knowledgeBaseSettingRepository, chunkRepository, embedder, milvusRetriever, graphSearcher, graphQueryRepository)
-	retrievalCapability := ProvideRetrievalCapability(retriever, knowledgeRepository)
-	uploadConfig := ProvideUploadConfig(cfg)
-	knowledgeBaseHandler := ProvideKnowledgeBaseHandler(knowledgeBaseService, documentProcessorService, retrievalCapability, uploadConfig)
 	sessionRepository := ProvideSessionRepository(db)
 	messageRepository := ProvideMessageRepository(db)
 	retrievalSettingRepository := ProvideRetrievalSettingRepository(db)
 	sessionService := ProvideSessionService(sessionRepository, messageRepository, retrievalSettingRepository)
 	modelRepository := ProvideModelRepository(db)
 	modelFactory := ProvideModelFactory()
-	chatService := ProvideChatService(v, modelRepository, modelFactory)
+	chatService := ProvideChatService(llmClient, modelRepository, modelFactory)
 	sessionHandler := ProvideSessionHandler(sessionService, chatService)
 	messageService := ProvideMessageService(messageRepository)
 	messageHandler := ProvideMessageHandler(messageService)
 	tenantHandler := ProvideTenantHandler(accountService)
-	specRegistry := ProvideAgentRegistry()
 	agentExecutor := ProvideAgentOrchestrator(specRegistry)
 	executeService := ProvideExecuteService(agentExecutor)
 	researchService := ProvideResearchService(agentExecutor)
@@ -164,29 +174,19 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	agentPersistenceService := ProvideAgentPersistenceService(sessionRepository, messageRepository)
 	agentHandler := ProvideAgentHandler(executeService, researchService, configService, progressService, agentPersistenceService, retrievalSettingRepository)
 	registryAgentHandler := ProvideRegistryAgentHandler(specRegistry)
-	llmChat := ProvideRAGLLMChat(v)
+	llmChat := ProvideRAGLLMChat(llmClient)
 	graphService := ProvideGraphService(graphRepository, graphQueryRepository, llmChat)
 	graphHandler := ProvideGraphHandler(graphService)
 	modelService := ProvideModelService(modelRepository, modelFactory)
 	modelHandler := ProvideModelHandler(modelService, chatService)
 	taskRepository := ProvideTaskRepository(db)
-	taskQueue := ProvideTaskQueue(client)
+	taskQueue := ProvideTaskQueue(redisClient)
 	taskService := ProvideTaskService(taskRepository, taskQueue)
 	taskHandler := ProvideTaskHandler(taskService)
 	collectionHandler := ProvideCollectionHandler(collectionService, collectionRepository, knowledgeBaseService)
 	baseChatModel := ProvideChatModel(chatConfig)
 	ragOptimizerHandler := ProvideRAGOptimizerHandler(baseChatModel, retriever)
 	guardrailHandler := ProvideGuardrailHandler(baseChatModel)
-	datasetRepository := ProvideDatasetRepository(db)
-	datasetLoader := ProvideDatasetLoader(db, datasetRepository)
-	datasetService := ProvideDatasetService(datasetLoader)
-	evaluationTaskRepository := ProvideEvaluationTaskRepository(db)
-	evaluationResultRepository := ProvideEvaluationResultRepository(db)
-	progressCache := ProvideEvaluationProgressCache(client)
-	redisQueue := ProvideEvaluationJobQueue(client)
-	taskEnqueuer := ProvideEvaluationJobEnqueuer(redisQueue)
-	evaluationConfig := ProvideEvaluationConfig(cfg)
-	evaluationService := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, taskEnqueuer, evaluationConfig)
 	datasetManager := ProvideDatasetUseCase(datasetRepository, datasetLoader)
 	evaluationHandler := ProvideEvaluationHandler(evaluationService, datasetManager, progressCache, specRegistry)
 	gateway := ProvideQualityGateway(pythonGrpcConfig)
@@ -212,10 +212,13 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	loggerMiddleware := ProvideLoggerMiddleware()
 	traceMiddleware := ProvideTraceMiddleware()
 	middlewares := ProvideMiddlewares(authMiddleware, tenantMiddleware, corsMiddleware, recoveryMiddleware, loggerMiddleware, traceMiddleware)
-	evaluationWorker := ProvideEvaluationWorker(progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, service)
+	evaluationWorker := ProvideEvaluationWorker(progressCache, llmChat, retriever, specRegistry, evaluationTaskRepository, evaluationResultRepository, datasetLoader, evaluationConfig, db, service, featureServices)
 	worker := ProvideEvaluationJobWorker(redisQueue, evaluationWorker, evaluationTaskRepository, evaluationConfig)
 	collectionJobWorker := ProvideCollectionJobWorker(collectionJobQueue, collectionService, collectionRepository)
-	app := ProvideApp(featureServices, router, middlewares, specRegistry, chatConfig, evaluationConfig, worker, collectionJobWorker, collectionService, collectionRepository, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, service, agentHandler, researchService, embedder)
+	app, err := ProvideApp(db, knowledgeRepository, chunkRepository, documentProcessorService, vectorRepository, evaluationService, knowledgeBaseHandler, featureServices, router, middlewares, specRegistry, chatConfig, evaluationConfig, worker, collectionJobWorker, collectionService, collectionRepository, retriever, retrievalCapability, graphService, knowledgeBaseRepository, knowledgeBaseService, writer, service, agentHandler, researchService, embedder)
+	if err != nil {
+		return nil, err
+	}
 	return app, nil
 }
 
@@ -528,6 +531,7 @@ func ProvideEvaluationService(
 	progressCache *cache.ProgressCache,
 	evalQueue evaluation2.TaskEnqueuer,
 	evalConfig *config.EvaluationConfig,
+	features *FeatureServices,
 ) *evaluation.Service {
 
 	pythonEndpoint := "http://localhost:18888"
@@ -535,7 +539,10 @@ func ProvideEvaluationService(
 		pythonEndpoint = evalConfig.PythonEndpoint
 	}
 	graderCatalog := evaluation.NewPythonEvaluationClient(pythonEndpoint)
-	return evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue, graderCatalog)
+	service := evaluation.NewService(datasetService, taskRepo, resultRepo, progressCache, evalQueue, graderCatalog).WithSnapshots(features.EvaluationSnapshots).WithOfflineReadAuthorizer(features.OfflineEvaluation.AuthorizeRead)
+	features.Strategies.WithRegressionReader(service.StrategyRegression)
+	features.evaluationSourceRead = service.AuthorizeTask
+	return service
 }
 
 // ProvideDatasetLoader provides the dataset loader
@@ -655,6 +662,7 @@ func ProvideEvaluationWorker(
 	evalConfig *config.EvaluationConfig,
 	db *gorm.DB,
 	datasourceProvider datasource.ConnectionProvider,
+	features *FeatureServices,
 ) *evaluation.EvaluationWorker {
 
 	registry := executor.NewExecutorRegistry()
@@ -710,7 +718,7 @@ func ProvideEvaluationWorker(
 		taskRepo,
 		resultRepo,
 		workerConfig,
-	)
+	).WithSnapshots(features.EvaluationSnapshots)
 }
 
 // ProvideEvaluationJobWorker binds evaluation's typed payload/status adapter
@@ -812,9 +820,9 @@ func ProvideCollectionHandler(service *collection2.Service, repo collection.Repo
 
 // ProvideRetrievalCapability 装配统一检索能力封装：Agent 路径与 REST /knowledge/search 共用。
 // 重排器已接线但默认关闭（GovernedQuery.EnableRerank 缺省 false），按需可插拔开启。
-func ProvideRetrievalCapability(retriever2 rag.Retriever, knowledgeRepo knowledge.KnowledgeRepository) *knowledge2.RetrievalCapability {
+func ProvideRetrievalCapability(retriever2 rag.Retriever, knowledgeRepo knowledge.KnowledgeRepository, db *gorm.DB) *knowledge2.RetrievalCapability {
 
-	return knowledge2.NewRetrievalCapability(retriever2, rag2.NewReranker()).WithEnabledFilter(knowledgeRepo)
+	return knowledge2.NewRetrievalCapability(retriever2, rag2.NewReranker()).WithEnabledFilter(knowledgeRepo).WithAppliedLabelFilter(mysql.NewKnowledgeLabelRepository(db))
 }
 
 func ProvideSessionHandler(
@@ -1206,6 +1214,13 @@ type App struct {
 }
 
 func ProvideApp(
+	db *gorm.DB,
+	knowledgeRepo knowledge.KnowledgeRepository,
+	chunkRepo knowledge.ChunkRepository,
+	processor knowledge2.DocumentProcessorService,
+	vectors knowledge.VectorRepository,
+	evaluationService *evaluation.Service,
+	knowledgeHandler *handler.KnowledgeBaseHandler,
 	features *FeatureServices,
 	r *router.Router,
 	m *Middlewares,
@@ -1226,14 +1241,39 @@ func ProvideApp(
 	agentHandler *handler.AgentHandler,
 	researchService *agent2.ResearchService,
 	embedder embedding.Embedder,
-) *App {
+) (*App, error) {
+	if err := features.configureFeedback(db, kbRepo, knowledgeRepo, chunkRepo, processor, vectors, kbService, evaluationService, retriever2, retrievalCapability, knowledgeHandler); err != nil {
+		return nil, err
+	}
+	r.AddTenantRoutes(features.FeedbackHandler.Register)
 	r.AddTenantRoutes(features.MemoryHandler.Register)
 	if features.TaskControlHandler != nil {
 		r.AddTenantRoutes(features.TaskControlHandler.Register)
 	}
 	r.AddTenantRoutes(features.CatalogHandler.Register)
-	r.AddTenantRoutes(func(group *gin.RouterGroup) { features.LifecycleHandler.Register(group.Group("/lifecycle")) })
+	r.AddTenantRoutes(func(group *gin.RouterGroup) {
+		g := group.Group("/lifecycle")
+		features.LifecycleHandler.Register(g)
+		features.LifecycleHandler.RegisterCleaningReview(g)
+	})
 	r.AddTenantRoutes(features.GovernanceHandler.Register)
+	r.AddTenantRoutes(features.GovernanceHandler.RegisterKnowledgeLabelRoutes)
+	r.AddTenantRoutes(features.GovernanceHandler.RegisterFeatureOperations)
+	r.AddTenantRoutes(features.GovernanceHandler.RegisterLabelSuggestionRoutes)
+	r.AddTenantRoutes(features.SandboxHandler.Register)
+	r.AddTenantRoutes(features.APISourceHandler.Register)
+	r.AddTenantRoutes(features.WarehouseHandler.Register)
+	r.AddTenantRoutes(features.OperationHandler.Register)
+	r.AddTenantRoutes(features.StrategyHandler.Register)
+	r.AddTenantRoutes(features.QueryJobHandler.Register)
+	retrievalCapability.WithStrategies(features.Strategies)
+	r.AddTenantRoutes(features.DatasetVersionHandler.Register)
+	if features.ResearchRunHandler != nil {
+		r.AddTenantRoutes(features.ResearchRunHandler.Register)
+	}
+	if features.ResearchRuns != nil {
+		features.ResearchRuns.SetEngine(researchService)
+	}
 	if features.LineageHandler != nil {
 		r.AddTenantRoutes(features.LineageHandler.Register)
 	}
@@ -1258,7 +1298,7 @@ func ProvideApp(
 		AgentHandler:            agentHandler,
 		ResearchService:         researchService,
 		Embedder:                embedder,
-	}
+	}, nil
 }
 
 // Shutdown 关闭应用程序：flush 审计写入器，确保积压审计落库不丢。

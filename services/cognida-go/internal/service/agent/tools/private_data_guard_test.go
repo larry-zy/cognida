@@ -110,7 +110,7 @@ func TestPrivateMemoryETLRejectedBeforeReplace(t *testing.T) {
 	o, mock, _, _, ctx := setupOperationTest(t)
 	_, err := o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_private", SQL: "SELECT * FROM user_memories", Replace: true})
 	require.ErrorContains(t, err, "private system tables")
-	_, err = o.etlFromSQL(ctx, "agent_etl_private", "SELECT * FROM `app`.`user_memories`")
+	err = validateSQL("SELECT * FROM `app`.`user_memories`")
 	require.ErrorContains(t, err, "private system tables")
 	require.NoError(t, mock.ExpectationsWereMet()) // no DROP or CREATE
 }
@@ -125,7 +125,7 @@ func TestPrivateMemoryResultCannotExportOrMaterialize(t *testing.T) {
 	require.NoError(t, err)
 	_, err = o.dataExport(ctx, &DataExportRequest{ResultID: id, Format: "csv"})
 	require.ErrorContains(t, err, "private system tables")
-	_, err = o.etlFromResultID(ctx, ctx, "agent_etl_private", id)
+	_, err = o.loadETLResult(ctx, id)
 	require.ErrorContains(t, err, "private system tables")
 	_, err = o.etlRun(ctx, &ETLRunRequest{TargetTable: "agent_etl_private", ResultID: id, Replace: true})
 	require.ErrorContains(t, err, "private system tables")

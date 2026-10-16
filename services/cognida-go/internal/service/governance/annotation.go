@@ -61,6 +61,20 @@ func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.Anno
 	return record, nil
 }
 func validateAnnotation(task d.AnnotationTask, content string, a d.Annotation) error {
+	if a.EvaluationProfile != nil && task.Type != "qa" {
+		return d.ErrInvalid
+	}
+	if a.EvaluationProfile != nil {
+		p := a.EvaluationProfile
+		if len(p.SourceRefs) > 16 || len(p.RelevantChunkIDs) > 100 || len(p.ExpectedTools) > 100 || len(p.ExpectedSteps) > 100 || len(p.GoldSQL) > 20000 {
+			return d.ErrInvalid
+		}
+		switch p.Kind {
+		case "qa", "rag", "agent", "sql":
+		default:
+			return d.ErrInvalid
+		}
+	}
 	if task.Type == "qa" {
 		if a.QA == nil || strings.TrimSpace(a.QA.Question) == "" || strings.TrimSpace(a.QA.ReferenceAnswer) == "" || len([]rune(a.QA.Question)) > 20000 || len([]rune(a.QA.ReferenceAnswer)) > 100000 || len(a.Labels)+len(a.Entities)+len(a.Relations) > 0 {
 			return d.ErrInvalid

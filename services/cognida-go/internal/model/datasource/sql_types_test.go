@@ -3,7 +3,7 @@ package datasource
 import "testing"
 
 func TestIsNumericSQLTypeUsesDeclaredType(t *testing.T) {
-	for _, typ := range []string{"DECIMAL", "numeric", "DECIMAL(38,18)", "UNSIGNED BIGINT", "INT UNSIGNED", "INT8", "FLOAT4", "DOUBLE PRECISION"} {
+	for _, typ := range []string{"DECIMAL", "numeric", "DECIMAL(38,18)", "UNSIGNED BIGINT", "INT UNSIGNED", "INT8", "FLOAT4", "DOUBLE PRECISION", "BIGNUMERIC", "BIGDECIMAL(76,38)"} {
 		if !IsNumericSQLType(typ) {
 			t.Errorf("numeric type %q was not recognized", typ)
 		}

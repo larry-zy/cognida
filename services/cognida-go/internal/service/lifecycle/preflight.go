@@ -36,6 +36,9 @@ func validatePipelineOptions(def d.PipelineDefinition, options map[string]any) e
 		if !ok {
 			return fmt.Errorf("%w: stage options must be objects", d.ErrInvalid)
 		}
+		if _, exists := options[strategyOption]; exists {
+			return d.ErrInvalid
+		}
 		if err := validateOptions(options); err != nil {
 			return err
 		}
@@ -51,6 +54,11 @@ func validateExpertOptions(agent string, options map[string]any) error {
 		text, ok := value.(string)
 		if !ok || utf8.RuneCountInString(text) > 4000 {
 			return fmt.Errorf("%w: prompt must be text of at most 4000 characters", d.ErrInvalid)
+		}
+	}
+	if agent == "data-cleaning" {
+		if _, err := cleanOptions(options); err != nil {
+			return err
 		}
 	}
 	if agent == "data-quality" || agent == "data-cleaning" {
@@ -69,6 +77,28 @@ func validateExpertOptions(agent string, options map[string]any) error {
 func (s *Service) preflight(ctx context.Context, p d.Principal, agent string, refs []d.RefID, options map[string]any) error {
 	if err := validateExpertOptions(agent, options); err != nil {
 		return err
+	}
+	if agent == "data-cleaning" {
+		if expected, ok := options["preview_digest"]; ok {
+			found := false
+			for _, id := range refs {
+				ref, _, err := s.Resolve(ctx, p.TenantID, p.UserID, id)
+				if err != nil {
+					return err
+				}
+				if ref.Kind == d.QualityReport {
+					continue
+				}
+				if expected != cleaningDigest(ref, options) {
+					return d.ErrConflict
+				}
+				found = true
+				break
+			}
+			if !found {
+				return d.ErrInvalid
+			}
+		}
 	}
 	if agent != "data-asset" || s.config.ValidatePublication == nil {
 		return nil

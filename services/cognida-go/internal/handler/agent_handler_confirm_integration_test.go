@@ -1,7 +1,8 @@
 //go:build integration
 
 // confirm-resume 端点集成测试（真实 MySQL）：
-// 确认后事务真实提交落库 + 审计留痕；token 不匹配拒绝且立即失效、库不被改。
+// 旧确认记录即使 token 有效也不得写库；新写入必须经持久受控操作计划。
+// token 不匹配拒绝且立即失效、库不被改。
 //
 // 通过 MYSQL_DSN 提供 DSN，例如：
 //
@@ -145,41 +146,40 @@ func gmvOf(t *testing.T, db *gorm.DB, source string) float64 {
 	return gmv
 }
 
-// TestConfirmIntegration_CommitsAndAudits 确认后真实落库 + 审计 success。
-func TestConfirmIntegration_CommitsAndAudits(t *testing.T) {
+// A valid legacy token is not a durable reviewed operation plan. Neither the
+// original confirmation nor a fresh token may commit SQL or claim success.
+func TestConfirmIntegration_LegacyTokenCannotCommit(t *testing.T) {
 	db, pending, h, source := setupConfirmIntegration(t)
 	key := uuid.NewString()
-	action := putConfirmITAction(t, pending, source, key)
-
-	w, data := callConfirmIT(t, h, map[string]interface{}{
-		"pending_action_id": action.ID,
-		"token":             action.Token,
-		"session_id":        "sess-cf-it",
-	})
-	if w.Code != http.StatusOK || data["status"] != operations.StatusSuccess {
-		t.Fatalf("确认应成功, code=%d body=%s", w.Code, w.Body.String())
-	}
-	if gmv := gmvOf(t, db, source); gmv != 200 {
-		t.Fatalf("确认后应真实落库, gmv=%v", gmv)
-	}
-
-	var audit mysqlrepo.OperationAuditModel
-	if err := db.Where("tenant_id = ? AND idempotency_key = ?", 991, key).
-		Order("id DESC").First(&audit).Error; err != nil {
-		t.Fatalf("load audit: %v", err)
-	}
-	if audit.Status != operations.StatusSuccess {
-		t.Errorf("审计应为 success, got %s", audit.Status)
-	}
-	// A fresh confirmation for the same business idempotency key must replay
-	// the committed result without applying the UPDATE a second time.
-	replay := putConfirmITAction(t, pending, source, key)
-	w, data = callConfirmIT(t, h, map[string]interface{}{"pending_action_id": replay.ID, "token": replay.Token, "session_id": "sess-cf-it"})
-	if w.Code != http.StatusOK || data["status"] != operations.StatusSuccess || data["duplicate"] != true {
-		t.Fatalf("重复确认应命中幂等结果: code=%d body=%s", w.Code, w.Body.String())
-	}
-	if gmv := gmvOf(t, db, source); gmv != 200 {
-		t.Fatalf("重复确认不能重复写库, gmv=%v", gmv)
+	for attempt := 0; attempt < 2; attempt++ {
+		action := putConfirmITAction(t, pending, source, key)
+		w, data := callConfirmIT(t, h, map[string]interface{}{
+			"pending_action_id": action.ID, "token": action.Token, "session_id": "sess-cf-it",
+		})
+		if w.Code != http.StatusOK || data["status"] != operations.StatusRejected {
+			t.Fatalf("legacy confirmation must be rejected: code=%d body=%s", w.Code, w.Body.String())
+		}
+		if gmv := gmvOf(t, db, source); gmv != 100 {
+			t.Fatalf("legacy confirmation changed source data: gmv=%v", gmv)
+		}
+		if _, exists := data["rows_affected"]; exists {
+			t.Fatal("rejected legacy confirmation cannot report committed rows")
+		}
+		var successes int64
+		if err := db.Model(&mysqlrepo.OperationAuditModel{}).
+			Where("tenant_id = ? AND idempotency_key = ? AND status = ?", 991, key, operations.StatusSuccess).
+			Count(&successes).Error; err != nil {
+			t.Fatal(err)
+		}
+		if successes != 0 {
+			t.Fatal("legacy confirmation wrote a false success audit")
+		}
+		w, data = callConfirmIT(t, h, map[string]interface{}{
+			"pending_action_id": action.ID, "token": action.Token, "session_id": "sess-cf-it",
+		})
+		if w.Code != http.StatusOK || data["status"] != "expired" {
+			t.Fatalf("legacy token must be consumed: code=%d body=%s", w.Code, w.Body.String())
+		}
 	}
 }
 

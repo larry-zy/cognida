@@ -27,6 +27,22 @@ func (s *Service) ValidateGovernedFeature(ctx context.Context, p l.Principal, id
 	return port.ValidateFeatureVersion(ctx, p, id, version, source.String())
 }
 func (s *Service) runGovernedFeature(ctx context.Context, record *d.Record, state d.GovernedExecution) error {
+	// A persisted job is checked before source authorization, preserving recovery
+	// of real partial commits even after withdrawal of the source permission.
+	if jobs, err := s.featureJobs(); err == nil {
+		existing, err := jobs.FindFeatureJobByKey(ctx, record.TenantID, record.UserID, "governed-job:"+record.ID)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			return s.runGovernedFeatureJob(ctx, record, state)
+		}
+	}
+	embedding, err := s.isEmbeddingFeature(ctx, l.Principal{TenantID: record.TenantID, UserID: record.UserID}, state.Invocation.FeatureID, state.Invocation.FeatureVersion)
+	if err == nil && embedding {
+		return s.runGovernedFeatureJob(ctx, record, state)
+	}
+
 	port, ok := any(s).(governedFeatures)
 	if !ok {
 		return d.ErrInvalid

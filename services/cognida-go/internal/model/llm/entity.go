@@ -85,6 +85,9 @@ func Float64Ptr(v float64) *float64 { return &v }
 // 用 float64 无法区分「未设置」与「显式 0」，会让确定性采样（temperature:0，评测/裁判需要）
 // 被 `> 0` 守卫静默丢弃回落 provider 默认（常 0.7）；改指针后显式 0 得以如实下传。
 type ChatOptions struct {
+	// BoundedJSONOutput is an internal, per-request structured-output hint.
+	// HTTP callers cannot enable it by supplying chat JSON. Unsupported providers ignore it.
+	BoundedJSONOutput bool `json:"-"`
 	Temperature     *float64              `json:"temperature,omitempty"`
 	MaxTokens       int                   `json:"max_tokens,omitempty"`
 	TopP            *float64              `json:"top_p,omitempty"`

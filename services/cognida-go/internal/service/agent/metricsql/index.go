@@ -337,6 +337,9 @@ func sanitizeIdent(s string) string {
 // quoteIdent 按方言包裹标识符（表名/列别名）：PostgreSQL 用双引号，其余（MySQL/空）
 // 用反引号；同引号字符按各自规则内部转义（双写）。
 func quoteIdent(dialect Dialect, s string) string {
+	if dialect == DialectBigQuery {
+		return "`" + escapeGoogleSQL(s, '`') + "`"
+	}
 	if dialect == DialectPostgres {
 		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 	}
@@ -379,6 +382,48 @@ func validGrain(g TimeGrain) bool {
 // GROUP BY，保证分组键与展示列一致）。方言差异：MySQL 用 DATE_FORMAT/QUARTER，
 // PostgreSQL 用 TO_CHAR。expr 为已限定表别名的时间列表达式。
 func grainExpr(dialect Dialect, expr string, g TimeGrain) string {
+	// GoogleSQL FORMAT_DATE uses ISO week-year %G/%V and quarter %Q. Casting a
+	// TIMESTAMP to DATE uses UTC; this engine exposes no implicit local timezone.
+	// https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/format-elements
+	if dialect == DialectBigQuery {
+		formats := map[TimeGrain]string{GrainDay: "%Y-%m-%d", GrainWeek: "%G-W%V", GrainMonth: "%Y-%m", GrainQuarter: "%Y-Q%Q", GrainYear: "%Y"}
+		if format, ok := formats[g]; ok {
+			return fmt.Sprintf("FORMAT_DATE('%s', CAST(%s AS DATE))", format, expr)
+		}
+		return expr
+	}
+
+	if dialect == DialectHive {
+		switch g {
+		case GrainDay:
+			return fmt.Sprintf("date_format(%s, 'yyyy-MM-dd')", expr)
+		case GrainMonth:
+			return fmt.Sprintf("date_format(%s, 'yyyy-MM')", expr)
+		case GrainYear:
+			return fmt.Sprintf("date_format(%s, 'yyyy')", expr)
+		case GrainQuarter:
+			return fmt.Sprintf("concat(cast(year(%s) as string), '-Q', cast(quarter(%s) as string))", expr, expr)
+		case GrainWeek:
+			return fmt.Sprintf("cast(date_sub(next_day(cast(%s as date), 'MON'), 7) as string)", expr)
+		}
+		return expr
+	}
+
+	if dialect == DialectClickHouse {
+		switch g {
+		case GrainDay:
+			return fmt.Sprintf("formatDateTime(%s, '%%Y-%%m-%%d')", expr)
+		case GrainWeek:
+			return fmt.Sprintf("formatDateTime(%s, '%%G-W%%V')", expr)
+		case GrainMonth:
+			return fmt.Sprintf("formatDateTime(%s, '%%Y-%%m')", expr)
+		case GrainQuarter:
+			return fmt.Sprintf("concat(toString(toYear(%s)), '-Q', toString(toQuarter(%s)))", expr, expr)
+		case GrainYear:
+			return fmt.Sprintf("formatDateTime(%s, '%%Y')", expr)
+		}
+		return expr
+	}
 	if dialect == DialectPostgres {
 		switch g {
 		case GrainDay:
@@ -410,3 +455,22 @@ func grainExpr(dialect Dialect, expr string, g TimeGrain) string {
 	}
 	return expr
 }
+
+// GoogleSQL uses backslash escapes for both quoted identifiers and literals.
+// https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/lexical
+func escapeGoogleSQL(value string, quote rune) string {
+	var out strings.Builder
+	for _, r := range value {
+		switch {
+		case r == '\\' || r == quote:
+			out.WriteRune('\\')
+			out.WriteRune(r)
+		case r < 32 || r == 127:
+			fmt.Fprintf(&out, "\\x%02x", r)
+		default:
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+func bigQueryLiteral(value string) string { return "'" + escapeGoogleSQL(value, '\'') + "'" }

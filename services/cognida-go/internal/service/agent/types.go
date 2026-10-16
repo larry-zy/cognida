@@ -115,31 +115,39 @@ type DeepResearchOptions struct {
 
 // DeepResearchResponse 深度研究响应
 type DeepResearchResponse struct {
-	SessionID        string                  `json:"session_id,omitempty"`
-	SubQuestions     []string                `json:"sub_questions"`
-	Warnings         []string                `json:"warnings,omitempty"`
-	CitationChecks   []ResearchCitationCheck `json:"citation_checks,omitempty"`
-	Query            string                  `json:"query"`
-	ExecutiveSummary string                  `json:"executive_summary"`
-	DetailedAnalysis string                  `json:"detailed_analysis"`
-	KeyFindings      []string                `json:"key_findings"`
-	Sources          []ReportSourceDTO       `json:"sources"`
-	VerifiedFacts    []*ValidationResultDTO  `json:"verified_facts,omitempty"`
-	Metadata         ReportMetadataDTO       `json:"metadata"`
-	Success          bool                    `json:"success"`
-	Error            string                  `json:"error,omitempty"`
+	Claims           []ResearchClaim          `json:"claims,omitempty"`
+	ReviewHistory    []ResearchReviewSnapshot `json:"review_history,omitempty"`
+	Unverified       []string                 `json:"unverified,omitempty"`
+	SessionID        string                   `json:"session_id,omitempty"`
+	SubQuestions     []string                 `json:"sub_questions"`
+	Warnings         []string                 `json:"warnings,omitempty"`
+	CitationChecks   []ResearchCitationCheck  `json:"citation_checks,omitempty"`
+	Query            string                   `json:"query"`
+	ExecutiveSummary string                   `json:"executive_summary"`
+	DetailedAnalysis string                   `json:"detailed_analysis"`
+	KeyFindings      []string                 `json:"key_findings"`
+	Sources          []ReportSourceDTO        `json:"sources"`
+	VerifiedFacts    []*ValidationResultDTO   `json:"verified_facts,omitempty"`
+	Metadata         ReportMetadataDTO        `json:"metadata"`
+	Success          bool                     `json:"success"`
+	Error            string                   `json:"error,omitempty"`
 }
 
 // ReportSourceDTO 报告来源DTO
 type ReportSourceDTO struct {
-	ID              string `json:"id"`
-	KnowledgeBaseID string `json:"knowledge_base_id,omitempty"`
-	KnowledgeID     string `json:"knowledge_id,omitempty"`
-	ChunkID         string `json:"chunk_id,omitempty"`
-	Type            string `json:"type"`
-	Title           string `json:"title"`
-	URL             string `json:"url"`
-	Excerpt         string `json:"excerpt"`
+	ContentDigest     string `json:"content_digest,omitempty"`
+	AcquiredAt        string `json:"acquired_at,omitempty"`
+	IndependenceGroup string `json:"independence_group,omitempty"`
+	IndependenceBasis string `json:"independence_basis,omitempty"`
+	Invalidated       bool   `json:"invalidated,omitempty"`
+	ID                string `json:"id"`
+	KnowledgeBaseID   string `json:"knowledge_base_id,omitempty"`
+	KnowledgeID       string `json:"knowledge_id,omitempty"`
+	ChunkID           string `json:"chunk_id,omitempty"`
+	Type              string `json:"type"`
+	Title             string `json:"title"`
+	URL               string `json:"url"`
+	Excerpt           string `json:"excerpt"`
 }
 
 // ValidationResultDTO 验证结果DTO
@@ -174,15 +182,27 @@ type ValidationSourceDTO struct {
 
 // ReportMetadataDTO 报告元数据DTO
 type ReportMetadataDTO struct {
-	Partial           bool   `json:"partial"`
-	CitationChecked   bool   `json:"citation_checked"`
-	VerificationLimit string `json:"verification_limit,omitempty"`
-	SubQuestionCount  int    `json:"sub_question_count"`
-	TotalSources      int    `json:"total_sources"`
-	ExecutionTimeMs   int64  `json:"execution_time_ms"`
-	FactChecked       bool   `json:"fact_checked"`
-	VerifiedFactCount int    `json:"verified_fact_count"`
-	Timestamp         int64  `json:"timestamp"`
+	Failure                      *ResearchFailureDTO     `json:"failure,omitempty"`
+	CallsUsed                    int                     `json:"calls_used"`
+	ModelCallsUsed               int                     `json:"model_calls_used"`
+	CallsReserved                int                     `json:"calls_reserved,omitempty"`
+	ModelCallsReserved           int                     `json:"model_calls_reserved,omitempty"`
+	DraftRepair                  *ResearchDraftRepairDTO `json:"draft_repair,omitempty"`
+	SupplementalSkippedReason    string                  `json:"supplemental_skipped_reason,omitempty"`
+	ReviewRounds                 int                     `json:"review_rounds"`
+	SemanticReview               bool                    `json:"semantic_review"`
+	ReviewedSourceIDs            []string                `json:"reviewed_source_ids,omitempty"`
+	UnreviewedSourceIDs          []string                `json:"unreviewed_source_ids,omitempty"`
+	SupplementalReviewIncomplete bool                    `json:"supplemental_review_incomplete,omitempty"`
+	Partial                      bool                    `json:"partial"`
+	CitationChecked              bool                    `json:"citation_checked"`
+	VerificationLimit            string                  `json:"verification_limit,omitempty"`
+	SubQuestionCount             int                     `json:"sub_question_count"`
+	TotalSources                 int                     `json:"total_sources"`
+	ExecutionTimeMs              int64                   `json:"execution_time_ms"`
+	FactChecked                  bool                    `json:"fact_checked"`
+	VerifiedFactCount            int                     `json:"verified_fact_count"`
+	Timestamp                    int64                   `json:"timestamp"`
 }
 
 // ========================================

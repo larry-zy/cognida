@@ -61,10 +61,13 @@ func (s *Service) CreateDraft(ctx context.Context, p d.Scope, in DraftInput, key
 		return nil, e
 	}
 	in.Goal = strings.TrimSpace(in.Goal)
-	if !utf8.ValidString(in.Goal) || utf8.RuneCountInString(in.Goal) < 1 || utf8.RuneCountInString(in.Goal) > 4000 || !validBudget(in.Budget) || len(in.InputRefs) < 1 || len(in.InputRefs) > 64 || strings.TrimSpace(key) == "" || len(key) > 100 {
+	if !utf8.ValidString(in.Goal) || utf8.RuneCountInString(in.Goal) < 1 || utf8.RuneCountInString(in.Goal) > 4000 || !validBudget(in.Budget) || len(in.InputRefs) > 64 || strings.TrimSpace(key) == "" || len(key) > 100 {
 		return nil, d.ErrInvalid
 	}
 	seen := map[string]bool{}
+	if in.InputRefs == nil {
+		in.InputRefs = []l.RefID{}
+	}
 	for _, ref := range in.InputRefs {
 		if e := ref.Validate(); e != nil || seen[ref.String()] {
 			return nil, d.ErrInvalid

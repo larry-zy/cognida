@@ -83,11 +83,14 @@ type PolicySnapshot struct {
 	Version     string   `json:"version"`
 }
 type Provenance struct {
-	SourceType string `json:"source_type"`
-	SourceID   string `json:"source_id,omitempty"`
-	URI        string `json:"uri,omitempty"`
-	Digest     string `json:"digest"`
-	RequestID  string `json:"request_id,omitempty"`
+	SourceType    string          `json:"source_type"`
+	SourceID      string          `json:"source_id,omitempty"`
+	URI           string          `json:"uri,omitempty"`
+	Digest        string          `json:"digest"`
+	RequestID     string          `json:"request_id,omitempty"`
+	AccessRequest json.RawMessage `json:"access_request,omitempty"`
+	SourceVersion string          `json:"source_version,omitempty"`
+	SourceOwnerID int64           `json:"source_owner_id,omitempty"`
 }
 type DataAssetRef struct {
 	RefID

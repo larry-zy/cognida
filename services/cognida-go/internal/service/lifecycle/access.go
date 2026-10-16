@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	ds "cognida/internal/model/datasource"
 	d "cognida/internal/model/lifecycle"
 	"context"
 	"encoding/json"
@@ -38,7 +39,7 @@ func (s *Service) acquire(ctx context.Context, p d.Principal, source SourceReque
 	if s.config.Access == nil {
 		return d.DataAssetRef{}, fmt.Errorf("external asset resolver unavailable")
 	}
-	input, origin, policy, e := s.config.Access(ctx, p, source)
+	input, origin, policy, e := s.config.Access(ds.WithQueryIdentity(ctx, p.UserID, "lifecycle-source:"+key), p, source)
 	if e != nil {
 		return d.DataAssetRef{}, e
 	}
@@ -53,7 +54,12 @@ func (s *Service) acquire(ctx context.Context, p d.Principal, source SourceReque
 		return d.DataAssetRef{}, e
 	}
 	producer := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("access/%d/%s", p.TenantID, key))).String()
-	return s.importPayload(ctx, p, d.RawAsset, producer, nil, body, policy, name, origin)
+	origin.AccessRequest, e = json.Marshal(source)
+	if e != nil {
+		return d.DataAssetRef{}, e
+	}
+	origin.SourceOwnerID = p.UserID
+	return s.importPayload(ctx, p, d.RawAsset, "access:"+producer, nil, body, policy, name, origin)
 }
 
 // ImportWithKey gives HTTP ingestion stable replay semantics while Import

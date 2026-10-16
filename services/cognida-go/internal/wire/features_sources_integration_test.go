@@ -5,6 +5,8 @@ package wire
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -28,6 +30,7 @@ import (
 	"cognida/internal/service/catalog"
 	"cognida/internal/service/collection/fetcher"
 	"cognida/internal/service/datasource"
+	"cognida/internal/service/evaluation"
 	"cognida/internal/service/lifecycle"
 
 	"github.com/gin-gonic/gin"
@@ -54,16 +57,20 @@ func (sourceHTTPFetcher) Fetch(_ context.Context, req collectionmodel.FetchReque
 }
 
 type sourceHTTPFixture struct {
-	db      *gorm.DB
-	router  *gin.Engine
-	objects *localstore.LocalStore
-	results *resultstore.RedisStore
-	redis   *redis.Client
-	owner   l.Principal
-	peer    l.Principal
-	other   l.Principal
-	dsID    string
-	table   string
+	db          *gorm.DB
+	router      *gin.Engine
+	life        *lifecycle.Service
+	objects     *localstore.LocalStore
+	results     *resultstore.RedisStore
+	redis       *redis.Client
+	owner       l.Principal
+	peer        l.Principal
+	other       l.Principal
+	dsID        string
+	table       string
+	sources     *datasource.Service
+	evaluations *evaluation.Service
+	features    *FeatureServices
 }
 
 func newSourceHTTPFixture(t *testing.T) *sourceHTTPFixture {
@@ -94,7 +101,7 @@ func newSourceHTTPFixture(t *testing.T) *sourceHTTPFixture {
 		if len(taskIDs) > 0 {
 			require.NoError(t, db.Where("task_id IN ?", taskIDs).Delete(&mysql.EvaluationResultModel{}).Error)
 		}
-		for _, table := range []string{"lifecycle_assets", "evaluation_tasks", "collection_items", "collection_runs", "collection_tasks", "sessions", "chunks", "knowledge", "knowledge_bases", "data_sources", "tenant_users", "users"} {
+		for _, table := range []string{"evaluation_dataset_versions", "evaluation_dataset_heads", "asset_column", "asset_table", "lifecycle_assets", "evaluation_tasks", "collection_items", "collection_runs", "collection_tasks", "sessions", "chunks", "knowledge", "knowledge_bases", "data_sources", "tenant_users", "users"} {
 			require.NoError(t, db.Table(table).Where("tenant_id IN ?", []int64{tenant, tenant + 1}).Delete(map[string]any{}).Error)
 		}
 		require.NoError(t, db.Where("id IN ?", []int64{tenant, tenant + 1}).Delete(&mysql.TenantModel{}).Error)
@@ -123,14 +130,23 @@ func newSourceHTTPFixture(t *testing.T) *sourceHTTPFixture {
 	manager := datasource.NewConnectionManager(sourceRepo, cipher, datasource.DefaultPoolOptions())
 	t.Cleanup(manager.Close)
 	sources := datasource.NewService(sourceRepo, cipher, manager, nil)
+	f.sources = sources
+	f.features = &FeatureServices{}
+	f.evaluations = evaluation.NewService(nil, mysql.NewEvaluationTaskRepository(db), mysql.NewEvaluationResultRepository(db), nil, nil, nil)
+	f.features.evaluationSourceRead = f.evaluations.AuthorizeTask
 	catalogService := catalog.NewService(mysql.NewCatalogRepository(db), manager, sources, nil)
 	require.NoError(t, db.Exec("CREATE TABLE `"+f.table+"` (region VARCHAR(32) NOT NULL, amount DECIMAL(12,2) NOT NULL)").Error)
 	require.NoError(t, db.Exec("INSERT INTO `"+f.table+"` (region, amount) VALUES (?, ?)", "north", "123.45").Error)
 	// No run/invocation is enqueued, but isolate even the queue namespace from a
 	// concurrently running test application worker.
 	queue := job.NewRedisQueueWithPrefix(client, "source-http:"+uuid.NewString())
-	service, err := lifecycle.NewService(mysql.NewLifecycleRepository(db), objects, queue, lifecycle.Config{Authorize: featureAuthorizer(db), Access: featureAccess(db, sources, catalogService, sourceHTTPFetcher{}, objects, f.results)})
+	service, err := lifecycle.NewService(mysql.NewLifecycleRepository(db), objects, queue, lifecycle.Config{Authorize: featureAuthorizer(db), Access: featureAccess(db, sources, catalogService, sourceHTTPFetcher{}, objects, sources.GuardResults(f.results), f.features.authorizeEvaluationSource), ValidateGovernedOrigin: func(ctx context.Context, p l.Principal, ref l.DataAssetRef) error {
+		return validateFeatureSourceOrigin(ctx, db, sources, sources.GuardResults(f.results), p, ref, f.features.authorizeEvaluationSource)
+	}})
 	require.NoError(t, err)
+	f.life = service
+	versions := evaluation.NewVersionService(mysql.NewDatasetVersionRepository(db), nil, service, nil)
+	f.evaluations.WithSnapshots(evaluation.NewSnapshotService(versions, nil, nil))
 	f.router = gin.New()
 	f.router.Use(func(c *gin.Context) {
 		p := f.owner
@@ -208,6 +224,29 @@ func (f *sourceHTTPFixture) knowledge(t *testing.T) (string, string, string) {
 	return kbID, docID, chunkID
 }
 
+func TestKnowledgeSourceEditInvalidatesSnapshotAndReport(t *testing.T) {
+	f := newSourceHTTPFixture(t)
+	_, doc, chunk := f.knowledge(t)
+	w := f.request(t, http.MethodPost, "/lifecycle/assets", &lifecycle.SourceRequest{Kind: "knowledge", KnowledgeID: doc}, uuid.NewString(), "")
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var created struct {
+		Data l.DataAssetRef `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	report, err := f.life.ImportDerived(context.Background(), f.owner, l.Insight, "source-edit-test", []l.RefID{created.Data.RefID}, json.RawMessage(`{"record_count":1}`), created.Data.Policy)
+	require.NoError(t, err)
+	for _, ref := range []l.DataAssetRef{created.Data, report} {
+		require.Equal(t, http.StatusOK, f.request(t, http.MethodGet, fmt.Sprintf("/lifecycle/assets/%s?version=%d", ref.AssetID, ref.Version), nil, "", "").Code)
+	}
+	require.NoError(t, f.db.Model(&mysql.ChunkModel{}).Where("id=?", chunk).Update("content", "Corrected source body").Error)
+	for _, ref := range []l.DataAssetRef{created.Data, report} {
+		require.Equal(t, http.StatusForbidden, f.request(t, http.MethodGet, fmt.Sprintf("/lifecycle/assets/%s?version=%d", ref.AssetID, ref.Version), nil, "", "").Code)
+	}
+	// A newly acquired version is authorized against the actual updated body.
+	input := f.acquire(t, lifecycle.SourceRequest{Kind: "knowledge", KnowledgeID: doc}, doc)
+	require.Equal(t, "Corrected source body\n", input.Text)
+}
+
 func TestFeatureSourcesHTTPIntegration(t *testing.T) {
 	f := newSourceHTTPFixture(t)
 	t.Run("web controlled response normalization", func(t *testing.T) {
@@ -266,16 +305,17 @@ func TestFeatureSourcesHTTPIntegration(t *testing.T) {
 	t.Run("collection persisted normalized object", func(t *testing.T) {
 		taskID, runID, itemID, sourceID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 		body, key := "Collected normalized text\nRevenue 123.45", "source-fixture/"+itemID+".txt"
+		digest := sha256.Sum256([]byte(body))
 		_, err := f.objects.Put(context.Background(), objectstore.PutRequest{Key: key, Body: strings.NewReader(body), Size: int64(len(body)), ContentType: "text/plain"})
 		require.NoError(t, err)
 		require.NoError(t, f.db.Create(&mysql.CollectionTaskModel{ID: taskID, TenantID: f.owner.TenantID, UserID: f.owner.UserID, IdempotencyKey: uuid.NewString(), Status: "completed"}).Error)
 		require.NoError(t, f.db.Create(&mysql.CollectionSourceModel{ID: sourceID, TaskID: taskID, URL: "https://source.example/collected"}).Error)
 		require.NoError(t, f.db.Create(&mysql.CollectionRunModel{ID: runID, TenantID: f.owner.TenantID, TaskID: taskID, Status: "completed", StartedAt: time.Now()}).Error)
-		require.NoError(t, f.db.Create(&mysql.CollectionItemModel{ID: itemID, TenantID: f.owner.TenantID, TaskID: taskID, RunID: runID, SourceID: sourceID, Status: "succeeded", CanonicalURL: "https://source.example/collected", NormalizedObjectKey: key, NormalizedSize: int64(len(body))}).Error)
+		require.NoError(t, f.db.Create(&mysql.CollectionItemModel{ID: itemID, TenantID: f.owner.TenantID, TaskID: taskID, RunID: runID, SourceID: sourceID, Status: "candidate", ContentHash: hex.EncodeToString(digest[:]), CanonicalURL: "https://source.example/collected", NormalizedObjectKey: key, NormalizedSize: int64(len(body))}).Error)
 		src := lifecycle.SourceRequest{Kind: "collection", RunID: runID, ItemID: itemID}
 		in := f.acquire(t, src, itemID)
 		require.Equal(t, body, in.Text)
-		require.Equal(t, http.StatusNotFound, f.request(t, http.MethodPost, "/lifecycle/assets", &src, uuid.NewString(), "other").Code)
+		require.Equal(t, http.StatusForbidden, f.request(t, http.MethodPost, "/lifecycle/assets", &src, uuid.NewString(), "other").Code)
 	})
 	t.Run("result exact values and session owner", func(t *testing.T) {
 		sessionID := uuid.NewString()

@@ -79,6 +79,9 @@ func featureDB(t *testing.T) *featureDBFixture {
 		return nil
 	}
 	f.assets, err = lifecycle.NewService(repo.NewLifecycleRepository(db), objects, featureQueue{}, lifecycle.Config{Authorize: auth, ValidateGovernedOrigin: func(ctx context.Context, p l.Principal, ref l.DataAssetRef) error {
+		if strings.HasPrefix(ref.ProducerID, "feature-job:") {
+			return f.s.ValidateFeatureJobOrigin(ctx, p, ref)
+		}
 		return f.s.ValidateFeatureMaterializationOrigin(ctx, p, ref)
 	}})
 	require.NoError(t, err)

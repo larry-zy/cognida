@@ -82,7 +82,7 @@ func TestCollectionGetExposesPartialFailureAndDuplicateOutcome(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := gin.New()
-			router.Use(func(c *gin.Context) { c.Set("tenant_id", int64(1)); c.Next() })
+			router.Use(func(c *gin.Context) { c.Set("tenant_id", int64(1)); c.Set("user_id", int64(2)); c.Next() })
 			h := NewCollectionHandler(nil, collectionOutcomeRepo{status: tc.status, items: tc.items}, nil)
 			router.GET("/collection/:id", h.Get)
 			response := httptest.NewRecorder()
@@ -103,7 +103,7 @@ func TestCollectionGetExposesPartialFailureAndDuplicateOutcome(t *testing.T) {
 }
 
 func (r collectionReadRepo) FindTask(context.Context, int64, string) (*domain.Task, error) {
-	return &domain.Task{ID: "task", TenantID: 1}, nil
+	return &domain.Task{ID: "task", TenantID: 1, UserID: 2}, nil
 }
 func (r collectionReadRepo) ListSources(context.Context, int64, string) ([]*domain.Source, error) {
 	return []*domain.Source{}, nil
@@ -119,7 +119,7 @@ func TestCollectionGetDistinguishesAbsentRunAndDatabaseFailure(t *testing.T) {
 	}{{"no run", domain.ErrRunNotFound, http.StatusOK}, {"database failure", errors.New("database unavailable"), http.StatusInternalServerError}} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := gin.New()
-			router.Use(func(c *gin.Context) { c.Set("tenant_id", int64(1)); c.Next() })
+			router.Use(func(c *gin.Context) { c.Set("tenant_id", int64(1)); c.Set("user_id", int64(2)); c.Next() })
 			h := NewCollectionHandler(nil, collectionReadRepo{runErr: tc.err}, nil)
 			router.GET("/collection/:id", h.Get)
 			response := httptest.NewRecorder()

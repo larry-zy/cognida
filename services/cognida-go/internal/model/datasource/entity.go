@@ -17,7 +17,12 @@ const (
 	// TypeMySQL MySQL 数据源
 	TypeMySQL Type = "mysql"
 	// TypePostgres PostgreSQL 数据源
-	TypePostgres Type = "postgres"
+	TypePostgres   Type = "postgres"
+	TypeClickHouse Type = "clickhouse"
+	TypeDoris      Type = "doris"
+	TypeStarRocks  Type = "starrocks"
+	TypeHive       Type = "hive"
+	TypeBigQuery   Type = "bigquery"
 )
 
 // 数据源状态

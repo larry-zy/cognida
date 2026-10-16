@@ -92,7 +92,7 @@ func (s RunRecoverySource) PendingJobs(ctx context.Context, limit int) ([]jobinf
 			return nil, err
 		}
 		for _, task := range tasks {
-			if task == nil || (task.Status == domeval.TaskStatusRunning && time.Since(task.UpdatedAt) < MaxTaskTimeout) {
+			if task == nil || task.Type == domeval.OfflineType || (task.Status == domeval.TaskStatusRunning && time.Since(task.UpdatedAt) < MaxTaskTimeout) {
 				continue
 			}
 			if task.Status == domeval.TaskStatusRunning {

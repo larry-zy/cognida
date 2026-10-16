@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"bytes"
+	strategies "cognida/internal/service/strategy"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,13 +42,14 @@ type Config struct {
 	Templates              []d.PipelineDefinition
 }
 type Service struct {
-	repo      d.Repository
-	store     objectstore.Store
-	queue     job.Queue
-	config    Config
-	contracts map[string]d.AgentContract
-	templates map[string]d.PipelineDefinition
-	adapters  map[string]d.Adapter
+	strategies *strategies.Service
+	repo       d.Repository
+	store      objectstore.Store
+	queue      job.Queue
+	config     Config
+	contracts  map[string]d.AgentContract
+	templates  map[string]d.PipelineDefinition
+	adapters   map[string]d.Adapter
 }
 
 func NewService(repo d.Repository, store objectstore.Store, queue job.Queue, config Config) (*Service, error) {
@@ -249,6 +251,9 @@ func (s *Service) validateInputs(ctx context.Context, p d.Principal, agent strin
 	return nil
 }
 func (s *Service) Invoke(ctx context.Context, p d.Principal, agent string, refs []d.RefID, options map[string]any, key, requestID string) (*d.StageRun, error) {
+	if _, exists := options[strategyOption]; exists {
+		return nil, d.ErrInvalid
+	}
 	if e := validateKey(key); e != nil {
 		return nil, e
 	}
@@ -257,6 +262,11 @@ func (s *Service) Invoke(ctx context.Context, p d.Principal, agent string, refs 
 	}
 	if e := validateOptions(options); e != nil {
 		return nil, e
+	}
+	var strategyErr error
+	options, strategyErr = s.strategyOptions(ctx, p, agent, "invoke:"+key, options)
+	if strategyErr != nil {
+		return nil, strategyErr
 	}
 	if e := s.preflight(ctx, p, agent, refs, options); e != nil {
 		return nil, e
@@ -316,6 +326,29 @@ func (s *Service) StartRun(ctx context.Context, p d.Principal, template string, 
 	}
 	if e := validatePipelineOptions(def, opts); e != nil {
 		return nil, e
+	}
+	if s.strategies != nil {
+		detached := map[string]any{}
+		for k, v := range opts {
+			detached[k] = v
+		}
+		stages := map[string]any{}
+		if prior, ok := opts["stage_options"].(map[string]any); ok {
+			for k, v := range prior {
+				stages[k] = v
+			}
+		}
+		for _, stage := range def.Stages {
+			if stage.AgentID == "data-cleaning" {
+				fixed, e := s.strategyOptions(ctx, p, stage.AgentID, "pipeline:"+key+":"+stage.ID, stageOptions(opts, stage.ID))
+				if e != nil {
+					return nil, e
+				}
+				stages[stage.ID] = fixed
+			}
+		}
+		detached["stage_options"] = stages
+		opts = detached
 	}
 	for _, st := range def.Stages {
 		if e := s.preflight(ctx, p, st.AgentID, refs, stageOptions(opts, st.ID)); e != nil {

@@ -199,7 +199,8 @@ func (s *Service) ValidateGovernedInputs(ctx context.Context, p d.Principal, ref
 			// not an idempotency conflict that the parent should keep polling.
 			return governedSourceError(err)
 		}
-		if ref.TenantID != p.TenantID || ref.Provenance.SourceType != "lifecycle" || ref.Provenance.SourceID != ref.ProducerID {
+		accessOrigin := strings.HasPrefix(ref.ProducerID, "access:") && len(ref.Provenance.AccessRequest) > 0 && ref.Provenance.SourceOwnerID > 0
+		if ref.TenantID != p.TenantID || (!accessOrigin && (ref.Provenance.SourceType != "lifecycle" || ref.Provenance.SourceID != ref.ProducerID)) {
 			return d.ErrForbidden
 		}
 		if len(ref.Parents) == 0 && !governedOrigin(ref) {

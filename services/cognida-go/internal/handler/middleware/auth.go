@@ -132,6 +132,17 @@ func (m *TenantMiddleware) Apply() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// Carry the authenticated identity into service contexts as well as Gin.
+		// Caller-supplied headers never establish this identity.
+		tenant, tenantOK := tenantID.(int64)
+		user := c.GetInt64("user_id")
+		if !tenantOK || tenant <= 0 || user <= 0 {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "无效的租户或用户身份"})
+			return
+		}
+		ctx := agentctx.WithTenantID(c.Request.Context(), tenant)
+		ctx = agentctx.WithUserID(ctx, user)
+		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
 	}

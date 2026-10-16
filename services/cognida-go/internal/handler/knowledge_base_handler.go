@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"cognida/internal/config"
 	domain_knowledge "cognida/internal/model/knowledge"
+	lifecycle "cognida/internal/model/lifecycle"
 	app_kb "cognida/internal/service/knowledge"
 )
 
@@ -28,10 +30,23 @@ import (
 
 // KnowledgeBaseHandler 知识库处理器
 type KnowledgeBaseHandler struct {
+	consumptionGuard     func(context.Context, lifecycle.Principal, string, string) (bool, bool, error)
 	knowledgeBaseService app_kb.KnowledgeBaseService
 	documentProcessor    app_kb.DocumentProcessorService
 	retrieval            *app_kb.RetrievalCapability
 	uploadConfig         *config.UploadConfig
+}
+
+func (h *KnowledgeBaseHandler) SetKnowledgeConsumptionGuard(guard func(context.Context, lifecycle.Principal, string, string) (bool, bool, error)) {
+	h.consumptionGuard = guard
+}
+
+func (h *KnowledgeBaseHandler) canConsumeKnowledge(c *gin.Context, kb, id string) (bool, error) {
+	if h.consumptionGuard == nil {
+		return true, nil
+	}
+	managed, allowed, err := h.consumptionGuard(c.Request.Context(), lifecycle.Principal{TenantID: GetTenantID(c), UserID: GetUserID(c)}, kb, id)
+	return !managed || allowed, err
 }
 
 const maxKnowledgeFileSize = 10 * 1024 * 1024
@@ -280,6 +295,20 @@ func (h *KnowledgeBaseHandler) GetKnowledgeList(c *gin.Context) {
 	}
 
 	// 转换为响应格式
+	visible := result[:0]
+	for _, item := range result {
+		allowed, err := h.canConsumeKnowledge(c, id, item.ID)
+		if err != nil {
+			InternalError(c, "知识可见性检查失败")
+			return
+		}
+		if allowed {
+			visible = append(visible, item)
+		}
+	}
+	total -= int64(len(result) - len(visible))
+	result = visible
+
 	items := make([]map[string]interface{}, len(result))
 	for i, k := range result {
 		items[i] = map[string]interface{}{
@@ -393,6 +422,10 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
+	if err := validateKnowledgeFileFormat(fileHeader.Filename); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
 
 	// 计算文件内容哈希（SHA-256），用于防止重传相同文件
 	fileHash, err := hashUploadedFile(fileHeader)
@@ -416,7 +449,9 @@ func (h *KnowledgeBaseHandler) UploadKnowledgeFile(c *gin.Context) {
 
 	// 生成唯一的文件名
 	ext := filepath.Ext(fileHeader.Filename)
-	savedFileName := fmt.Sprintf("%d_%d_%s%s", time.Now().Unix(), userID, knowledgeBaseID[:8], ext)
+	// Concurrent uploads must never overwrite the immutable bytes used by a
+	// different document parser, including files in the same KB and second.
+	savedFileName := uuid.NewString() + ext
 	savedFilePath := filepath.Join(h.uploadConfig.UploadDir, savedFileName)
 
 	// 保存文件到磁盘
@@ -478,6 +513,19 @@ func validateKnowledgeFileSize(fileSize int64) error {
 		return fmt.Errorf("文件大小超过限制(10 MiB)")
 	}
 	return nil
+}
+
+// validateKnowledgeFileFormat only accepts formats with a real parser. Legacy
+// Office binaries require conversion rather than silently relabeling bytes.
+func validateKnowledgeFileFormat(name string) error {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".txt", ".md", ".markdown", ".pdf", ".docx", ".xlsx", ".csv", ".html", ".htm", ".pptx":
+		return nil
+	case ".doc", ".xls", ".ppt":
+		return fmt.Errorf("旧版 Office 文档请先转换为 DOCX、XLSX 或 PPTX")
+	default:
+		return fmt.Errorf("不支持此文件格式；支持 TXT、Markdown、可提取文本的 PDF、DOCX、XLSX、CSV、HTML 和 PPTX")
+	}
 }
 
 // CheckKnowledgeFile 预检文件是否已存在于知识库（防止重传相同文件）
@@ -675,6 +723,11 @@ func (h *KnowledgeBaseHandler) GetKnowledgeDetail(c *gin.Context) {
 		return
 	}
 
+	if allowed, err := h.canConsumeKnowledge(c, knowledgeBaseID, knowledgeID); err != nil || !allowed {
+		NotFound(c, "知识内容不可用")
+		return
+	}
+
 	OK(c, map[string]interface{}{
 		"id":            knowledge.ID,
 		"kb_id":         knowledge.KnowledgeBaseID,
@@ -725,6 +778,11 @@ func (h *KnowledgeBaseHandler) GetKnowledgeStatus(c *gin.Context) {
 		return
 	}
 
+	if allowed, err := h.canConsumeKnowledge(c, knowledgeBaseID, knowledgeID); err != nil || !allowed {
+		NotFound(c, "知识内容不可用")
+		return
+	}
+
 	OK(c, map[string]interface{}{
 		"knowledge_id":  knowledge.ID,
 		"parse_status":  knowledge.ParseStatus,
@@ -760,6 +818,20 @@ func (h *KnowledgeBaseHandler) GetPendingKnowledgeList(c *gin.Context) {
 		InternalError(c, err.Error())
 		return
 	}
+
+	visible := result[:0]
+	for _, item := range result {
+		allowed, err := h.canConsumeKnowledge(c, knowledgeBaseID, item.ID)
+		if err != nil {
+			InternalError(c, "知识可见性检查失败")
+			return
+		}
+		if allowed {
+			visible = append(visible, item)
+		}
+	}
+	total -= int64(len(result) - len(visible))
+	result = visible
 
 	items := make([]map[string]interface{}, len(result))
 	for i, k := range result {
@@ -816,6 +888,20 @@ func (h *KnowledgeBaseHandler) GetChunks(c *gin.Context) {
 	}
 
 	// 转换为响应格式
+	visible := chunks[:0]
+	for _, item := range chunks {
+		allowed, err := h.canConsumeKnowledge(c, knowledgeBaseID, item.KnowledgeID)
+		if err != nil {
+			InternalError(c, "知识可见性检查失败")
+			return
+		}
+		if allowed {
+			visible = append(visible, item)
+		}
+	}
+	total -= int64(len(chunks) - len(visible))
+	chunks = visible
+
 	items := make([]map[string]interface{}, len(chunks))
 	for i, chunk := range chunks {
 		items[i] = map[string]interface{}{
@@ -861,6 +947,11 @@ func (h *KnowledgeBaseHandler) GetChunkDetail(c *gin.Context) {
 	chunk, err := h.knowledgeBaseService.GetChunkDetail(c.Request.Context(), knowledgeBaseID, GetTenantID(c), chunkID)
 	if err != nil {
 		NotFound(c, err.Error())
+		return
+	}
+
+	if allowed, err := h.canConsumeKnowledge(c, knowledgeBaseID, chunk.KnowledgeID); err != nil || !allowed {
+		NotFound(c, "知识内容不可用")
 		return
 	}
 
@@ -970,6 +1061,7 @@ func (h *KnowledgeBaseHandler) DeleteChunk(c *gin.Context) {
 // @Router /api/v1/knowledge/search [post]
 func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 	var req struct {
+		AppliedLabels    []string `json:"applied_labels"`
 		KnowledgeBaseIDs []string `json:"kb_ids" binding:"required"`
 		Query            string   `json:"query" binding:"required"`
 		TopK             int      `json:"top_k"`
@@ -996,11 +1088,12 @@ func (h *KnowledgeBaseHandler) SearchKnowledge(c *gin.Context) {
 	kbIDs := h.knowledgeBaseService.FilterAccessibleKBIDs(c.Request.Context(), req.KnowledgeBaseIDs, tenantID)
 
 	result, err := h.retrieval.Retrieve(c.Request.Context(), tenantID, kbIDs, app_kb.GovernedQuery{
-		Query:        req.Query,
-		Mode:         req.RetrievalMode,
-		TopK:         req.TopK,
-		MinScore:     req.MinScore,
-		EnableRerank: req.EnableRerank,
+		AppliedLabels: req.AppliedLabels,
+		Query:         req.Query,
+		Mode:          req.RetrievalMode,
+		TopK:          req.TopK,
+		MinScore:      req.MinScore,
+		EnableRerank:  req.EnableRerank,
 	})
 	if err != nil {
 		InternalError(c, err.Error())

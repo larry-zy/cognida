@@ -52,8 +52,13 @@ const (
 type Dialect string
 
 const (
-	DialectMySQL    Dialect = "mysql"
-	DialectPostgres Dialect = "postgres"
+	DialectMySQL      Dialect = "mysql"
+	DialectPostgres   Dialect = "postgres"
+	DialectClickHouse Dialect = "clickhouse"
+	DialectDoris      Dialect = "doris"
+	DialectStarRocks  Dialect = "starrocks"
+	DialectHive       Dialect = "hive"
+	DialectBigQuery   Dialect = "bigquery"
 )
 
 // Filter 是一条过滤条件，Field 为维度语义名（含同义词），Op 取算子白名单。
@@ -137,6 +142,9 @@ func Build(bundle *semantic.ModelBundle, q Query, observers ...Observer) (*Resul
 			uncovered = append(uncovered, name)
 			continue
 		}
+		if q.Dialect == DialectBigQuery && q.TimeGrain != "" && strings.EqualFold(d.DataType, "time") {
+			return nil, fmt.Errorf("metricsql: calendar grains require DATE, DATETIME or TIMESTAMP, not TIME")
+		}
 		item := selectItem{alias: d.Name, expr: qualify(idx, d.LogicalTableID, d.Expr), tableID: d.LogicalTableID, isDim: true, isTime: isTimeType(d.DataType)}
 		if item.isTime {
 			selectedTime = true
@@ -194,6 +202,9 @@ func Build(bundle *semantic.ModelBundle, q Query, observers ...Observer) (*Resul
 			dial := q.Dialect
 			if !selectedTime {
 				if d := idx.primaryTimeDimension(); d != nil {
+					if q.Dialect == DialectBigQuery && q.TimeGrain != "" && strings.EqualFold(d.DataType, "time") {
+						return nil, fmt.Errorf("metricsql: calendar grains require DATE, DATETIME or TIMESTAMP, not TIME")
+					}
 					item := selectItem{alias: d.Name, expr: qualify(idx, d.LogicalTableID, d.Expr), tableID: d.LogicalTableID, isDim: true, isTime: true}
 					if item.tableID != "" {
 						needed[item.tableID] = struct{}{}
@@ -321,7 +332,7 @@ func assemble(dialect Dialect, dims, metrics []selectItem, fromSQL string, filte
 	sb.WriteString(" FROM ")
 	sb.WriteString(fromSQL)
 
-	if where := buildWhere(filters); where != "" {
+	if where := buildWhere(filters, dialect); where != "" {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(where)
 	}
@@ -347,7 +358,11 @@ func assemble(dialect Dialect, dims, metrics []selectItem, fromSQL string, filte
 }
 
 // buildWhere 拼装 WHERE 子句（值经转义，算子受白名单约束）。
-func buildWhere(filters []genericFilter) string {
+func buildWhere(filters []genericFilter, dialects ...Dialect) string {
+	literal := sqlLiteral
+	if len(dialects) > 0 && dialects[0] == DialectBigQuery {
+		literal = bigQueryLiteral
+	}
 	if len(filters) == 0 {
 		return ""
 	}
@@ -360,19 +375,19 @@ func buildWhere(filters []genericFilter) string {
 			}
 			quoted := make([]string, 0, len(f.vals))
 			for _, v := range f.vals {
-				quoted = append(quoted, sqlLiteral(v))
+				quoted = append(quoted, literal(v))
 			}
 			parts = append(parts, fmt.Sprintf("%s IN (%s)", f.expr, strings.Join(quoted, ", ")))
 		case OpLike:
 			if len(f.vals) == 0 {
 				continue
 			}
-			parts = append(parts, fmt.Sprintf("%s LIKE %s", f.expr, sqlLiteral(f.vals[0])))
+			parts = append(parts, fmt.Sprintf("%s LIKE %s", f.expr, literal(f.vals[0])))
 		default:
 			if len(f.vals) == 0 {
 				continue
 			}
-			parts = append(parts, fmt.Sprintf("%s %s %s", f.expr, string(f.op), sqlLiteral(f.vals[0])))
+			parts = append(parts, fmt.Sprintf("%s %s %s", f.expr, string(f.op), literal(f.vals[0])))
 		}
 	}
 	return strings.Join(parts, " AND ")

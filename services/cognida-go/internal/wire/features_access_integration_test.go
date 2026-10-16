@@ -77,7 +77,7 @@ func TestFeatureAccessIntegrationSensitiveCatalogBeforeSampling(t *testing.T) {
 	asset, err := catalogRepo.Get(ctx, tenant, assetID)
 	require.NoError(t, err)
 	require.Len(t, asset.Columns, 1)
-	access := featureAccess(db, service, catalog.NewService(catalogRepo, manager, service, nil), nil, nil, nil)
+	access := featureAccess(db, service, catalog.NewService(catalogRepo, manager, service, nil), nil, nil, nil, nil)
 	req := lifecycle.SourceRequest{Kind: "datasource", DatasourceID: source.ID, Table: table} // deliberately omit CatalogAssetID
 	// The physical table does not exist yet: ErrForbidden rather than a SQL error
 	// proves authorization is performed before SampleRecords executes its SELECT.

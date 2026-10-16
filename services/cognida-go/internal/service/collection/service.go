@@ -15,18 +15,21 @@ import (
 	"github.com/google/uuid"
 
 	domain "cognida/internal/model/collection"
+	l "cognida/internal/model/lifecycle"
 	"cognida/internal/model/objectstore"
 )
 
 // Service is an in-process asynchronous Runner. Durable task/run/item state,
 // rather than its goroutines, is the source of truth exposed by the API.
 type Service struct {
-	repository domain.Repository
-	fetcher    domain.Fetcher
-	ingestor   domain.DocumentIngestor
-	normalize  Normalizer
-	artifacts  objectstore.Store
-	submitter  interface {
+	governedAssets    GovernedAssets
+	governedAuthorize func(context.Context, l.Principal) error
+	repository        domain.Repository
+	fetcher           domain.Fetcher
+	ingestor          domain.DocumentIngestor
+	normalize         Normalizer
+	artifacts         objectstore.Store
+	submitter         interface {
 		Submit(context.Context, *domain.Run) error
 	}
 
@@ -52,15 +55,19 @@ func (s *Service) SetRunSubmitter(submitter interface {
 }
 
 func (s *Service) Create(ctx context.Context, task *domain.Task, sources []*domain.Source) (*domain.Task, error) {
+	if task == nil || task.TenantID <= 0 || task.UserID <= 0 {
+		return nil, domain.ErrInvalidTask
+	}
+	task.Mode = "candidate"
 	if existing, err := s.repository.FindTaskByIdempotencyKey(ctx, task.TenantID, task.IdempotencyKey); err == nil {
-		return existing, nil
+		return s.sameCreate(ctx, existing, task, sources)
 	} else if !errors.Is(err, domain.ErrTaskNotFound) {
 		return nil, err
 	}
 	if err := s.repository.CreateTask(ctx, task, sources); err != nil {
 		// Another request may have committed this key after our initial read.
 		if existing, lookupErr := s.repository.FindTaskByIdempotencyKey(ctx, task.TenantID, task.IdempotencyKey); lookupErr == nil {
-			return existing, nil
+			return s.sameCreate(ctx, existing, task, sources)
 		}
 		return nil, err
 	}
@@ -73,6 +80,9 @@ func (s *Service) Start(ctx context.Context, tenantID int64, taskID string) erro
 	task, err := s.repository.FindTask(ctx, tenantID, taskID)
 	if err != nil {
 		return err
+	}
+	if task.Mode == domain.SnapshotMode {
+		return domain.ErrInvalidTransition
 	}
 	if task.Status == domain.TaskStatusRunning {
 		active, activeErr := s.repository.FindActiveRun(ctx, tenantID, taskID)
@@ -174,6 +184,9 @@ func (s *Service) Cancel(ctx context.Context, tenantID int64, taskID string) err
 // execute returns persistence failures to the durable dispatcher, which can
 // retry from the already committed per-source outcomes.
 func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Run) error {
+	if run.Governed != nil {
+		return s.executeGoverned(ctx, task, run)
+	}
 	defer func() { s.mu.Lock(); delete(s.cancels, run.ID); s.mu.Unlock() }()
 	sources, err := s.repository.ListSources(ctx, task.TenantID, task.ID)
 	if err != nil {
@@ -187,7 +200,6 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 	for _, item := range previous {
 		bySource[item.SourceID] = item
 	}
-	seen := make(map[string]string, len(sources))
 	for _, source := range sources {
 		cancelled, err := s.cancelled(ctx, task)
 		if err != nil {
@@ -201,9 +213,6 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 		}
 		item := bySource[source.ID]
 		if item != nil && item.Status != domain.ItemStatusPending {
-			if item.Status == domain.ItemStatusAccepted {
-				seen[item.ContentHash] = item.KnowledgeID
-			}
 			continue
 		}
 		if item == nil {
@@ -251,37 +260,22 @@ func (s *Service) execute(ctx context.Context, task *domain.Task, run *domain.Ru
 				if err := s.persistNormalized(ctx, item, content); err != nil {
 					return err
 				}
-				var targetErr error
-				if validator, ok := s.ingestor.(domain.TargetValidator); ok {
-					targetErr = validator.ValidateTarget(ctx, task.TenantID, task.KnowledgeBaseID)
+				// Every new/replayed source is a candidate. This worker has no
+				// authority to publish knowledge, including old task modes.
+				if s.artifacts == nil || item.NormalizedObjectKey == "" {
+					return fmt.Errorf("%w: candidate store unavailable", errArtifact)
 				}
-				if targetErr != nil {
-					item.Status, item.ErrorReason = domain.ItemStatusFailed, targetErr.Error()
-				} else {
-					knowledgeID, duplicate := seen[item.ContentHash]
-					if !duplicate {
-						accepted, err := s.repository.FindAcceptedContent(ctx, task.TenantID, task.ID, item.ContentHash)
-						if err != nil && !errors.Is(err, domain.ErrItemNotFound) {
-							return err
+				item.Status, item.KnowledgeID = domain.ItemStatusCandidate, ""
+				// Only an already committed legacy receipt may be recovered.
+				// Never call Ingest as a reconciliation strategy.
+				if !run.CandidateOnly && (task.Mode == "knowledge" || task.Mode == "") {
+					if receipts, ok := s.repository.(domain.LegacyReceiptRepository); ok {
+						id, lookupErr := receipts.FindLegacyReceipt(ctx, task.TenantID, task.KnowledgeBaseID, item.ContentHash)
+						if lookupErr != nil {
+							return lookupErr
 						}
-						if err == nil {
-							knowledgeID, duplicate = accepted.KnowledgeID, true
-						}
-					}
-					if duplicate {
-						item.Status, item.KnowledgeID, item.ErrorReason = domain.ItemStatusSkipped, knowledgeID, "duplicate content"
-					} else {
-						result, err := s.ingestor.Ingest(ctx, domain.IngestRequest{TenantID: task.TenantID, UserID: task.UserID, KnowledgeBaseID: task.KnowledgeBaseID, SourceURL: source.URL, CanonicalURL: response.CanonicalURL, Content: content, ContentHash: item.ContentHash})
-						if err != nil {
-							item.Status, item.ErrorReason = domain.ItemStatusFailed, err.Error()
-						} else if result == nil || result.KnowledgeID == "" {
-							item.Status, item.ErrorReason = domain.ItemStatusFailed, "ingestor returned no knowledge reference"
-						} else {
-							item.Status, item.KnowledgeID = domain.ItemStatusAccepted, result.KnowledgeID
-							if result.Duplicate {
-								item.Status = domain.ItemStatusSkipped
-							}
-							seen[item.ContentHash] = result.KnowledgeID
+						if id != "" {
+							item.Status, item.KnowledgeID = domain.ItemStatusAccepted, id
 						}
 					}
 				}
@@ -380,4 +374,26 @@ func (s *Service) RecoverPendingRuns(ctx context.Context, limit int) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func (s *Service) sameCreate(ctx context.Context, existing, requested *domain.Task, sources []*domain.Source) (*domain.Task, error) {
+	if existing.UserID != requested.UserID {
+		return nil, l.ErrForbidden
+	}
+	if existing.KnowledgeBaseID != requested.KnowledgeBaseID || existing.Limits != requested.Limits {
+		return nil, l.ErrConflict
+	}
+	stored, e := s.repository.ListSources(ctx, existing.TenantID, existing.ID)
+	if e != nil {
+		return nil, e
+	}
+	if len(stored) != len(sources) {
+		return nil, l.ErrConflict
+	}
+	for i, v := range stored {
+		if sources[i] == nil || v.URL != sources[i].URL {
+			return nil, l.ErrConflict
+		}
+	}
+	return existing, nil
 }

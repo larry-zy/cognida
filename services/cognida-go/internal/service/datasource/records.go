@@ -24,6 +24,20 @@ func (s *Service) SampleRecordsWithTypes(ctx context.Context, tenant int64, id, 
 	if limit > 1000 {
 		limit = 1000
 	}
+	if result, handled, err := s.sampleREST(ctx, tenant, id, table, limit); handled {
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		rows := make([][]any, 0, len(result.Rows))
+		for _, record := range result.Rows {
+			row := make([]any, len(result.Columns))
+			for i, c := range result.Columns {
+				row[i] = record[c]
+			}
+			rows = append(rows, row)
+		}
+		return result.Columns, rows, result.ColumnTypes, nil
+	}
 	db, ds, err := s.cm.Acquire(ctx, tenant, id)
 	if err != nil {
 		return nil, nil, nil, err

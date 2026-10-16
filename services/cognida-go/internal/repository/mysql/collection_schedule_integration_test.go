@@ -61,7 +61,9 @@ func TestCollectionScheduleClaimPersistsRecoverableRun(t *testing.T) {
 		}
 	}
 	require.NotNil(t, recovered)
-	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379", Password: os.Getenv("REDIS_PASSWORD")})
+	redisAddr := os.Getenv("REDIS_ADDR")
+	require.NotEmpty(t, redisAddr, "REDIS_ADDR is required; do not default to a shared Redis")
+	client := redis.NewClient(&redis.Options{Addr: redisAddr, Password: os.Getenv("REDIS_PASSWORD")})
 	prefix := "it_collection_recovery:" + uuid.NewString()
 	queue := job.NewRedisQueueWithPrefix(client, prefix)
 	t.Cleanup(func() {
@@ -72,7 +74,7 @@ func TestCollectionScheduleClaimPersistsRecoverableRun(t *testing.T) {
 	})
 	require.NoError(t, client.Ping(ctx).Err())
 	scoped := &scopedCollectionProbe{CollectionRepository: repo, id: id, tenant: 7003}
-	svc := collectionsvc.NewService(scoped, scheduleFetch{}, scheduleIngest{}, collectionsvc.TextNormalizer{})
+	svc := collectionsvc.NewService(scoped, scheduleFetch{}, scheduleIngest{t: t}, collectionsvc.TextNormalizer{})
 	local, err := storage.NewLocal(t.TempDir())
 	require.NoError(t, err)
 	svc.SetArtifactStore(local)
@@ -110,7 +112,9 @@ func TestCollectionScheduleClaimPersistsRecoverableRun(t *testing.T) {
 	items, err := repo.ListItems(ctx, 7003, run.ID)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	require.Equal(t, collection.ItemStatusAccepted, items[0].Status)
+	require.Equal(t, collection.ItemStatusCandidate, items[0].Status)
+	require.Empty(t, items[0].KnowledgeID, "scheduled and recovered runs cannot publish without review")
+	require.True(t, run.CandidateOnly)
 	require.NotEmpty(t, items[0].RawObjectKey)
 	require.NotEmpty(t, items[0].NormalizedObjectKey)
 	claims, err = repo.claimDueTasks(ctx, now.Add(2*time.Minute), 100, id)
@@ -165,8 +169,9 @@ func (scheduleFetch) Fetch(context.Context, collection.FetchRequest) (*collectio
 	return &collection.FetchResponse{CanonicalURL: "https://example.com/", ContentType: "text/plain", StatusCode: 200, Body: []byte("retained collection content")}, nil
 }
 
-type scheduleIngest struct{}
+type scheduleIngest struct{ t *testing.T }
 
-func (scheduleIngest) Ingest(context.Context, collection.IngestRequest) (*collection.IngestResult, error) {
-	return &collection.IngestResult{KnowledgeID: "integration-doc"}, nil
+func (i scheduleIngest) Ingest(context.Context, collection.IngestRequest) (*collection.IngestResult, error) {
+	i.t.Error("scheduled collection bypassed candidate review and called the legacy ingestor")
+	return nil, errors.New("legacy publishing disabled")
 }

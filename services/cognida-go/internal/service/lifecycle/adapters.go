@@ -143,18 +143,25 @@ func (s *Service) quality(ctx context.Context, r d.StageRequest) (d.Output, erro
 	return d.Output{Refs: []d.DataAssetRef{ref, report}, Summary: gate.Reason, Gate: gate}, e
 }
 func (s *Service) clean(ctx context.Context, r d.StageRequest) (d.Output, error) {
+	if e := s.checkStrategy(ctx, &r); e != nil {
+		return d.Output{}, e
+	}
 	ref, _, input, e := dataInput(r)
 	if e != nil {
 		return d.Output{}, e
 	}
-	opts := map[string]any{}
-	for _, k := range []string{"operations", "columns", "keep"} {
-		if v, ok := r.Stage.Options[k]; ok {
-			opts[k] = v
-		}
+	opts, e := cleanOptions(r.Stage.Options)
+	if e != nil {
+		return d.Output{}, e
+	}
+	if expected, ok := r.Stage.Options["preview_digest"]; ok && expected != cleaningDigest(ref, r.Stage.Options) {
+		return d.Output{}, d.ErrConflict
 	}
 	result, e := s.compute(ctx, "clean", r, input, opts)
 	if e != nil {
+		return d.Output{}, e
+	}
+	if e := s.checkStrategy(ctx, &r); e != nil {
 		return d.Output{}, e
 	}
 	body, e := json.Marshal(result.Result["data"])
@@ -168,6 +175,24 @@ func (s *Service) clean(ctx context.Context, r d.StageRequest) (d.Output, error)
 	if e = cleaned.Validate(); e != nil {
 		return d.Output{Refs: []d.DataAssetRef{ref}, Summary: "Cleaning produced no usable data", Gate: d.GateResult{Status: d.GateQuarantined, Reason: "cleaned data is empty or violates input bounds", EvidenceRefs: []d.RefID{ref.RefID}}}, nil
 	}
+	if result.Result["diagnostics"] != nil {
+		review, err := cleaningReport(ref, r.Stage.Options, result)
+		if err != nil {
+			return d.Output{}, err
+		}
+		var content map[string]json.RawMessage
+		if json.Unmarshal(body, &content) != nil {
+			return d.Output{}, d.ErrInvalid
+		}
+		content["cleaning_report"], err = json.Marshal(review)
+		if err != nil {
+			return d.Output{}, err
+		}
+		body, err = json.Marshal(content)
+		if err != nil {
+			return d.Output{}, err
+		}
+	}
 	out, e := s.ImportDerived(ctx, r.Principal, d.CleanedAsset, r.Stage.ID, []d.RefID{ref.RefID}, body, ref.Policy)
 	if e != nil {
 		return d.Output{}, e
@@ -177,7 +202,7 @@ func (s *Service) clean(ctx context.Context, r d.StageRequest) (d.Output, error)
 		gate.Status = d.GateQuarantined
 		gate.Reason = "cleaned data still fails quality threshold"
 	}
-	return d.Output{Refs: []d.DataAssetRef{out, report}, Summary: "Created cleaned version and rechecked quality", Gate: gate, Metadata: map[string]any{"method": result.Method, "operations": result.Result["operations"], "removed_count": result.Result["removed_count"], "source_row_indices": result.Result["source_row_indices"]}}, e
+	return d.Output{Refs: []d.DataAssetRef{out, report}, Summary: "Created cleaned version and rechecked quality", Gate: gate, Metadata: map[string]any{"method": result.Method, "operations": result.Result["operations"], "removed_count": result.Result["removed_count"], "source_row_indices": result.Result["source_row_indices"], "diagnostics": result.Result["diagnostics"], "plan_digest": cleaningDigest(ref, r.Stage.Options), "strategy": r.Stage.Options[strategyOption]}}, e
 }
 func (s *Service) enrich(ctx context.Context, r d.StageRequest) (d.Output, error) {
 	ref, payload, input, e := dataInput(r)

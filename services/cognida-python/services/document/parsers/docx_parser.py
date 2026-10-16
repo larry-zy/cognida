@@ -41,10 +41,19 @@ class DocxParser(BaseParser):
             else:
                 doc = Document(BytesIO(source))
 
-            # 提取文本
+            # Tables are part of searchable text even when structured-table
+            # metadata is not requested. Preserve their position in the body.
+            from docx.oxml.ns import qn
+            from docx.table import Table
+            from docx.text.paragraph import Paragraph
+
             text_parts = []
-            for paragraph in doc.paragraphs:
-                text_parts.append(paragraph.text)
+            for block in doc.element.body.iterchildren():
+                if block.tag == qn("w:p"):
+                    text_parts.append(Paragraph(block, doc).text)
+                elif block.tag == qn("w:tbl"):
+                    table = Table(block, doc)
+                    text_parts.extend("\t".join(cell.text for cell in row.cells) for row in table.rows)
             text = "\n\n".join(text_parts)
 
             # 构建元数据

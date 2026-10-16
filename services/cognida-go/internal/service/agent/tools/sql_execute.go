@@ -126,6 +126,13 @@ func sqlExecute(ctx context.Context, req *SQLExecuteRequest, businessDB *gorm.DB
 	if req.SQL == "" {
 		return nil, fmt.Errorf("sql 不能为空")
 	}
+	databaseID := req.DatabaseID
+	if selected := agentctx.MustGetDatasourceID(ctx); selected != "" {
+		databaseID = selected
+	}
+	if queryProvider, ok := dsp.(model_datasource.QueryProvider); ok && databaseID != "" {
+		return sqlExecuteAdapter(ctx, req, databaseID, queryProvider, rs, reg)
+	}
 
 	// 数据源路由：空 → 业务库（或会话选定数据源）；非空 → 已注册外部数据源。
 	// 只读校验/强制 LIMIT/超时对两条路径同等生效。
@@ -366,4 +373,20 @@ func ensureLimit(sqlStr string, maxRows int) string {
 		capped = fmt.Sprintf("LIMIT %d", maxRows)
 	}
 	return tailLimitRe.ReplaceAllString(trimmed, capped)
+}
+
+// RunGovernedReadSQL uses the existing read-only validator, exact ResultStore,
+// authorization and row bounds. It never materializes or mutates a SQL target.
+func RunGovernedReadSQL(ctx context.Context, query string, db *gorm.DB, store resultstore.Store) (string, error) {
+	if store == nil {
+		return "", fmt.Errorf("result store unavailable")
+	}
+	result, err := sqlExecute(ctx, &SQLExecuteRequest{SQL: query, MaxRows: 1000}, db, nil, store, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	if result.ResultID == "" {
+		return "", fmt.Errorf("query did not produce an authorized result")
+	}
+	return result.ResultID, nil
 }

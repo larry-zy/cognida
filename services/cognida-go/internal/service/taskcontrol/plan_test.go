@@ -57,6 +57,24 @@ func TestPlanValidationReservesRetriesAndDerivesApproval(t *testing.T) {
 	require.Equal(t, 1, *calls)
 }
 
+func TestOnlyTrustedSourceCapabilitiesMayOmitAssetInputs(t *testing.T) {
+	cap := Capability{ID: "collection.snapshot", Version: 1, Domain: "collection", ParameterKind: "collection", AllowEmptyInputs: true, OutputKinds: []l.Kind{l.RawAsset}, Tools: []string{"collection.snapshot"}, Permissions: []string{"read"}}
+	v, err := NewValidator([]Capability{cap}, func(context.Context, d.Scope, string) error { return nil }, func(context.Context, d.Scope, l.RefID) (l.Kind, error) {
+		t.Fatal("source-only plan must not resolve invented assets")
+		return "", nil
+	})
+	require.NoError(t, err)
+	p := PlanSpec{SchemaVersion: 1, Budget: Budget{MaxNodes: 1, MaxConcurrency: 1, MaxAttempts: 1, MaxCalls: 3, TimeoutSeconds: 30}, Nodes: []Node{{ID: "collect", Capability: cap.ID, CapabilityVersion: 1, Parameters: &NodeParameters{Collection: &CollectionParameters{URL: "https://example.com", MaxResponseBytes: 1000}}, OutputKinds: cap.OutputKinds, Tools: cap.Tools, Permissions: cap.Permissions, MaxAttempts: 1, MaxCallsPerAttempt: 3, TimeoutSeconds: 30}}}
+	_, err = v.Validate(context.Background(), testScope, p)
+	require.NoError(t, err)
+	p.Nodes[0].Parameters.Feature = &FeatureParameters{FeatureID: "invented", Version: 1}
+	_, err = v.Validate(context.Background(), testScope, p)
+	require.Error(t, err, "union must remain closed")
+	cap.AllowEmptyInputs = false
+	_, err = NewValidator([]Capability{cap}, func(context.Context, d.Scope, string) error { return nil }, func(context.Context, d.Scope, l.RefID) (l.Kind, error) { return l.RawAsset, nil })
+	require.Error(t, err)
+}
+
 func TestPlanRejectsInvalidStructureBeforeAssetResolution(t *testing.T) {
 	cases := []struct {
 		name   string

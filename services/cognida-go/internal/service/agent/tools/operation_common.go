@@ -13,6 +13,7 @@ import (
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/model/agent/operations"
+	governedops "cognida/internal/model/governedops"
 	"cognida/internal/service/agent/framework"
 	"cognida/internal/service/agent/pendingaction"
 	"cognida/internal/service/agent/resultstore"
@@ -31,6 +32,9 @@ const ETLTablePrefix = "agent_etl_"
 
 // OperationConfig 操作工具配置（组合根注入）。
 type OperationConfig struct {
+	// These trusted callbacks only persist reviewable plans. Agent tools cannot confirm them.
+	PrepareSQL func(context.Context, string, string) (*governedops.Job, error)
+	PrepareETL func(context.Context, string, string, string, string, bool) (*governedops.Job, error)
 	// DB 写库连接；nil 时 sql_mutate/etl_run 不可用。
 	DB *gorm.DB
 	// Audit 审计仓储；所有写/ETL/导出/拦截必须留痕。

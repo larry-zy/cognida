@@ -14,24 +14,25 @@ import (
 
 // EvaluationTaskModel 评测任务 GORM 模型
 type EvaluationTaskModel struct {
-	ID           string    `gorm:"column:id;primaryKey;type:varchar(64)" json:"id"`
-	TenantID     int64     `gorm:"column:tenant_id;not null;index:idx_tenant_status" json:"tenant_id"`
-	UserID       int64     `gorm:"column:user_id;not null;index" json:"user_id"`
-	DatasetID    string    `gorm:"column:dataset_id;not null;type:varchar(64);index" json:"dataset_id"`
-	Type         string    `gorm:"column:type;not null;type:varchar(32);index:idx_type_status" json:"type"`
-	KnowledgeBaseID string    `gorm:"column:knowledge_base_id;type:varchar(64)" json:"knowledge_base_id,omitempty"`
-	AgentID      string    `gorm:"column:agent_id;type:varchar(64)" json:"agent_id,omitempty"`
-	ModelID      string    `gorm:"column:model_id;type:varchar(64)" json:"model_id,omitempty"`
-	Config       []byte    `gorm:"column:config;type:json" json:"config,omitempty"`
-	Status       string    `gorm:"column:status;not null;type:varchar(32);index:idx_status,idx_tenant_status,idx_type_status" json:"status"`
-	ErrorMessage string    `gorm:"column:error_message;type:text" json:"error_message,omitempty"`
-	TotalCount   int       `gorm:"column:total_count;not null;default:0" json:"total_count"`
-	SuccessCount int       `gorm:"column:success_count;not null;default:0" json:"success_count"`
-	FailureCount int       `gorm:"column:failure_count;not null;default:0" json:"failure_count"`
-	Metrics      []byte    `gorm:"column:metrics;type:json" json:"metrics,omitempty"`
-	CreatedAt    time.Time `gorm:"column:created_at;not null;index:idx_created_at" json:"created_at"`
-	UpdatedAt    time.Time `gorm:"column:updated_at;not null" json:"updated_at"`
-	DeletedAt    *time.Time `gorm:"column:deleted_at;index" json:"deleted_at,omitempty"`
+	Snapshot        []byte     `gorm:"column:snapshot;type:longtext" json:"snapshot,omitempty"`
+	ID              string     `gorm:"column:id;primaryKey;type:varchar(64)" json:"id"`
+	TenantID        int64      `gorm:"column:tenant_id;not null;index:idx_tenant_status" json:"tenant_id"`
+	UserID          int64      `gorm:"column:user_id;not null;index" json:"user_id"`
+	DatasetID       string     `gorm:"column:dataset_id;not null;type:varchar(64);index" json:"dataset_id"`
+	Type            string     `gorm:"column:type;not null;type:varchar(32);index:idx_type_status" json:"type"`
+	KnowledgeBaseID string     `gorm:"column:knowledge_base_id;type:varchar(64)" json:"knowledge_base_id,omitempty"`
+	AgentID         string     `gorm:"column:agent_id;type:varchar(64)" json:"agent_id,omitempty"`
+	ModelID         string     `gorm:"column:model_id;type:varchar(64)" json:"model_id,omitempty"`
+	Config          []byte     `gorm:"column:config;type:json" json:"config,omitempty"`
+	Status          string     `gorm:"column:status;not null;type:varchar(32);index:idx_status,idx_tenant_status,idx_type_status" json:"status"`
+	ErrorMessage    string     `gorm:"column:error_message;type:text" json:"error_message,omitempty"`
+	TotalCount      int        `gorm:"column:total_count;not null;default:0" json:"total_count"`
+	SuccessCount    int        `gorm:"column:success_count;not null;default:0" json:"success_count"`
+	FailureCount    int        `gorm:"column:failure_count;not null;default:0" json:"failure_count"`
+	Metrics         []byte     `gorm:"column:metrics;type:json" json:"metrics,omitempty"`
+	CreatedAt       time.Time  `gorm:"column:created_at;not null;index:idx_created_at" json:"created_at"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at;not null" json:"updated_at"`
+	DeletedAt       *time.Time `gorm:"column:deleted_at;index" json:"deleted_at,omitempty"`
 }
 
 // TableName 指定表名
@@ -55,24 +56,25 @@ func (m *EvaluationTaskModel) ToDomain() *evaluation.EvaluationTask {
 	}
 
 	return &evaluation.EvaluationTask{
-		ID:           m.ID,
-		TenantID:     m.TenantID,
-		UserID:       m.UserID,
-		DatasetID:    m.DatasetID,
-		Type:         evaluation.EvaluationType(m.Type),
-		KnowledgeBaseID:         m.KnowledgeBaseID,
-		AgentID:      m.AgentID,
-		ModelID:      m.ModelID,
-		Config:       config,
-		Status:       evaluation.TaskStatus(m.Status),
-		ErrorMessage: m.ErrorMessage,
-		TotalCount:   m.TotalCount,
-		SuccessCount: m.SuccessCount,
-		FailureCount: m.FailureCount,
-		Metrics:      metrics,
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
-		DeletedAt:    m.DeletedAt,
+		Snapshot:        json.RawMessage(m.Snapshot),
+		ID:              m.ID,
+		TenantID:        m.TenantID,
+		UserID:          m.UserID,
+		DatasetID:       m.DatasetID,
+		Type:            evaluation.EvaluationType(m.Type),
+		KnowledgeBaseID: m.KnowledgeBaseID,
+		AgentID:         m.AgentID,
+		ModelID:         m.ModelID,
+		Config:          config,
+		Status:          evaluation.TaskStatus(m.Status),
+		ErrorMessage:    m.ErrorMessage,
+		TotalCount:      m.TotalCount,
+		SuccessCount:    m.SuccessCount,
+		FailureCount:    m.FailureCount,
+		Metrics:         metrics,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+		DeletedAt:       m.DeletedAt,
 	}
 }
 
@@ -91,24 +93,25 @@ func FromDomainEvaluationTask(task *evaluation.EvaluationTask) *EvaluationTaskMo
 	}
 
 	return &EvaluationTaskModel{
-		ID:           task.ID,
-		TenantID:     task.TenantID,
-		UserID:       task.UserID,
-		DatasetID:    task.DatasetID,
-		Type:         string(task.Type),
-		KnowledgeBaseID:         task.KnowledgeBaseID,
-		AgentID:      task.AgentID,
-		ModelID:      task.ModelID,
-		Config:       config,
-		Status:       string(task.Status),
-		ErrorMessage: task.ErrorMessage,
-		TotalCount:   task.TotalCount,
-		SuccessCount: task.SuccessCount,
-		FailureCount: task.FailureCount,
-		Metrics:      metrics,
-		CreatedAt:    task.CreatedAt,
-		UpdatedAt:    task.UpdatedAt,
-		DeletedAt:    task.DeletedAt,
+		Snapshot:        []byte(task.Snapshot),
+		ID:              task.ID,
+		TenantID:        task.TenantID,
+		UserID:          task.UserID,
+		DatasetID:       task.DatasetID,
+		Type:            string(task.Type),
+		KnowledgeBaseID: task.KnowledgeBaseID,
+		AgentID:         task.AgentID,
+		ModelID:         task.ModelID,
+		Config:          config,
+		Status:          string(task.Status),
+		ErrorMessage:    task.ErrorMessage,
+		TotalCount:      task.TotalCount,
+		SuccessCount:    task.SuccessCount,
+		FailureCount:    task.FailureCount,
+		Metrics:         metrics,
+		CreatedAt:       task.CreatedAt,
+		UpdatedAt:       task.UpdatedAt,
+		DeletedAt:       task.DeletedAt,
 	}
 }
 
@@ -127,15 +130,15 @@ func ToDomainEvaluationTaskList(models []*EvaluationTaskModel) []*evaluation.Eva
 
 // EvaluationResultModel 评测结果 GORM 模型
 type EvaluationResultModel struct {
-	ID                 int64     `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
-	TaskID             string    `gorm:"column:task_id;not null;type:varchar(64);index:idx_task_id" json:"task_id"`
-	Question           string    `gorm:"column:question;not null;type:text" json:"question"`
-	ReferenceAnswer    string    `gorm:"column:reference_answer;type:text" json:"reference_answer"`
-	GeneratedAnswer    string    `gorm:"column:generated_answer;type:text" json:"generated_answer"`
-	RetrievedPIDs      string    `gorm:"column:retrieved_pids;type:json" json:"retrieved_pids,omitempty"`
-	RelevantPIDs       string    `gorm:"column:relevant_pids;type:json" json:"relevant_pids,omitempty"`
-	Success            bool      `gorm:"column:success;not null;default:false" json:"success"`
-	Error              string    `gorm:"column:error;type:text" json:"error,omitempty"`
+	ID              int64  `gorm:"column:id;primaryKey;autoIncrement" json:"id"`
+	TaskID          string `gorm:"column:task_id;not null;type:varchar(64);index:idx_task_id" json:"task_id"`
+	Question        string `gorm:"column:question;not null;type:text" json:"question"`
+	ReferenceAnswer string `gorm:"column:reference_answer;type:text" json:"reference_answer"`
+	GeneratedAnswer string `gorm:"column:generated_answer;type:text" json:"generated_answer"`
+	RetrievedPIDs   string `gorm:"column:retrieved_pids;type:json" json:"retrieved_pids,omitempty"`
+	RelevantPIDs    string `gorm:"column:relevant_pids;type:json" json:"relevant_pids,omitempty"`
+	Success         bool   `gorm:"column:success;not null;default:false" json:"success"`
+	Error           string `gorm:"column:error;type:text" json:"error,omitempty"`
 
 	// 检索指标
 	Precision *float64 `gorm:"column:precision;type:double" json:"precision,omitempty"`
@@ -221,13 +224,13 @@ func (m *EvaluationResultModel) ToDomain() *evaluation.EvaluationResult {
 // FromDomain 从领域实体转换为模型
 func FromDomainEvaluationResult(result *evaluation.EvaluationResult) *EvaluationResultModel {
 	model := &EvaluationResultModel{
-		ID:                 result.ID,
-		TaskID:             result.TaskID,
-		Question:           result.Question,
-		ReferenceAnswer:    result.ReferenceAnswer,
-		GeneratedAnswer:    result.GeneratedAnswer,
-		Success:            result.Success,
-		Error:              result.Error,
+		ID:              result.ID,
+		TaskID:          result.TaskID,
+		Question:        result.Question,
+		ReferenceAnswer: result.ReferenceAnswer,
+		GeneratedAnswer: result.GeneratedAnswer,
+		Success:         result.Success,
+		Error:           result.Error,
 
 		Precision:          result.Precision,
 		Recall:             result.Recall,

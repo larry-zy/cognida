@@ -5,11 +5,7 @@ package tools
 
 import (
 	"encoding/json"
-	"regexp"
-	"strings"
 	"testing"
-
-	"github.com/DATA-DOG/go-sqlmock"
 
 	"cognida/internal/model/agent/operations"
 	"cognida/internal/service/agent/framework"
@@ -35,108 +31,6 @@ func decodePayload(t *testing.T, raw string) approvalPendingPayload {
 // ========================================
 // 生成 pending_action + 确认后 resume（三工具各一条端到端）
 // ========================================
-
-func TestHandleWriteApproval_SQLMutate_GeneratesPendingAndConfirms(t *testing.T) {
-	o, mock, audit, pending, ctx := setupOperationTest(t)
-
-	out, err := o.handleWriteApproval(ctx, framework.ApprovalRequest{
-		Tool:      "sql_mutate",
-		Arguments: `{"sql":"UPDATE orders SET status='done' WHERE id=7","idempotency_key":"appr-mut"}`,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	p := decodePayload(t, out)
-	if p.Tool != "sql_mutate" || p.Target != "orders" {
-		t.Fatalf("payload mismatch: %+v", p)
-	}
-	// 生成 pending_action 也必须留痕 pending_confirm。
-	last := audit.lastAudit(t)
-	if last.Status != operations.StatusPendingConfirm || last.OperationType != operations.OpMutate {
-		t.Fatalf("audit mismatch: %+v", last)
-	}
-
-	// 暂存动作可被正确 owner+token 消费，且承载 mutate resume 所需的 SQL/Params。
-	owner := resultstore.OwnerKey(1, "sess-op")
-	action, err := pending.Consume(ctx, owner, p.PendingActionID, p.ConfirmToken)
-	if err != nil {
-		t.Fatalf("consume: %v", err)
-	}
-	if action.Kind != operations.OpMutate || action.SQL != "UPDATE orders SET status='done' WHERE id=7" {
-		t.Fatalf("pending action mismatch: %+v", action)
-	}
-	if key, _ := action.Params["idempotency_key"].(string); key != "appr-mut" {
-		t.Fatalf("pending action should carry idempotency_key, got %v", action.Params)
-	}
-	if approved, _ := action.Params["approval"].(bool); !approved {
-		t.Fatalf("pending action should be flagged approval, got %v", action.Params)
-	}
-
-	// 确认后经既有 ExecuteConfirmedMutation 恢复执行（框架门在审批阶段已放行）。
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE orders SET status='done' WHERE id=7")).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-
-	res, err := o.ExecuteConfirmedMutation(ctx, action)
-	if err != nil {
-		t.Fatalf("confirm-resume mutate: %v", err)
-	}
-	if res.Status != operations.StatusSuccess || res.RowsAffected != 1 {
-		t.Fatalf("expected success 1 row, got %+v", res)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("db expectations: %v", err)
-	}
-}
-
-func TestHandleWriteApproval_ETLRun_GeneratesPendingAndConfirms(t *testing.T) {
-	o, mock, audit, pending, ctx := setupOperationTest(t)
-
-	out, err := o.handleWriteApproval(ctx, framework.ApprovalRequest{
-		Tool:      "etl_run",
-		Arguments: `{"target_table":"agent_etl_appr","sql":"SELECT id FROM sales"}`,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	p := decodePayload(t, out)
-	if p.Tool != "etl_run" || p.Target != "agent_etl_appr" {
-		t.Fatalf("payload mismatch: %+v", p)
-	}
-	if last := audit.lastAudit(t); last.Status != operations.StatusPendingConfirm || last.OperationType != operations.OpETL {
-		t.Fatalf("audit mismatch: %+v", last)
-	}
-
-	owner := resultstore.OwnerKey(1, "sess-op")
-	action, err := pending.Consume(ctx, owner, p.PendingActionID, p.ConfirmToken)
-	if err != nil {
-		t.Fatalf("consume: %v", err)
-	}
-	if action.Kind != operations.OpETL {
-		t.Fatalf("expected etl kind, got %s", action.Kind)
-	}
-	// etl 恢复靠暂存的原始参数 JSON 重建请求。
-	if raw, _ := action.Params["arguments"].(string); !strings.Contains(raw, "agent_etl_appr") {
-		t.Fatalf("pending action should carry raw arguments, got %v", action.Params)
-	}
-
-	mock.ExpectExec(regexp.QuoteMeta("CREATE TABLE `agent_etl_appr` AS (SELECT id FROM sales)")).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM `agent_etl_appr`")).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(17))
-
-	res, err := o.ExecuteConfirmedETL(ctx, action)
-	if err != nil {
-		t.Fatalf("confirm-resume etl: %v", err)
-	}
-	if res.Status != operations.StatusSuccess || res.RowCount != 17 {
-		t.Fatalf("expected success 17 rows, got %+v", res)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("db expectations: %v", err)
-	}
-}
 
 func TestHandleWriteApproval_DataExport_GeneratesPendingAndConfirms(t *testing.T) {
 	o, _, audit, pending, ctx := setupOperationTest(t)
@@ -230,35 +124,3 @@ func TestHandleWriteApproval_MissingRequiredFields(t *testing.T) {
 // 审批在框架门（执行前）放行到人工确认；确认后 ExecuteConfirmedMutation 仍复核红线，
 // 命中即拒绝——两道门都必须通过才真正落库。
 // ========================================
-
-func TestHandleWriteApproval_RedlineStillBlockedAfterConfirm(t *testing.T) {
-	o, _, audit, pending, ctx := setupOperationTest(t)
-
-	// 第一道门：策略级审批。审批不检视 SQL 内容，照常生成 pending_action。
-	out, err := o.handleWriteApproval(ctx, framework.ApprovalRequest{
-		Tool:      "sql_mutate",
-		Arguments: `{"sql":"DELETE FROM users WHERE id=1","idempotency_key":"appr-red"}`,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	p := decodePayload(t, out)
-
-	owner := resultstore.OwnerKey(1, "sess-op")
-	action, err := pending.Consume(ctx, owner, p.PendingActionID, p.ConfirmToken)
-	if err != nil {
-		t.Fatalf("consume: %v", err)
-	}
-
-	// 第二道门：确认后仍复核红线（users 为红线表）→ 拒绝，未落库。
-	res, err := o.ExecuteConfirmedMutation(ctx, action)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res.Status != operations.StatusRejected || !strings.Contains(res.Message, "红线") {
-		t.Fatalf("确认后红线门应拦截, got %+v", res)
-	}
-	if audit.lastAudit(t).Status != operations.StatusRejected {
-		t.Fatalf("红线拦截必须留痕")
-	}
-}

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	domeval "cognida/internal/model/evaluation"
+	l "cognida/internal/model/lifecycle"
 	"cognida/internal/model/task"
 )
 
@@ -29,12 +30,14 @@ type GraderCatalogClient interface {
 
 // Service 评测服务
 type Service struct {
-	datasetService DatasetService
-	taskRepo       domeval.EvaluationTaskRepository
-	resultRepo     domeval.EvaluationResultRepository
-	progressCache  domeval.ProgressReader
-	evalQueue      domeval.TaskEnqueuer
-	graderCatalog  GraderCatalogClient
+	snapshots             *SnapshotService
+	offlineReadAuthorizer func(context.Context, string) error
+	datasetService        DatasetService
+	taskRepo              domeval.EvaluationTaskRepository
+	resultRepo            domeval.EvaluationResultRepository
+	progressCache         domeval.ProgressReader
+	evalQueue             domeval.TaskEnqueuer
+	graderCatalog         GraderCatalogClient
 }
 
 // NewService 创建评测服务
@@ -86,8 +89,21 @@ func (s *Service) CreateEvaluation(ctx context.Context, tenantID, userID int64, 
 		return nil, fmt.Errorf("%w: %v", domeval.ErrInvalidConfig, err)
 	}
 
-	// 检查数据集是否存在
-	datasetInfo, err := s.datasetService.GetDatasetInfo(ctx, config.DatasetID)
+	// Pin both the immutable samples and the execution configuration before queueing.
+	var frozen *domeval.EvaluationSnapshot
+	var datasetInfo *DatasetMetadata
+	var err error
+	if s.snapshots != nil {
+		frozen, err = s.snapshots.Freeze(ctx, l.Principal{TenantID: tenantID, UserID: userID}, config, req.DatasetVersionID, req.StrategyVersionID)
+		if err != nil {
+			return nil, err
+		}
+		datasetInfo = &DatasetMetadata{ID: config.DatasetID, QACount: len(frozen.QAPairs), EvalType: EvaluationType(frozen.Profile)}
+	} else if req.DatasetVersionID != "" || req.StrategyVersionID != "" {
+		return nil, domeval.ErrVersionForbidden
+	} else {
+		datasetInfo, err = s.datasetService.GetDatasetInfo(ctx, config.DatasetID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", domeval.ErrDatasetNotFound, config.DatasetID)
 	}
@@ -117,6 +133,13 @@ func (s *Service) CreateEvaluation(ctx context.Context, tenantID, userID int64, 
 	if config.Config != nil {
 		configJSON, _ := json.Marshal(config.Config)
 		evalTask.Config = json.RawMessage(configJSON)
+	}
+
+	if frozen != nil {
+		evalTask.Snapshot, err = json.Marshal(frozen)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// 保存任务到数据库
@@ -175,6 +198,10 @@ func (s *Service) GetEvaluationResult(ctx context.Context, taskID string) (*Eval
 		return nil, err
 	}
 
+	if err = s.authorizeTaskRead(ctx, task); err != nil {
+		return nil, err
+	}
+
 	// 获取 QA 级别结果
 	qaResults, err := s.resultRepo.FindByTaskID(ctx, taskID)
 	if err != nil {
@@ -189,7 +216,10 @@ func (s *Service) GetEvaluationResult(ctx context.Context, taskID string) (*Eval
 		}
 	}
 
+	var snapshot domeval.EvaluationSnapshot
+	_ = json.Unmarshal(task.Snapshot, &snapshot)
 	return &EvaluationResultDetail{
+		DatasetVersionID: snapshot.DatasetVersionID, DatasetManifest: snapshot.DatasetManifest,
 		TaskID:       task.ID,
 		DatasetID:    task.DatasetID,
 		DatasetName:  datasetName,
@@ -207,22 +237,25 @@ func (s *Service) GetEvaluationResult(ctx context.Context, taskID string) (*Eval
 
 // EvaluationResultDetail 评测结果详情
 type EvaluationResultDetail struct {
-	TaskID       string                      `json:"task_id"`
-	DatasetID    string                      `json:"dataset_id"`
-	DatasetName  string                      `json:"dataset_name,omitempty"`
-	Type         domeval.EvaluationType      `json:"type"`
-	Status       domeval.TaskStatus          `json:"status"`
-	Metrics      *domeval.TaskMetrics        `json:"metrics,omitempty"` // 任务级聚合指标
-	QAResults    []*domeval.EvaluationResult `json:"qa_results"`
-	TotalCount   int                         `json:"total_count"`
-	SuccessCount int                         `json:"success_count"`
-	FailureCount int                         `json:"failure_count"`
-	CreatedAt    time.Time                   `json:"created_at"`
-	UpdatedAt    time.Time                   `json:"updated_at"`
+	DatasetVersionID string                      `json:"dataset_version_id,omitempty"`
+	DatasetManifest  string                      `json:"dataset_manifest,omitempty"`
+	TaskID           string                      `json:"task_id"`
+	DatasetID        string                      `json:"dataset_id"`
+	DatasetName      string                      `json:"dataset_name,omitempty"`
+	Type             domeval.EvaluationType      `json:"type"`
+	Status           domeval.TaskStatus          `json:"status"`
+	Metrics          *domeval.TaskMetrics        `json:"metrics,omitempty"` // 任务级聚合指标
+	QAResults        []*domeval.EvaluationResult `json:"qa_results"`
+	TotalCount       int                         `json:"total_count"`
+	SuccessCount     int                         `json:"success_count"`
+	FailureCount     int                         `json:"failure_count"`
+	CreatedAt        time.Time                   `json:"created_at"`
+	UpdatedAt        time.Time                   `json:"updated_at"`
 }
 
 // ListEvaluationFilter 评测任务列表筛选条件（空字段表示不过滤）。
 type ListEvaluationFilter struct {
+	UserID      int64
 	Status      string // running / failed / completed …
 	EvalType    string // rag / qa / agent …
 	TaskID      string // 任务 ID 模糊
@@ -262,6 +295,9 @@ func (s *Service) ListEvaluationResults(ctx context.Context, tenantID int64, pag
 		Page:     page,
 		PageSize: pageSize,
 		TaskID:   strings.TrimSpace(f.TaskID),
+	}
+	if f.UserID > 0 {
+		filter.UserID = &f.UserID
 	}
 	if status := strings.TrimSpace(f.Status); status != "" {
 		st := domeval.TaskStatus(status)
@@ -364,6 +400,9 @@ func (s *Service) DeleteEvaluationTask(ctx context.Context, taskID string) error
 		return err
 	}
 
+	if task.Type == domeval.OfflineType {
+		return domeval.ErrOfflineConflict
+	}
 	// 不能删除运行中的任务
 	if task.Status == domeval.TaskStatusRunning {
 		return fmt.Errorf("cannot delete running task")
@@ -380,6 +419,14 @@ func (s *Service) DeleteEvaluationTask(ctx context.Context, taskID string) error
 
 // GetTaskProgress 获取任务进度
 func (s *Service) GetTaskProgress(ctx context.Context, taskID string) (*ProgressInfo, error) {
+	task, e := s.taskRepo.FindByID(ctx, taskID)
+	if e != nil {
+		return nil, e
+	}
+	if e = s.authorizeTaskRead(ctx, task); e != nil {
+		return nil, e
+	}
+
 	// 从 Redis 获取进度
 	progress, err := s.progressCache.GetProgress(ctx, taskID)
 	if err != nil {
@@ -452,6 +499,14 @@ func (s *Service) GetDatasetInfo(ctx context.Context, datasetID string) (*Datase
 
 // GetQAResults 获取 QA 级别评测结果（分页）
 func (s *Service) GetQAResults(ctx context.Context, taskID string, page, pageSize int) (*QAResultList, error) {
+	task, e := s.taskRepo.FindByID(ctx, taskID)
+	if e != nil {
+		return nil, e
+	}
+	if e = s.authorizeTaskRead(ctx, task); e != nil {
+		return nil, e
+	}
+
 	if page <= 0 {
 		page = 1
 	}
@@ -479,6 +534,14 @@ func (s *Service) GetQAResults(ctx context.Context, taskID string, page, pageSiz
 // GetQAResultsByCursor 游标（keyset）分页〔M5〕获取某任务的 QA 级评测结果。
 // 与 GetQAResults 语义一致但走 keyset：以 cursor 为锚点取下一页，nextCursor 为空表示末页，不返回 total。
 func (s *Service) GetQAResultsByCursor(ctx context.Context, taskID string, cursor string, pageSize int) (*QAResultCursorList, error) {
+	task, e := s.taskRepo.FindByID(ctx, taskID)
+	if e != nil {
+		return nil, e
+	}
+	if e = s.authorizeTaskRead(ctx, task); e != nil {
+		return nil, e
+	}
+
 	results, nextCursor, err := s.resultRepo.FindByTaskIDByCursor(ctx, taskID, cursor, pageSize)
 	if err != nil {
 		return nil, err

@@ -139,6 +139,21 @@ def profile(request: ProfileRequest) -> dict:
     return envelope(request, "quality-engine-v1", result)
 
 
+def cleaning_diagnosis(frame: pd.DataFrame) -> dict:
+    """Measured counts on exact object values, without coercing decimal text."""
+    rows = frame.values.tolist()
+    keys = [json.dumps(json_safe(row), ensure_ascii=False, sort_keys=True) for row in rows]
+    missing = sum(value is None or isinstance(value, str) and not value.strip() for row in rows for value in row)
+    sensitive = sum(bool(sensitivity(str(value))["evidence"]) for row in rows for value in row if value is not None)
+    return {"row_count": len(rows), "cell_count": frame.size,
+            "missing_cells": missing, "duplicate_rows": len(keys) - len(set(keys)),
+            "sensitive_cells": sensitive, "sensitivity_method": "builtin-pii-patterns"}
+
+
+def cleaning_row_key(row) -> str:
+    return json.dumps(json_safe(row.tolist()), ensure_ascii=False, sort_keys=True)
+
+
 def clean(request: CleanRequest) -> dict:
     is_text = request.input.kind == "text"
     frame = (
@@ -146,6 +161,8 @@ def clean(request: CleanRequest) -> dict:
         if is_text
         else dataframe(request.input)
     )
+    if len(frame) > 10_000:
+        raise ValueError("cleaning diagnostics support at most 10000 source rows; no truncation is performed")
     original = frame.copy(deep=True)
     selected = request.options.columns
     if selected is not None and (
@@ -153,7 +170,9 @@ def clean(request: CleanRequest) -> dict:
     ):
         raise ValueError("cleaning columns must belong to the input")
     operations = []
+    row_changes = {}
     for name in request.options.operations:
+        before_operation = frame.copy(deep=True)
         cls = CleanerRegistry.get(name)
         if cls is None:
             raise ValueError(f"cleaner is not registered: {name}")
@@ -185,6 +204,13 @@ def clean(request: CleanRequest) -> dict:
             frame = result.cleaned_data
         if frame is None:
             raise RuntimeError("cleaner did not produce transformed data")
+        for index in before_operation.index:
+            removed = index not in frame.index
+            if removed or cleaning_row_key(before_operation.loc[index]) != cleaning_row_key(frame.loc[index]):
+                change = row_changes.setdefault(int(index), {"source_row": int(index), "operations": [], "removed_by": ""})
+                change["operations"].append(name)
+                if removed:
+                    change["removed_by"] = name
         operations.extend(asdict(operation) for operation in result.operations)
     output = (
         {"kind": "text", "text": "\n".join(frame["text"].astype(str))}
@@ -203,6 +229,13 @@ def clean(request: CleanRequest) -> dict:
             "removed_count": len(original) - len(frame),
             "changed": changed,
             "source_row_indices": [int(index) for index in frame.index],
+            "diagnostics": {
+                "before": cleaning_diagnosis(original), "after": cleaning_diagnosis(frame),
+                "retention_rate": len(frame) / len(original) if len(original) else 1.0,
+                "plan": request.options.model_dump(mode="json"),
+                "row_changes": [row_changes[index] for index in sorted(row_changes)],
+                "limitations": ["敏感信息计数只覆盖内置正则规则，零命中不证明不存在敏感数据。"],
+            },
         },
     )
 

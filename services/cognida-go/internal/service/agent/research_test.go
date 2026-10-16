@@ -70,7 +70,7 @@ func TestResearchReportAndSSETerminalEvidence(t *testing.T) {
 		last = p
 		stages = append(stages, p.Stage)
 	}
-	require.Equal(t, []string{"decomposing", "researching", "synthesizing", "validating", "complete"}, stages)
+	require.Equal(t, []string{"decomposing", "researching", "evidence_collected", "synthesizing", "validating", "complete"}, stages)
 	require.NotNil(t, last.Report)
 	require.True(t, last.Report.Success)
 	require.True(t, last.Report.Metadata.CitationChecked)

@@ -27,9 +27,11 @@ func NewDataSourceHandler(service *app_datasource.Service) *DataSourceHandler {
 func (h *DataSourceHandler) List(c *gin.Context) {
 	page, pageSize := GetPageParams(c)
 	typ := strings.TrimSpace(c.Query("type"))
-	if typ != "" && typ != string(domain_datasource.TypeMySQL) && typ != string(domain_datasource.TypePostgres) {
-		BadRequest(c, "不支持的数据源类型，仅支持 mysql / postgres")
-		return
+	if typ != "" {
+		if _, err := app_datasource.DriverFor(domain_datasource.Type(typ)); err != nil {
+			BadRequest(c, err.Error())
+			return
+		}
 	}
 	items, total, err := h.service.List(c.Request.Context(), domain_datasource.ListFilter{
 		TenantID:     GetTenantID(c),

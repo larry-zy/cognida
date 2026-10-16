@@ -15,6 +15,8 @@ import (
 	"cognida/internal/service/knowledge"
 	"cognida/internal/service/lifecycle"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +52,7 @@ func featureAuthorizer(db *gorm.DB) lifecycle.Authorizer {
 		return nil
 	}
 }
-func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *catalog.Service, fetcher collectionmodel.Fetcher, store objectstore.Store, results resultstore.Store) lifecycle.AccessFunc {
+func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *catalog.Service, fetcher collectionmodel.Fetcher, store objectstore.Store, results resultstore.Store, authorizeEvaluation evaluationSourceAuthorizer, feedbackGuards ...knowledgeFeedbackGuard) lifecycle.AccessFunc {
 	return func(ctx context.Context, p l.Principal, req lifecycle.SourceRequest) (l.Input, l.Provenance, l.PolicySnapshot, error) {
 		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
@@ -74,18 +76,24 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			origin.SourceID = response.CanonicalURL
 			origin.URI = response.CanonicalURL
 		case "datasource":
-			if _, e := source.Get(ctx, p.TenantID, req.DatasourceID); e != nil {
+			ds, e := source.Get(ctx, p.TenantID, req.DatasourceID)
+			if e != nil {
 				if errors.Is(e, datasource.ErrNotFound) {
 					return input, origin, policy, l.ErrNotFound
 				}
 				return input, origin, policy, e
 			}
-			conn, ds, e := source.ConnectionManager().Acquire(ctx, p.TenantID, req.DatasourceID)
-			if e != nil {
-				return input, origin, policy, e
+			if ds == nil || !availableFeatureDatasource(ds.Status) {
+				return input, origin, policy, l.ErrForbidden
 			}
 			schema := ds.DatabaseName
-			if ds.Type == dsmodel.TypePostgres {
+			// REST/query-job engines do not provide database/sql connections.
+			// Only PostgreSQL requires a connection to resolve its current schema.
+			if ds.Type == string(dsmodel.TypePostgres) {
+				conn, _, acquireErr := source.ConnectionManager().Acquire(ctx, p.TenantID, req.DatasourceID)
+				if acquireErr != nil {
+					return input, origin, policy, acquireErr
+				}
 				if e = conn.QueryRowContext(ctx, "SELECT current_schema()").Scan(&schema); e != nil {
 					return input, origin, policy, e
 				}
@@ -98,6 +106,7 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 				return input, origin, policy, e
 			}
 			origin.SourceID = req.DatasourceID + "/" + schema + "/" + req.Table
+			origin.SourceVersion = ds.UpdatedAt.UTC().Format(time.RFC3339Nano)
 			if req.CatalogAssetID != "" && req.CatalogAssetID != id {
 				return input, origin, policy, l.ErrNotFound
 			}
@@ -106,14 +115,9 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 				if e != nil {
 					return input, origin, policy, e
 				}
-				if asset.Deprecated {
-					return input, origin, policy, l.ErrNotFound
-				}
-				policy.Sensitivity = asset.Classification
-				for _, col := range asset.Columns {
-					if !col.Deprecated && (col.Classification == "secret" || (col.Classification == "confidential" && policy.Sensitivity != "secret")) {
-						policy.Sensitivity = col.Classification
-					}
+				policy.Sensitivity, e = authorizeCatalogSource(ctx, db, p, asset)
+				if e != nil {
+					return input, origin, policy, e
 				}
 				origin.SourceID = asset.ID
 			}
@@ -133,27 +137,23 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 				return input, origin, policy, l.ErrNotFound
 			}
 			kb, e := mysql.NewKnowledgeBaseRepository(db, true).FindByIDForTenant(ctx, document.KnowledgeBaseID, p.TenantID)
-			if e != nil || kb == nil || kb.DeletedAt != nil || !kb.IsActive() {
+			if e != nil || kb == nil || kb.DeletedAt != nil || !kb.IsActive() || (!kb.IsPublic && kb.UserID != p.UserID) {
 				return input, origin, policy, l.ErrNotFound
 			}
-			chunks, e := mysql.NewChunkRepository(db).FindByKnowledgeID(ctx, document.ID, true)
+			marker, e := knowledgeFeedbackImport(ctx, db, p, document.KnowledgeBaseID, document.ID, feedbackGuards...)
 			if e != nil {
 				return input, origin, policy, e
 			}
-			var text strings.Builder
-			for _, chunk := range chunks {
-				if chunk == nil || chunk.DeletedAt != nil || chunk.TenantID != p.TenantID || chunk.KnowledgeBaseID != kb.ID {
-					continue
-				}
-				if text.Len()+len(chunk.Content) > 800000 {
-					return input, origin, policy, l.ErrInvalid
-				}
-				text.WriteString(chunk.Content)
-				text.WriteString("\n")
+			origin.SourceVersion = marker
+			input, e = knowledgeSourceInput(ctx, db, p, kb.ID, document.ID)
+			if e != nil {
+				return input, origin, policy, e
 			}
-			input = l.Input{Kind: "text", Text: text.String()}
 			origin.SourceID = document.ID
 		case "collection":
+			if e := validateCollectionSourceOwner(ctx, db, p, req.RunID); e != nil {
+				return input, origin, policy, e
+			}
 			items, e := mysql.NewCollectionRepository(db).ListItems(ctx, p.TenantID, req.RunID)
 			if e != nil {
 				return input, origin, policy, e
@@ -165,7 +165,7 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 					break
 				}
 			}
-			if chosen == nil || chosen.NormalizedObjectKey == "" {
+			if chosen == nil || chosen.NormalizedObjectKey == "" || (chosen.Status != collectionmodel.ItemStatusCandidate && chosen.Status != collectionmodel.ItemStatusAccepted) || len(chosen.ContentHash) != 64 {
 				return input, origin, policy, l.ErrNotFound
 			}
 			reader, _, e := store.Get(ctx, chosen.NormalizedObjectKey)
@@ -180,8 +180,13 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			if len(body) > 800000 {
 				return input, origin, policy, l.ErrInvalid
 			}
+			digest := sha256.Sum256(body)
+			if hex.EncodeToString(digest[:]) != chosen.ContentHash {
+				return input, origin, policy, fmt.Errorf("%w: collection snapshot digest mismatch", l.ErrConflict)
+			}
 			input = l.Input{Kind: "text", Text: string(body)}
 			origin.SourceID = chosen.ID
+			origin.SourceVersion = chosen.ContentHash
 			origin.URI = chosen.CanonicalURL
 		case "result":
 			session, e := mysql.NewSessionRepository(db).FindByID(ctx, req.SessionID)
@@ -205,6 +210,9 @@ func featureAccess(db *gorm.DB, source *datasource.Service, catalogService *cata
 			}
 			origin.SourceID = req.ResultID
 		case "evaluation":
+			if authorizeEvaluation == nil || authorizeEvaluation(ctx, p, req.RunID) != nil {
+				return input, origin, policy, l.ErrNotFound
+			}
 			task, e := mysql.NewEvaluationTaskRepository(db).FindByID(ctx, req.RunID)
 			if e != nil || task == nil || task.TenantID != p.TenantID || task.UserID != p.UserID {
 				return input, origin, policy, l.ErrNotFound

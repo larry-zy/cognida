@@ -448,3 +448,53 @@ func TestTaskSupervisorRealLLMHTTPIntegrationSyntheticProposal(t *testing.T) {
 	require.JSONEq(t, string(wantJSON), string(gotJSON))
 	t.Log("real provider + HTTP + MySQL: one authorized, validated proposal; no execution or persistence side effects")
 }
+
+// A real local HTTP provider fixture exercises the actual domain/Eino adapter,
+// Supervisor and MySQL. It is not a live external model or source-auth E2E.
+func TestTaskSupervisorMySQLHTTPStructuredOutputDiagnostics(t *testing.T) {
+	f := newSupervisorHTTPFixture(t)
+	var calls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var request map[string]json.RawMessage
+		if e := json.NewDecoder(r.Body).Decode(&request); e != nil {
+			t.Error(e)
+			w.WriteHeader(400)
+			return
+		}
+		require.JSONEq(t, `4096`, string(request["max_tokens"]))
+		require.JSONEq(t, `{"type":"disabled"}`, string(request["thinking"]))
+		require.JSONEq(t, `{"type":"json_object"}`, string(request["response_format"]))
+		require.NotContains(t, request, "tools")
+		// Complete-looking JSON still fails when the provider reports truncation.
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": `{"kind":"unsupported","explanation":"sensitive-provider-body"}`, "reasoning_content": "sensitive-private-reasoning"}, "finish_reason": "length"}}, "usage": map[string]int{"prompt_tokens": 100, "completion_tokens": 4096, "total_tokens": 4196}})
+	}))
+	defer provider.Close()
+	client, err := llminfra.NewEinoLLMClient(&llm.ModelConfig{Provider: llm.ProviderDeepSeek, ModelName: "deepseek-v4-flash", APIKey: "fixture-key-never-expose", BaseURL: provider.URL})
+	require.NoError(t, err)
+	supervisor, err := svc.NewSupervisor(f.service, svc.NewLLMPlanner(client))
+	require.NoError(t, err)
+	f.handler.SetSupervisor(supervisor)
+	draft := f.draft()
+	before := f.counts()
+	result := f.request(http.MethodPost, "/"+draft.ID+"/supervisor/propose", svc.ProposeInput{ExpectedVersion: draft.Version}, "")
+	require.Equal(t, 502, result.Code, result.Body.String())
+	require.EqualValues(t, 1, calls.Load())
+	require.Equal(t, before, f.counts(), "failed preview must not save a plan or execution")
+	var body struct {
+		Diagnostic svc.PlannerDiagnosticDTO `json:"diagnostic"`
+	}
+	require.NoError(t, json.Unmarshal(result.Body.Bytes(), &body))
+	require.Equal(t, "truncated_output", body.Diagnostic.Code)
+	require.Equal(t, "length", body.Diagnostic.FinishReason)
+	require.Equal(t, 4096, body.Diagnostic.MaxOutputTokens)
+	require.Equal(t, 4096, body.Diagnostic.Usage.CompletionTokens)
+	require.NotContains(t, result.Body.String(), "sensitive")
+	require.NotContains(t, result.Body.String(), "fixture-key")
+	// Source authorization remains before any provider call, even after a failure.
+	f.revoked.Store(true)
+	denied := f.request(http.MethodPost, "/"+draft.ID+"/supervisor/propose", svc.ProposeInput{ExpectedVersion: draft.Version}, "")
+	require.Equal(t, 403, denied.Code)
+	require.EqualValues(t, 1, calls.Load())
+	require.Equal(t, before, f.counts())
+}

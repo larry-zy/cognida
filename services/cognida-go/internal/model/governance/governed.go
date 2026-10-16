@@ -37,7 +37,7 @@ func (in GovernedInvocation) Validate() error {
 		return ErrInvalid
 	}
 	if in.Profile == FeatureProfile {
-		if in.FeatureID == "" || len(in.FeatureID) > 64 || in.FeatureVersion < 1 || in.TimeoutSeconds > 300 || in.CallsReserved != 3 || len(in.Labels)+len(in.LabelSchema) > 0 || in.QAMapping != nil {
+		if in.FeatureID == "" || len(in.FeatureID) > 64 || in.FeatureVersion < 1 || in.TimeoutSeconds > 300 || (in.CallsReserved < 3 || in.CallsReserved > 128) || len(in.Labels)+len(in.LabelSchema) > 0 || in.QAMapping != nil {
 			return ErrInvalid
 		}
 		return nil
@@ -111,11 +111,12 @@ func (in GovernedInvocation) AnnotationType() string {
 }
 
 type GovernedExecution struct {
-	Invocation GovernedInvocation `json:"invocation"`
-	DomainID   string             `json:"domain_id"`
-	DomainKind string             `json:"domain_kind"`
-	OutputRefs []l.RefID          `json:"output_refs"`
-	Error      string             `json:"error,omitempty"`
+	Invocation   GovernedInvocation `json:"invocation"`
+	DomainID     string             `json:"domain_id"`
+	DomainKind   string             `json:"domain_kind"`
+	OutputRefs   []l.RefID          `json:"output_refs"`
+	Error        string             `json:"error,omitempty"`
+	FeatureJobID string             `json:"feature_job_id,omitempty"`
 }
 
 func SameGoverned(a, b GovernedInvocation) bool {

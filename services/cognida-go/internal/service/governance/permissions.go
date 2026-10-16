@@ -5,6 +5,7 @@ import (
 	l "cognida/internal/model/lifecycle"
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // Derived text and feature values retain their source asset's read policy.
@@ -41,7 +42,7 @@ func (s *Service) authorizeRecord(ctx context.Context, p l.Principal, record *d.
 				return d.ErrForbidden
 			}
 			if _, _, err = s.Assets.Resolve(ctx, p.TenantID, p.UserID, id); err != nil {
-				return d.ErrForbidden
+				return recordSourceError(err)
 			}
 		}
 
@@ -58,7 +59,10 @@ func (s *Service) authorizeRecord(ctx context.Context, p l.Principal, record *d.
 	case "annotation_task", "tagging_task", "feature", "feature_version":
 		if record.ParentID != "" && (record.Kind == "annotation_task" || record.Kind == "tagging_task") {
 			op, err := s.Repo.Get(ctx, p.TenantID, d.GovernedKind, record.ParentID)
-			if err != nil || op.UserID != p.UserID {
+			if err != nil {
+				return recordSourceError(err)
+			}
+			if op.UserID != p.UserID {
 				return d.ErrForbidden
 			}
 		}
@@ -76,8 +80,15 @@ func (s *Service) authorizeRecord(ctx context.Context, p l.Principal, record *d.
 			return d.ErrForbidden
 		}
 		if _, _, err = s.Assets.Resolve(ctx, p.TenantID, p.UserID, id); err != nil {
-			return d.ErrForbidden
+			return recordSourceError(err)
 		}
 	}
 	return nil
+}
+
+func recordSourceError(err error) error {
+	if errors.Is(err, l.ErrForbidden) || errors.Is(err, l.ErrNotFound) || errors.Is(err, l.ErrExpired) || errors.Is(err, d.ErrForbidden) || errors.Is(err, d.ErrNotFound) {
+		return d.ErrForbidden
+	}
+	return err
 }

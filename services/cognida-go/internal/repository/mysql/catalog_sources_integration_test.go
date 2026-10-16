@@ -60,7 +60,17 @@ func TestCatalogRealSourcesAndLineage(t *testing.T) {
 				require.NoError(t, e)
 				t.Cleanup(func() { admin.Exec(`DROP SCHEMA "` + fixture + `" CASCADE`) })
 				extra, _ := json.Marshal(map[string]string{"schema": fixture, "sslmode": "disable"})
-				source = &d.DataSource{Host: "127.0.0.1", Port: 5432, Username: os.Getenv("CATALOG_TEST_PG_USER"), DatabaseName: "postgres", Extra: extra, Type: kind}
+				port := 5432
+				if value := os.Getenv("CATALOG_TEST_PG_PORT"); value != "" {
+					port, e = strconv.Atoi(value)
+					require.NoError(t, e)
+					require.Positive(t, port)
+				}
+				database := os.Getenv("CATALOG_TEST_PG_DATABASE")
+				if database == "" {
+					database = "postgres"
+				}
+				source = &d.DataSource{Host: "127.0.0.1", Port: port, Username: os.Getenv("CATALOG_TEST_PG_USER"), DatabaseName: database, Extra: extra, Type: kind}
 				drv, _ := dssvc.DriverFor(kind)
 				dsn, e = drv.BuildDSN(source, os.Getenv("CATALOG_TEST_PG_PASSWORD"))
 				require.NoError(t, e)

@@ -62,7 +62,7 @@ func (p *llmPlanner) Propose(parent context.Context, in PlanningInput) (PlannerD
 			{Role: llm.RoleSystem, Content: supervisorPlannerPrompt},
 			{Role: llm.RoleUser, Content: string(payload)},
 		},
-		Options: &llm.ChatOptions{Temperature: llm.Float64Ptr(0), MaxTokens: plannerMaxTokens},
+		Options: &llm.ChatOptions{Temperature: llm.Float64Ptr(0), MaxTokens: plannerMaxTokens, BoundedJSONOutput: true},
 	})
 	if err := ctx.Err(); err != nil {
 		return empty, err
@@ -78,27 +78,48 @@ func (p *llmPlanner) Propose(parent context.Context, in PlanningInput) (PlannerD
 			return empty, ErrPlannerUnavailable
 		}
 	}
-	if response == nil || len(response.ToolCalls) != 0 {
-		return empty, ErrPlannerOutput
+	if response == nil {
+		return empty, plannerOutputFailure("empty_response", response)
+	}
+	if len(response.ToolCalls) != 0 {
+		return empty, plannerOutputFailure("unexpected_tool_calls", response)
 	}
 	// Do not accept a complete-looking prefix from a truncated/refused response.
 	switch response.FinishReason {
 	case "", "stop", "end_turn":
+	case "length":
+		return empty, plannerOutputFailure("truncated_output", response)
 	default:
-		return empty, ErrPlannerOutput
+		return empty, plannerOutputFailure("unsupported_finish_reason", response)
 	}
 	content := response.Content
 	if response.Message != nil {
-		if len(response.Message.ToolCalls) != 0 || (response.Message.Role != "" && response.Message.Role != llm.RoleAssistant) {
-			return empty, ErrPlannerOutput
+		if len(response.Message.ToolCalls) != 0 {
+			return empty, plannerOutputFailure("unexpected_tool_calls", response)
+		}
+		if response.Message.Role != "" && response.Message.Role != llm.RoleAssistant {
+			return empty, plannerOutputFailure("invalid_message_role", response)
 		}
 		if content == "" {
 			content = response.Message.Content
 		} else if response.Message.Content != "" && content != response.Message.Content {
-			return empty, ErrPlannerOutput
+			return empty, plannerOutputFailure("conflicting_content", response)
 		}
 	}
-	return decodePlannerDecision([]byte(content))
+	decision, err := decodePlannerDecision([]byte(content))
+	if err != nil {
+		code := "invalid_contract"
+		switch {
+		case strings.TrimSpace(content) == "":
+			code = "empty_response"
+		case len(content) > plannerOutputBytes:
+			code = "output_limit"
+		case !utf8.ValidString(content) || !json.Valid([]byte(content)):
+			code = "invalid_json"
+		}
+		return empty, plannerOutputFailure(code, response)
+	}
+	return decision, nil
 }
 
 func plannerClientMissing(client llm.LLMClient) bool {
@@ -203,7 +224,7 @@ func plannerPlanShape(plan PlanSpec) bool {
 		return false
 	}
 	for _, node := range plan.Nodes {
-		if !identifier.MatchString(node.ID) || !identifier.MatchString(node.Capability) || node.CapabilityVersion < 1 || len(node.DependsOn) > 32 || !uniqueIdentifiers(node.DependsOn) || len(node.Inputs) < 1 || len(node.Inputs) > 16 ||
+		if !identifier.MatchString(node.ID) || !identifier.MatchString(node.Capability) || node.CapabilityVersion < 1 || len(node.DependsOn) > 32 || !uniqueIdentifiers(node.DependsOn) || len(node.Inputs) > 16 ||
 			len(node.OutputKinds) < 1 || len(node.OutputKinds) > 16 || !uniqueIdentifiers(node.OutputKinds) || len(node.Tools) < 1 || len(node.Tools) > 64 || !uniqueIdentifiers(node.Tools) || len(node.Permissions) < 1 || len(node.Permissions) > 64 || !uniqueIdentifiers(node.Permissions) ||
 			node.MaxAttempts < 1 || node.MaxAttempts > 5 || node.MaxCallsPerAttempt < 1 || node.MaxCallsPerAttempt > 128 || node.MaxCostMicrosPerAttempt < 0 || node.MaxCostMicrosPerAttempt > 1_000_000_000 || node.TimeoutSeconds < 1 || node.TimeoutSeconds > 3600 {
 			return false

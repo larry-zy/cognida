@@ -4,14 +4,15 @@ package collection
 // items with a knowledge reference are usable results, not collection failures.
 // It is derived from durable items and does not introduce a second stored state.
 type OutcomeSummary struct {
-	Outcome  string `json:"outcome"`
-	Total    int    `json:"total"`
-	Accepted int    `json:"accepted"`
-	Skipped  int    `json:"skipped"`
-	Rejected int    `json:"rejected"`
-	Failed   int    `json:"failed"`
-	Pending  int    `json:"pending"`
-	Usable   int    `json:"usable"`
+	Outcome    string `json:"outcome"`
+	Total      int    `json:"total"`
+	Candidates int    `json:"candidates"`
+	Accepted   int    `json:"accepted"`
+	Skipped    int    `json:"skipped"`
+	Rejected   int    `json:"rejected"`
+	Failed     int    `json:"failed"`
+	Pending    int    `json:"pending"`
+	Usable     int    `json:"usable"`
 }
 
 func SummarizeItems(expected int, items []*Item) OutcomeSummary {
@@ -21,8 +22,14 @@ func SummarizeItems(expected int, items []*Item) OutcomeSummary {
 			continue
 		}
 		switch item.Status {
+		case ItemStatusCandidate:
+			if item.ContentHash == "" || item.NormalizedObjectKey == "" {
+				s.Failed++
+			} else {
+				s.Candidates++
+			}
 		case ItemStatusAccepted, ItemStatusSkipped:
-			if item.KnowledgeID == "" {
+			if item.KnowledgeID == "" && item.AssetRefID == "" {
 				s.Failed++ // An incomplete receipt must never count as usable.
 			} else if item.Status == ItemStatusAccepted {
 				s.Accepted++
@@ -35,7 +42,7 @@ func SummarizeItems(expected int, items []*Item) OutcomeSummary {
 			s.Failed++
 		}
 	}
-	s.Usable = s.Accepted + s.Skipped
+	s.Usable = s.Accepted + s.Skipped + s.Candidates
 	s.Pending = s.Total - s.Usable - s.Rejected - s.Failed
 	switch {
 	case s.Pending > 0:

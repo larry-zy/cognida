@@ -55,6 +55,7 @@ type PlanSpec struct {
 // Capability comes from trusted server configuration, never from a submitted plan.
 type Capability struct {
 	ParameterKind    string            `json:"parameter_kind,omitempty"`
+	AllowEmptyInputs bool              `json:"allow_empty_inputs,omitempty"`
 	ID               string            `json:"id"`
 	Version          int               `json:"version"`
 	Domain           string            `json:"domain"`
@@ -115,14 +116,14 @@ func NewValidator(capabilities []Capability, authorize Authorizer, resolve Resol
 	}
 	v := &Validator{capabilities: map[string]Capability{}, authorize: authorize, resolve: resolve}
 	for _, c := range capabilities {
-		if !identifier.MatchString(c.ID) || c.Version < 1 || !identifier.MatchString(c.Domain) || len(c.InputKinds) == 0 || len(c.OutputKinds) == 0 || len(c.Tools) == 0 || len(c.Permissions) == 0 {
+		if !identifier.MatchString(c.ID) || c.Version < 1 || !identifier.MatchString(c.Domain) || (len(c.InputKinds) == 0 && !c.AllowEmptyInputs) || len(c.OutputKinds) == 0 || len(c.Tools) == 0 || len(c.Permissions) == 0 {
 			return nil, d.ErrInvalid
 		}
 		if _, ok := v.capabilities[c.ID]; ok {
 			return nil, d.ErrConflict
 		}
 		switch c.ParameterKind {
-		case "", "governance", "feature":
+		case "", "governance", "feature", "collection", "evaluation", "research", "warehouse", "sandbox":
 		default:
 			return nil, d.ErrInvalid
 		}
@@ -201,6 +202,7 @@ func (v *Validator) Validate(ctx context.Context, p d.Scope, plan PlanSpec) (*Va
 		return nil, &ValidationError{issues}
 	}
 	result := &Validation{TopologicalOrder: []string{}, ApprovalRequired: []string{}, InputRefs: []l.RefID{}}
+	var reserved nodeReservations
 	nodes := map[string]Node{}
 	for _, n := range plan.Nodes {
 		if !identifier.MatchString(n.ID) {
@@ -227,8 +229,8 @@ func (v *Validator) Validate(ctx context.Context, p d.Scope, plan PlanSpec) (*Va
 		if kind, valid := parameterKind(n.Parameters); !valid || kind != c.ParameterKind {
 			add(n.ID, "parameters", "parameter_mismatch", "provide exactly the typed parameter branch declared by the capability")
 		}
-		if len(n.Inputs) == 0 || len(n.Inputs) > 16 {
-			add(n.ID, "inputs", "invalid_inputs", "each node requires 1-16 input references")
+		if (len(n.Inputs) == 0 && !c.AllowEmptyInputs) || len(n.Inputs) > 16 {
+			add(n.ID, "inputs", "invalid_inputs", "input count must match the trusted capability (maximum 16)")
 		}
 		if len(n.OutputKinds) == 0 || len(n.OutputKinds) > 16 {
 			add(n.ID, "output_kinds", "invalid_outputs", "output kinds must be explicitly declared")
@@ -256,15 +258,14 @@ func (v *Validator) Validate(ctx context.Context, p d.Scope, plan PlanSpec) (*Va
 			}
 			seenKinds[kind] = true
 		}
-		if n.MaxAttempts < 1 || n.MaxAttempts > 5 || n.MaxCallsPerAttempt < 1 || n.MaxCallsPerAttempt > 128 || n.MaxCostMicrosPerAttempt < 0 || n.MaxCostMicrosPerAttempt > 1_000_000_000 || n.TimeoutSeconds < 1 || n.TimeoutSeconds > 3600 {
+		if !reserved.add(n) {
 			add(n.ID, "budget", "invalid_node_budget", "node attempts, calls, cost or timeout exceed allowed limits")
-		} else {
-			result.ReservedAttempts += n.MaxAttempts
-			result.ReservedCalls += n.MaxAttempts * n.MaxCallsPerAttempt
-			result.ReservedCostMicros += int64(n.MaxAttempts) * n.MaxCostMicrosPerAttempt
-			result.ReservedSeconds += n.MaxAttempts * n.TimeoutSeconds
 		}
 	}
+	result.ReservedAttempts = reserved.attempts
+	result.ReservedCalls = reserved.calls
+	result.ReservedCostMicros = reserved.costMicros
+	result.ReservedSeconds = reserved.seconds
 	if result.ReservedAttempts > plan.Budget.MaxAttempts || result.ReservedCalls > plan.Budget.MaxCalls || result.ReservedCostMicros > plan.Budget.MaxCostMicros || result.ReservedSeconds > plan.Budget.TimeoutSeconds {
 		add("", "budget", "budget_exceeded", "worst-case reservations including retries exceed the plan budget")
 	}

@@ -2,6 +2,7 @@
 package collection
 
 import (
+	l "cognida/internal/model/lifecycle"
 	"fmt"
 	"net/url"
 	"strings"
@@ -38,11 +39,12 @@ func (s RunStatus) IsTerminal() bool {
 type ItemStatus string
 
 const (
-	ItemStatusPending  ItemStatus = "pending"
-	ItemStatusAccepted ItemStatus = "accepted"
-	ItemStatusSkipped  ItemStatus = "skipped"
-	ItemStatusRejected ItemStatus = "rejected"
-	ItemStatusFailed   ItemStatus = "failed"
+	ItemStatusPending   ItemStatus = "pending"
+	ItemStatusCandidate ItemStatus = "candidate"
+	ItemStatusAccepted  ItemStatus = "accepted"
+	ItemStatusSkipped   ItemStatus = "skipped"
+	ItemStatusRejected  ItemStatus = "rejected"
+	ItemStatusFailed    ItemStatus = "failed"
 )
 
 // Limits bounds a task's outbound work. Zero-valued limits are rejected so a
@@ -88,6 +90,7 @@ func (l Limits) Validate() error {
 
 // Task is a tenant-scoped request to collect explicit HTTPS sources into one KB.
 type Task struct {
+	Mode            string     `json:"mode"`
 	ID              string     `json:"id"`
 	TenantID        int64      `json:"tenant_id"`
 	UserID          int64      `json:"user_id"`
@@ -102,7 +105,7 @@ type Task struct {
 }
 
 func (t *Task) Validate() error {
-	if strings.TrimSpace(t.ID) == "" || t.TenantID <= 0 || t.UserID <= 0 || strings.TrimSpace(t.KnowledgeBaseID) == "" || strings.TrimSpace(t.IdempotencyKey) == "" {
+	if strings.TrimSpace(t.ID) == "" || t.TenantID <= 0 || t.UserID <= 0 || (t.Mode != SnapshotMode && strings.TrimSpace(t.KnowledgeBaseID) == "") || strings.TrimSpace(t.IdempotencyKey) == "" {
 		return ErrInvalidTask
 	}
 	if err := t.Limits.Validate(); err != nil {
@@ -179,19 +182,23 @@ func (s *Source) Validate() error {
 
 // Run captures one invocation of a task.
 type Run struct {
-	ID           string     `json:"id"`
-	TaskID       string     `json:"task_id"`
-	TenantID     int64      `json:"tenant_id"`
-	Status       RunStatus  `json:"status"`
-	ErrorMessage string     `json:"error_message,omitempty"`
-	StartedAt    time.Time  `json:"started_at"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	CandidateOnly bool                `json:"candidate_only"`
+	Governed      *GovernedInvocation `json:"governed_execution,omitempty"`
+	OutputRefs    []l.RefID           `json:"output_refs,omitempty"`
+	ID            string              `json:"id"`
+	TaskID        string              `json:"task_id"`
+	TenantID      int64               `json:"tenant_id"`
+	Status        RunStatus           `json:"status"`
+	ErrorMessage  string              `json:"error_message,omitempty"`
+	StartedAt     time.Time           `json:"started_at"`
+	CompletedAt   *time.Time          `json:"completed_at,omitempty"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
 }
 
 // Item is the durable outcome for one source URL in a run.
 type Item struct {
+	AssetRefID          string     `json:"asset_ref_id,omitempty"`
 	ID                  string     `json:"id"`
 	TenantID            int64      `json:"tenant_id"`
 	TaskID              string     `json:"task_id"`

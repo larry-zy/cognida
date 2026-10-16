@@ -28,6 +28,8 @@ import (
 	"gorm.io/gorm/logger"
 	"net/http/httptest"
 	"os"
+	"strconv"
+	"strings"
 
 	"testing"
 	"time"
@@ -56,12 +58,19 @@ func setup(t *testing.T) *fixture {
 	require.NoError(t, e)
 	p := l.Principal{TenantID: time.Now().UnixNano() & 0x1fffffffffffff, UserID: 991}
 	t.Cleanup(func() {
-		for _, table := range []string{"feature_values", "governance_records", "lifecycle_assets"} {
+		for _, table := range []string{"feature_values", "feature_materializations", "governance_records", "lifecycle_assets"} {
 			require.NoError(t, db.Table(table).Where("tenant_id=?", p.TenantID).Delete(map[string]any{}).Error)
 		}
 		require.NoError(t, sql.Close())
 	})
-	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379", Password: os.Getenv("REDIS_PASSWORD")})
+	redisAddr := os.Getenv("REDIS_ADDR")
+	require.NotEmpty(t, redisAddr, "explicit isolated Redis address required")
+	redisDB, e := strconv.Atoi(os.Getenv("REDIS_DB"))
+	if os.Getenv("REDIS_DB") == "" {
+		redisDB, e = 0, nil
+	}
+	require.NoError(t, e)
+	client := redis.NewClient(&redis.Options{Addr: redisAddr, DB: redisDB, Password: os.Getenv("REDIS_PASSWORD")})
 	require.NoError(t, client.Ping(context.Background()).Err())
 	prefix := "cognida:governance-test:" + uuid.NewString()
 	t.Cleanup(func() {
@@ -88,9 +97,17 @@ func setup(t *testing.T) *fixture {
 		}
 		return p.Validate()
 	}
-	assets, e := lifecycle.NewService(repo.NewLifecycleRepository(db), objects, q, lifecycle.Config{Authorize: auth})
+	var service *svc.Service
+	assets, e := lifecycle.NewService(repo.NewLifecycleRepository(db), objects, q, lifecycle.Config{Authorize: auth, ValidateGovernedOrigin: func(ctx context.Context, p l.Principal, ref l.DataAssetRef) error {
+		if service != nil && strings.HasPrefix(ref.ProducerID, "feature-materialization:") {
+			return service.ValidateFeatureMaterializationOrigin(ctx, p, ref)
+		}
+		return l.ErrForbidden
+	}})
 	require.NoError(t, e)
-	return &fixture{s: svc.NewService(scopedPendingRepo{Repository: repo.NewGovernanceRepository(db), tenant: p.TenantID}, assets, computeFixture{}, q, auth), assets: assets, db: db, q: q, objects: objects, p: p}
+	base := repo.NewGovernanceRepository(db)
+	service = svc.NewService(scopedPendingRepo{Repository: base, FeatureMaterializationRepository: base.(d.FeatureMaterializationRepository), tenant: p.TenantID}, assets, computeFixture{}, q, auth)
+	return &fixture{s: service, assets: assets, db: db, q: q, objects: objects, p: p}
 }
 func (f *fixture) publish(t *testing.T, input l.Input, source, sensitivity string) l.DataAssetRef {
 	t.Helper()
@@ -226,8 +243,11 @@ func TestGovernanceIntegrationAnnotationsTaggingAndAPI(t *testing.T) {
 	code, out := f.api(t, 991, f.p.TenantID, "GET", "/annotation-tasks/"+task.ID+"/items", nil)
 	require.Equal(t, 200, code, out)
 	item := out["data"].(map[string]any)["items"].([]any)[0].(map[string]any)
-	code, _ = f.api(t, 992, f.p.TenantID, "GET", "/annotation-tasks/"+task.ID+"/items", nil)
-	require.Equal(t, 403, code)
+	code, hidden := f.api(t, 992, f.p.TenantID, "GET", "/annotation-tasks/"+task.ID+"/items", nil)
+	require.Equal(t, 200, code)
+	require.Empty(t, hidden["data"].(map[string]any)["items"])
+	code, _ = f.api(t, 992, f.p.TenantID, "GET", "/annotation-tasks/"+task.ID, nil)
+	require.Equal(t, 403, code, "individual restricted records remain inaccessible")
 	reviewed, e := f.s.ReviewAnnotation(ctx, f.p, task.ID, item["id"].(string), "approved", "verified", int(item["version"].(float64)))
 	require.NoError(t, e)
 	require.Equal(t, "approved", reviewed.Status)
@@ -242,9 +262,13 @@ func TestGovernanceIntegrationAnnotationsTaggingAndAPI(t *testing.T) {
 	require.Equal(t, 200, code, out)
 	result := out["data"].(map[string]any)["items"].([]any)[0].(map[string]any)
 	require.Equal(t, "sales", result["tags"].([]any)[0])
-	require.Equal(t, 0.7, result["tag_confidence"].(map[string]any)["sales"])
+	require.Empty(t, result["tag_confidence"], "rule matches must not inherit synthetic model confidence")
+	require.Equal(t, "matched", result["provenance"].(map[string]any)["decision_status"])
 	require.NotNil(t, result["evidence"])
-	code, _ = f.api(t, 992, f.p.TenantID, "GET", "/tagging-tasks/"+tagging.ID+"/results", nil)
+	code, hidden = f.api(t, 992, f.p.TenantID, "GET", "/tagging-tasks/"+tagging.ID+"/results", nil)
+	require.Equal(t, 200, code)
+	require.Empty(t, hidden["data"].(map[string]any)["items"])
+	code, _ = f.api(t, 992, f.p.TenantID, "GET", "/tagging-tasks/"+tagging.ID, nil)
 	require.Equal(t, 403, code)
 }
 func TestGovernanceIntegrationSubscriptionRefreshCheckpoint(t *testing.T) {
@@ -318,7 +342,7 @@ func TestGovernanceIntegrationQueueRecoveryAndPublishedCursor(t *testing.T) {
 	require.Len(t, next, 2)
 	require.Equal(t, (l.RefID{AssetID: ref.AssetID, Version: ref.Version + 101}).String(), next[1])
 	f.s.Queue = &failQueue{Queue: f.q, fail: true}
-	_, e = f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "recover", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true}}, "recover")
+	_, e = f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "recover", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, LabelSchema: []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}}}, "recover")
 	require.ErrorContains(t, e, "queue temporarily unavailable")
 	dispatcher := job.NewDispatcher(f.q, job.RetryPolicy{MaxAttempts: 3})
 	dispatcher.Register("governance", f.s, f.s)
@@ -365,6 +389,7 @@ func TestGovernanceIntegrationHTTPMutations(t *testing.T) {
 // source so a private queue never claims another test/application's review rows.
 type scopedPendingRepo struct {
 	d.Repository
+	d.FeatureMaterializationRepository
 	tenant int64
 }
 
@@ -386,7 +411,7 @@ func TestGovernanceIntegrationTaggingReviewAPI(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	ref := f.publish(t, l.Input{Kind: "text", Text: "sales"}, "db/review", "public")
-	task, e := f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "review", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true}}, "review")
+	task, e := f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "review", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, LabelSchema: []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}}}, "review")
 	require.NoError(t, e)
 	j, e := f.q.TryClaim(ctx)
 	require.NoError(t, e)

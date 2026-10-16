@@ -8,6 +8,7 @@ import (
 	lifecycle "cognida/internal/service/lifecycle"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"strings"
@@ -21,15 +22,19 @@ type AssetService interface {
 type SourceValidator func(context.Context, l.Principal, d.SuggestionSource) error
 type ApplySuggestion func(context.Context, l.Principal, d.Suggestion) (string, error)
 type Service struct {
-	governedInputs GovernedInputValidator
-	Repo           d.Repository
-	Assets         AssetService
-	Compute        lifecycle.Compute
-	Queue          job.Queue
-	Authorize      lifecycle.Authorizer
-	DiscoverSource SuggestionDiscovery
-	ValidateSource SourceValidator
-	Apply          ApplySuggestion
+	labelSuggester   LabelSuggester
+	knowledgeLabels  d.KnowledgeLabelRepository
+	featureEmbedding *featureEmbeddingProvider
+	driftRemediation DriftRemediation
+	governedInputs   GovernedInputValidator
+	Repo             d.Repository
+	Assets           AssetService
+	Compute          lifecycle.Compute
+	Queue            job.Queue
+	Authorize        lifecycle.Authorizer
+	DiscoverSource   SuggestionDiscovery
+	ValidateSource   SourceValidator
+	Apply            ApplySuggestion
 }
 
 func NewService(repo d.Repository, assets AssetService, compute lifecycle.Compute, queue job.Queue, authorize lifecycle.Authorizer) *Service {
@@ -107,11 +112,18 @@ func (s *Service) List(ctx context.Context, p l.Principal, f d.Filter) (*d.Page[
 	if err != nil {
 		return nil, err
 	}
+	visible := make([]d.Record, 0, len(page.Items))
 	for i := range page.Items {
 		if err = s.authorizeRecord(ctx, p, &page.Items[i]); err != nil {
+			if errors.Is(err, d.ErrForbidden) || errors.Is(err, d.ErrNotFound) || errors.Is(err, l.ErrForbidden) || errors.Is(err, l.ErrNotFound) || errors.Is(err, l.ErrExpired) {
+				continue
+			}
 			return nil, err
 		}
+		visible = append(visible, page.Items[i])
 	}
+	// Pagination advances over the scanned records, including hidden ones.
+	page.Items = visible
 	return page, nil
 }
 func View(record *d.Record) (map[string]any, error) {

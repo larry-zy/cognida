@@ -277,6 +277,7 @@ type EmbeddingConfig struct {
 	APIKey   string // API 密钥
 	Model    string // 模型名称
 	BaseURL  string // API Base URL
+	Revision string // Explicit immutable provider revision, required for feature materialization.
 }
 
 // TenantConfig 租户配置
@@ -476,6 +477,7 @@ func LoadEmbeddingConfig() *EmbeddingConfig {
 		APIKey:   getEnv("EMBEDDING_API_KEY", ""), // 密钥：仅 env
 		Model:    getEnv("EMBEDDING_MODEL", fc.Embedding.Model),
 		BaseURL:  getEnv("EMBEDDING_BASE_URL", fc.Embedding.BaseURL),
+		Revision: getEnv("EMBEDDING_REVISION", ""),
 	}
 }
 

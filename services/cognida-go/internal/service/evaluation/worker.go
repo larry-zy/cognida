@@ -2,6 +2,8 @@
 package evaluation
 
 import (
+	f "cognida/internal/model/feedback"
+	l "cognida/internal/model/lifecycle"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,6 +37,7 @@ type (
 
 // EvaluationWorker 评测 Worker
 type EvaluationWorker struct {
+	snapshots     *SnapshotService
 	queue         domeval.TaskQueue
 	progressCache domeval.ProgressWriter
 	pythonClient  *PythonEvaluationClient
@@ -160,7 +163,7 @@ func (w *EvaluationWorker) recoverStuckTasks(ctx context.Context) {
 				break // 空页兜底，防止 total 与实际不一致时死循环
 			}
 			for _, t := range tasks {
-				if t == nil {
+				if t == nil || t.Type == domeval.OfflineType {
 					continue
 				}
 				if _, ok := queued[t.ID]; ok {
@@ -173,6 +176,12 @@ func (w *EvaluationWorker) recoverStuckTasks(ctx context.Context) {
 				if t.Status == domeval.TaskStatusRunning {
 					if time.Since(t.UpdatedAt) < MaxTaskTimeout {
 						log.Printf("[Worker][Recover] task %s still running (lease fresh, updated %s ago), skip", t.ID, time.Since(t.UpdatedAt).Round(time.Second))
+						continue
+					}
+					var snap domeval.EvaluationSnapshot
+					if json.Unmarshal(t.Snapshot, &snap) == nil && snap.FeedbackView != nil {
+						_ = w.taskRepo.UpdateError(ctx, t.ID, "feedback evaluation interrupted; paid calls are not automatically replayed")
+						_ = w.taskRepo.UpdateStatus(ctx, t.ID, domeval.TaskStatusFailed)
 						continue
 					}
 					if err := w.taskRepo.UpdateStatus(ctx, t.ID, domeval.TaskStatusPending); err != nil {
@@ -312,6 +321,25 @@ func (w *EvaluationWorker) executeTask(taskID string) {
 // executeTaskWithContext lets the generic job runtime own cancellation while
 // preserving executeTask for focused evaluation tests and legacy callers.
 func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID string) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	existing, e := w.taskRepo.FindByID(parent, taskID)
+	if e != nil || existing == nil || existing.Type == domeval.OfflineType {
+		return
+	}
+	var initialSnapshot domeval.EvaluationSnapshot
+	feedbackRun := json.Unmarshal(existing.Snapshot, &initialSnapshot) == nil && initialSnapshot.FeedbackView != nil
+	if feedbackRun {
+		claimer, ok := w.taskRepo.(feedbackEvaluationClaimer)
+		if !ok {
+			return
+		}
+		claimed, err := claimer.ClaimFeedbackEvaluation(parent, taskID)
+		if err != nil || !claimed {
+			return
+		}
+	}
 	// 注入 task 级 request_id，使本次评测的全链路（被测 Agent 运行→其 LLM/工具调用→
 	// audit_logs/Loki→跨进程调 Python 指标计算的 X-Request-ID）统一挂在同一 rid 下，
 	// 可按 rid 检索一整次评测。rid 内嵌 taskID 便于反查，尾缀 uuid 区分同一任务的多次重跑。
@@ -330,12 +358,22 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 	}
 	runCtx, cancel := context.WithTimeout(runBaseCtx, MaxTaskTimeout)
 	defer cancel()
+	if feedbackRun {
+		var deadlineCancel context.CancelFunc
+		runCtx, deadlineCancel = context.WithDeadline(runCtx, initialSnapshot.FeedbackView.Deadline)
+		defer deadlineCancel()
+	}
 	ctx := agentctx.WithRequestID(runCtx, requestID)
 	log.Printf("[Worker] task %s trace request_id=%s", taskID, requestID)
 
 	// B3: 置 running 并刷新 updated_at 当作轻量租约，供 recoverStuckTasks 区分「在途」与陈旧孤儿，
 	// 避免多进程/重叠恢复重复执行、互删结果行。失败仅记日志，不阻断执行（loadTask 会再校验存在性）。
-	if err := w.taskRepo.UpdateStatus(ctx, taskID, domeval.TaskStatusRunning); err != nil {
+	if err := func() error {
+		if feedbackRun {
+			return nil
+		}
+		return w.taskRepo.UpdateStatus(ctx, taskID, domeval.TaskStatusRunning)
+	}(); err != nil {
 		log.Printf("[Worker] task %s mark running failed: %v", taskID, err)
 	}
 
@@ -355,11 +393,30 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 		return
 	}
 
+	if task.Type == domeval.OfflineType {
+		w.handleTaskError(ctx, taskID, domeval.ErrOfflineConflict, 0)
+		return
+	}
 	// 2. 解析配置
 	config, err := w.parseTaskConfig(task)
 	if err != nil {
 		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to parse config: %w", err), 0)
 		return
+	}
+
+	var frozen *domeval.EvaluationSnapshot
+	if len(task.Snapshot) > 0 {
+		frozen = &domeval.EvaluationSnapshot{}
+		if json.Unmarshal(task.Snapshot, frozen) != nil {
+			w.handleTaskError(ctx, taskID, domeval.ErrVersionInvalid, 0)
+			return
+		}
+		fixed, e := w.snapshots.Validate(ctx, l.Principal{TenantID: task.TenantID, UserID: task.UserID}, frozen)
+		if e != nil {
+			w.handleTaskError(ctx, taskID, e, 0)
+			return
+		}
+		config = &domeval.EvaluationTaskConfig{DatasetID: fixed.DatasetID, Type: domeval.EvaluationType(fixed.Type), KnowledgeBaseID: fixed.KnowledgeBaseID, AgentID: fixed.AgentID, ModelID: fixed.ModelID, Config: fixed.Config}
 	}
 
 	// 2.1 数据源上下文：让评测跑的 Agent 与线上执行的 Agent 走同一条数据链路。
@@ -369,7 +426,7 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 	// 注入 ctx（并补 tenant_id/tool_scope，外部数据源 Acquire 依赖租户、评测只读），
 	// 使 sql_execute/get_schema 等工具查到与 golden 同一个库。为空则保持查业务库，向后兼容。
 	if dsID := configString(config.Config, "datasource_id"); dsID != "" {
-		tenantID := configTenantID(config.Config, 1)
+		tenantID := task.TenantID
 		ctx = agentctx.WithDatasourceID(ctx, dsID)
 		ctx = agentctx.WithTenantID(ctx, tenantID)
 		ctx = agentctx.WithToolScope(ctx, "read")
@@ -377,7 +434,20 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 	}
 
 	// 3. 加载数据集
-	dataset, err := w.datasetLoader.Load(ctx, config.DatasetID)
+	var dataset *Dataset
+	if frozen != nil {
+		dataset = &Dataset{}
+		for _, pair := range frozen.QAPairs {
+			raw, _ := json.Marshal(pair)
+			var qa QAPair
+			_ = json.Unmarshal(raw, &qa)
+			dataset.QAPairs = append(dataset.QAPairs, &qa)
+		}
+	} else if w.snapshots != nil {
+		err = domeval.ErrVersionInvalid
+	} else {
+		dataset, err = w.datasetLoader.Load(ctx, config.DatasetID)
+	}
 	if err != nil {
 		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to load dataset: %w", err), 0)
 		return
@@ -407,6 +477,17 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 	// 5. 执行评测
 	log.Printf("[Worker] Executing evaluation for task %s with %d QAs", taskID, len(dataset.QAPairs))
 	domainQAPairs := convertQAPairsToDomain(dataset.QAPairs)
+	ctx = agentctx.WithTenantID(agentctx.WithUserID(ctx, task.UserID), task.TenantID)
+	if frozen != nil && frozen.FeedbackView != nil {
+		ctx = f.WithView(ctx, l.Principal{TenantID: task.TenantID, UserID: task.UserID}, *frozen.FeedbackView)
+	}
+	if frozen != nil && frozen.Strategy != nil {
+		ctx, domainQAPairs, err = w.snapshots.prepareStrategy(ctx, l.Principal{TenantID: task.TenantID, UserID: task.UserID}, frozen, domainQAPairs)
+		if err != nil {
+			w.handleTaskError(ctx, taskID, err, 0)
+			return
+		}
+	}
 	domainResults, err := exec.Execute(ctx, config, domainQAPairs)
 	if err != nil {
 		log.Printf("[Worker] Execution failed: %v", err)
@@ -416,6 +497,20 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 	}
 	log.Printf("[Worker] Execution completed, got %d results", len(domainResults))
 
+	if frozen != nil && frozen.Strategy != nil {
+		if len(domainResults) != len(frozen.QAPairs) {
+			w.handleTaskError(ctx, taskID, domeval.ErrVersionConflict, 0)
+			return
+		}
+		preparation, _ := ctx.Value(preparationTimesKey{}).([]int64)
+		for i, r := range domainResults {
+			if len(preparation) == len(domainResults) {
+				r.LatencyMs += preparation[i]
+			}
+			r.Question = frozen.QAPairs[i].Question
+			r.ReferenceAnswer = frozen.QAPairs[i].ReferenceAnswer
+		}
+	}
 	appResults := convertQAResultsToApp(domainResults)
 
 	// 5.1 打分前先落库原始运行产物（答案/轨迹/运行时指标）。
@@ -444,7 +539,33 @@ func (w *EvaluationWorker) executeTaskWithContext(parent context.Context, taskID
 		return
 	}
 
+	if frozen != nil && frozen.Strategy != nil {
+		if err = w.snapshots.Strategies.ValidateSnapshot(ctx, l.Principal{TenantID: task.TenantID, UserID: task.UserID}, frozen.Strategy); err != nil {
+			w.handleTaskError(ctx, taskID, err, 0)
+			return
+		}
+		augmentRuntimeMetrics(evalResult)
+		for _, r := range evalResult.QAResults {
+			r.Scores["strategy_applied"] = 1
+		}
+	}
 	// 7. 保存结果
+	if frozen != nil && frozen.FeedbackView != nil {
+		if w.snapshots.FeedbackView == nil {
+			w.handleTaskError(ctx, taskID, domeval.ErrVersionForbidden, 0)
+			return
+		}
+		if err = w.snapshots.FeedbackView(ctx, l.Principal{TenantID: task.TenantID, UserID: task.UserID}, *frozen.FeedbackView); err != nil {
+			w.handleTaskError(ctx, taskID, err, 0)
+			return
+		}
+		for _, row := range evalResult.QAResults {
+			if row.Scores == nil {
+				row.Scores = map[string]float64{}
+			}
+			row.Scores["feedback_view_applied"] = 1
+		}
+	}
 	if err := w.saveResults(ctx, taskID, evalResult); err != nil {
 		w.handleTaskError(ctx, taskID, fmt.Errorf("failed to save results: %w", err), 0)
 		return
@@ -958,6 +1079,9 @@ func (w *EvaluationWorker) handleTaskError(ctx context.Context, taskID string, e
 	// 再叠加独立超时避免落库长挂。
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
+	if existing, e := w.taskRepo.FindByID(persistCtx, taskID); e == nil && existing != nil && existing.Type == domeval.OfflineType {
+		return
+	}
 
 	// 更新 Redis 进度缓存（best-effort，数据库状态才是权威来源）
 	_ = w.progressCache.SetError(persistCtx, taskID, err.Error(), 0)

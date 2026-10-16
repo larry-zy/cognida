@@ -87,13 +87,24 @@ func exactFeatureKeys(raw json.RawMessage, expression bool) bool {
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
 		return false
 	}
-	allowed := map[string]bool{"kind": true, "field": true, "entity_field": true, "event_time_field": true, "expression": true, "window_seconds": true, "aggregate": true}
+	allowed := map[string]bool{"kind": true, "field": true, "entity_field": true, "event_time_field": true, "expression": true, "window_seconds": true, "aggregate": true, "embedding": true}
 	if expression {
 		allowed = map[string]bool{"op": true, "field": true, "value": true, "args": true, "mapping": true, "default": true}
 	}
 	for key, value := range fields {
 		if !allowed[key] {
 			return false
+		}
+		if key == "embedding" {
+			var model map[string]json.RawMessage
+			if json.Unmarshal(value, &model) != nil || model == nil {
+				return false
+			}
+			for k := range model {
+				if k != "model_id" && k != "revision" && k != "dimension" {
+					return false
+				}
+			}
 		}
 		if key == "expression" {
 			if !exactFeatureKeys(value, true) {
@@ -156,9 +167,14 @@ func parseFeatureDefinition(raw json.RawMessage) (d.FeatureDefinition, error) {
 			return def, featureErr("invalid_window", "aggregate must be count, sum, mean, min or max")
 		}
 	case "embedding":
-		return def, featureErr("unsupported_embedding", "embedding requires a configured versioned model; no embedding execution is available in this profile")
+		if def.Embedding == nil || strings.TrimSpace(def.Embedding.ModelID) == "" || strings.TrimSpace(def.Embedding.Revision) == "" || len(def.Embedding.ModelID) > 256 || len(def.Embedding.Revision) > 256 || def.Embedding.Dimension < 1 || def.Embedding.Dimension > 4096 || def.Field == "" || def.Expression != nil || def.WindowSeconds != 0 || def.Aggregate != "" {
+			return def, featureErr("invalid_embedding", "embedding requires a fixed model identity/revision, dimension 1..4096 and text field")
+		}
 	default:
 		return def, featureErr("unsupported_kind", "supported kinds are field, expression and window_aggregate")
+	}
+	if def.Kind != "embedding" && def.Embedding != nil {
+		return def, featureErr("invalid_definition", "embedding options require embedding kind")
 	}
 	return def, nil
 }
@@ -447,11 +463,17 @@ func featureEntity(value any) (string, error) {
 	return "", featureErr("invalid_entity", "entity must be nonempty text or an exact integer identifier up to 128 bytes")
 }
 func computeFeatureValues(ctx context.Context, f d.Feature, ref l.DataAssetRef, input l.Input) ([]d.FeatureValue, []string, error) {
+	return computeFeatureValuesLimit(ctx, f, ref, input, featureRowsLimit)
+}
+func computeFeatureValuesLimit(ctx context.Context, f d.Feature, ref l.DataAssetRef, input l.Input, limit int) ([]d.FeatureValue, []string, error) {
 	def, err := parseFeatureDefinition(f.Definition)
 	if err != nil {
 		return nil, nil, err
 	}
-	if input.Kind != "table" || input.Validate() != nil || len(input.Rows) > featureRowsLimit {
+	if def.Kind == "embedding" {
+		return nil, nil, featureErr("embedding_unavailable", "embedding requires the configured real model execution path")
+	}
+	if input.Kind != "table" || input.Validate() != nil || len(input.Rows) > limit {
 		return nil, nil, featureErr("input_limit", "feature input must be a valid table of 1..1000 rows")
 	}
 	indexes := map[string]int{}
@@ -558,58 +580,83 @@ func computeFeatureValues(ctx context.Context, f d.Feature, ref l.DataAssetRef, 
 	return out, warnings, nil
 }
 func aggregateFeatureWindow(ctx context.Context, values []d.FeatureValue, def d.FeatureDefinition) ([]d.FeatureValue, error) {
+	sort.SliceStable(values, func(i, j int) bool {
+		if values[i].EntityID == values[j].EntityID {
+			return values[i].Timestamp.Before(values[j].Timestamp)
+		}
+		return values[i].EntityID < values[j].EntityID
+	})
 	out := []d.FeatureValue{}
-	seen := map[string]bool{}
-	for _, point := range values {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	for begin := 0; begin < len(values); {
+		end := begin + 1
+		for end < len(values) && values[end].EntityID == values[begin].EntityID {
+			end++
 		}
-		key := point.EntityID + "\x00" + point.Timestamp.Format(time.RFC3339Nano)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		lower := point.Timestamp.Add(-time.Duration(def.WindowSeconds) * time.Second)
-		sum := new(big.Rat)
-		var minN, maxN *big.Rat
-		count := 0
-		for _, candidate := range values {
-			if candidate.EntityID != point.EntityID || !candidate.Timestamp.After(lower) || candidate.Timestamp.After(point.Timestamp) {
-				continue
-			}
-			n, e := featureNumber(json.Number(candidate.Value))
+		nums := make([]*big.Rat, end-begin)
+		for i := begin; i < end; i++ {
+			n, e := featureNumber(json.Number(values[i].Value))
 			if e != nil {
 				return nil, e
 			}
-			sum.Add(sum, n)
-			if minN == nil || n.Cmp(minN) < 0 {
-				minN = new(big.Rat).Set(n)
+			nums[i-begin] = n
+		}
+		sum := new(big.Rat)
+		left, right := begin, begin
+		minQ, maxQ := []int{}, []int{}
+		for point := begin; point < end; {
+			if e := ctx.Err(); e != nil {
+				return nil, e
 			}
-			if maxN == nil || n.Cmp(maxN) > 0 {
-				maxN = new(big.Rat).Set(n)
+			at := values[point].Timestamp
+			for right < end && !values[right].Timestamp.After(at) {
+				n := nums[right-begin]
+				sum.Add(sum, n)
+				for len(minQ) > 0 && nums[minQ[len(minQ)-1]-begin].Cmp(n) >= 0 {
+					minQ = minQ[:len(minQ)-1]
+				}
+				for len(maxQ) > 0 && nums[maxQ[len(maxQ)-1]-begin].Cmp(n) <= 0 {
+					maxQ = maxQ[:len(maxQ)-1]
+				}
+				minQ = append(minQ, right)
+				maxQ = append(maxQ, right)
+				right++
 			}
-			count++
+			lower := at.Add(-time.Duration(def.WindowSeconds) * time.Second)
+			for left < right && !values[left].Timestamp.After(lower) {
+				sum.Sub(sum, nums[left-begin])
+				left++
+			}
+			for len(minQ) > 0 && minQ[0] < left {
+				minQ = minQ[1:]
+			}
+			for len(maxQ) > 0 && maxQ[0] < left {
+				maxQ = maxQ[1:]
+			}
+			count := right - left
+			var result *big.Rat
+			switch def.Aggregate {
+			case "count":
+				result = new(big.Rat).SetInt64(int64(count))
+			case "sum":
+				result = new(big.Rat).Set(sum)
+			case "mean":
+				result = new(big.Rat).Quo(sum, new(big.Rat).SetInt64(int64(count)))
+			case "min":
+				result = nums[minQ[0]-begin]
+			case "max":
+				result = nums[maxQ[0]-begin]
+			}
+			number, e := featureDecimal(result)
+			if e != nil {
+				return nil, e
+			}
+			value := values[point]
+			value.Value = []byte(number)
+			value.ValueExact = string(value.Value)
+			out = append(out, value)
+			point = right
 		}
-		var result *big.Rat
-		switch def.Aggregate {
-		case "count":
-			result = new(big.Rat).SetInt64(int64(count))
-		case "sum":
-			result = sum
-		case "mean":
-			result = new(big.Rat).Quo(sum, new(big.Rat).SetInt64(int64(count)))
-		case "min":
-			result = minN
-		case "max":
-			result = maxN
-		}
-		number, e := featureDecimal(result)
-		if e != nil {
-			return nil, e
-		}
-		point.Value = []byte(number)
-		point.ValueExact = string(point.Value)
-		out = append(out, point)
+		begin = end
 	}
 	return out, nil
 }

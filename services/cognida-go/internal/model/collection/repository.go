@@ -84,3 +84,8 @@ type Runner interface {
 
 // Clock is a small port used by services that need deterministic timestamps.
 type Clock interface{ Now() time.Time }
+
+// LegacyReceiptRepository only reconciles historical committed ingestion; it never writes knowledge.
+type LegacyReceiptRepository interface {
+	FindLegacyReceipt(context.Context, int64, string, string) (string, error)
+}

@@ -47,10 +47,13 @@ type RequestGate interface {
 }
 
 type Options struct {
-	Gate         RequestGate
-	Resolver     Resolver
-	Transport    http.RoundTripper
-	TLSConfig    *tls.Config
+	Gate      RequestGate
+	Resolver  Resolver
+	Transport http.RoundTripper
+	TLSConfig *tls.Config
+	// DialContext is a trusted operator/test seam. The default transport calls
+	// it only with numeric addresses after validating the complete DNS answer.
+	DialContext  func(context.Context, string, string) (net.Conn, error)
 	Timeout      time.Duration
 	MaxBytes     int64
 	MaxRedirects int
@@ -102,7 +105,7 @@ func New(opts Options) *Fetcher {
 	f := &Fetcher{resolver: resolver, maxBytes: maxBytes, userAgent: userAgent}
 	transport := opts.Transport
 	if transport == nil {
-		transport = f.safeTransport(opts.TLSConfig)
+		transport = f.safeTransport(opts.TLSConfig, opts.DialContext)
 	}
 	if opts.Gate != nil {
 		transport = gateTransport{delegate: transport, gate: opts.Gate}
@@ -214,36 +217,31 @@ func (f *Fetcher) validateURL(ctx context.Context, raw string) (string, error) {
 	return normalized, nil
 }
 
-func (f *Fetcher) safeTransport(tlsConfig *tls.Config) *http.Transport {
-	dialer := &net.Dialer{}
-	return &http.Transport{
+func (f *Fetcher) safeTransport(tlsConfig *tls.Config, dial func(context.Context, string, string) (net.Conn, error)) *http.Transport {
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{}
+	}
+	transport := &http.Transport{
 		Proxy:                 nil, // environment proxies can bypass destination policy
-		TLSClientConfig:       tlsConfig,
+		TLSClientConfig:       tlsConfig.Clone(),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          20,
 		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, fmt.Errorf("split dial address: %w", err)
-			}
-			ips, err := approvedIPs(ctx, f.resolver, host)
-			if err != nil {
-				return nil, err
-			}
-			var lastErr error
-			for _, ip := range ips {
-				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
-			}
-			return nil, fmt.Errorf("dial approved destination: %w", lastErr)
-		},
 	}
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return dialApproved(ctx, f.resolver, dial, network, address, nil)
+	}
+	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		// net/http configures ALPN before dialing. Clone that final config, so
+		// ForceAttemptHTTP2 and the negotiated protocol remain consistent.
+		return dialApproved(ctx, f.resolver, dial, network, address, transport.TLSClientConfig.Clone())
+	}
+	return transport
 }
 
 func readBounded(r io.Reader, limit int64) ([]byte, error) {

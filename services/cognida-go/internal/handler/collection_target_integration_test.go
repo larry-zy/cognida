@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	storage "cognida/internal/infrastructure/objectstore"
 	domain "cognida/internal/model/collection"
 	kbmodel "cognida/internal/model/knowledge"
 	repository "cognida/internal/repository/mysql"
@@ -125,8 +126,8 @@ func TestCollectionInactiveKnowledgeBaseMySQLAPI(t *testing.T) {
 				require.ErrorIs(t, err, expectedErr)
 				require.Nil(t, result, "neither new processing nor replay may bypass target state")
 			}
-			// Execute the previously valid draft after target removal. The real
-			// processor rejects before parser/embedder invocation; only failed state commits.
+			// Running the old task now produces only a reviewable candidate. It must
+			// neither reuse an inactive receipt nor call the legacy publishing port.
 			require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
 				repo := repository.NewCollectionRepository(tx)
 				now := time.Now().UTC()
@@ -135,6 +136,11 @@ func TestCollectionInactiveKnowledgeBaseMySQLAPI(t *testing.T) {
 					return err
 				}
 				worker := collectionsvc.NewService(repo, outcomeIntegrationFetch{}, collectionsvc.NewKnowledgeIngestorAdapter(processor), collectionsvc.TextNormalizer{})
+				objects, err := storage.NewLocal(t.TempDir())
+				if err != nil {
+					return err
+				}
+				worker.SetArtifactStore(objects)
 				return worker.ExecuteRun(ctx, collectionsvc.RunJobPayload{RunID: run.ID, TaskID: run.TaskID, TenantID: tenant})
 			}))
 			w := httptest.NewRecorder()
@@ -149,9 +155,13 @@ func TestCollectionInactiveKnowledgeBaseMySQLAPI(t *testing.T) {
 				}
 			}
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &detail))
-			require.Equal(t, domain.TaskStatusFailed, detail.Data.Task.Status)
-			require.Equal(t, domain.RunStatusFailed, detail.Data.Run.Status)
-			require.Equal(t, 1, detail.Data.Summary.Failed)
+			require.Equal(t, domain.TaskStatusCompleted, detail.Data.Task.Status)
+			require.Equal(t, domain.RunStatusCompleted, detail.Data.Run.Status)
+			require.Zero(t, detail.Data.Summary.Failed)
+			require.Equal(t, 1, detail.Data.Summary.Candidates)
+			require.Len(t, detail.Data.Items, 1)
+			require.Equal(t, domain.ItemStatusCandidate, detail.Data.Items[0].Status)
+			require.NotEmpty(t, detail.Data.Items[0].NormalizedObjectKey)
 			require.Empty(t, detail.Data.Items[0].KnowledgeID)
 			var documents, tasks int64
 			require.NoError(t, db.Table("knowledge").Where("tenant_id = ? AND knowledge_base_id = ?", tenant, kbID).Count(&documents).Error)

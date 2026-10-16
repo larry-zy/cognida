@@ -160,7 +160,7 @@ func (r *CollectionRepository) claimDueTasks(ctx context.Context, now time.Time,
 			if active > 0 {
 				continue
 			}
-			run := &collection.Run{ID: uuid.NewString(), TaskID: model.ID, TenantID: model.TenantID, Status: collection.RunStatusRunning, StartedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+			run := &collection.Run{CandidateOnly: true, ID: uuid.NewString(), TaskID: model.ID, TenantID: model.TenantID, Status: collection.RunStatusRunning, StartedAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 			if err := tx.Create(fromCollectionRun(run)).Error; err != nil {
 				return repositoryError(err)
 			}
@@ -181,6 +181,7 @@ func (r *CollectionRepository) claimDueTasks(ctx context.Context, now time.Time,
 func timePtr(value time.Time) *time.Time { return &value }
 
 func (r *CollectionRepository) CreateRun(ctx context.Context, run *collection.Run) error {
+	run.CandidateOnly = true
 	if run.TenantID <= 0 || run.ID == "" || run.TaskID == "" || run.Status != collection.RunStatusRunning {
 		return collection.ErrInvalidTask
 	}
@@ -276,7 +277,7 @@ func (r *CollectionRepository) CreateItem(ctx context.Context, item *collection.
 }
 
 func (r *CollectionRepository) UpdateItem(ctx context.Context, item *collection.Item) error {
-	result := r.scoped(ctx, item.TenantID).Model(&CollectionItemModel{}).Where("id = ? AND run_id = ?", item.ID, item.RunID).Updates(map[string]any{"canonical_url": item.CanonicalURL, "status": string(item.Status), "content_hash": item.ContentHash, "raw_object_key": item.RawObjectKey, "normalized_object_key": item.NormalizedObjectKey, "raw_hash": item.RawHash, "raw_size": item.RawSize, "normalized_size": item.NormalizedSize, "knowledge_id": item.KnowledgeID, "http_status": item.HTTPStatus, "content_type": item.ContentType, "error_reason": item.ErrorReason, "updated_at": item.UpdatedAt})
+	result := r.scoped(ctx, item.TenantID).Model(&CollectionItemModel{}).Where("id = ? AND run_id = ?", item.ID, item.RunID).Updates(map[string]any{"canonical_url": item.CanonicalURL, "status": string(item.Status), "content_hash": item.ContentHash, "raw_object_key": item.RawObjectKey, "normalized_object_key": item.NormalizedObjectKey, "asset_ref_id": item.AssetRefID, "raw_hash": item.RawHash, "raw_size": item.RawSize, "normalized_size": item.NormalizedSize, "knowledge_id": item.KnowledgeID, "http_status": item.HTTPStatus, "content_type": item.ContentType, "error_reason": item.ErrorReason, "updated_at": item.UpdatedAt})
 	if result.Error != nil {
 		return repositoryError(result.Error)
 	}
@@ -356,3 +357,16 @@ func (r *CollectionRepository) scoped(ctx context.Context, tenantID int64) *gorm
 	return r.getDB(ctx).Where("tenant_id = ?", tenantID)
 }
 func repositoryError(err error) error { return fmt.Errorf("%w: %v", collection.ErrRepository, err) }
+
+// FindRun reads exactly one tenant-scoped durable run. Handler validates owner.
+func (r *CollectionRepository) FindRun(ctx context.Context, tenantID int64, id string) (*collection.Run, error) {
+	var row CollectionRunModel
+	err := r.scoped(ctx, tenantID).Where("id = ?", id).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, collection.ErrRunNotFound
+	}
+	if err != nil {
+		return nil, repositoryError(err)
+	}
+	return row.ToDomain(), nil
+}

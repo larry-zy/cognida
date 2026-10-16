@@ -91,6 +91,15 @@ func (s *Service) Exhausted(ctx context.Context, j job.Job, cause error) error {
 			return d.ErrInvalid
 		}
 		if state.Invocation.Profile == d.FeatureProfile {
+			if jobs, err := s.featureJobs(); err == nil {
+				j, err := jobs.FindFeatureJobByKey(ctx, scope.TenantID, scope.UserID, "governed-job:"+record.ID)
+				if err != nil {
+					return err
+				}
+				if j != nil {
+					return s.finishGovernedFeatureJob(ctx, record, j, cause)
+				}
+			}
 			return s.finishGovernedFeature(ctx, record, state, nil, cause)
 		}
 		r, err := s.governedRepo()

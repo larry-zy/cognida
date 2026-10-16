@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,8 +59,13 @@ type Driver interface {
 
 // drivers 已注册驱动（Factory）。
 var drivers = map[model.Type]Driver{
-	model.TypeMySQL:    mysqlDriver{},
-	model.TypePostgres: postgresDriver{},
+	model.TypeMySQL:      mysqlDriver{},
+	model.TypePostgres:   postgresDriver{},
+	model.TypeClickHouse: clickHouseDriver{},
+	model.TypeDoris:      warehouseMySQLDriver{engine: model.TypeDoris},
+	model.TypeStarRocks:  warehouseMySQLDriver{engine: model.TypeStarRocks},
+	model.TypeHive:       hiveDriver{},
+	model.TypeBigQuery:   bigQueryDriver{},
 }
 
 // DriverFor 按类型取驱动；不支持的类型返回错误
@@ -77,6 +83,7 @@ func SupportedTypes() []model.Type {
 	for t := range drivers {
 		types = append(types, t)
 	}
+	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
 	return types
 }
 
