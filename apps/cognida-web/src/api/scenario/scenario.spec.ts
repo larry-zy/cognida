@@ -1,0 +1,17 @@
+import {beforeEach,describe,expect,it,vi} from 'vitest'
+const http=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),put:vi.fn()}))
+vi.mock('@/utils/request',()=>({http}))
+vi.mock('@/stores/auth',()=>({useAuthStore:()=>({user:{id:1},currentTenant:{id:2}})}))
+import {standardsApi,type StandardInput} from '@/api/governance/standards'
+import {sftApi} from './sft'
+import {huggingfaceApi,type HFRequest} from './huggingface'
+import {lifecycleApi} from '@/api/lifecycle'
+beforeEach(()=>{vi.clearAllMocks();http.get.mockResolvedValue({data:{}});http.post.mockResolvedValue({data:{}});http.put.mockResolvedValue({data:{}})})
+describe('scenario HTTP contracts',()=>{
+ it('publishes the exact saved standard revision with an idempotency key',async()=>{await standardsApi.publish('standard/id',7);expect(http.post).toHaveBeenCalledWith('/label-standards/standard%2Fid/publish',{expected_version:7},expect.objectContaining({headers:{'Idempotency-Key':expect.any(String)}}))})
+ it('updates standard draft using CAS and explicit nested standard input',async()=>{const standard={name:'新版'} as StandardInput;await standardsApi.update('id',3,standard);expect(http.put).toHaveBeenCalledWith('/label-standards/id',{expected_version:3,standard},expect.objectContaining({headers:{'Idempotency-Key':expect.any(String)}}))})
+ it('keeps cursor pages and immutable IDs distinct',async()=>{await standardsApi.versions('head','next-page');await standardsApi.version('published-id');expect(http.get).toHaveBeenCalledWith('/label-standards/head/versions',{params:{cursor:'next-page',page_size:50}});expect(http.get).toHaveBeenCalledWith('/label-standard-versions/published-id')})
+ it('prepares an exact lifecycle source version without attaching fabricated provenance',async()=>{await lifecycleApi.prepare('clean',{version:2,fields:[{source:'utterance',name:'text',type:'text',required:true}],normalize_newlines:true});expect(http.post).toHaveBeenCalledWith('/lifecycle/assets/clean/prepare',{version:2,fields:[{source:'utterance',name:'text',type:'text',required:true}],normalize_newlines:true},expect.objectContaining({headers:{'Idempotency-Key':expect.any(String)}}))})
+ it('imports explicit JSON mappings and reuses the same key only after uncertain failure',async()=>{const req:HFRequest={repo_id:'org/data',revision:'b'.repeat(40),config:'c',split:'train',files:['train.jsonl'],field_mapping:{columns:[{source:'conversation',target:'messages',encoding:'json'}]},max_rows:10,max_bytes:1000};http.post.mockRejectedValueOnce(new Error('uncertain'));await expect(huggingfaceApi.import(req)).rejects.toThrow('uncertain');await huggingfaceApi.import(req);expect(http.post.mock.calls[1][1]).toEqual(req);expect(http.post.mock.calls[1][2].headers['Idempotency-Key']).toBe(http.post.mock.calls[0][2].headers['Idempotency-Key']);expect(http.post).toHaveBeenCalledTimes(2)})
+ it('does not conflate SFT review with publication, and lists real rows with cursors',async()=>{await sftApi.review('set',4,'approved','已检查');expect(http.post.mock.calls[0][0]).toBe('/sft-datasets/set/review');expect(http.post.mock.calls[0][1]).toEqual({expected_version:4,decision:'approved',comment:'已检查'});await sftApi.rows('set','rows-next');expect(http.get).toHaveBeenCalledWith('/sft-datasets/set/rows',{params:{cursor:'rows-next',page_size:50}});await sftApi.publish('set',5);expect(http.post.mock.calls[1][0]).toBe('/sft-datasets/set/publish');expect(http.post.mock.calls[1][1]).toEqual({expected_version:5})})
+})

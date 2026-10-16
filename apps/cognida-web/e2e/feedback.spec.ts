@@ -1,3 +1,4 @@
+import {prepareScenarioInput,publishScenarioStandard} from './scenario.helpers'
 import { randomUUID } from "node:crypto";
 import {
   test,
@@ -169,10 +170,12 @@ test("feedback real source → bounded cleaning → isolated paired validation �
         ]),
       },
     });
+    const preparedQA=await prepareScenarioInput(api,qa), qaStandard=await publishScenarioStandard(api,"qa");
     const task = await write(api, "/annotation-tasks", {
       name: `fixed-${marker}`,
       type: "qa",
-      source_ref_id: `${qa.asset_id}:${qa.version}`,
+      source_ref_id: `${preparedQA.asset_id}:${preparedQA.version}`,
+      standard_version_id: qaStandard.id,
       labels: [],
       qa_mapping: {
         question_column: "question",
@@ -308,6 +311,7 @@ test("feedback real source → bounded cleaning → isolated paired validation �
         new URL(r.url()).pathname ===
           `/api/v1/feedback-publications/${pub.id}/project` &&
         r.request().method() === "POST",
+      { timeout: 120000 }, // Matches the real projection API request window.
     );
     await page
       .getByRole("button", { name: "建立隔离索引", exact: true })

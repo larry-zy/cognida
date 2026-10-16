@@ -97,6 +97,9 @@ from core.request_context import RequestIDMiddleware  # noqa: E402
 from services.lifecycle.router import LifecycleBodyLimitMiddleware, router as lifecycle_router
 
 app.include_router(lifecycle_router)
+from services.huggingface.router import router as huggingface_router
+
+app.include_router(huggingface_router)
 app.add_middleware(LifecycleBodyLimitMiddleware)
 # Later-added middleware is outermost: reject unauthorized requests before any
 # lifecycle body buffering, and retain request IDs on auth/limit failures.

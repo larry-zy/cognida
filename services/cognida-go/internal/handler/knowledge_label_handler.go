@@ -3,9 +3,23 @@ package handler
 import (
 	d "cognida/internal/model/governance"
 	"github.com/gin-gonic/gin"
+	"strconv"
 )
 
 func (h *GovernanceHandler) RegisterKnowledgeLabelRoutes(api *gin.RouterGroup) {
+	api.GET("/tagging-results/:id/apply-target", func(c *gin.Context) {
+		version, err := strconv.Atoi(c.Query("expected_version"))
+		if err != nil {
+			governanceErr(c, d.ErrInvalid)
+			return
+		}
+		target, err := h.service.KnowledgeLabelTarget(c.Request.Context(), gp(c), c.Param("id"), version)
+		if err != nil {
+			governanceErr(c, err)
+			return
+		}
+		OK(c, target)
+	})
 	api.POST("/tagging-results/:id/apply", func(c *gin.Context) {
 		var in d.ApplyKnowledgeLabels
 		if !BindJSON(c, &in) {

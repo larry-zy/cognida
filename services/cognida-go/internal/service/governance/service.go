@@ -102,6 +102,9 @@ func (s *Service) List(ctx context.Context, p l.Principal, f d.Filter) (*d.Page[
 	if f.Kind == "notification" || f.Kind == "subscription" || f.Kind == "subscription_run" {
 		f.UserID = p.UserID
 	}
+	if f.Kind == d.LabelStandardKind || f.Kind == d.LabelStandardVersionKind || f.Kind == d.SFTDatasetKind || f.Kind == d.SFTDatasetVersionKind {
+		f.UserID = p.UserID
+	}
 	if f.Kind == "annotation_task" || f.Kind == "tagging_task" {
 		f.GovernedOwnerID = p.UserID
 	}
@@ -130,6 +133,10 @@ func View(record *d.Record) (map[string]any, error) {
 	var out map[string]any
 	if err := json.Unmarshal(record.Payload, &out); err != nil {
 		return nil, err
+	}
+	if record.Kind == d.SFTDatasetKind || record.Kind == d.SFTDatasetVersionKind {
+		delete(out, "rows")
+		delete(out, "rows_exact")
 	}
 	if record.Kind == "feature" || record.Kind == "feature_version" {
 		if exact, ok := out["definition_exact"].(string); ok && exact != "" {

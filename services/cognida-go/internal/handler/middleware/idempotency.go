@@ -134,7 +134,7 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 // These domains bind replay keys to persisted content and reauthorize sources
 // inside their services. HTTP response caching would bypass those checks.
 func ownsDurableIdempotency(path string) bool {
-	for _, root := range []string{"agent/config", "memories", "governed-tasks", "lifecycle", "features", "feature-values", "feature-jobs", "drift", "annotation-tasks", "tagging-tasks", "tagging-results", "research/runs", "evaluation/dataset-versions", "collection-tasks", "sandbox", "warehouse", "api-credentials", "api-sources", "api-ingestion-runs", "strategies", "operations", "query-jobs", "feedback-cases", "feedback-publications", "quality/evaluate/datasource"} {
+	for _, root := range []string{"huggingface", "label-standards", "sft-datasets", "agent/config", "memories", "governed-tasks", "lifecycle", "features", "feature-values", "feature-jobs", "drift", "annotation-tasks", "tagging-tasks", "tagging-results", "research/runs", "evaluation/dataset-versions", "collection-tasks", "sandbox", "warehouse", "api-credentials", "api-sources", "api-ingestion-runs", "strategies", "operations", "query-jobs", "feedback-cases", "feedback-publications", "quality/evaluate/datasource"} {
 		prefix := "/api/v1/" + root
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true

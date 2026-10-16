@@ -11,6 +11,8 @@ import (
 	repo "cognida/internal/repository/mysql"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -252,6 +254,51 @@ func TestGovernedEmbeddingDurableJobRealMySQL(t *testing.T) {
 	require.Equal(t, "cancelled", op.Status)
 	require.NoError(t, json.Unmarshal(op.Payload, &state))
 	require.Empty(t, state.OutputRefs)
+}
+
+func TestGovernedEmbeddingBudgetUsesActualSnapshotBeforeProvider(t *testing.T) {
+	f := featureOperationsDB(t)
+	ctx := context.Background()
+	f.s.SetGovernedInputValidator(f.assets.ValidateGovernedInputs)
+	calls := 0
+	f.s.SetFeatureEmbedding("test-real-port", "revision-pinned", func(context.Context, []string) ([][]float64, error) {
+		calls++
+		return nil, errors.New("must not call provider")
+	})
+	anchor, e := f.assets.ImportWithKey(ctx, f.p, l.Input{Kind: "table", Columns: []string{"entity", "text"}, Rows: [][]any{{"anchor", "one row"}}}, "anchor", uuid.NewString())
+	require.NoError(t, e)
+	head, e := f.s.CreateFeature(ctx, f.p, d.Feature{Name: "vectors", Type: "vector", SourceRefID: anchor.RefID.String(), Definition: []byte(`{"kind":"embedding","field":"text","entity_field":"entity","embedding":{"model_id":"test-real-port","revision":"revision-pinned","dimension":2}}`)}, "vectors")
+	require.NoError(t, e)
+	rows := [][]any{}
+	for i := 0; i < 65; i++ {
+		rows = append(rows, []any{fmt.Sprint(i), "text"})
+	}
+	actual, e := f.assets.ImportWithKey(ctx, f.p, l.Input{Kind: "table", Columns: []string{"entity", "text"}, Rows: rows}, "larger snapshot", uuid.NewString())
+	require.NoError(t, e)
+	required, embedding, e := f.s.FeatureExecutionRequirementsForSource(ctx, f.p, head.ID, 1, actual.RefID.String())
+	require.NoError(t, e)
+	require.True(t, embedding)
+	require.Equal(t, 5, required)
+	in := d.GovernedInvocation{OperationKey: strings.Repeat("a", 64), PayloadHash: strings.Repeat("b", 64), Profile: d.FeatureProfile, InputRef: actual.RefID, FeatureID: head.ID, FeatureVersion: 1, Deadline: time.Now().Add(time.Minute), TimeoutSeconds: 60, CallsReserved: 3}
+	_, e = f.s.SubmitGoverned(ctx, f.p, in, false)
+	require.ErrorIs(t, e, d.ErrInvalid)
+	r := f.repo.(d.GovernedRepository)
+	op, e := r.SubmitGoverned(ctx, f.p, in, false)
+	require.NoError(t, e)
+	payload, _ := json.Marshal(map[string]any{"tenant_id": f.p.TenantID, "user_id": f.p.UserID, "kind": d.GovernedKind, "id": op.ID})
+	require.NoError(t, f.s.Handle(ctx, job.Job{ID: op.ID, Type: "governance", Payload: payload}))
+	op, e = r.FindGoverned(ctx, f.p, in.OperationKey)
+	require.NoError(t, e)
+	require.Equal(t, "failed", op.Status)
+	require.Zero(t, calls)
+	for len(rows) < 1001 {
+		rows = append(rows, []any{fmt.Sprint(len(rows)), "text"})
+	}
+	tooLarge, e := f.assets.ImportWithKey(ctx, f.p, l.Input{Kind: "table", Columns: []string{"entity", "text"}, Rows: rows}, "above governed limit", uuid.NewString())
+	require.NoError(t, e)
+	_, _, e = f.s.FeatureExecutionRequirementsForSource(ctx, f.p, head.ID, 1, tooLarge.RefID.String())
+	require.Error(t, e)
+	require.Zero(t, calls)
 }
 
 func TestFeatureJobStopAfterSourceRevocationMySQL(t *testing.T) {

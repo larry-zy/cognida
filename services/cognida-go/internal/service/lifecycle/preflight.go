@@ -50,6 +50,10 @@ func validateExpertOptions(agent string, options map[string]any) error {
 	if err := validateOptions(options); err != nil {
 		return err
 	}
+	if agent == "data-preparation" {
+		_, err := preparationOptions(options)
+		return err
+	}
 	if value, exists := options["prompt"]; exists {
 		text, ok := value.(string)
 		if !ok || utf8.RuneCountInString(text) > 4000 {

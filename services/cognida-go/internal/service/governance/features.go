@@ -308,6 +308,21 @@ func (s *Service) ValidateFeatureVersion(ctx context.Context, p l.Principal, id 
 	return s.validateFeature(ctx, p, f)
 }
 
+// ValidateBoundFeatureVersion reuses a fixed definition against an explicitly
+// bound snapshot. Both the definition's original source and the actual input
+// must remain accessible; schema checks run against the actual input.
+func (s *Service) ValidateBoundFeatureVersion(ctx context.Context, p l.Principal, id string, version int, sourceRef string) error {
+	f, err := s.featureVersion(ctx, p, id, version)
+	if err != nil {
+		return err
+	}
+	if _, _, err = s.input(ctx, p, f.SourceRefID, false); err != nil {
+		return err
+	}
+	f.SourceRefID = sourceRef
+	return s.validateFeature(ctx, p, f)
+}
+
 func decodeStoredFeature(raw json.RawMessage, f *d.Feature) error {
 	if err := json.Unmarshal(raw, f); err != nil {
 		return err

@@ -1,3 +1,4 @@
+import {prepareScenarioInput,publishScenarioStandard,openScenarioLabeling} from './scenario.helpers'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Page } from '@playwright/test'
 import { loginThroughUI, createInput, getData, attachJSON } from './lifecycle.helpers'
@@ -9,15 +10,6 @@ async function action(page: Page, path: string, name: string, method = 'POST') {
   expect(response.ok(), `${path}: ${response.status()} ${await response.text()}`).toBe(true)
   return (await response.json()).data
 }
-async function selectSource(page: Page, ref: string) {
-  const select = page.getByLabel(/^来源资产/)
-  await expect(page.getByRole('button', { name: '正在加载资产…', exact: true })).toHaveCount(0)
-  while (!(await select.locator('option').evaluateAll((rows, value) => rows.some(row => (row as HTMLOptionElement).value === value), ref))) {
-    await page.getByRole('button', { name: '加载更多资产', exact: true }).click()
-    await expect(page.getByRole('button', { name: '正在加载资产…', exact: true })).toHaveCount(0)
-  }
-  await select.selectOption(ref)
-}
 
 test.describe('reviewed knowledge labels and immutable datasets', () => {
   test.beforeEach(() => test.skip(process.env.COGNIDA_E2E_GOVERNANCE_RELEASE !== '1', 'Requires isolated real workers, model and vector index'))
@@ -25,11 +17,9 @@ test.describe('reviewed knowledge labels and immutable datasets', () => {
     const api = await loginThroughUI(page, playwright)
     try {
       const source = await createInput(page, { id: 'qa-release', source: 'table', columns: ['question', 'answer'], rows: [['What is the capital of France?', 'Paris'], ['What color is the clear daytime sky?', 'Blue']] }, `QA-release-${randomUUID()}`)
-      await page.goto('/labeling')
-      await page.getByRole('button', { name: '＋ 新建任务', exact: true }).click()
+      const prepared=await prepareScenarioInput(api,source), standard=await publishScenarioStandard(api,'qa')
+      await openScenarioLabeling(page,prepared,standard)
       await page.getByLabel('任务名称', { exact: true }).fill(`QA release ${randomUUID()}`)
-      await selectSource(page, `${source.asset_id}:${source.version}`)
-      await page.getByLabel(/^标注类型/).selectOption('qa')
       await page.getByLabel('问题列', { exact: true }).fill('question')
       await page.getByLabel('参考答案列', { exact: true }).fill('answer')
       const task = await action(page, '/annotation-tasks', '创建标注任务')
@@ -90,12 +80,9 @@ test.describe('reviewed knowledge labels and immutable datasets', () => {
       expect(uploaded.ok()).toBe(true); const knowledgeID = (await uploaded.json()).data.knowledge_id
       await expect.poll(async () => (await getData<any>(api, `/knowledge-bases/${kb}/knowledge/${knowledgeID}`)).parse_status, { timeout: 60_000 }).toBe('completed')
       const source = await createInput(page, { id: marker, source: 'knowledge', knowledge_id: knowledgeID }, marker)
-      await page.goto('/labeling'); await page.getByRole('button', { name: '智能打标', exact: true }).click(); await page.getByRole('button', { name: '＋ 新建任务', exact: true }).click()
+      const prepared=await prepareScenarioInput(api,source), standard=await publishScenarioStandard(api,'tagging',[{id:'governance',name:'数据治理',keywords:['governance']}])
+      await openScenarioLabeling(page,prepared,standard)
       await page.getByLabel('任务名称', { exact: true }).fill(marker)
-      await selectSource(page, `${source.asset_id}:${source.version}`)
-      await page.getByRole('button', { name: '＋ 添加标签', exact: true }).click()
-      await page.getByLabel('标签1 标签名称', { exact: true }).fill('数据治理')
-      await page.getByLabel('标签1 匹配关键词', { exact: true }).fill('governance')
       const task = await action(page, '/tagging-tasks', '创建并执行打标')
       let items: any[] = []
       await expect.poll(async () => { items = (await getData<any>(api, `/tagging-tasks/${task.id}/results`)).items; return items.length }, { timeout: 30_000 }).toBe(1)
@@ -111,16 +98,44 @@ test.describe('reviewed knowledge labels and immutable datasets', () => {
       await page.getByLabel('已审核知识标签', { exact: true }).fill(receipt.labels[0])
       const thresholds = page.locator('.search-options .ui-input-number__input')
       await thresholds.nth(1).fill('0'); await thresholds.nth(1).blur()
-      const matches = await action(page, '/knowledge/search', '搜索')
+      let matches: any
+      const attempts: any[] = []
+      let fixedRequest: unknown
+      // Index visibility may lag the real application receipt. Read the same
+      // query through the UI; never re-apply labels or accept a lexical fallback.
+      await expect.poll(async () => {
+        const waiting = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/knowledge/search' && r.request().method() === 'POST')
+        await page.getByRole('button', { name: '搜索', exact: true }).click()
+        const response = await waiting
+        const request = response.request().postDataJSON()
+        const body = await response.json()
+        attempts.push({ request, status: response.status(), body })
+        await attachJSON(info, 'knowledge-label-retrieval-attempts', { kb, knowledgeID, receipt, attempts })
+        expect(response.status()).toBe(200)
+        expect(request).toMatchObject({ retrieval_mode: 'vector', kb_ids: [kb] })
+        if (fixedRequest === undefined) fixedRequest = request
+        else expect(request).toEqual(fixedRequest)
+        matches = body.data
+        return matches.items.some((row: any) => row.knowledge_id === knowledgeID && row.sources.includes('milvus_vector'))
+      }, { timeout: 60_000, intervals: [1000, 2000, 5000], message: 'reviewed label is visible through real vector retrieval' }).toBe(true)
       expect(matches.items.some((row: any) => row.knowledge_id === knowledgeID && row.sources.includes('milvus_vector'))).toBe(true)
+      for (const row of matches.items.filter((row: any) => row.knowledge_id === knowledgeID)) expect(row.sources).not.toContain('database_lexical')
+      await expect(page.getByRole('button', { name: '搜索', exact: true })).toBeEnabled()
+      await expect(page.locator('.search-results .el-loading-mask')).toBeHidden()
+      await expect(page.locator('.search-result-item').filter({ hasText: marker })).toBeVisible()
+      await page.screenshot({ path: info.outputPath('knowledge-label-positive-vector.png') })
       await page.getByLabel('已审核知识标签', { exact: true }).fill(`missing-${randomUUID()}`)
       const excluded = await action(page, '/knowledge/search', '搜索')
       expect(excluded.items).toEqual([])
       await attachJSON(info, 'knowledge-label-real-retrieval', { receipt, matches, excluded })
+      await expect(page.getByRole('button', { name: '搜索', exact: true })).toBeEnabled()
+      await expect(page.locator('.search-results .el-loading-mask')).toBeHidden()
+      await expect(page.locator('.search-results').getByText('未找到相关内容', { exact: true })).toBeVisible()
       await page.screenshot({ path: info.outputPath('knowledge-label-filter.png'), fullPage: true })
     } finally {
-      if (kb) { const deleted = await api.delete(`/api/v1/knowledge-bases/${kb}`); expect(deleted.ok()).toBe(true) }
-      await api.dispose()
+      try {
+        if (kb) { const deleted = await api.delete(`/api/v1/knowledge-bases/${kb}`); await attachJSON(info,'knowledge-fixture-cleanup',{kb,status:deleted.status()}); expect(deleted.ok()).toBe(true) }
+      } finally { await api.dispose() }
     }
   })
 })

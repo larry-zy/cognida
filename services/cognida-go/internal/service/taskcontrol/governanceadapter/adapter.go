@@ -42,10 +42,12 @@ func (a *Adapter) Support() tc.ExecutionSupport {
 func (a *Adapter) Capability() tc.Capability {
 	support := a.Support()
 	kind := "governance"
+	inputs := []l.Kind{l.CleanedAsset}
 	if a.profile == d.FeatureProfile {
 		kind = "feature"
+		inputs = []l.Kind{l.RawAsset, l.CleanedAsset, l.EnrichedAsset, l.PublishedAsset, l.Result}
 	}
-	return tc.Capability{ID: a.capability, Version: 1, Domain: "governance", ParameterKind: kind, InputKinds: []l.Kind{l.RawAsset, l.CleanedAsset, l.EnrichedAsset, l.PublishedAsset}, OutputKinds: []l.Kind{l.Result}, Tools: []string{a.capability}, Permissions: []string{"read"}, Execution: &support}
+	return tc.Capability{ID: a.capability, Version: 1, Domain: "governance", ParameterKind: kind, InputKinds: inputs, OutputKinds: []l.Kind{l.Result}, Tools: []string{a.capability}, Permissions: []string{"read"}, Execution: &support}
 }
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
@@ -67,6 +69,10 @@ func (a *Adapter) validateNode(ctx context.Context, p m.Scope, n tc.Node) error 
 	}
 	switch input.Kind {
 	case l.RawAsset, l.CleanedAsset, l.EnrichedAsset, l.PublishedAsset:
+	case l.Result:
+		if a.profile != d.FeatureProfile {
+			return m.ErrInvalid
+		}
 	default:
 		return m.ErrInvalid
 	}
@@ -89,18 +95,52 @@ func (a *Adapter) Validate(ctx context.Context, p m.Scope, n tc.Node) error {
 	if e := a.validateNode(ctx, p, n); e != nil {
 		return e
 	}
-	if a.profile == d.FeatureProfile && n.Inputs[0].Asset != nil {
+	if a.profile == d.FeatureProfile {
 		params := n.Parameters.Feature
-		calls, embedding, err := a.service.FeatureExecutionRequirements(ctx, principal(p), params.FeatureID, params.Version)
+		source := ""
+		if n.Inputs[0].Asset != nil {
+			source = n.Inputs[0].Asset.String()
+		}
+		calls, embedding, err := a.service.FeatureExecutionRequirementsForSource(ctx, principal(p), params.FeatureID, params.Version, source)
 		if err != nil {
 			return mapped(err)
 		}
+		if embedding && n.Inputs[0].Asset == nil {
+			calls = 34
+		} // unknown upstream, reserve the governed 1000-row ceiling
 		if n.MaxCallsPerAttempt < calls || (embedding && n.MaxCostMicrosPerAttempt != 0) {
 			return m.ErrInvalid
 		}
-		return mapped(a.service.ValidateGovernedFeature(ctx, principal(p), params.FeatureID, params.Version, *n.Inputs[0].Asset))
+		if n.Inputs[0].Asset != nil {
+			return mapped(a.service.ValidateGovernedFeature(ctx, principal(p), params.FeatureID, params.Version, *n.Inputs[0].Asset))
+		}
+		return nil
 	}
-	return nil
+	params := n.Parameters.Governance
+	if params.StandardVersionID == "" || n.Inputs[0].Kind != l.CleanedAsset {
+		return m.ErrInvalid
+	}
+	standard, err := a.service.GetLabelStandardVersion(ctx, principal(p), params.StandardVersionID)
+	if err != nil {
+		return mapped(err)
+	}
+	expected := a.nodeInvocation(n, l.RefID{}).AnnotationType()
+	if a.profile == d.TaggingProfile {
+		expected = "tagging"
+	}
+	if standard.TaskType != expected {
+		return m.ErrInvalid
+	}
+	if n.Inputs[0].Asset == nil {
+		return nil
+	}
+	in := a.nodeInvocation(n, *n.Inputs[0].Asset)
+	if a.profile == d.TaggingProfile {
+		_, err = a.service.BindTaggingStandard(ctx, principal(p), d.TaggingTask{SourceRefID: in.InputRef.String(), StandardVersionID: in.StandardVersionID, Config: d.TaggingConfig{LabelSchema: in.Schema()}})
+	} else {
+		_, err = a.service.BindAnnotationStandard(ctx, principal(p), d.AnnotationTask{SourceRefID: in.InputRef.String(), StandardVersionID: in.StandardVersionID, Type: in.AnnotationType(), Labels: in.Schema(), QAMapping: in.QAMapping})
+	}
+	return mapped(err)
 }
 func (a *Adapter) nodeInvocation(n tc.Node, ref l.RefID) d.GovernedInvocation {
 	in := d.GovernedInvocation{Profile: a.profile, InputRef: ref, TimeoutSeconds: n.TimeoutSeconds, CallsReserved: a.Support().BaseCalls + 1}
@@ -111,6 +151,7 @@ func (a *Adapter) nodeInvocation(n tc.Node, ref l.RefID) d.GovernedInvocation {
 	}
 	if n.Parameters != nil && n.Parameters.Governance != nil {
 		params := n.Parameters.Governance
+		in.StandardVersionID = params.StandardVersionID
 		in.Labels = params.Labels
 		in.LabelSchema = params.LabelSchema
 		in.QAMapping = params.QAMapping

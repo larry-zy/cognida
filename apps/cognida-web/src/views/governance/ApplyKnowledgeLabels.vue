@@ -6,19 +6,19 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { lifecycleApi } from '@/api/lifecycle'
 import { governanceApi, type TagResult } from '@/api/governance'
 const props = defineProps<{ result: TagResult; sourceRef: string }>()
 const busy = ref(false), error = ref(''), receipt = ref<{ id: string; labels: string[] }>()
 const auth = useAuthStore()
 let generation = 0
-watch(() => `${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}:${props.sourceRef}:${props.result.id}:${props.result.version}`, () => { generation++; busy.value=false; receipt.value = undefined; error.value = '' })
+const selection = () => `${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}:${props.sourceRef}:${props.result.id}:${props.result.version}`
+watch(selection, () => { generation++; busy.value=false; receipt.value = undefined; error.value = '' })
 onBeforeUnmount(() => { generation++ })
-async function apply() { if(busy.value || props.result.review_status!=='approved')return; const epoch = generation, resultID = props.result.id, reviewVersion = props.result.version, sourceRef = props.sourceRef; busy.value = true; error.value = ''; try {
- const [id, version] = sourceRef.split(':'); const source = await lifecycleApi.asset(id, Number(version)); const provenance = (source.data?.ref as { provenance?: { source_type: string; source_id: string } })?.provenance
- if (provenance?.source_type !== 'knowledge' || !provenance.source_id) throw new Error('当前来源不是可应用标签的真实知识，请从知识条目创建来源资产')
- if (epoch !== generation) return
- const response = await governanceApi.action<{ id: string; labels: string[] }>(`/tagging-results/${resultID}/apply`, { knowledge_id: provenance.source_id, expected_version: reviewVersion })
- if (epoch === generation) receipt.value = response.data
- } catch (e) { if (epoch === generation) error.value = e instanceof Error ? e.message : '标签应用失败' } finally { if(epoch===generation)busy.value = false } }
+async function apply() { if(busy.value || props.result.review_status!=='approved')return; const epoch = generation, selected = selection(), resultID = props.result.id, reviewVersion = props.result.version, sourceRef = props.sourceRef; const current = () => epoch === generation && selected === selection(); busy.value = true; error.value = ''; try {
+ const target = (await governanceApi.get<{ result_id:string; review_version:number; knowledge_id:string; source_ref_id:string; content_digest:string }>(`/tagging-results/${encodeURIComponent(resultID)}/apply-target?expected_version=${reviewVersion}`)).data
+ if (!current()) return
+ if (!target || target.result_id !== resultID || target.review_version !== reviewVersion || target.source_ref_id !== sourceRef || !target.knowledge_id) throw new Error('当前来源不是可应用标签的已核验知识，请重新读取审核结果')
+ const response = await governanceApi.action<{ id: string; labels: string[] }>(`/tagging-results/${encodeURIComponent(resultID)}/apply`, { knowledge_id: target.knowledge_id, expected_version: reviewVersion })
+ if (current()) receipt.value = response.data
+ } catch (e) { if (current()) error.value = e instanceof Error ? e.message : '标签应用失败' } finally { if(current())busy.value = false } }
 </script>

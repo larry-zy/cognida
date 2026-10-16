@@ -37,6 +37,9 @@ func (r *governanceRepository) SubmitGoverned(ctx context.Context, p l.Principal
 	if err = in.Validate(); err != nil {
 		return
 	}
+	if !cancel && in.Profile != d.FeatureProfile && in.StandardVersionID == "" {
+		return nil, d.ErrInvalid
+	}
 	id := governanceGovernedID(p, in.OperationKey)
 	domainID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(id+"/task")).String()
 	kind := "tagging_task"
@@ -70,9 +73,9 @@ func (r *governanceRepository) SubmitGoverned(ctx context.Context, p l.Principal
 		if inserted.RowsAffected == 1 {
 			var task any
 			if kind == "tagging_task" {
-				task = d.TaggingTask{Name: "Governed tagging candidates", SourceRefID: in.InputRef.String(), Config: d.TaggingConfig{EnableTags: true, EnableClassification: true, LabelSchema: in.Schema()}, Status: "governed_queued"}
+				task = d.TaggingTask{Name: "Governed tagging candidates", StandardVersionID: in.StandardVersionID, SourceRefID: in.InputRef.String(), Config: d.TaggingConfig{EnableTags: true, EnableClassification: true, LabelSchema: in.Schema()}, Status: "governed_queued"}
 			} else if kind == "annotation_task" {
-				task = d.AnnotationTask{Name: "Governed annotation candidates", Type: in.AnnotationType(), SourceRefID: in.InputRef.String(), Labels: in.Schema(), QAMapping: in.QAMapping, Status: "governed_queued"}
+				task = d.AnnotationTask{Name: "Governed annotation candidates", StandardVersionID: in.StandardVersionID, Type: in.AnnotationType(), SourceRefID: in.InputRef.String(), Labels: in.Schema(), QAMapping: in.QAMapping, Status: "governed_queued"}
 			} else {
 				task = map[string]any{"feature_id": in.FeatureID, "version": in.FeatureVersion, "source_ref_id": in.InputRef.String(), "status": "governed_queued"}
 			}

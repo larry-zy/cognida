@@ -35,6 +35,7 @@ import (
 	lifecycle "cognida/internal/service/lifecycle"
 	"github.com/gin-gonic/gin"
 	driver "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -402,7 +403,7 @@ func hfLabelDB(t *testing.T) *hfLabelFixture {
 	require.NoError(t, err)
 	f := &hfLabelFixture{db: db, p: l.Principal{TenantID: time.Now().UnixNano() & 0x1fffffffffffff, UserID: 7411}}
 	t.Cleanup(func() {
-		for _, table := range []string{"evaluation_dataset_versions", "evaluation_dataset_heads", "governance_records", "lifecycle_assets"} {
+		for _, table := range []string{"evaluation_dataset_versions", "evaluation_dataset_heads", "governance_records", "lifecycle_events", "lifecycle_approvals", "lifecycle_stages", "lifecycle_runs", "lifecycle_assets"} {
 			require.NoError(t, db.Table(table).Where("tenant_id=?", f.p.TenantID).Delete(map[string]any{}).Error)
 		}
 		require.NoError(t, sql.Close())
@@ -415,7 +416,7 @@ func hfLabelDB(t *testing.T) *hfLabelFixture {
 		}
 		return nil
 	}
-	f.assets, err = lifecycle.NewService(repo.NewLifecycleRepository(db), objects, hfNoQueue{}, lifecycle.Config{Authorize: auth})
+	f.assets, err = lifecycle.NewService(repo.NewLifecycleRepository(db), objects, hfPreparationQueue{}, lifecycle.Config{Authorize: auth})
 	require.NoError(t, err)
 	f.service = svc.NewService(repo.NewGovernanceRepository(db), f.assets, nil, hfNoQueue{}, auth)
 	f.versions = evaluation.NewVersionService(repo.NewDatasetVersionRepository(db), f.service, f.assets, func(ctx context.Context, p l.Principal, _ d.EvaluationProfile) error { return auth(ctx, p, "read") })
@@ -426,7 +427,53 @@ func (f *hfLabelFixture) create(ctx context.Context, in svc.LabelBenchmarkInput,
 	if err != nil {
 		return nil, nil, err
 	}
-	task, err := f.service.CreateAnnotation(ctx, f.p, d.AnnotationTask{Name: "HF held-out draft", Type: in.Kind, Labels: labels, SourceRefID: ref.AssetRefID}, "sample:"+svc.LabelBenchmarkTextDigest(in.ID)[:40])
+	// This fixture preserves the original text exactly. Execute real preparation
+	// against an explicit precleaned copy instead of bypassing the new input guard.
+	body, _ := json.Marshal(l.Input{Kind: "text", Text: in.Text})
+	cleaned, err := f.assets.ImportDerived(ctx, f.p, l.CleanedAsset, "benchmark-precleaned-fixture", []l.RefID{ref.RefID}, body, ref.Policy)
+	if err != nil {
+		return nil, nil, err
+	}
+	stage, err := f.assets.PrepareAsset(ctx, f.p, cleaned.RefID, l.PreparationOptions{}, uuid.NewString(), "benchmark-fixture")
+	if err != nil {
+		return nil, nil, err
+	}
+	j, err := job.New("lifecycle:"+stage.ID, lifecycle.JobType, map[string]any{"tenant_id": f.p.TenantID, "stage_id": stage.ID})
+	if err != nil {
+		return nil, nil, err
+	}
+	if err = f.assets.Handle(ctx, j); err != nil {
+		return nil, nil, err
+	}
+	stage, err = f.assets.Repository().FindStage(ctx, f.p.TenantID, stage.ID, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	if stage.Status != l.StatusSucceeded || stage.Output == nil {
+		return nil, nil, errors.New("fixture preparation did not succeed")
+	}
+	ref, _, err = f.assets.Resolve(ctx, f.p.TenantID, f.p.UserID, stage.Output.Refs[0].RefID)
+	if err != nil {
+		return nil, nil, err
+	}
+	standard := d.LabelStandardInput{Name: "Explicit benchmark schema", TaskType: in.Kind, Guidelines: "Only original text and explicit schema. Suggestions require human review."}
+	for _, label := range labels {
+		standard.Labels = append(standard.Labels, d.StandardLabel{Label: label, Definition: "Dataset-authored category or entity type"})
+	}
+	if in.Kind == "named_entity" {
+		standard.Constraints.MaxEntities = 30
+	} else {
+		standard.Constraints.MaxLabels = 30
+	}
+	draft, err := f.service.CreateLabelStandard(ctx, f.p, standard, uuid.NewString())
+	if err != nil {
+		return nil, nil, err
+	}
+	version, err := f.service.PublishLabelStandard(ctx, f.p, draft.ID, draft.Version, uuid.NewString())
+	if err != nil {
+		return nil, nil, err
+	}
+	task, err := f.service.CreateAnnotation(ctx, f.p, d.AnnotationTask{StandardVersionID: version.ID, Name: "HF held-out draft", Type: in.Kind, Labels: labels, SourceRefID: ref.AssetRefID}, "sample:"+svc.LabelBenchmarkTextDigest(in.ID)[:40])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -566,4 +613,14 @@ func TestHFLabelBenchmarkOracleFixture(t *testing.T) {
 			hfRunOracle(t, hfLabelConfig{Dataset: "fixture/synthetic", Revision: strings.Repeat("a", 40), Language: "en", Kind: kind, Labels: labels}, labels, rows, t.TempDir())
 		})
 	}
+}
+
+// Explicit fixture dispatch only; no global recovery or background worker.
+type hfPreparationQueue struct{ hfNoQueue }
+
+func (hfPreparationQueue) Enqueue(_ context.Context, j job.Job) error {
+	if j.Type != lifecycle.JobType {
+		return errors.New("unexpected fixture job")
+	}
+	return nil
 }

@@ -13,6 +13,7 @@ vi.mock("@/api/sandbox", () => ({
 }));
 vi.mock("@/api/governance", () => ({ governanceApi: api }));
 vi.mock("@/api/lifecycle", () => ({ lifecycleApi: { asset: api.asset } }));
+const StandardSelectStub={props:['modelValue','taskTypes'],emits:['update:modelValue','selected'],template:`<button type="button" aria-label="选择已发布标准" @click="$emit('update:modelValue','frozen-v1');$emit('selected',{id:'frozen-v1',task_type:taskTypes[0]})">选择已发布标准</button>`};
 import DomainTaskForm from "./DomainTaskForm.vue";
 const capabilities: Capability[] = [
   "tagging",
@@ -24,7 +25,7 @@ const capabilities: Capability[] = [
   version: 1,
   domain: "governance",
   parameter_kind: name === "feature-engineering" ? "feature" : "governance",
-  input_kinds: ["raw_asset"],
+  input_kinds: ["raw_asset", "cleaned_asset"],
   output_kinds: ["result"],
   tools: [`governance.${name}`],
   permissions: ["read"],
@@ -39,14 +40,15 @@ const capabilities: Capability[] = [
 const asset = {
   asset_id: "source",
   version: 3,
-  kind: "raw_asset" as const,
+  kind: "cleaned_asset" as const,
+  provenance: {preparation:{version:1}},
   status: "available",
   name: "样本",
 };
 const setup = () =>
   mount(DomainTaskForm, {
     props: { capabilities, assets: [asset] as never, busy: false },
-    global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } },
+    global: { stubs: { StandardVersionSelect:StandardSelectStub, RouterLink: { template: "<a><slot /></a>" } } },
   });
 describe("fixed specialist plans", () => {
   beforeEach(() => {
@@ -56,7 +58,7 @@ describe("fixed specialist plans", () => {
     });
     api.get.mockImplementation((path: string) =>
       Promise.resolve({
-        data: path.endsWith("/requirements")
+        data: path.includes("/requirements?")
           ? {
               feature_id: "feature",
               version: 1,
@@ -69,37 +71,31 @@ describe("fixed specialist plans", () => {
     );
     api.asset.mockResolvedValue({ data: { ref: asset } });
   });
-  it("preserves explicit label rules and budgets without dispatching", async () => {
+  it("freezes the selected published standard and budgets without dispatching", async () => {
     const wrapper = setup();
     await wrapper.get('[aria-label="领域能力"]').setValue("governance.tagging");
     await wrapper.get('[aria-label="领域处理资产"]').setValue("source:3");
-    await wrapper
-      .get('[aria-label="标签与规则"]')
-      .setValue("金融 | 收入,利润\n人事 | 员工");
+    await wrapper.get('[aria-label="选择已发布标准"]').trigger('click');
     await wrapper.get("form").trigger("submit");
     const [draft, plan] = wrapper.emitted("preview")![0] as any[];
     expect(draft.input_refs).toEqual([{ asset_id: "source", version: 3 }]);
-    expect(plan.nodes[0].parameters.governance.label_schema[0]).toEqual({
-      id: "label-1",
-      name: "金融",
-      keywords: ["收入", "利润"],
-    });
+    expect(plan.nodes[0].parameters.governance).toEqual({standard_version_id:'frozen-v1'});
     expect(plan.budget).toMatchObject({ max_calls: 34, max_attempts: 1 });
     expect(api.get).not.toHaveBeenCalled();
     wrapper.unmount();
   });
-  it("rejects entity labels without a dictionary and QA duplicate columns", async () => {
+  it("rejects missing standard and QA duplicate columns", async () => {
     const wrapper = setup();
     await wrapper
       .get('[aria-label="领域能力"]')
       .setValue("governance.named_entity");
     await wrapper.get('[aria-label="领域处理资产"]').setValue("source:3");
-    await wrapper.get('[aria-label="标签与规则"]').setValue("公司");
     await wrapper.get("form").trigger("submit");
-    expect(wrapper.text()).toContain("明确字典词");
+    expect(wrapper.text()).toContain("已发布标准版本");
     expect(wrapper.emitted("preview")).toBeUndefined();
     await wrapper.get('[aria-label="领域能力"]').setValue("governance.qa");
     await wrapper.get('[aria-label="领域处理资产"]').setValue("source:3");
+    await wrapper.get('[aria-label="选择已发布标准"]').trigger("click");
     await wrapper.get('[aria-label="参考答案列"]').setValue("question");
     await wrapper.get("form").trigger("submit");
     expect(wrapper.text()).toContain("非空且不同");
@@ -118,11 +114,32 @@ describe("fixed specialist plans", () => {
     await flushPromises();
     expect(api.get).toHaveBeenCalledWith("/features/feature/versions/1");
     expect(api.asset).toHaveBeenCalledWith("source", 3);
+    expect(api.get).toHaveBeenCalledWith("/features/feature/versions/1/requirements?source_ref_id=source%3A3");
     const [, plan] = wrapper.emitted("preview")![0] as any[];
     expect(plan.nodes[0].parameters).toEqual({
       feature: { feature_id: "feature", version: 1 },
     });
     expect(plan.budget.max_calls).toBe(3);
+    wrapper.unmount();
+  });
+  it("budgets the selected source snapshot instead of the definition anchor", async () => {
+    const actual = { ...asset, asset_id: "new-snapshot", version: 4 };
+    const wrapper = setup();
+    await wrapper.setProps({ assets: [asset, actual] as never });
+    await wrapper.get('[aria-label="领域能力"]').setValue("governance.feature-engineering");
+    await flushPromises();
+    await wrapper.get('[aria-label="专家特征定义"]').setValue("feature");
+    await wrapper.get('[aria-label="专家特征版本"]').setValue(1);
+    await wrapper.get('[aria-label="专家特征来源"]').setValue("new-snapshot:4");
+    api.asset.mockResolvedValue({ data: { ref: actual } });
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(api.asset).toHaveBeenCalledWith("new-snapshot", 4);
+    expect(api.get).toHaveBeenCalledWith("/features/feature/versions/1/requirements?source_ref_id=new-snapshot%3A4");
+    const [draft, plan] = wrapper.emitted("preview")![0] as any[];
+    expect(draft.input_refs).toEqual([{ asset_id: "new-snapshot", version: 4 }]);
+    expect(plan.nodes[0].inputs[0].asset).toEqual(draft.input_refs[0]);
+    expect(plan.nodes[0].parameters.feature).toEqual({ feature_id: "feature", version: 1 });
     wrapper.unmount();
   });
   it("drops feature reads completed after the form is unmounted", async () => {
@@ -235,7 +252,7 @@ describe("fixed specialist plans", () => {
           version: 1,
           domain: "evaluation",
           parameter_kind: "evaluation",
-          input_kinds: ["raw_asset"],
+          input_kinds: ["raw_asset", "cleaned_asset"],
           output_kinds: ["result"],
           tools: ["evaluation.offline-score"],
           permissions: ["read"],
@@ -274,7 +291,7 @@ describe("fixed specialist plans", () => {
     await wrapper.get('[aria-label="专家特征版本"]').setValue(1);
     api.get.mockImplementation((path: string) =>
       Promise.resolve({
-        data: path.endsWith("/requirements")
+        data: path.includes("/requirements?")
           ? {
               feature_id: "feature",
               version: 1,
@@ -309,7 +326,7 @@ describe("warehouse fixed dependency plans", () => {
     version: 1,
     domain: "warehouse",
     parameter_kind: "warehouse",
-    input_kinds: ["raw_asset"],
+    input_kinds: ["raw_asset", "cleaned_asset"],
     output_kinds: ["result"],
     tools: ["warehouse.transform"],
     permissions: ["read"],
@@ -406,7 +423,7 @@ describe("sandbox fixed task parameters", () => {
     version: 1,
     domain: "sandbox",
     parameter_kind: "sandbox",
-    input_kinds: ["raw_asset"],
+    input_kinds: ["raw_asset", "cleaned_asset"],
     output_kinds: ["cleaned_asset"],
     tools: ["sandbox.execute"],
     permissions: ["sandbox"],

@@ -84,7 +84,7 @@ func toolTimeoutFromEnv() time.Duration {
 // capabilityGroups 是四类能力对应的工具分组（present-if-registered）：
 // 查(sql/semantic/graph) / 析(analytics) / 渲(render) / 操(operation)，外加 skill 供 playbook 调用。
 // render、operation 分组由后续 Phase 3/4 落地；此处按分组收集，工具就位后自动并入编排（通用/拓展）。
-var capabilityGroups = []string{"sql", "semantic", "graph", "analytics", "render", "skill", "memory"}
+var capabilityGroups = []string{"sql", "semantic", "graph", "analytics", "render", "skill", "memory", "data_capabilities"}
 
 // collectCapabilityTools 按能力分组收集全部已注册工具并按名去重。
 func collectCapabilityTools(ctx context.Context, registry *toolregistry.ToolRegistry) []tool.BaseTool {

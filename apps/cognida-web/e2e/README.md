@@ -76,6 +76,7 @@ COGNIDA_E2E_COLLECTION_TASK_ID=YOUR_REAL_COLLECTION_TASK_ID npm run test:e2e -- 
 | `COGNIDA_E2E_OPERATIONS` | 受管ETL/SQL、确认与旧版本回退 |
 | `COGNIDA_E2E_SANDBOX` | 实际Docker固定镜像、显式授权的受控开发profile |
 | `COGNIDA_E2E_REPLAN` | 真实Sandbox运行中的重规划，需同上Sandbox和任务控制器 |
+| `COGNIDA_E2E_SCENARIO` | 独立标准库、已有数据准备、SFT 审核导出，以及固定 HF 样本；真实 Python 计算和 HF 公网访问，不调用生成模型 |
 
 同时开启表中开关及下文Supervisor/任务执行开关后，可执行`npm run test:e2e -- --workers=1`。上游SQL结果有TTL，八来源fixture应在运行前重新通过真实查询生成；不要延长或伪造过期句柄。六引擎端到端通过`cmd/seed-lifecycle-sources -warehouse`生成真实语义查询结果，再将生成的scenario交给`lifecycle.spec.ts`。
 
@@ -86,6 +87,16 @@ Go/Python须配置相同`INTERNAL_HTTP_AUTH_TOKEN`及`GRPC_AUTH_TOKEN`；`PYTHON
 Sandbox默认关闭。受控开发验收须同时设置`SANDBOX_ENABLED=true`、`SANDBOX_PROFILE_ACCEPTED=true`、`SANDBOX_ALLOWED_PRINCIPALS=tenant_id:user_id`、`SANDBOX_IMAGE=registry/image@sha256:完整摘要`与绝对路径`SANDBOX_STAGING_DIR`。Docker必须能预拉取并实际运行该固定镜像；运行容器禁网，输入只读，不能通过放开网络或宿主目录绕过失败。更强隔离profile不在本机开发验收范围。
 
 完整结果、故障验证与明确未验收范围见[综合验收](ACCEPTANCE-2026-10-16-COMPLETE-LOOP.md)。
+
+### 独立数据准备与标准工作台
+
+`scenario-workflows.spec.ts` 包含四个场景：已有表格经独立清洗页面、显式字段映射和类型校验、页面发布分类标准，再创建待审核标注；页面创建并发布 QA 标准，将已有问答表准备后整批审核并导出 SFT；从已有 messages/tools JSON 创建 SFT 并逐值核对工具参数；从固定 Hugging Face commit 明确选择配置、切分和静态文件，只导入 3 条文本样本，再通过真实清洗、标准化和已发布分类标准生成待审核标注。前三个场景不要求重新采集数据，四个场景均不调用生成模型、不启动训练。类型校验不会把字符串隐式转换成数字。SFT 审核和发布分别点击，刷新后按固定版本重新读取并验证真实 JSONL。
+
+```sh
+COGNIDA_E2E_SCENARIO=1 npm run test:e2e -- e2e/scenario-workflows.spec.ts --workers=1
+```
+
+HF 用例固定 `mteb/banking77` 的 `18072d2685ea682290f7b8924d94c62acc19c0b2`，读取 `default/train` 的 `data/train-00000-of-00001.parquet`，明确投影 `text`，断言 `label` 与 `label_text` 未进入导入资产。这是 3 行有界样本，不是全量采集或标签质量基准；必须配置受认证的 HF 解码服务并具备真实公网 DNS/HTTPS 连接。网络/解码失败会保留真实错误且使该场景失败，不使用其他下载路径、自动重试或响应替换。已有模型建议与知识发布场景仍另需原模型、Embedding、Milvus 依赖。
 
 ### Supervisor 规划验收
 

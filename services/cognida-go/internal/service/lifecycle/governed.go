@@ -37,10 +37,11 @@ type GovernedPreset struct {
 
 func GovernedPresetFor(agent string) (GovernedPreset, bool) {
 	profiles := map[string]GovernedPreset{
-		"data-quality":    {"quality-default-v1; min_score=70", 1, 300},
-		"data-cleaning":   {"clean-trim-dedup-v1; keep=first; min_score=70", 2, 300},
-		"data-enrichment": {"enrich-rules-v1; keywords,summary,sensitivity", 1, 300},
-		"data-evaluation": {"artifact-integrity-and-provenance-v1; no model accuracy claims", 1, 300},
+		"data-preparation": {"prepare-preserve-types-v1; normalize_newlines=true", 1, 300},
+		"data-quality":     {"quality-default-v1; min_score=70", 1, 300},
+		"data-cleaning":    {"clean-trim-dedup-v1; keep=first; min_score=70", 2, 300},
+		"data-enrichment":  {"enrich-rules-v1; keywords,summary,sensitivity", 1, 300},
+		"data-evaluation":  {"artifact-integrity-and-provenance-v1; no model accuracy claims", 1, 300},
 	}
 	v, ok := profiles[agent]
 	return v, ok
@@ -89,6 +90,8 @@ func governedKey(p d.Principal, operation string) string {
 func governedOptions(in GovernedInvocation) map[string]any {
 	options := map[string]any{governedOption: in}
 	switch in.AgentID {
+	case "data-preparation":
+		options["normalize_newlines"] = true
 	case "data-quality":
 		options["min_score"] = float64(70)
 	case "data-cleaning":

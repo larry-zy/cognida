@@ -10,15 +10,18 @@ const api = vi.hoisted(() => ({
   action: vi.fn(),
 }));
 vi.mock("@/api/governance", () => ({ governanceApi: api }));
-vi.mock("@/api/lifecycle", () => ({
+vi.mock("@/api/lifecycle", async original => ({
+  ...await original<typeof import('@/api/lifecycle')>(),
   lifecycleApi: {
-    assets: vi
-      .fn()
-      .mockResolvedValue({
-        data: { items: [{ asset_id: "source", version: 1, name: "Source" }] },
-      }),
+    assets: vi.fn().mockResolvedValue({data:{items:[{asset_id:'source',version:1,name:'Source',kind:'cleaned_asset',status:'available',provenance:{preparation:{version:1,rows:1}}}]}}),
+    asset: vi.fn().mockResolvedValue({data:{ref:{asset_id:'source',version:1,name:'Source',kind:'cleaned_asset',status:'available',provenance:{preparation:{version:1,rows:1}}}}}),
   },
 }));
+vi.mock('@/api/governance/standards', async original => ({...await original<typeof import('@/api/governance/standards')>(),standardsApi:{
+  list:vi.fn().mockResolvedValue({data:{items:['classification','named_entity','qa','tagging'].map(task_type=>({id:task_type,name:task_type,task_type}))}}),
+  versions:vi.fn((type:string)=>Promise.resolve({data:{items:[{id:type+'-v1',standard_id:type,name:type,task_type:type,status:'published',standard_revision:1,content_digest:'digest'}]}})),
+  version:vi.fn((id:string)=>Promise.resolve({data:{id,standard_id:id.replace('-v1',''),name:id,task_type:id.replace('-v1',''),status:'published',standard_revision:1,content_digest:'digest',guidelines:'冻结规则',labels:[]}})),
+}}));
 vi.mock("@/stores/auth", () => ({ useAuthStore: () => auth }));
 const auth = reactive({
   authEpoch: 0,
@@ -64,9 +67,14 @@ async function open(query = "") {
   await flushPromises();
   return { wrapper, router };
 }
-async function createDraft(w: VueWrapper) {
+async function createDraft(w: VueWrapper, type = "classification") {
   await field(w, "任务名称").get("input").setValue("Sample task");
   await field(w, "来源资产").get("select").setValue("source:1");
+  await flushPromises();
+  await field(w, "标注标准").get("select").setValue(type);
+  await flushPromises();
+  await field(w, "已发布标准版本").get("select").setValue(type+'-v1');
+  await flushPromises();
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -81,53 +89,26 @@ beforeEach(() => {
   api.action.mockResolvedValue({ data: {} });
 });
 describe("rules, QA and governed review", () => {
-  it("creates tagging with an explicit keyword label schema and never the legacy tag_schema", async () => {
+  it("binds published tagging standard without overriding its label schema", async () => {
     const { wrapper } = await open();
-    await button(wrapper, "智能打标").trigger("click");
-    await flushPromises();
-    await createDraft(wrapper);
-    await button(wrapper, "＋ 添加标签").trigger("click");
-    await wrapper.get('[aria-label="标签1 标签名称"]').setValue("销售");
-    await wrapper.get('[aria-label="标签1 匹配关键词"]').setValue("订单, 销售");
-    await wrapper.get("form").trigger("submit");
-    await flushPromises();
-    expect(api.create).toHaveBeenCalledWith(
-      "/tagging-tasks",
-      expect.objectContaining({
-        config: expect.objectContaining({
-          label_schema: [
-            expect.objectContaining({
-              name: "销售",
-              keywords: ["订单", "销售"],
-            }),
-          ],
-        }),
-      }),
-    );
-    expect(api.create.mock.calls[0][1].config).not.toHaveProperty("tag_schema");
+    await button(wrapper, "智能打标").trigger("click"); await flushPromises();
+    await createDraft(wrapper, 'tagging');
+    await wrapper.get('form').trigger('submit'); await flushPromises();
+    expect(api.create).toHaveBeenCalledWith('/tagging-tasks',expect.objectContaining({source_ref_id:'source:1',standard_version_id:'tagging-v1'}));
+    expect(api.create.mock.calls[0][1].config).not.toHaveProperty('tag_schema');
+    expect(api.create.mock.calls[0][1].config).not.toHaveProperty('label_schema');
     wrapper.unmount();
   });
-  it("submits entity dictionary terms separately from classification keywords", async () => {
+  it("derives entity task type from an immutable standard and lets server fill its labels", async () => {
     const { wrapper } = await open();
-    await createDraft(wrapper);
-    await field(wrapper, "标注类型").get("select").setValue("named_entity");
-    await button(wrapper, "＋ 添加标签").trigger("click");
-    await wrapper.get('[aria-label="标签1 标签名称"]').setValue("组织");
-    await wrapper
-      .get('[aria-label="标签1 实体词条"]')
-      .setValue("星河公司,银河公司");
-    await wrapper.get("form").trigger("submit");
-    await flushPromises();
-    expect(api.create.mock.calls[0][1]).toMatchObject({
-      type: "named_entity",
-      labels: [{ name: "组织", terms: ["星河公司", "银河公司"] }],
-    });
+    await createDraft(wrapper, 'named_entity');
+    await wrapper.get('form').trigger('submit'); await flushPromises();
+    expect(api.create.mock.calls[0][1]).toMatchObject({type:'named_entity',labels:[],standard_version_id:'named_entity-v1'});
     wrapper.unmount();
   });
   it("validates QA mapping and sends no artificial labels or answers", async () => {
     const { wrapper } = await open();
-    await createDraft(wrapper);
-    await field(wrapper, "标注类型").get("select").setValue("qa");
+    await createDraft(wrapper, "qa");
     await field(wrapper, "问题列").get("input").setValue("question");
     await field(wrapper, "参考答案列").get("input").setValue("question");
     await wrapper.get("form").trigger("submit");
@@ -140,6 +121,7 @@ describe("rules, QA and governed review", () => {
     expect(api.create).toHaveBeenCalledWith("/annotation-tasks", {
       name: "Sample task",
       type: "qa",
+      standard_version_id: "qa-v1",
       source_ref_id: "source:1",
       labels: [],
       qa_mapping: {

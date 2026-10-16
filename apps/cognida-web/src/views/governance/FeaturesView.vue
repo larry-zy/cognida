@@ -859,7 +859,19 @@ async function openLink() {
       id = res.data.feature_id;
       version = res.data.feature_version || 0;
     }
-    if (!id) return;
+    if (!id) {
+      const source = typeof route?.query.source_ref === 'string' ? route.query.source_ref : '';
+      if (source) {
+        const at = source.lastIndexOf(':'), v = Number(source.slice(at+1));
+        if (at < 1 || !Number.isSafeInteger(v) || v < 1) throw new Error('资产引用无效');
+        const asset = await lifecycleApi.asset(source.slice(0,at),v);
+        current(epoch);
+        if (!asset.data) throw new Error('来源不存在或无权读取');
+        if (!assets.value.some(a=>a.asset_id===asset.data!.ref.asset_id&&a.version===v)) assets.value.unshift(asset.data.ref);
+        form.source_ref_id=source;
+      }
+      return;
+    }
     const res = await api.get<Feature>(
       `/features/${encodeURIComponent(id)}${version ? `/versions/${version}` : ""}`,
     );
@@ -884,6 +896,7 @@ watch(
     route?.query.execution_id,
     route?.query.feature_id,
     route?.query.job_id,
+    route?.query.source_ref,
   ],
   () => void openLink(),
 );
@@ -914,7 +927,7 @@ async function initialize() {
     epoch === generation &&
     (route?.query.execution_id ||
       route?.query.feature_id ||
-      route?.query.job_id)
+      route?.query.job_id || route?.query.source_ref)
   )
     await openLink();
 }

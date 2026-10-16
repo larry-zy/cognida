@@ -12,6 +12,11 @@ import (
 )
 
 func (s *Service) CreateTagging(ctx context.Context, p l.Principal, in d.TaggingTask, key string) (*d.Record, error) {
+	var bindErr error
+	in, bindErr = s.BindTaggingStandard(ctx, p, in)
+	if bindErr != nil {
+		return nil, bindErr
+	}
 	if in.Name == "" || len(in.Name) > 128 || len(in.Config.TagSchema) > 30 || len(in.Config.LabelSchema) > 30 {
 		return nil, d.ErrInvalid
 	}
@@ -149,6 +154,13 @@ func (s *Service) runTagging(ctx context.Context, record *d.Record) error {
 		out.Provenance = d.Provenance{Source: "rules", Method: result.Method, Evidence: []string{}}
 		out.ReviewStatus = "pending"
 		applyTagRules(&out, scheme, task.Config)
+		if validateStandardTagging(task, out, false) != nil {
+			out.Tags = []string{}
+			out.Category = ""
+			out.Entities = json.RawMessage("[]")
+			out.Provenance.DecisionStatus = "uncertain"
+			out.Provenance.Evidence = append(out.Provenance.Evidence, "standard constraints require manual resolution")
+		}
 		// Store the complete evidence-bearing compute envelope alongside the typed
 		// UI fields, rather than invent a numeric quality or confidence score.
 		data := map[string]any{}
@@ -215,6 +227,17 @@ func (s *Service) UpdateTagging(ctx context.Context, p l.Principal, taskID, id s
 	in.Meta = d.Meta{}
 	in.TaskID = taskID
 	in.Content = old.Content
+	parent, err := s.Get(ctx, p, "tagging_task", taskID)
+	if err != nil {
+		return nil, err
+	}
+	var task d.TaggingTask
+	if json.Unmarshal(parent.Payload, &task) != nil {
+		return nil, d.ErrInvalid
+	}
+	if err = validateStandardTagging(task, in, false); err != nil {
+		return nil, err
+	}
 	in.QualityScore = nil
 	in.CategoryConfidence = nil
 	in.TagConfidence = nil
@@ -240,6 +263,20 @@ func (s *Service) ReviewTagging(ctx context.Context, p l.Principal, id, decision
 	record, err := s.Get(ctx, p, "tagging_result", id)
 	if err != nil {
 		return nil, err
+	}
+	if decision == "approved" {
+		parent, e := s.Get(ctx, p, "tagging_task", record.ParentID)
+		if e != nil {
+			return nil, e
+		}
+		var task d.TaggingTask
+		var item d.TaggingResult
+		if json.Unmarshal(parent.Payload, &task) != nil || json.Unmarshal(record.Payload, &item) != nil {
+			return nil, d.ErrInvalid
+		}
+		if e = validateStandardTagging(task, item, true); e != nil {
+			return nil, e
+		}
 	}
 	var fields map[string]json.RawMessage
 	if err = json.Unmarshal(record.Payload, &fields); err != nil {

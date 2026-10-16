@@ -90,6 +90,12 @@ func (s *Service) SubmitGoverned(ctx context.Context, p l.Principal, in d.Govern
 	if e != nil {
 		return nil, e
 	}
+	if !cancel && in.Profile != d.FeatureProfile && (record.Status == "queued" || record.Status == "running") {
+		record, e = s.bindGovernedStandard(ctx, p, record, in)
+		if e != nil {
+			return nil, e
+		}
+	}
 	if !cancel && (record.Status == "queued" || record.Status == "running" || record.Status == "cancel_requested") {
 		j, e := job.New(record.ID, "governance", jobScope{p.TenantID, p.UserID, d.GovernedKind, record.ID})
 		if e != nil {
@@ -113,6 +119,17 @@ func (s *Service) runGoverned(ctx context.Context, record *d.Record) error {
 	in := state.Invocation
 	if in.Profile == d.FeatureProfile {
 		return s.runGovernedFeature(ctx, record, state)
+	}
+	var bindErr error
+	record, bindErr = s.bindGovernedStandard(ctx, p, record, in)
+	if bindErr != nil {
+		return bindErr
+	}
+	if record.Status == "cancelled" || record.Status == "completed" || record.Status == "failed" {
+		return nil
+	}
+	if json.Unmarshal(record.Payload, &state) != nil {
+		return d.ErrInvalid
 	}
 	r, e := s.governedRepo()
 	if e != nil {
@@ -174,7 +191,7 @@ func (s *Service) runGoverned(ctx context.Context, record *d.Record) error {
 	if e != nil {
 		return finishFailure("source_unavailable")
 	}
-	taskDefinition := d.AnnotationTask{Type: in.AnnotationType(), Labels: in.Schema(), QAMapping: in.QAMapping}
+	taskDefinition := d.AnnotationTask{Type: in.AnnotationType(), Labels: state.StandardSnapshot.LabelSchema(), QAMapping: in.QAMapping, StandardSnapshot: state.StandardSnapshot}
 	var contents []annotationSource
 	if in.Profile == d.TaggingProfile {
 		taskDefinition.Type = "classification"
@@ -285,7 +302,10 @@ func (s *Service) runGoverned(ctx context.Context, record *d.Record) error {
 func (s *Service) governedCandidate(ctx context.Context, state d.GovernedExecution, source annotationSource) (any, error) {
 	in := state.Invocation
 	if in.AnnotationType() != "" {
-		task := d.AnnotationTask{Type: in.AnnotationType(), Labels: in.Schema(), QAMapping: in.QAMapping}
+		task := d.AnnotationTask{Type: in.AnnotationType(), Labels: in.Schema(), QAMapping: in.QAMapping, StandardSnapshot: state.StandardSnapshot}
+		if state.StandardSnapshot != nil {
+			task.Labels = state.StandardSnapshot.LabelSchema()
+		}
 		annotation, p, e := candidateFor(task, source)
 		if e != nil {
 			return nil, e
@@ -293,15 +313,46 @@ func (s *Service) governedCandidate(ctx context.Context, state d.GovernedExecuti
 		return d.AnnotationItem{TaskID: state.DomainID, Content: source.Content, Annotation: annotation, Provenance: p, ReviewStatus: "pending"}, nil
 	}
 	out := d.TaggingResult{TaskID: state.DomainID, Content: source.Content, ReviewStatus: "pending", Keywords: []string{}}
-	applyTagRules(&out, in.Schema(), d.TaggingConfig{EnableTags: true, EnableClassification: true, LabelSchema: in.Schema()})
+	labels := in.Schema()
+	if state.StandardSnapshot != nil {
+		labels = state.StandardSnapshot.LabelSchema()
+	}
+	applyTagRules(&out, labels, d.TaggingConfig{EnableTags: true, EnableClassification: true, LabelSchema: labels})
+	if validateStandardTagging(d.TaggingTask{StandardSnapshot: state.StandardSnapshot}, out, false) != nil {
+		out.Tags = []string{}
+		out.Category = ""
+		out.Provenance.DecisionStatus = "uncertain"
+		out.Provenance.Evidence = append(out.Provenance.Evidence, "standard constraints require manual resolution")
+	}
 	return out, nil
 }
 func (s *Service) validateGovernedInvocationSource(ctx context.Context, p l.Principal, in d.GovernedInvocation) error {
 	if in.Profile == d.FeatureProfile {
-		return s.ValidateGovernedFeature(ctx, p, in.FeatureID, in.FeatureVersion, in.InputRef)
+		if err := s.ValidateGovernedFeature(ctx, p, in.FeatureID, in.FeatureVersion, in.InputRef); err != nil {
+			return err
+		}
+		required, _, err := s.FeatureExecutionRequirementsForSource(ctx, p, in.FeatureID, in.FeatureVersion, in.InputRef.String())
+		if err != nil {
+			return err
+		}
+		if in.CallsReserved < required {
+			return d.ErrInvalid
+		}
+		return nil
 	}
 	if e := s.ValidateGovernedInput(ctx, p, in.InputRef); e != nil {
 		return e
+	}
+	if in.Profile == d.TaggingProfile {
+		_, e := s.BindTaggingStandard(ctx, p, d.TaggingTask{StandardVersionID: in.StandardVersionID, SourceRefID: in.InputRef.String(), Config: d.TaggingConfig{EnableTags: true, EnableClassification: true, LabelSchema: in.Schema()}})
+		if e != nil {
+			return e
+		}
+	} else {
+		_, e := s.BindAnnotationStandard(ctx, p, d.AnnotationTask{StandardVersionID: in.StandardVersionID, SourceRefID: in.InputRef.String(), Type: in.AnnotationType(), Labels: in.Schema(), QAMapping: in.QAMapping})
+		if e != nil {
+			return e
+		}
 	}
 	if in.Profile == d.QAProfile {
 		_, input, e := s.input(ctx, p, in.InputRef.String(), false)

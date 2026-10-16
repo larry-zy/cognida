@@ -65,8 +65,13 @@ func NewService(repo d.Repository, store objectstore.Store, queue job.Queue, con
 		return nil, e
 	}
 	s.templates[def.ID] = def
+	preparation := PreparationTemplate()
+	if err := preparation.Validate(s.contracts); err != nil {
+		return nil, err
+	}
+	s.templates[preparation.ID] = preparation
 	for _, custom := range config.Templates {
-		if custom.ID == def.ID {
+		if _, exists := s.templates[custom.ID]; exists {
 			return nil, d.ErrConflict
 		}
 		if e := custom.Validate(s.contracts); e != nil {
@@ -277,7 +282,7 @@ func (s *Service) Invoke(ctx context.Context, p d.Principal, agent string, refs 
 		if findErr != nil {
 			return nil, e
 		}
-		if old.AgentID != agent || !sameJSON(old.InputRefs, refs) || !sameJSON(old.Options, options) {
+		if old.UserID != p.UserID || old.AgentID != agent || !sameJSON(old.InputRefs, refs) || !sameJSON(old.Options, options) {
 			return nil, d.ErrConflict
 		}
 		stage = *old

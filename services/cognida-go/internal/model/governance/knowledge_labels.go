@@ -30,6 +30,16 @@ type ApplyKnowledgeLabels struct {
 	KnowledgeID     string `json:"knowledge_id"`
 }
 
+// KnowledgeLabelTarget is a read-only resolution of the current approved
+// revision. Applying labels repeats the same authorization and content checks.
+type KnowledgeLabelTarget struct {
+	ResultID      string `json:"result_id"`
+	ReviewVersion int    `json:"review_version"`
+	KnowledgeID   string `json:"knowledge_id"`
+	SourceRefID   string `json:"source_ref_id"`
+	ContentDigest string `json:"content_digest"`
+}
+
 // PreparedKnowledgeLabels is constructed only after source authorization.
 type PreparedKnowledgeLabels struct {
 	ApplyKnowledgeLabels

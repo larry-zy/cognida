@@ -8,10 +8,12 @@ const api = vi.hoisted(() => ({
   create: vi.fn(),
   action: vi.fn(),
   previewFeature: vi.fn(),
+  asset: vi.fn(),
 }));
 vi.mock("@/api/governance", () => ({ governanceApi: api }));
 vi.mock("@/api/lifecycle", () => ({
   lifecycleApi: {
+    asset: api.asset,
     assets: vi.fn().mockResolvedValue({
       data: { items: [{ asset_id: "source", version: 1, name: "Orders" }] },
     }),
@@ -79,6 +81,24 @@ beforeEach(() => {
   api.create.mockResolvedValue({ data: feature });
 });
 describe("feature computation workflow", () => {
+  it("opens an authorized source outside the loaded page as a draft without computing", async () => {
+    api.asset.mockResolvedValue({ data: { ref: { asset_id: "hf-input", version: 2, name: "Imported table", kind: "raw_asset", status: "available" } } });
+    const { wrapper } = await open("?source_ref=hf-input:2");
+    expect(api.asset).toHaveBeenCalledWith("hf-input", 2);
+    expect((field(wrapper, "来源资产").get("select").element as HTMLSelectElement).value).toBe("hf-input:2");
+    expect(api.create).not.toHaveBeenCalled();
+    expect(api.previewFeature).not.toHaveBeenCalled();
+    expect(api.action).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it("does not use an unauthorized source deep link", async () => {
+    api.asset.mockRejectedValue(new Error("来源无权读取"));
+    const { wrapper } = await open("?source_ref=denied:1");
+    expect(wrapper.text()).toContain("来源无权读取");
+    expect((field(wrapper, "来源资产").get("select").element as HTMLSelectElement).value).toBe("");
+    expect(api.create).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
   it("submits the feature head ID when historical version records have independent IDs", async () => {
     api.list.mockImplementation(async (path: string) => ({
       data: {

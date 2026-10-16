@@ -21,32 +21,11 @@ func (s *Service) ApplyKnowledgeLabels(ctx context.Context, p l.Principal, in d.
 	if e := s.authorize(ctx, p, "admin"); e != nil {
 		return nil, e
 	}
-	record, e := s.Get(ctx, p, "tagging_result", in.ResultID)
+	record, task, result, target, e := s.knowledgeLabelTarget(ctx, p, in.ResultID, in.ExpectedVersion)
 	if e != nil {
 		return nil, e
 	}
-	if record.Version != in.ExpectedVersion || record.Status != "approved" {
-		return nil, d.ErrConflict
-	}
-	var result d.TaggingResult
-	if json.Unmarshal(record.Payload, &result) != nil || result.ReviewStatus != "approved" || result.ReviewedBy <= 0 {
-		return nil, d.ErrConflict
-	}
-	taskRecord, e := s.Get(ctx, p, "tagging_task", record.ParentID)
-	if e != nil {
-		return nil, e
-	}
-	var task d.TaggingTask
-	if json.Unmarshal(taskRecord.Payload, &task) != nil {
-		return nil, d.ErrInvalid
-	}
-	ref, input, e := s.input(ctx, p, task.SourceRefID, false)
-	if e != nil {
-		return nil, e
-	}
-	// The target must be the actual knowledge source captured by the import. A
-	// hand-written asset or an unrelated document cannot be relabelled by ID.
-	if ref.Provenance.SourceType != "knowledge" || ref.Provenance.SourceID != in.KnowledgeID || input.Kind != "text" || d.LabelContentDigest(input.Text) != d.LabelContentDigest(result.Content) {
+	if target.KnowledgeID != in.KnowledgeID {
 		return nil, d.ErrForbidden
 	}
 	labels := append([]string{}, result.Tags...)
@@ -71,6 +50,109 @@ func (s *Service) ApplyKnowledgeLabels(ctx context.Context, p l.Principal, in d.
 	sort.Strings(normalized)
 	scheme, _ := json.Marshal(task.Config)
 	return s.knowledgeLabels.ApplyApproved(ctx, p, d.PreparedKnowledgeLabels{ApplyKnowledgeLabels: in, SourceRefID: task.SourceRefID, Content: result.Content, SchemeDigest: d.LabelContentDigest(string(scheme)), ReviewDigest: d.LabelContentDigest(string(record.Payload)), IdempotencyKey: key, Labels: normalized})
+}
+
+func (s *Service) KnowledgeLabelTarget(ctx context.Context, p l.Principal, resultID string, expected int) (*d.KnowledgeLabelTarget, error) {
+	_, _, _, target, err := s.knowledgeLabelTarget(ctx, p, resultID, expected)
+	return target, err
+}
+
+func (s *Service) knowledgeLabelTarget(ctx context.Context, p l.Principal, resultID string, expected int) (*d.Record, d.TaggingTask, d.TaggingResult, *d.KnowledgeLabelTarget, error) {
+	var task d.TaggingTask
+	var result d.TaggingResult
+	fail := func(err error) (*d.Record, d.TaggingTask, d.TaggingResult, *d.KnowledgeLabelTarget, error) {
+		return nil, task, result, nil, err
+	}
+	if resultID == "" || expected < 1 {
+		return fail(d.ErrInvalid)
+	}
+	record, err := s.Get(ctx, p, "tagging_result", resultID)
+	if err != nil {
+		return fail(err)
+	}
+	if record.Version != expected || record.Status != "approved" || json.Unmarshal(record.Payload, &result) != nil || result.ReviewStatus != "approved" || result.ReviewedBy <= 0 {
+		return fail(d.ErrConflict)
+	}
+	taskRecord, err := s.Get(ctx, p, "tagging_task", record.ParentID)
+	if err != nil {
+		return fail(err)
+	}
+	if json.Unmarshal(taskRecord.Payload, &task) != nil {
+		return fail(d.ErrInvalid)
+	}
+	knowledgeID, err := s.knowledgeLabelSource(ctx, p, task.SourceRefID, result.Content)
+	if err != nil {
+		return fail(err)
+	}
+	target := &d.KnowledgeLabelTarget{ResultID: resultID, ReviewVersion: expected, KnowledgeID: knowledgeID, SourceRefID: task.SourceRefID, ContentDigest: d.LabelContentDigest(result.Content)}
+	return record, task, result, target, nil
+}
+
+// Resolve every parent through the authorized asset service. A prepared or
+// cleaned snapshot can label its single original document only when its final
+// text remains byte-for-byte identical. Matching text alone cannot manufacture
+// a provenance edge to an unrelated knowledge document.
+func (s *Service) knowledgeLabelSource(ctx context.Context, p l.Principal, sourceRef, content string) (string, error) {
+	visiting, visited := map[string]bool{}, map[string]bool{}
+	knowledgeID := ""
+	digest := d.LabelContentDigest(content)
+	var walk func(string, int) error
+	walk = func(id string, depth int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if depth > 16 || visiting[id] || len(visited) >= 64 && !visited[id] {
+			return d.ErrForbidden
+		}
+		if visited[id] {
+			return nil
+		}
+		visiting[id], visited[id] = true, true
+		defer delete(visiting, id)
+		refID, err := l.ParseRefID(id)
+		if err != nil || s.Assets == nil {
+			return d.ErrForbidden
+		}
+		ref, raw, err := s.Assets.Resolve(ctx, p.TenantID, p.UserID, refID)
+		if err != nil {
+			return recordSourceError(err)
+		}
+		// Ancillary report parents still require authorization and traversal, but
+		// their report payload is not a text/table Input. Decode only the source
+		// being labelled and the actual knowledge snapshots used for equality.
+		var input l.Input
+		if depth == 0 || ref.Provenance.SourceType == "knowledge" {
+			if json.Unmarshal(raw, &input) != nil || input.Kind != "text" || input.Validate() != nil {
+				return d.ErrForbidden
+			}
+		}
+		if depth == 0 && (input.Kind != "text" || d.LabelContentDigest(input.Text) != digest) {
+			return d.ErrForbidden
+		}
+		if ref.Provenance.SourceType == "knowledge" {
+			if ref.Provenance.SourceID == "" || input.Kind != "text" || d.LabelContentDigest(input.Text) != digest || knowledgeID != "" && knowledgeID != ref.Provenance.SourceID {
+				return d.ErrForbidden
+			}
+			knowledgeID = ref.Provenance.SourceID
+			return nil
+		}
+		if len(ref.Parents) > 16 {
+			return d.ErrForbidden
+		}
+		for _, parent := range ref.Parents {
+			if err := walk(parent.String(), depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(sourceRef, 0); err != nil {
+		return "", err
+	}
+	if knowledgeID == "" {
+		return "", d.ErrForbidden
+	}
+	return knowledgeID, nil
 }
 func (s *Service) KnowledgeLabels(ctx context.Context, p l.Principal, id string) ([]string, error) {
 	if e := s.authorize(ctx, p, "read"); e != nil {

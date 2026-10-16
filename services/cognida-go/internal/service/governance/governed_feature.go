@@ -11,7 +11,7 @@ import (
 // The feature service owns version validation and atomic materialization. This
 // interface keeps the execution envelope independent of its compute internals.
 type governedFeatures interface {
-	ValidateFeatureVersion(context.Context, l.Principal, string, int, string) error
+	ValidateBoundFeatureVersion(context.Context, l.Principal, string, int, string) error
 	MaterializeGovernedFeature(context.Context, l.Principal, string, int, string) (*d.FeatureMaterialization, error)
 	LookupFeatureMaterialization(context.Context, l.Principal, string) (*d.FeatureMaterialization, error)
 }
@@ -24,7 +24,7 @@ func (s *Service) ValidateGovernedFeature(ctx context.Context, p l.Principal, id
 	if e := s.governedInputs(ctx, p, []l.RefID{source}); e != nil {
 		return e
 	}
-	return port.ValidateFeatureVersion(ctx, p, id, version, source.String())
+	return port.ValidateBoundFeatureVersion(ctx, p, id, version, source.String())
 }
 func (s *Service) runGovernedFeature(ctx context.Context, record *d.Record, state d.GovernedExecution) error {
 	// A persisted job is checked before source authorization, preserving recovery

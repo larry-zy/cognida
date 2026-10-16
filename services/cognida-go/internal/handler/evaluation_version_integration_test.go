@@ -78,6 +78,13 @@ func newReviewedFixture(t *testing.T) *reviewedFixture {
 	})
 	id := l.RefID{AssetID: uuid.NewString(), Version: 1}
 	assets := &reviewedAssets{ref: l.DataAssetRef{RefID: id, AssetRefID: id.String(), TenantID: p.TenantID, Policy: l.PolicySnapshot{Approved: true}, Provenance: l.Provenance{SourceType: "manual", Digest: "source"}, CreatedAt: time.Now().UTC()}, input: l.Input{Kind: "table", Columns: []string{"q", "a"}, Rows: [][]any{{"How much?", "42"}}}}
+	// Synthetic source resolver fixture explicitly represents an already prepared,
+	// server-owned asset; preparation execution is covered by lifecycle integration.
+	parent := l.RefID{AssetID: uuid.NewString(), Version: 1}
+	assets.ref.Kind = l.CleanedAsset
+	assets.ref.Parents = []l.RefID{parent}
+	assets.ref.Provenance.Digest = strings.Repeat("a", 64)
+	assets.ref.Provenance.Preparation = &l.Preparation{Version: 1, SourceRefID: parent.String(), SourceDigest: strings.Repeat("b", 64), OutputDigest: assets.ref.Provenance.Digest, SchemaDigest: strings.Repeat("c", 64), Rows: 1}
 	gs := gov.NewService(repo.NewGovernanceRepository(db), assets, nil, nil, func(_ context.Context, p l.Principal, _ string) error { return p.Validate() }).WithKnowledgeLabels(repo.NewKnowledgeLabelRepository(db))
 	vs := ev.NewVersionService(repo.NewDatasetVersionRepository(db), gs, assets, func(context.Context, l.Principal, g.EvaluationProfile) error { return nil })
 	ss := ev.NewSnapshotService(vs, nil, func(context.Context, l.Principal, *ev.EvaluationTaskConfig) (json.RawMessage, error) {
@@ -131,7 +138,7 @@ func (f *reviewedFixture) request(t *testing.T, method, path, key string, body a
 }
 func (f *reviewedFixture) approvedQA(t *testing.T) (string, string, int) {
 	ctx := context.Background()
-	task, e := f.gs.CreateAnnotation(ctx, f.p, g.AnnotationTask{Name: "reviewed qa", Type: "qa", SourceRefID: f.assets.ref.AssetRefID, QAMapping: &g.QAMapping{QuestionColumn: "q", ReferenceAnswerColumn: "a"}}, uuid.NewString())
+	task, e := f.gs.CreateAnnotation(ctx, f.p, g.AnnotationTask{StandardVersionID: f.standard(t, "qa", nil), Name: "reviewed qa", Type: "qa", SourceRefID: f.assets.ref.AssetRefID, QAMapping: &g.QAMapping{QuestionColumn: "q", ReferenceAnswerColumn: "a"}}, uuid.NewString())
 	require.NoError(t, e)
 	require.NoError(t, f.gs.Preannotate(ctx, f.p, task.ID))
 	page, e := f.gs.List(ctx, f.p, g.Filter{Kind: "annotation_item", ParentID: task.ID, Limit: 10})
@@ -424,4 +431,26 @@ func TestGovernanceMySQLHTTPListSkipsRevokedSources(t *testing.T) {
 			_ = second
 		})
 	}
+}
+
+func (f *reviewedFixture) standard(t *testing.T, kind string, labels []g.Label) string {
+	t.Helper()
+	in := g.LabelStandardInput{Name: "fixture explicit standard", TaskType: kind, Guidelines: "Only original source evidence; explicit scheme and manual review required."}
+	for _, label := range labels {
+		in.Labels = append(in.Labels, g.StandardLabel{Label: label, Definition: "Fixture category definition"})
+	}
+	switch kind {
+	case "classification", "tagging":
+		in.Constraints.MaxLabels = max(1, len(labels))
+	case "named_entity":
+		in.Constraints.MaxEntities = 30
+	case "relation":
+		in.Constraints.MaxEntities = 30
+		in.Constraints.MaxRelations = 30
+	}
+	draft, e := f.gs.CreateLabelStandard(context.Background(), f.p, in, uuid.NewString())
+	require.NoError(t, e)
+	version, e := f.gs.PublishLabelStandard(context.Background(), f.p, draft.ID, draft.Version, uuid.NewString())
+	require.NoError(t, e)
+	return version.ID
 }

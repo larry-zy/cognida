@@ -10,10 +10,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"time"
 )
 
 type Adapter struct{ s *warehouse.Service }
+
+var nodeID = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
 
 func New(s *warehouse.Service) (*Adapter, error) {
 	if s == nil || s.Assets == nil || s.Repo == nil {
@@ -33,6 +36,9 @@ func request(n tc.Node) (d.RunRequest, error) {
 		return d.RunRequest{}, m.ErrInvalid
 	}
 	p := n.Parameters.Warehouse
+	if p.FactFromNode != "" && (p.FactSourceRef != "" || !nodeID.MatchString(p.FactFromNode)) {
+		return d.RunRequest{}, m.ErrInvalid
+	}
 	r := d.RunRequest{ModelID: p.ModelID, ModelVersion: p.Version, Mode: p.Mode, FactSourceRef: p.FactSourceRef}
 	for value, dest := range map[string]**time.Time{p.EventFrom: &r.EventFrom, p.EventTo: &r.EventTo} {
 		if value != "" {
@@ -52,11 +58,11 @@ func request(n tc.Node) (d.RunRequest, error) {
 			return r, m.ErrInvalid
 		}
 	case "incremental":
-		if r.FactSourceRef == "" || r.EventFrom != nil || r.EventTo != nil {
+		if (r.FactSourceRef == "" && p.FactFromNode == "") || r.EventFrom != nil || r.EventTo != nil {
 			return r, m.ErrInvalid
 		}
 	case "backfill":
-		if r.FactSourceRef == "" || r.EventFrom == nil || r.EventTo == nil || !r.EventTo.After(*r.EventFrom) {
+		if (r.FactSourceRef == "" && p.FactFromNode == "") || r.EventFrom == nil || r.EventTo == nil || !r.EventTo.After(*r.EventFrom) {
 			return r, m.ErrInvalid
 		}
 	default:
@@ -72,11 +78,22 @@ func (a *Adapter) validate(n tc.Node) error {
 		return m.ErrInvalid
 	}
 	seen := map[string]bool{}
+	dynamic := 0
 	for _, input := range n.Inputs {
-		if input.Asset == nil || input.FromNode != "" || input.Asset.Validate() != nil || seen[input.Asset.String()] {
+		if input.FromNode != "" {
+			if input.Asset != nil || input.FromNode != n.Parameters.Warehouse.FactFromNode || dynamic != 0 {
+				return m.ErrInvalid
+			}
+			dynamic++
+			continue
+		}
+		if input.Asset == nil || input.Asset.Validate() != nil || seen[input.Asset.String()] {
 			return m.ErrInvalid
 		}
 		seen[input.Asset.String()] = true
+	}
+	if (n.Parameters.Warehouse.FactFromNode != "") != (dynamic == 1) {
+		return m.ErrInvalid
 	}
 	return nil
 }
@@ -102,10 +119,17 @@ func (a *Adapter) Validate(ctx context.Context, scope m.Scope, n tc.Node) error 
 	if req.FactSourceRef != "" {
 		expected[req.FactSourceRef] = true
 	}
-	if len(expected) != len(n.Inputs) {
+	extra := 0
+	if n.Parameters.Warehouse.FactFromNode != "" {
+		extra = 1
+	}
+	if len(expected)+extra != len(n.Inputs) {
 		return m.ErrInvalid
 	}
 	for _, input := range n.Inputs {
+		if input.FromNode != "" {
+			continue
+		}
 		if !expected[input.Asset.String()] {
 			return m.ErrInvalid
 		}
@@ -117,6 +141,11 @@ func (a *Adapter) Validate(ctx context.Context, scope m.Scope, n tc.Node) error 
 			return m.ErrInvalid
 		}
 	}
+	// The upstream fact snapshot does not exist while planning. Its schema and
+	// values are checked by SubmitGoverned against the fixed model at dispatch.
+	if extra == 1 {
+		return nil
+	}
 	return mapped(a.s.Preflight(ctx, p(scope), req))
 }
 func (a *Adapter) ValidateInputs(ctx context.Context, scope m.Scope, refs []l.RefID) error {
@@ -127,7 +156,7 @@ func (a *Adapter) command(c tc.ExecutionCommand) (d.RunRequest, error) {
 		return d.RunRequest{}, m.ErrInvalid
 	}
 	for i, ref := range c.InputRefs {
-		if ref != *c.Node.Inputs[i].Asset {
+		if ref.Validate() != nil || (c.Node.Inputs[i].Asset != nil && ref != *c.Node.Inputs[i].Asset) {
 			return d.RunRequest{}, m.ErrInvalid
 		}
 	}
@@ -140,7 +169,16 @@ func (a *Adapter) command(c tc.ExecutionCommand) (d.RunRequest, error) {
 	if e != nil || m.Digest(canonical) != c.PayloadHash {
 		return d.RunRequest{}, m.ErrConflict
 	}
-	return request(c.Node)
+	req, e := request(c.Node)
+	if e != nil {
+		return req, e
+	}
+	for i, input := range c.Node.Inputs {
+		if input.FromNode != "" {
+			req.FactSourceRef = c.InputRefs[i].String()
+		}
+	}
+	return req, nil
 }
 func handle(c tc.ExecutionCommand, r *d.Run) *tc.ExecutionHandle {
 	if r == nil {
@@ -156,6 +194,18 @@ func (a *Adapter) Submit(ctx context.Context, c tc.ExecutionCommand) (*tc.Execut
 	}
 	if e = a.Validate(ctx, c.Scope, c.Node); e != nil {
 		return nil, e
+	}
+	for i, input := range c.Node.Inputs {
+		if input.FromNode == "" {
+			continue
+		}
+		ref, _, err := a.s.Assets.Resolve(ctx, c.Scope.TenantID, c.Scope.UserID, c.InputRefs[i])
+		if err != nil {
+			return nil, mapped(err)
+		}
+		if ref.Kind != input.Kind {
+			return nil, m.ErrInvalid
+		}
 	}
 	ctx = agentctx.WithRequestID(ctx, c.RequestID)
 	deadline := c.Deadline

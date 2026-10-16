@@ -1,5 +1,7 @@
 # 特征工程与数据标注领域能力
 
+> 历史首批实现记录。下文的「本批」限制和测试数量不代表当前全部功能；当前独立入口、prepared/标准前置与 SFT 范围见[独立数据能力支持矩阵](standalone-data-capabilities.md)，特征增量/回填和 embedding 的最新验收边界见[主 README](../../README.md)。
+
 本批扩展的是实际业务处理能力，并把它们接入已有 Supervisor／持久任务控制器。Sandbox、RL 和模型训练不在本批范围内。
 
 ## 能力与产物

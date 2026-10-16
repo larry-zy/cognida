@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+vi.mock('@/api/governance/standards', async original => ({...await original<typeof import('@/api/governance/standards')>(),standardsApi:{list:vi.fn().mockResolvedValue({data:{items:[]}})}}));
 vi.mock("@/stores/auth", () => ({
   useAuthStore: () => ({
     authEpoch: 0,

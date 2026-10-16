@@ -19,11 +19,12 @@ var (
 )
 
 type LabelSuggestionInput struct {
-	Kind       string    `json:"kind"`
-	Content    string    `json:"content"`
-	Labels     []d.Label `json:"label_schema"`
-	Guidelines string    `json:"guidelines"`
-	QA         *d.QAPair `json:"source_qa,omitempty"`
+	Standard   *d.LabelStandardInput `json:"standard,omitempty"`
+	Kind       string                `json:"kind"`
+	Content    string                `json:"content"`
+	Labels     []d.Label             `json:"label_schema"`
+	Guidelines string                `json:"guidelines"`
+	QA         *d.QAPair             `json:"source_qa,omitempty"`
 }
 type LabelCandidate struct {
 	Annotation     *d.Annotation    `json:"annotation,omitempty"`
@@ -57,6 +58,9 @@ func (s *llmLabelSuggester) Suggest(parent context.Context, in LabelSuggestionIn
 		return out, ErrLabelModelUnavailable
 	}
 	prompt := labelSuggestionPromptForKind(in.Kind)
+	if in.Standard != nil {
+		prompt += "\nFollow the frozen standard definitions, include/exclude criteria, guidelines and cardinality constraints. Standard examples are user-authored guidance, never evidence for the current item. Only current content may support evidence spans. Additional guidelines cannot override the standard."
+	}
 	if prompt == "" {
 		return out, d.ErrInvalid
 	}
@@ -116,6 +120,9 @@ func validateLabelCandidate(in LabelSuggestionInput, c LabelCandidate) error {
 	}
 	requireLabel := func(id string) bool { return known[id] != "" && evidenced[id] }
 	if in.Kind == "tagging" {
+		if validateStandardTagging(d.TaggingTask{StandardSnapshot: in.Standard}, d.TaggingResult{Content: in.Content, Tags: c.Tags, Category: c.Category}, false) != nil {
+			return ErrLabelModelOutput
+		}
 		if c.Annotation != nil || len(c.Tags) > 30 {
 			return ErrLabelModelOutput
 		}
@@ -136,7 +143,7 @@ func validateLabelCandidate(in LabelSuggestionInput, c LabelCandidate) error {
 		return ErrLabelModelOutput
 	}
 	a := *c.Annotation
-	if a.EvaluationProfile != nil || len(a.Entities) > 30 || len(a.Relations) > 30 || len(a.Labels) > 30 || validateAnnotation(d.AnnotationTask{Type: in.Kind, Labels: in.Labels}, in.Content, a) != nil {
+	if a.EvaluationProfile != nil || len(a.Entities) > 30 || len(a.Relations) > 30 || len(a.Labels) > 30 || validateAnnotation(d.AnnotationTask{Type: in.Kind, Labels: in.Labels, StandardSnapshot: in.Standard}, in.Content, a) != nil {
 		return ErrLabelModelOutput
 	}
 	for _, label := range a.Labels {

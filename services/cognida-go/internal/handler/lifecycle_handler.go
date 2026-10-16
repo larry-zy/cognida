@@ -25,6 +25,7 @@ func (h *LifecycleHandler) Register(g *gin.RouterGroup) {
 	g.POST("/assets", h.Import)
 	g.GET("/assets", h.Assets)
 	g.GET("/assets/:id", h.Asset)
+	g.POST("/assets/:id/prepare", h.Prepare)
 	g.POST("/invocations", h.Invoke)
 	g.GET("/invocations", h.Invocations)
 	g.GET("/invocations/:id", h.Invocation)

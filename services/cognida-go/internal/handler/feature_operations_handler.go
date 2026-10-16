@@ -190,7 +190,7 @@ func (h *GovernanceHandler) featureRequirements(c *gin.Context) {
 		governanceErr(c, d.ErrInvalid)
 		return
 	}
-	calls, embedding, e := h.service.FeatureExecutionRequirements(c.Request.Context(), gp(c), c.Param("id"), version)
+	calls, embedding, e := h.service.FeatureExecutionRequirementsForSource(c.Request.Context(), gp(c), c.Param("id"), version, c.Query("source_ref_id"))
 	if e != nil {
 		governanceErr(c, e)
 		return

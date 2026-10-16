@@ -253,6 +253,15 @@ func entityCandidate(content string, labels []d.Label) (d.Annotation, d.Provenan
 	return out, p
 }
 func candidateFor(task d.AnnotationTask, source annotationSource) (d.Annotation, d.Provenance, error) {
+	a, p, err := candidateWithoutStandard(task, source)
+	if err == nil && validateStandardAnnotation(task.StandardSnapshot, source.Content, a, false) != nil {
+		a = d.Annotation{Labels: []string{}, Entities: []d.Entity{}, Relations: []d.Relation{}}
+		p.DecisionStatus = "uncertain"
+		p.Evidence = append(p.Evidence, "standard constraints require manual resolution")
+	}
+	return a, p, err
+}
+func candidateWithoutStandard(task d.AnnotationTask, source annotationSource) (d.Annotation, d.Provenance, error) {
 	switch task.Type {
 	case "classification":
 		a, p := classificationCandidate(source.Content, task.Labels)

@@ -61,6 +61,7 @@ func (s *Service) SuggestLabel(ctx context.Context, p l.Principal, kind, taskID,
 		source = t.SourceRefID
 		modelIn.Kind = t.Type
 		modelIn.Labels = t.Labels
+		modelIn.Standard = t.StandardSnapshot
 		modelIn.Content = v.Content
 		if t.Type == "qa" {
 			var original d.QAPair
@@ -79,6 +80,7 @@ func (s *Service) SuggestLabel(ctx context.Context, p l.Principal, kind, taskID,
 		review = v.ReviewStatus
 		source = t.SourceRefID
 		modelIn.Kind = "tagging"
+		modelIn.Standard = t.StandardSnapshot
 		modelIn.Content = v.Content
 		modelIn.Labels, e = labelSchema(t.Config)
 		if e != nil {

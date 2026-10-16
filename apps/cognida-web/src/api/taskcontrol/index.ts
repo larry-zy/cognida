@@ -18,7 +18,7 @@ export interface NodeParameters {
   collection?: { url: string; max_response_bytes: number }
   evaluation?: { question_column: string; reference_answer_column: string; generated_answer_column: string }
   research?: { query: string; kb_ids: string[]; graph_enabled: boolean; enable_web_search: boolean }
-  governance?: { labels?: string[]; label_schema?: { id: string; name: string; keywords?: string[]; terms?: string[] }[]; qa_mapping?: { question_column: string; reference_answer_column: string } }
+  governance?: { standard_version_id?: string; labels?: string[]; label_schema?: { id: string; name: string; keywords?: string[]; terms?: string[] }[]; qa_mapping?: { question_column: string; reference_answer_column: string } }
   feature?: { feature_id: string; version: number }
 }
 export interface PlanNode {

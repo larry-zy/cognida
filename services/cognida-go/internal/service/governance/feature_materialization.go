@@ -104,6 +104,21 @@ func (s *Service) materializeFeature(ctx context.Context, p l.Principal, id stri
 	if err != nil {
 		return nil, err
 	}
+	anchor := f.SourceRefID
+	if operationID != "" {
+		op, err := s.Repo.Get(ctx, p.TenantID, d.GovernedKind, operationID)
+		if err != nil {
+			return nil, err
+		}
+		var state d.GovernedExecution
+		if op.UserID != p.UserID || json.Unmarshal(op.Payload, &state) != nil || state.Invocation.Profile != d.FeatureProfile || state.Invocation.FeatureID != id || state.Invocation.FeatureVersion != version {
+			return nil, d.ErrConflict
+		}
+		if _, _, err = s.input(ctx, p, anchor, false); err != nil {
+			return nil, err
+		}
+		f.SourceRefID = state.Invocation.InputRef.String()
+	}
 	def, err := parseFeatureDefinition(f.Definition)
 	if err != nil {
 		return nil, err
@@ -141,7 +156,15 @@ func (s *Service) materializeFeature(ctx context.Context, p l.Principal, id stri
 	if err != nil {
 		return nil, err
 	}
-	output, err := s.Assets.ImportDerived(ctx, p, l.Result, "feature-materialization:"+receiptID, []l.RefID{ref.RefID}, body, ref.Policy)
+	parents := []l.RefID{ref.RefID}
+	if anchor != f.SourceRefID {
+		anchorID, e := l.ParseRefID(anchor)
+		if e != nil {
+			return nil, e
+		}
+		parents = append(parents, anchorID)
+	}
+	output, err := s.Assets.ImportDerived(ctx, p, l.Result, "feature-materialization:"+receiptID, parents, body, ref.Policy)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +188,18 @@ func (s *Service) ValidateFeatureMaterializationOrigin(ctx context.Context, p l.
 		return l.ErrForbidden
 	}
 	receipt, err := r.FeatureReceiptByID(ctx, p.TenantID, p.UserID, strings.TrimPrefix(ref.ProducerID, "feature-materialization:"))
-	if err != nil || receipt.OutputRefID != ref.RefID.String() || len(ref.Parents) != 1 || ref.Parents[0].String() != receipt.SourceRefID {
+	if err != nil || receipt.OutputRefID != ref.RefID.String() || len(ref.Parents) < 1 || len(ref.Parents) > 2 || ref.Parents[0].String() != receipt.SourceRefID {
+		return l.ErrForbidden
+	}
+	f, err := s.featureVersion(ctx, p, receipt.FeatureID, receipt.Version)
+	if err != nil {
+		return l.ErrForbidden
+	}
+	if receipt.SourceRefID != f.SourceRefID {
+		if len(ref.Parents) != 2 || ref.Parents[1].String() != f.SourceRefID {
+			return l.ErrForbidden
+		}
+	} else if len(ref.Parents) != 1 {
 		return l.ErrForbidden
 	}
 	return nil

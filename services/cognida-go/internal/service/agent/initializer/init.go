@@ -235,6 +235,7 @@ func (init *Initializer) registerDefaultAgent(ctx context.Context, chatModel any
 			// 挂载 skill 工具（skill_invoke 等），支持 LLM 按需加载技能完整指导（Level 2）
 			tools = append(tools, init.skillTools()...)
 			tools = append(tools, init.tools.GetByGroup("memory")...)
+			tools = append(tools, init.tools.GetByGroup("data_capabilities")...)
 
 			// 构建默认 Agent（带工具能力）。system prompt 追加技能目录（Level 1 渐进式披露）。
 			builder := infraagent.New(nil).

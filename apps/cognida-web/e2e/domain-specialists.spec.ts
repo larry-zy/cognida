@@ -1,3 +1,4 @@
+import {prepareScenarioInput,publishScenarioStandard,openScenarioLabeling} from './scenario.helpers'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 import { attachJSON, createInput, getData, loginThroughUI, selectPagedAsset } from './lifecycle.helpers'
@@ -89,17 +90,12 @@ test.describe('real feature engineering and labeling specialists', () => {
     const api = await loginThroughUI(page, playwright)
     try {
       const source = await createInput(page, { id: 'label-text', source: 'text', text: '😀北京订单营收增长。' }, `标注-${Date.now()}`)
+      const prepared=await prepareScenarioInput(api,source)
       const evidence: unknown[] = []
       for (const kind of ['classification', 'named_entity', 'tagging']) {
-        await page.goto('/labeling')
-        if (kind === 'tagging') await page.getByRole('button', { name: '智能打标', exact: true }).click()
-        await page.getByRole('button', { name: '＋ 新建任务', exact: true }).click()
+        const standard=await publishScenarioStandard(api,kind,[kind==='named_entity'?{id:'city',name:'城市',terms:['北京']}:{id:'sales',name:'销售',keywords:['营收']}])
+        await openScenarioLabeling(page,prepared,standard)
         await page.getByLabel('任务名称', { exact: true }).fill(`${kind}-${Date.now()}`)
-        await selectPagedAsset(page, page.getByLabel(/^来源资产/), `${source.asset_id}:${source.version}`)
-        if (kind !== 'tagging') await page.getByLabel(/^标注类型/).selectOption(kind)
-        await page.getByRole('button', { name: '＋ 添加标签', exact: true }).click()
-        await page.getByLabel('标签1 标签名称', { exact: true }).fill(kind === 'named_entity' ? '城市' : '销售')
-        await page.getByLabel(kind === 'named_entity' ? '标签1 实体词条' : '标签1 匹配关键词', { exact: true }).fill(kind === 'named_entity' ? '北京' : '营收')
         const path = kind === 'tagging' ? '/tagging-tasks' : '/annotation-tasks'
         const task = await action(page, path, () => page.getByRole('button', { name: kind === 'tagging' ? '创建并执行打标' : '创建标注任务', exact: true }).click())
         if (kind !== 'tagging') await action(page, `${path}/${task.id}/preannotate`, () => page.getByRole('button', { name: '生成预标注', exact: true }).click())
@@ -115,10 +111,9 @@ test.describe('real feature engineering and labeling specialists', () => {
         evidence.push({ kind, task, approved })
       }
       const qaSource = await createInput(page, { id: 'qa-table', source: 'table', columns: ['q', 'a'], rows: [['北京是什么？', '北京是中国的首都。']] }, `QA-${Date.now()}`)
-      await page.goto('/labeling')
+      const qaPrepared=await prepareScenarioInput(api,qaSource), qaStandard=await publishScenarioStandard(api,'qa')
+      await openScenarioLabeling(page,qaPrepared,qaStandard)
       await page.getByLabel('任务名称', { exact: true }).fill(`QA-${Date.now()}`)
-      await selectPagedAsset(page, page.getByLabel(/^来源资产/), `${qaSource.asset_id}:${qaSource.version}`)
-      await page.getByLabel(/^标注类型/).selectOption('qa')
       await page.getByLabel('问题列', { exact: true }).fill('q'); await page.getByLabel('参考答案列', { exact: true }).fill('a')
       const qa = await action(page, '/annotation-tasks', () => page.getByRole('button', { name: '创建标注任务', exact: true }).click())
       await action(page, `/annotation-tasks/${qa.id}/preannotate`, () => page.getByRole('button', { name: '生成预标注', exact: true }).click())
@@ -150,18 +145,19 @@ test.describe('real feature engineering and labeling specialists', () => {
         const cap = registry.capabilities.find((v: any) => v.id === capability)
         return { id, capability, capability_version: cap.version, inputs, depends_on, output_kinds: capability === 'lifecycle.data-quality' ? [inputs[0].kind, 'quality_report'] : cap.output_kinds, tools: cap.tools, permissions: cap.permissions, max_attempts: 1, max_calls_per_attempt: cap.execution.base_calls + inputs.length * cap.execution.calls_per_input, max_cost_micros_per_attempt: 0, timeout_seconds: 60, ...(parameters ? { parameters } : {}) }
       }
-      const nodes = [node('quality', 'lifecycle.data-quality', [{ asset: ref, kind: 'raw_asset' }]), node('features', 'governance.feature-engineering', [{ asset: ref, kind: 'raw_asset' }], [], { feature: { feature_id: feature.id, version: 1 } }), node('clean', 'lifecycle.data-cleaning', [{ from_node: 'quality', kind: 'raw_asset' }, { from_node: 'quality', kind: 'quality_report' }], ['quality']), node('tag', 'governance.tagging', [{ from_node: 'clean', kind: 'cleaned_asset' }], ['clean'], { governance: { label_schema: [{ id: 'city', name: '城市', keywords: ['北京'] }] } })]
-      const budget = { max_nodes: nodes.length, max_concurrency: 2, max_attempts: nodes.length, max_calls: nodes.reduce((n, v) => n + v.max_calls_per_attempt, 0), max_cost_micros: 0, timeout_seconds: 240 }
+      const tagStandard=await publishScenarioStandard(api,'tagging',[{id:'city',name:'城市',keywords:['北京']}])
+      const nodes = [node('quality', 'lifecycle.data-quality', [{ asset: ref, kind: 'raw_asset' }]), node('features', 'governance.feature-engineering', [{ asset: ref, kind: 'raw_asset' }], [], { feature: { feature_id: feature.id, version: 1 } }), node('clean', 'lifecycle.data-cleaning', [{ from_node: 'quality', kind: 'raw_asset' }, { from_node: 'quality', kind: 'quality_report' }], ['quality']), node('prepare','lifecycle.data-preparation',[{from_node:'clean',kind:'cleaned_asset'}],['clean']), node('tag', 'governance.tagging', [{ from_node: 'prepare', kind: 'cleaned_asset' }], ['prepare'], { governance: { standard_version_id:tagStandard.id } })]
+      const budget = { max_nodes: nodes.length, max_concurrency: 2, max_attempts: nodes.length, max_calls: nodes.reduce((n, v) => n + v.max_calls_per_attempt, 0), max_cost_micros: 0, timeout_seconds: nodes.reduce((total, node) => total + node.timeout_seconds, 0) }
       const task = await post(api, '/governed-tasks', { goal: '真实质量、清洗、知识打标及特征工程协作', input_refs: [ref], budget })
       await post(api, `/governed-tasks/${task.id}/plans`, { expected_version: task.version, plan: { schema_version: 1, budget, nodes } })
       await page.goto(`/tasks?task_id=${task.id}`)
       await action(page, `/governed-tasks/${task.id}/start`, () => page.getByRole('button', { name: '启动任务', exact: true }).click())
       const summary = await terminal(api, task.id)
-      expect(summary.nodes).toHaveLength(4); expect(summary.nodes.every((v: any) => v.status === 'succeeded' && v.attempt === 1)).toBe(true)
+      expect(summary.nodes).toHaveLength(5); expect(summary.nodes.every((v: any) => v.status === 'succeeded' && v.attempt === 1)).toBe(true)
       const results = []
       for (const n of summary.nodes) for (const output of n.output_refs) results.push(await getData(api, `/lifecycle/assets/${output.asset_id}?version=${output.version}`))
       expect(results.length).toBeGreaterThanOrEqual(6)
-      await page.reload(); await expect(page.locator('.execution-panel')).toContainText('已成功 4 / 4')
+      await page.reload(); await expect(page.locator('.execution-panel')).toContainText('已成功 5 / 5')
       await attachJSON(info, 'multi-specialist-real-results', { summary, results })
       await page.screenshot({ path: info.outputPath('multi-specialist-dag.png'), fullPage: true })
     } finally { await api.dispose() }

@@ -83,6 +83,7 @@ type PolicySnapshot struct {
 	Version     string   `json:"version"`
 }
 type Provenance struct {
+	Preparation   *Preparation    `json:"preparation,omitempty"`
 	SourceType    string          `json:"source_type"`
 	SourceID      string          `json:"source_id,omitempty"`
 	URI           string          `json:"uri,omitempty"`

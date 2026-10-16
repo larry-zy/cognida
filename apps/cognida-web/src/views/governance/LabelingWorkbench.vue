@@ -5,13 +5,14 @@
         <span class="wb-kicker">HUMAN REVIEW</span>
         <h1>{{ wt("标注与智能打标") }}</h1>
         <p>
-          配置关键词或实体字典，生成待审核候选；也可从真实表格映射问答数据，人工审核后导出。
+          选择已有准备数据和已发布标准，生成待审核候选；人工审核后才能导出或应用标签。
         </p>
       </div>
       <button class="primary" :disabled="busy" @click="newTask">
         {{ wt("＋ 新建任务") }}
       </button>
     </header>
+    <ScenarioPath current="/labeling" />
     <div v-if="error" class="wb-error" role="alert">{{ error }}</div>
     <div v-if="notice" class="wb-success" role="status">{{ notice }}</div>
     <section v-if="execution" class="wb-panel" aria-label="领域执行结果">
@@ -32,30 +33,6 @@
         >
       </div>
     </section>
-    <div
-      v-if="
-        assetOptions.state.hasMore ||
-        assetOptions.state.loading ||
-        assetOptions.state.error
-      "
-      class="wb-actions"
-      aria-live="polite"
-    >
-      <span class="wb-muted">已加载 {{ assets.length }} 个可选资产</span>
-      <button
-        type="button"
-        :disabled="assetOptions.state.loading"
-        @click="run(assetOptions.loadMore)"
-      >
-        {{
-          assetOptions.state.loading
-            ? "正在加载资产…"
-            : assetOptions.state.error
-              ? "重试加载资产"
-              : "加载更多资产"
-        }}
-      </button>
-    </div>
     <div class="wb-tabs">
       <button
         :class="{ selected: mode === 'annotation' }"
@@ -100,34 +77,11 @@
           <h2>{{ wt("任务设置") }}</h2>
           <div class="wb-form">
             <label>{{ wt("任务名称") }}<input v-model="name" required /></label
-            ><label
-              >{{ wt("来源资产")
-              }}<select v-model="sourceRef" required>
-                <option value="">选择资产</option>
-                <option
-                  v-for="asset in assets"
-                  :key="`${asset.asset_id}:${asset.version}`"
-                  :value="`${asset.asset_id}:${asset.version}`"
-                >
-                  {{ asset.name || asset.asset_id }} · {{ asset.kind }}
-                </option>
-              </select></label
-            ><label v-if="mode === 'annotation'"
-              >{{ wt("标注类型")
-              }}<select v-model="annotationType">
-                <option value="classification">分类</option>
-                <option value="named_entity">命名实体</option>
-                <option value="relation">{{ wt("关系") }}</option>
-                <option value="qa">问答标注</option>
-              </select></label
             >
           </div>
-          <RecordEditor
-            v-if="mode === 'tagging' || annotationType !== 'qa'"
-            v-model="labels"
-            title="标签"
-            :fields="labelFields"
-          />
+          <ScenarioAssetSelect v-model="sourceRef" prepared-only :disabled="busy" @selected="preparedSource = $event" />
+          <StandardVersionSelect v-model="standardVersionID" :task-types="mode === 'tagging' ? ['tagging'] : ['classification', 'named_entity', 'relation', 'qa']" :disabled="busy" @selected="chooseStandard" />
+          <p v-if="selectedStandard" class="wb-footnote">任务类型：{{ standardTypeLabels[selectedStandard.task_type] }}。标签和判定规则来自已发布版本，新任务不能修改标准。</p>
           <div
             v-if="mode === 'annotation' && annotationType === 'qa'"
             class="wb-form"
@@ -155,7 +109,7 @@
                 ? "实体词条按 Unicode 原文精确匹配；重叠歧义保留为待确认。"
                 : annotationType === "relation" && mode === "annotation"
                   ? "关系采用人工标注，请创建标签后逐项填写实体与关系。"
-                  : "关键词以逗号分隔。未命中时保留为未确定，不自动选择标签。"
+                  : "使用已发布标准的关键词和边界。未命中时保留为未确定，不自动选择标签。"
             }}
           </p>
           <div
@@ -401,7 +355,6 @@
   </div>
 </template>
 <script setup lang="ts">
-import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 
 import {
@@ -420,7 +373,11 @@ import {
   type TagResult,
   type GovernanceExecution,
 } from "@/api/governance";
-import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
+import type { AssetRef } from "@/api/lifecycle";
+import ScenarioPath from '@/views/scenario/ScenarioPath.vue'
+import ScenarioAssetSelect from '@/views/scenario/ScenarioAssetSelect.vue'
+import StandardVersionSelect from '@/views/scenario/StandardVersionSelect.vue'
+import { standardTypeLabels, type StandardVersion } from '@/api/governance/standards'
 import ModelLabelSuggestion from './ModelLabelSuggestion.vue'
 import EvaluationProfileEditor from "./EvaluationProfileEditor.vue";
 import PublishDatasetVersion from "./PublishDatasetVersion.vue";
@@ -456,13 +413,12 @@ type Item = AnnotationItem | TagResult;
 const mode = ref<"annotation" | "tagging">("annotation"),
   tasks = ref<Task[]>([]),
   items = ref<Item[]>([]),
-  assets = ref<AssetRef[]>([]),
   currentID = ref(""),
   currentItem = ref<Item>(),
   name = ref(""),
   sourceRef = ref(""),
   annotationType = ref("classification"),
-  labels = ref<Record<string, unknown>[]>([]),
+
   qaMapping = reactive({ question_column: "", reference_answer_column: "" }),
   busy = ref(false),
   error = ref(""),
@@ -505,26 +461,8 @@ const activeTask = computed(() =>
   base = computed(() =>
     mode.value === "annotation" ? "/annotation-tasks" : "/tagging-tasks",
   );
-const labelFields = computed<EditorField[]>(() => [
-  { key: "name", label: "标签名称" },
-  ...(mode.value === "annotation" && annotationType.value === "relation"
-    ? []
-    : [
-        {
-          key:
-            mode.value === "annotation" &&
-            annotationType.value === "named_entity"
-              ? "terms"
-              : "keywords",
-          label:
-            mode.value === "annotation" &&
-            annotationType.value === "named_entity"
-              ? "实体词条"
-              : "匹配关键词",
-          list: true,
-        },
-      ]),
-]);
+const preparedSource = ref<AssetRef>(), standardVersionID = ref(''), selectedStandard = ref<StandardVersion>();
+function chooseStandard(value?: StandardVersion) { selectedStandard.value = value; if (value && value.task_type !== 'tagging') annotationType.value = value.task_type; }
 const decisionLabel = (value?: string) =>
   ({ matched: "规则已命中", uncertain: "未确定", manual: "人工修正" })[
     value || ""
@@ -612,10 +550,6 @@ async function load(append = false) {
     : res.data?.items || [];
   next.value = res.data?.next_cursor || "";
 }
-const assetOptions = useCursorOptions(assets, (cursor) =>
-  lifecycleApi.assets("", cursor),
-);
-
 function newTask() {
   execution.value = undefined;
   generation++;
@@ -624,7 +558,7 @@ function newTask() {
   itemNext.value = "";
   error.value = "";
   notice.value = "";
-  labels.value = [];
+  standardVersionID.value = ""; selectedStandard.value = undefined; preparedSource.value = undefined;
   annotationType.value = "classification";
   qaMapping.question_column = "";
   qaMapping.reference_answer_column = "";
@@ -643,8 +577,10 @@ async function create() {
   if (busy.value) return;
   await run(async () => {
     const epoch = generation;
-    if (!name.value.trim() || !sourceRef.value)
-      throw new Error("请填写任务名称并选择来源资产");
+    if (!name.value.trim() || !sourceRef.value || !preparedSource.value)
+      throw new Error("请填写任务名称并选择已完成准备的数据");
+    if (!selectedStandard.value || selectedStandard.value.id !== standardVersionID.value)
+      throw new Error("请选择已发布的标注标准版本");
     if (
       mode.value === "annotation" &&
       annotationType.value === "qa" &&
@@ -659,7 +595,8 @@ async function create() {
             name: name.value,
             type: annotationType.value,
             source_ref_id: sourceRef.value,
-            labels: annotationType.value === "qa" ? [] : labels.value,
+            labels: [],
+            standard_version_id: standardVersionID.value,
             ...(annotationType.value === "qa"
               ? { qa_mapping: { ...qaMapping } }
               : {}),
@@ -667,7 +604,8 @@ async function create() {
         : {
             name: name.value,
             source_ref_id: sourceRef.value,
-            config: { ...tagConfig, label_schema: labels.value },
+            standard_version_id: standardVersionID.value,
+            config: { ...tagConfig },
           };
     const res = await api.create<Task>(base.value, input);
     if (epoch !== generation) return;
@@ -910,7 +848,12 @@ async function openLink() {
       id = res.data.domain_id;
       kind = res.data.domain_kind;
     }
-    if (!id) return;
+    if (!id) {
+      mode.value = kind === "tagging_task" ? "tagging" : "annotation";
+      sourceRef.value = typeof route?.query.source_ref === 'string' ? route.query.source_ref : '';
+      standardVersionID.value = typeof route?.query.standard_version_id === 'string' ? route.query.standard_version_id : '';
+      return;
+    }
     mode.value = kind === "tagging_task" ? "tagging" : "annotation";
     const res = await api.get<Task>(`${base.value}/${encodeURIComponent(id)}`);
     if (epoch !== generation) return;
@@ -931,25 +874,24 @@ async function openLink() {
   });
 }
 watch(
-  () => [route?.query.execution_id, route?.query.task_id, route?.query.kind],
+  () => [route?.query.execution_id, route?.query.task_id, route?.query.kind, route?.query.source_ref, route?.query.standard_version_id],
   () => void openLink(),
 );
 watch(identity, () => {
   scope++;
   newTask();
   tasks.value = [];
-  assets.value = [];
   next.value = "";
   void initialize();
 });
 async function initialize() {
   const epoch = generation;
   await run(async () => {
-    await Promise.all([load(), assetOptions.reset()]);
+    await load();
   });
   if (
     epoch === generation &&
-    (route?.query.execution_id || route?.query.task_id)
+    (route?.query.execution_id || route?.query.task_id || route?.query.source_ref || route?.query.standard_version_id)
   )
     await openLink();
 }

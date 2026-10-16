@@ -45,8 +45,10 @@ import (
 	"cognida/internal/service/agent/termgrounding"
 	ragtool "cognida/internal/service/agent/tools"
 	"cognida/internal/service/agent/uibinding"
+	hfsvc "cognida/internal/service/huggingface"
 	knowledgesvc "cognida/internal/service/knowledge"
 	memorysvc "cognida/internal/service/memory"
+	"cognida/internal/service/scenariotools"
 	strategysvc "cognida/internal/service/strategy"
 
 	"github.com/cloudwego/eino/components/embedding"
@@ -592,6 +594,9 @@ func assembleAgentRuntime(cfg *config.Config, db *gorm.DB, app *wire.App, neo4jD
 					if err := reg.Register("memory", memoryTool); err != nil {
 						log.Printf("⚠️  记忆工具注册失败: %v", err)
 					}
+				}
+				if err := reg.RegisterBatch("data_capabilities", append(scenariotools.New(app.Features.Governance, app.Features.Lifecycle, app.Features.Warehouse), hfsvc.NewTools(app.Features.HuggingFace)...)); err != nil {
+					log.Fatalf("data capability registration failed: %v", err)
 				}
 				app.ResearchService.WithDependencies(toolModel, reg)
 				log.Printf("✅ 工具注册表构造完成（%d 个工具，依赖显式注入）", reg.Size())

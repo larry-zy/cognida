@@ -1,0 +1,7 @@
+.scenario-fieldset { border:0; padding:0; margin:0; min-width:0; display:flex; flex-direction:column; gap:18px }
+.standard-label, .standard-version { border:1px solid var(--border-default); border-radius:6px; padding:16px; overflow-wrap:anywhere }
+.standard-label summary { cursor:pointer; color:var(--text-primary); padding-bottom:12px }
+.standard-label > div { margin-bottom:14px }
+.standard-version a + a { margin-left:18px }
+.scenario-report { overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.7 }
+.workbench .scenario-wait { color:var(--text-secondary); line-height:1.7 }

@@ -28,6 +28,8 @@ func (s *Service) executeAdapter(ctx context.Context, r d.StageRequest) (d.Outpu
 		return s.quality(ctx, r)
 	case "data-cleaning":
 		return s.clean(ctx, r)
+	case "data-preparation":
+		return s.prepare(ctx, r)
 	case "data-enrichment":
 		return s.enrich(ctx, r)
 	case "data-asset":

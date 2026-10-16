@@ -343,6 +343,34 @@ def test_clean_preserves_large_integer_and_float_precision(client):
     assert response.json()["result"]["data"]["rows"] == rows
 
 
+@pytest.mark.parametrize("text", ["alpha\nbeta\n", "alpha\r\nbeta\r\n", "甲\u2028乙\u2029"])
+def test_clean_noop_preserves_exact_text_boundaries(client, text):
+    response = client.post(
+        PREFIX + "/clean",
+        json={"input": {"kind": "text", "text": text},
+              "options": {"operations": ["trim", "normalize_ws"]}},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["data"]["text"] == text
+    assert result["changed"] is False
+    assert result["removed_count"] == 0
+    assert result["source_row_indices"] == [0, 1]
+
+
+def test_clean_changed_text_does_not_reuse_original_bytes(client):
+    response = client.post(
+        PREFIX + "/clean",
+        json={"input": {"kind": "text", "text": " alpha \nbeta\n"},
+              "options": {"operations": ["trim"]}},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["data"]["text"] == "alpha\nbeta"
+    assert result["changed"] is True
+    assert result["source_row_indices"] == [0, 1]
+
+
 async def test_timeout_cancels_operation(monkeypatch):
     monkeypatch.setattr(get_settings(), "lifecycle_timeout_seconds", 0.01)
     cancelled = asyncio.Event()

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightWorkerArgs, type Response, type TestInfo } from '@playwright/test'
 export interface AssetRef { asset_id: string; version: number; kind: string; producer_id: string; policy?: { approved: boolean } }
 export interface RunDetail {
@@ -124,7 +125,11 @@ export async function getData<T>(api: APIRequestContext, path: string): Promise<
   return payload.data as T
 }
 export async function attachJSON(info: TestInfo, name: string, value: unknown) {
-  await info.attach(name, { body: Buffer.from(JSON.stringify(value, null, 2)), contentType: 'application/json' })
+  // Keep API evidence in the case's output directory as well as the HTML
+  // report: a later focused run replaces the shared playwright-report folder.
+  const path = info.outputPath(`${name.replace(/[^a-zA-Z0-9_.-]/g, '_')}.json`)
+  await writeFile(path, JSON.stringify(value, null, 2))
+  await info.attach(name, { path, contentType: 'application/json' })
 }
 /** Select an authorized asset through the page's real cursor controls. */
 export async function selectPagedAsset(page: Page, select: Locator, value: string, moreName = '加载更多资产') {

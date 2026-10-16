@@ -26,6 +26,7 @@ type WarehouseParameters struct {
 	Version       int    `json:"version"`
 	Mode          string `json:"mode"`
 	FactSourceRef string `json:"fact_source_ref,omitempty"`
+	FactFromNode  string `json:"fact_from_node,omitempty"`
 	EventFrom     string `json:"event_from,omitempty"`
 	EventTo       string `json:"event_to,omitempty"`
 }
@@ -45,9 +46,10 @@ type ResearchParameters struct {
 	EnableWebSearch bool     `json:"enable_web_search,omitempty"`
 }
 type GovernanceParameters struct {
-	Labels      []string     `json:"labels,omitempty"`
-	LabelSchema []g.Label    `json:"label_schema,omitempty"`
-	QAMapping   *g.QAMapping `json:"qa_mapping,omitempty"`
+	StandardVersionID string       `json:"standard_version_id,omitempty"`
+	Labels            []string     `json:"labels,omitempty"`
+	LabelSchema       []g.Label    `json:"label_schema,omitempty"`
+	QAMapping         *g.QAMapping `json:"qa_mapping,omitempty"`
 }
 type FeatureParameters struct {
 	FeatureID string `json:"feature_id"`

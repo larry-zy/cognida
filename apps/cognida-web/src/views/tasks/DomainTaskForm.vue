@@ -161,9 +161,17 @@
             :max="feature.version"
             aria-label="专家特征版本"
         /></label>
+        <label class="wb-label"
+          >物化来源快照<select v-model="assetID" aria-label="专家特征来源">
+            <option value="">使用此版本的定义来源</option>
+            <option v-for="item in eligibleAssets" :key="key(item)" :value="key(item)">
+              {{ item.name || item.asset_id }} · v{{ item.version }}
+            </option>
+          </select></label
+        >
         <p class="wb-muted">
           先在<router-link to="/features">特征工程</router-link
-          >配置表达式或窗口并预览。这里执行指定版本的物化，保存实际值与回执。
+          >配置表达式或窗口并预览。这里按所选快照核对调用预算，执行指定版本的物化，保存实际值与回执。
         </p>
         <p v-if="featureEmbedding" class="wb-muted">
           此固定特征版本会真实调用已绑定的嵌入模型；调用数按来源批次预留，不保证供应商费用上限。
@@ -186,6 +194,8 @@
             </option>
           </select></label
         >
+        <StandardVersionSelect v-if="capability.parameter_kind === 'governance'" v-model="standardVersionID" :task-types="standardTypes" :disabled="busy || loading" @selected="publishedStandard=$event" />
+        <p v-if="capability.parameter_kind === 'governance'" class="wb-muted">仅可选择完成标准化的准备数据。<RouterLink to="/data-preparation">准备已有数据</RouterLink> · <RouterLink to="/label-standards">管理标准</RouterLink>。此计划冻结标准版本，规则候选仍需人工审核。</p>
         <template v-if="capability.parameter_kind === 'evaluation'"
           ><div class="wb-form">
             <label class="wb-label"
@@ -228,22 +238,6 @@
             从所选表格提取已有问题和答案，生成待审核样本，不虚构参考答案。
           </p></template
         >
-        <template v-else
-          ><label class="wb-label"
-            >标签与规则<textarea
-              v-model="labels"
-              rows="4"
-              maxlength="12000"
-              placeholder="每行：标签名称 | 触发词1,触发词2"
-              aria-label="标签与规则"
-            />
-          </label>
-          <p class="wb-muted">
-            每行一个标签，竖线后为逗号分隔的{{
-              selected === "governance.named_entity" ? "实体字典词" : "关键词"
-            }}。规则候选保留证据，等待人工审核。
-          </p></template
-        >
       </template>
     </fieldset>
     <p v-if="loading" class="wb-muted" role="status">正在读取固定定义与来源…</p>
@@ -255,7 +249,7 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { governanceApi, type Feature, type Label } from "@/api/governance";
+import { governanceApi, type Feature } from "@/api/governance";
 import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
 import type {
   Capability,
@@ -263,6 +257,8 @@ import type {
   NodeParameters,
   PlanSpec,
 } from "@/api/taskcontrol";
+import StandardVersionSelect from '@/views/scenario/StandardVersionSelect.vue'
+import type { StandardVersion, StandardTaskType } from '@/api/governance/standards'
 import { assetLabel, capabilityLabel } from "./labels";
 import type { WarehouseModel } from "@/api/warehouse";
 import SandboxTaskFields from "./SandboxTaskFields.vue";
@@ -275,7 +271,7 @@ const props = defineProps<{
 const emit = defineEmits<{ preview: [draft: DraftInput, plan: PlanSpec] }>();
 const selected = ref(""),
   assetID = ref(""),
-  labels = ref(""),
+
   featureID = ref(""),
   version = ref(1);
 const questionColumn = ref("question"),
@@ -287,6 +283,8 @@ const url = ref(""),
   kbText = ref(""),
   graphEnabled = ref(false),
   webEnabled = ref(false);
+const standardVersionID=ref(''),publishedStandard=ref<StandardVersion>();
+const standardTypes=computed<StandardTaskType[]>(()=>[selected.value.replace('governance.','') as StandardTaskType]);
 const featureEmbedding = ref(false);
 const warehouseID = ref(""),
   warehouseVersion = ref(1),
@@ -318,7 +316,8 @@ const eligibleAssets = computed(() =>
   props.assets.filter(
     (asset) =>
       asset.status === "available" &&
-      (capability.value?.input_kinds || []).includes(asset.kind),
+      (capability.value?.input_kinds || []).includes(asset.kind) &&
+      (capability.value?.parameter_kind !== 'governance' || (asset.kind === 'cleaned_asset' && asset.provenance?.preparation?.version === 1)),
   ),
 );
 async function loadFeatures(more = false) {
@@ -372,6 +371,7 @@ watch(warehouseID, () => {
   warehouseVersion.value = warehouseModel.value?.version || 1;
 });
 watch(selected, () => {
+  standardVersionID.value="";publishedStandard.value=undefined;
   featureEmbedding.value = false;
   error.value = "";
   assetID.value = "";
@@ -582,6 +582,13 @@ async function preview() {
       ).data;
       if (current !== generation) return;
       if (!fixed) throw new Error();
+      const sourceRef = assetID.value || fixed.source_ref_id;
+      const split = sourceRef.lastIndexOf(":");
+      const id = sourceRef.slice(0, split),
+        sourceVersion = Number(sourceRef.slice(split + 1));
+      asset = (await lifecycleApi.asset(id, sourceVersion)).data?.ref;
+      if (current !== generation) return;
+      if (!asset || asset.status !== "available" || key(asset) !== sourceRef) throw new Error();
       const requirements = (
         await governanceApi.get<{
           feature_id: string;
@@ -591,7 +598,7 @@ async function preview() {
           embedding: boolean;
           requires_zero_cost_reservation: boolean;
         }>(
-          `/features/${encodeURIComponent(feature.value.id)}/versions/${version.value}/requirements`,
+          `/features/${encodeURIComponent(feature.value.id)}/versions/${version.value}/requirements?source_ref_id=${encodeURIComponent(sourceRef)}`,
         )
       ).data;
       if (current !== generation) return;
@@ -607,12 +614,6 @@ async function preview() {
         throw new Error();
       requiredCalls = requirements.max_calls_per_attempt;
       featureEmbedding.value = requirements.embedding;
-      const split = fixed.source_ref_id.lastIndexOf(":");
-      const id = fixed.source_ref_id.slice(0, split),
-        sourceVersion = Number(fixed.source_ref_id.slice(split + 1));
-      asset = (await lifecycleApi.asset(id, sourceVersion)).data?.ref;
-      if (current !== generation) return;
-      if (!asset || asset.status !== "available") throw new Error();
     } catch {
       if (current === generation)
         error.value = "固定特征版本或来源读取失败，请刷新后重试。";
@@ -625,6 +626,7 @@ async function preview() {
       error.value = "请选择可访问的资产版本。";
       return;
     }
+    if (cap.parameter_kind === 'governance' && (!publishedStandard.value || publishedStandard.value.id!==standardVersionID.value || !standardTypes.value.includes(publishedStandard.value.task_type))) { error.value='请选择与能力匹配的已发布标准版本。';return; }
     if (cap.parameter_kind === "evaluation") {
       const columns = [
         questionColumn.value.trim(),
@@ -654,6 +656,7 @@ async function preview() {
       }
       parameters = {
         governance: {
+          standard_version_id:standardVersionID.value,
           qa_mapping: {
             question_column: question,
             reference_answer_column: reference,
@@ -661,44 +664,7 @@ async function preview() {
         },
       };
     } else {
-      const rows = labels.value
-        .split("\n")
-        .map((row) => row.trim())
-        .filter(Boolean);
-      const schema: Label[] = rows.map((row, i) => {
-        const [name, terms] = row.split("|");
-        const words =
-          terms
-            ?.split(/[,，]/)
-            .map((item) => item.trim())
-            .filter(Boolean) || [];
-        return {
-          id: `label-${i + 1}`,
-          name: name!.trim(),
-          ...(selected.value === "governance.named_entity"
-            ? { terms: words }
-            : { keywords: words }),
-        };
-      });
-      if (
-        schema.length < 1 ||
-        schema.length > 30 ||
-        schema.some(
-          (item) => !item.name || Array.from(item.name).length > 80,
-        ) ||
-        new Set(schema.map((item) => item.name)).size !== schema.length
-      ) {
-        error.value = "请输入 1–30 个不重复标签，每个名称最多 80 字符。";
-        return;
-      }
-      if (
-        selected.value === "governance.named_entity" &&
-        schema.some((item) => !item.terms?.length)
-      ) {
-        error.value = "实体预标注每个标签都需要明确字典词。";
-        return;
-      }
-      parameters = { governance: { label_schema: schema } };
+      parameters = { governance: { standard_version_id:standardVersionID.value } };
     }
   }
   if (

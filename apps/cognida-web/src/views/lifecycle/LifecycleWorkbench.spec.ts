@@ -22,6 +22,7 @@ vi.mock("@/utils/request", () => ({
   resetAuthFailure: vi.fn(),
 }));
 import LifecycleWorkbench from "./LifecycleWorkbench.vue";
+import { http } from "@/utils/request";
 describe("published asset analysis", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -30,6 +31,7 @@ describe("published asset analysis", () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(http.get).mockResolvedValue({ code: 200, message: "ok", data: { items: [] } });
     route.path = "/analysis";
     route.query = {};
     api.agents.mockResolvedValue({
@@ -78,6 +80,22 @@ describe("published asset analysis", () => {
     await flushPromises();
     expect(api.createAsset).toHaveBeenCalledWith(expect.anything(), "Source page", expect.objectContaining({ kind: "collection", run_id: "actual-run", item_id: "actual-item" }));
     expect(api.start).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+  it("prefills the cleaning expert with an authorized existing asset without running it", async () => {
+    route.path = "/experts";
+    route.query = { agent_id: "data-cleaning", asset: "existing:4" };
+    api.agents.mockResolvedValue({ data: { agents: [{ id: "data-quality", name: "Quality", tool_allowlist: ["profile"], risk_class: "read" }, { id: "data-cleaning", name: "Cleaning", tool_allowlist: ["clean"], risk_class: "write" }] } });
+    api.asset.mockResolvedValue({ data: { ref: { asset_id: "existing", version: 4, kind: "raw_asset", status: "available" }, content: { kind: "table", columns: ["text"], rows: [["sample"]] } } });
+    const wrapper = mount(LifecycleWorkbench, { global: { plugins: [createPinia()], stubs: { RouterLink: true } } });
+    await flushPromises();
+    await flushPromises();
+    const labels = wrapper.findAll("label");
+    expect((labels.find(l=>l.text().startsWith("专家"))!.get("select").element as HTMLSelectElement).value).toBe("data-cleaning");
+    await vi.waitFor(() => expect((labels.find(l=>l.text().startsWith("输入资产"))!.get("select").element as HTMLSelectElement).value).toBe("existing:4"));
+    expect(api.asset).toHaveBeenCalledWith("existing", 4);
+    expect(api.start).not.toHaveBeenCalled();
+    expect(api.createAsset).not.toHaveBeenCalled();
     wrapper.unmount();
   });
   it("defaults to published inputs and renders independent invocation output", async () => {

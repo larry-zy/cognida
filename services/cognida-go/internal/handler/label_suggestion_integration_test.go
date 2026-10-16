@@ -58,6 +58,7 @@ func newSuggestionItem(t *testing.T, f *reviewedFixture, kind string) (string, g
 	} else {
 		f.assets.input = l.Input{Kind: "text", Text: "小李任职蓝鹭"}
 	}
+	task.StandardVersionID = f.standard(t, kind, task.Labels)
 	r, e := f.gs.CreateAnnotation(context.Background(), f.p, task, uuid.NewString())
 	require.NoError(t, e)
 	page, e := f.gs.List(context.Background(), f.p, g.Filter{Kind: "annotation_item", ParentID: r.ID, Limit: 10})

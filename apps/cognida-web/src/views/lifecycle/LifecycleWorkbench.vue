@@ -381,6 +381,10 @@
             来源：{{ assetDetail.ref.producer_id }} ·
             {{ assetDetail.ref.kind }} · {{ statusLabel(assetDetail.ref.status) }}
           </p>
+          <div v-if="assetDetail.ref.kind === 'cleaned_asset'" class="wb-actions">
+            <RouterLink :to="{path:'/data-preparation',query:{asset:`${assetDetail.ref.asset_id}:${assetDetail.ref.version}`}}">标准化此清洗产物</RouterLink>
+            <RouterLink v-if="assetDetail.ref.provenance?.preparation?.version === 1" :to="{path:'/labeling',query:{source_ref:`${assetDetail.ref.asset_id}:${assetDetail.ref.version}`}}">用此准备数据标注</RouterLink>
+          </div>
           <AnalysisReport :content="assetDetail.content" />
           <CleaningReview v-if="assetDetail.ref.kind === 'cleaned_asset'" :cleaned-ref="`${assetDetail.ref.asset_id}:${assetDetail.ref.version}`" />
           <details><summary>原始资产内容</summary><pre class="wb-code">{{
@@ -885,6 +889,7 @@ async function initialize() {
     ]);
     agents.value = a.data?.agents || [];
     if (isAnalysis.value) executor.value = "data-analysis";
+    else if (!isPipeline.value && typeof route.query.agent_id === 'string' && agents.value.some(agent=>agent.id===route.query.agent_id)) executor.value=route.query.agent_id;
     templates.value = t.data?.templates || [];
     await Promise.all([loadAssets(), loadHistory()]);
     datasources.value =
@@ -900,8 +905,8 @@ async function initialize() {
       const ref = assets.value.find(
         (a) => a.asset_id === assetID && a.version === requestedVersion,
       );
-      if (ref) await openAsset(ref);
-      else await openAsset({ asset_id: assetID, version: requestedVersion });
+      if (ref) { assetSelection.value = `${ref.asset_id}:${ref.version}`; await openAsset(ref); }
+      else { await openAsset({ asset_id: assetID, version: requestedVersion }); if (assetDetail.value) { assets.value.unshift(assetDetail.value.ref); assetSelection.value = `${assetID}:${requestedVersion}`; } }
     }
     } catch (cause) { initialError.value = true; throw cause; }
   });

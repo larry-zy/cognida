@@ -15,6 +15,10 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     redirect: '/home',
     children: [
+      {path:'/hf-datasets',name:'HFDatasets',component:()=>import('@/views/scenario/HFDatasetsView.vue'),meta:{title:'HF 数据集采集'}},
+      {path:'/data-preparation',name:'DataPreparation',component:()=>import('@/views/scenario/DataPreparationView.vue'),meta:{title:'数据准备'}},
+      {path:'/label-standards',name:'LabelStandards',component:()=>import('@/views/scenario/LabelStandardsView.vue'),meta:{title:'标注标准库'}},
+      {path:'/sft-datasets',name:'SFTDatasets',component:()=>import('@/views/scenario/SFTDatasetsView.vue'),meta:{title:'SFT 数据集'}},
       {path: '/tasks', name: 'TaskWorkbench', component: () => import('@/views/tasks/TaskWorkbench.vue'), meta: {title: '任务规划'}},
       {path: "/memories", name: "MemoryWorkbench", component: () => import("@/views/memory/MemoryWorkbench.vue"), meta: {title: "长期记忆"}},
       {path: "/research", name: "DeepResearch", component: () => import("@/views/research/DeepResearchView.vue"), meta: {title: "深度研究"}},

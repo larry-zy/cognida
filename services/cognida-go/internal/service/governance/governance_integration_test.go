@@ -58,7 +58,7 @@ func setup(t *testing.T) *fixture {
 	require.NoError(t, e)
 	p := l.Principal{TenantID: time.Now().UnixNano() & 0x1fffffffffffff, UserID: 991}
 	t.Cleanup(func() {
-		for _, table := range []string{"feature_values", "feature_materializations", "governance_records", "lifecycle_assets"} {
+		for _, table := range []string{"feature_values", "feature_materializations", "governance_records", "lifecycle_events", "lifecycle_approvals", "lifecycle_stages", "lifecycle_runs", "lifecycle_assets"} {
 			require.NoError(t, db.Table(table).Where("tenant_id=?", p.TenantID).Delete(map[string]any{}).Error)
 		}
 		require.NoError(t, sql.Close())
@@ -237,7 +237,8 @@ func TestGovernanceIntegrationAnnotationsTaggingAndAPI(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	ref := f.publish(t, l.Input{Kind: "text", Text: "sales increased"}, "db/text", "restricted")
-	task, e := f.s.CreateAnnotation(ctx, f.p, d.AnnotationTask{Name: "review", Type: "classification", SourceRefID: ref.AssetRefID, Labels: []d.Label{{ID: "sales", Name: "sales"}}}, "labels")
+	ref = f.prepare(t, ref)
+	task, e := f.s.CreateAnnotation(ctx, f.p, d.AnnotationTask{StandardVersionID: f.standard(t, "classification", []d.Label{{ID: "sales", Name: "sales"}}), Name: "review", Type: "classification", SourceRefID: ref.AssetRefID, Labels: []d.Label{{ID: "sales", Name: "sales"}}}, "labels")
 	require.NoError(t, e)
 	require.NoError(t, f.s.Preannotate(ctx, f.p, task.ID))
 	code, out := f.api(t, 991, f.p.TenantID, "GET", "/annotation-tasks/"+task.ID+"/items", nil)
@@ -251,7 +252,7 @@ func TestGovernanceIntegrationAnnotationsTaggingAndAPI(t *testing.T) {
 	reviewed, e := f.s.ReviewAnnotation(ctx, f.p, task.ID, item["id"].(string), "approved", "verified", int(item["version"].(float64)))
 	require.NoError(t, e)
 	require.Equal(t, "approved", reviewed.Status)
-	tagging, e := f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "tag", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, TagSchema: []string{"sales"}}}, "tag")
+	tagging, e := f.s.CreateTagging(ctx, f.p, d.TaggingTask{StandardVersionID: f.standard(t, "tagging", []d.Label{{ID: "sales", Name: "sales"}}), Name: "tag", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true}}, "tag")
 	require.NoError(t, e)
 	j, e := f.q.TryClaim(ctx)
 	require.NoError(t, e)
@@ -341,8 +342,9 @@ func TestGovernanceIntegrationQueueRecoveryAndPublishedCursor(t *testing.T) {
 	require.NoError(t, e)
 	require.Len(t, next, 2)
 	require.Equal(t, (l.RefID{AssetID: ref.AssetID, Version: ref.Version + 101}).String(), next[1])
+	ref = f.prepare(t, ref)
 	f.s.Queue = &failQueue{Queue: f.q, fail: true}
-	_, e = f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "recover", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, LabelSchema: []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}}}, "recover")
+	_, e = f.s.CreateTagging(ctx, f.p, d.TaggingTask{StandardVersionID: f.standard(t, "tagging", []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}), Name: "recover", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, LabelSchema: []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}}}, "recover")
 	require.ErrorContains(t, e, "queue temporarily unavailable")
 	dispatcher := job.NewDispatcher(f.q, job.RetryPolicy{MaxAttempts: 3})
 	dispatcher.Register("governance", f.s, f.s)
@@ -410,8 +412,8 @@ func (r scopedPendingRepo) Pending(ctx context.Context, limit int) ([]d.Record, 
 func TestGovernanceIntegrationTaggingReviewAPI(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	ref := f.publish(t, l.Input{Kind: "text", Text: "sales"}, "db/review", "public")
-	task, e := f.s.CreateTagging(ctx, f.p, d.TaggingTask{Name: "review", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, LabelSchema: []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}}}, "review")
+	ref := f.prepare(t, f.publish(t, l.Input{Kind: "text", Text: "sales"}, "db/review", "public"))
+	task, e := f.s.CreateTagging(ctx, f.p, d.TaggingTask{StandardVersionID: f.standard(t, "tagging", []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}), Name: "review", SourceRefID: ref.AssetRefID, Config: d.TaggingConfig{EnableTags: true, LabelSchema: []d.Label{{ID: "sales", Name: "sales", Keywords: []string{"sales"}}}}}, "review")
 	require.NoError(t, e)
 	j, e := f.q.TryClaim(ctx)
 	require.NoError(t, e)
@@ -440,7 +442,9 @@ func TestGovernanceIntegrationTaggingReviewAPI(t *testing.T) {
 	require.Equal(t, float64(991), reviewed["reviewed_by"])
 	code, _ = f.api(t, 991, f.p.TenantID, "POST", path, body)
 	require.Equal(t, 409, code)
-	updated, e := f.s.UpdateTagging(ctx, f.p, task.ID, item.ID, d.TaggingResult{Tags: []string{"manual"}, ReviewStatus: "approved", ReviewedBy: 991, ReviewComment: "forged"}, item.Version+1)
+	_, e = f.s.UpdateTagging(ctx, f.p, task.ID, item.ID, d.TaggingResult{Tags: []string{"undeclared"}}, item.Version+1)
+	require.ErrorIs(t, e, d.ErrInvalid)
+	updated, e := f.s.UpdateTagging(ctx, f.p, task.ID, item.ID, d.TaggingResult{Tags: []string{"sales"}, Summary: "human-reviewed source", ReviewStatus: "approved", ReviewedBy: 991, ReviewComment: "forged"}, item.Version+1)
 	require.NoError(t, e)
 	require.Equal(t, "pending", updated.Status)
 	var edited d.TaggingResult
@@ -452,4 +456,53 @@ func TestGovernanceIntegrationTaggingReviewAPI(t *testing.T) {
 	code, out = f.api(t, 991, f.p.TenantID, "POST", path, body)
 	require.Equal(t, 200, code, out)
 	require.Equal(t, "rejected", out["data"].(map[string]any)["status"])
+}
+
+func (f *fixture) standard(t *testing.T, kind string, labels []d.Label) string {
+	t.Helper()
+	in := d.LabelStandardInput{Name: "explicit fixture standard", TaskType: kind, Guidelines: "Use literal source evidence and explicit rules; human review required."}
+	for _, label := range labels {
+		in.Labels = append(in.Labels, d.StandardLabel{Label: label, Definition: "fixture category"})
+	}
+	switch kind {
+	case "classification", "tagging":
+		in.Constraints.MaxLabels = max(1, len(labels))
+	case "named_entity":
+		in.Constraints.MaxEntities = 30
+	case "relation":
+		in.Constraints.MaxEntities = 30
+		in.Constraints.MaxRelations = 30
+	}
+	draft, e := f.s.CreateLabelStandard(context.Background(), f.p, in, uuid.NewString())
+	require.NoError(t, e)
+	v, e := f.s.PublishLabelStandard(context.Background(), f.p, draft.ID, draft.Version, uuid.NewString())
+	require.NoError(t, e)
+	return v.ID
+}
+
+// The source bytes are a deliberately precleaned fixture. The real preparation
+// stage persists and validates its proof; no app worker scans another scope.
+func (f *fixture) prepare(t *testing.T, ref l.DataAssetRef) l.DataAssetRef {
+	t.Helper()
+	ctx := context.Background()
+	_, body, e := f.assets.Resolve(ctx, f.p.TenantID, f.p.UserID, ref.RefID)
+	require.NoError(t, e)
+	cleaned, e := f.assets.ImportDerived(ctx, f.p, l.CleanedAsset, "fixture-cleaned", []l.RefID{ref.RefID}, body, ref.Policy)
+	require.NoError(t, e)
+	stage, e := f.assets.PrepareAsset(ctx, f.p, cleaned.RefID, l.PreparationOptions{}, uuid.NewString(), "fixture")
+	require.NoError(t, e)
+	j, e := f.q.TryClaim(ctx)
+	require.NoError(t, e)
+	require.NotNil(t, j)
+	require.Equal(t, lifecycle.JobType, j.Type)
+	require.NoError(t, f.assets.Handle(ctx, *j))
+	require.NoError(t, f.q.Ack(ctx, *j))
+	actual, e := f.assets.Repository().FindStage(ctx, f.p.TenantID, stage.ID, false)
+	require.NoError(t, e)
+	require.Equal(t, l.StatusSucceeded, actual.Status)
+	require.NotNil(t, actual.Output)
+	prepared, _, e := f.assets.Resolve(ctx, f.p.TenantID, f.p.UserID, actual.Output.Refs[0].RefID)
+	require.NoError(t, e)
+	require.True(t, l.IsPreparedAsset(prepared))
+	return prepared
 }

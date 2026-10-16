@@ -6,17 +6,20 @@ import (
 	"cognida/internal/handler"
 	"cognida/internal/infrastructure/job"
 	objects "cognida/internal/infrastructure/objectstore"
+	agentctx "cognida/internal/model/agent"
 	d "cognida/internal/model/governance"
 	l "cognida/internal/model/lifecycle"
 	m "cognida/internal/model/taskcontrol"
 	repo "cognida/internal/repository/mysql"
 	svc "cognida/internal/service/governance"
 	"cognida/internal/service/lifecycle"
+	"cognida/internal/service/scenariotools"
 	tc "cognida/internal/service/taskcontrol"
 	ga "cognida/internal/service/taskcontrol/governanceadapter"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/gin-gonic/gin"
 	sqlmysql "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -55,7 +58,13 @@ func (q *testQueue) get(id string) job.Job { q.mu.Lock(); defer q.mu.Unlock(); r
 
 type compute struct{}
 
-func (compute) Call(context.Context, string, l.Input, map[string]any, string) (lifecycle.ComputeResult, error) {
+func (compute) Call(_ context.Context, op string, input l.Input, _ map[string]any, _ string) (lifecycle.ComputeResult, error) {
+	if op == "clean" {
+		return lifecycle.ComputeResult{SchemaVersion: "1", Method: "rules", Result: map[string]any{"data": input}}, nil
+	}
+	if op == "profile" {
+		return lifecycle.ComputeResult{SchemaVersion: "1", Method: "rules", Result: map[string]any{"overall_score": 100}}, nil
+	}
 	return lifecycle.ComputeResult{Method: "rules", Result: map[string]any{"summary": map[string]any{"value": "fixture metadata"}}}, nil
 }
 
@@ -106,7 +115,7 @@ func setup(t *testing.T) *fixture {
 		}
 		return f.s.ValidateGovernedOrigin(ctx, p, ref)
 	}
-	f.assets, e = lifecycle.NewService(repo.NewLifecycleRepository(db), store, f.q, lifecycle.Config{Authorize: auth, ValidateGovernedOrigin: origin})
+	f.assets, e = lifecycle.NewService(repo.NewLifecycleRepository(db), store, f.q, lifecycle.Config{Authorize: auth, ValidateGovernedOrigin: origin, Compute: compute{}})
 	require.NoError(t, e)
 	f.s = svc.NewService(repo.NewGovernanceRepository(db), f.assets, compute{}, f.q, auth)
 	return f
@@ -115,10 +124,73 @@ func (f *fixture) input(t *testing.T, in l.Input) l.DataAssetRef {
 	t.Helper()
 	ref, e := f.assets.ImportWithKey(context.Background(), f.p, in, "synthetic labeling fixture", uuid.NewString())
 	require.NoError(t, e)
-	return ref
+	cleaned, e := f.assets.Invoke(context.Background(), f.p, "data-cleaning", []l.RefID{ref.RefID}, nil, uuid.NewString(), "")
+	require.NoError(t, e)
+	require.NoError(t, f.assets.Handle(context.Background(), f.q.get("lifecycle:"+cleaned.ID)))
+	cleaned, e = f.assets.Repository().FindStage(context.Background(), f.p.TenantID, cleaned.ID, false)
+	require.NoError(t, e)
+	require.Equal(t, l.StatusSucceeded, cleaned.Status)
+	prepared, e := f.assets.PrepareAsset(context.Background(), f.p, cleaned.Output.Refs[0].RefID, l.PreparationOptions{}, uuid.NewString(), "")
+	require.NoError(t, e)
+	require.NoError(t, f.assets.Handle(context.Background(), f.q.get("lifecycle:"+prepared.ID)))
+	prepared, e = f.assets.Repository().FindStage(context.Background(), f.p.TenantID, prepared.ID, false)
+	require.NoError(t, e)
+	require.Equal(t, l.StatusSucceeded, prepared.Status)
+	return prepared.Output.Refs[0]
+}
+func (f *fixture) standard(t *testing.T, kind string, labels []d.Label) string {
+	t.Helper()
+	in := d.LabelStandardInput{Name: "Fixture " + kind, TaskType: kind, Guidelines: "Use only the explicitly supplied rules; abstain on unmatched content.", Constraints: d.StandardConstraints{AllowEmpty: true}}
+	switch kind {
+	case "tagging":
+		in.Constraints.MaxLabels = 30
+	case "classification":
+		in.Constraints.MaxLabels = 100
+	case "named_entity":
+		in.Constraints.MaxEntities = 100
+	case "relation":
+		in.Constraints.MaxEntities = 100
+		in.Constraints.MaxRelations = 100
+	case "qa":
+		in.Constraints.AllowEmpty = false
+	}
+	for _, label := range labels {
+		in.Labels = append(in.Labels, d.StandardLabel{Label: label, Definition: "Explicit fixture category " + label.Name, IncludeCriteria: []string{"Match the configured rules"}, ExcludeCriteria: []string{"Do not infer unstated content"}})
+	}
+	raw, _ := json.Marshal(in)
+	key := m.Digest(raw)
+	page, e := f.s.List(context.Background(), f.p, d.Filter{Kind: d.LabelStandardVersionKind, Limit: 100})
+	require.NoError(t, e)
+	for _, row := range page.Items {
+		var v d.LabelStandardVersion
+		require.NoError(t, json.Unmarshal(row.Payload, &v))
+		vraw, _ := json.Marshal(v.LabelStandardInput)
+		if string(vraw) == string(raw) {
+			return row.ID
+		}
+	}
+	draft, e := f.s.CreateLabelStandard(context.Background(), f.p, in, key)
+	require.NoError(t, e)
+	version, e := f.s.PublishLabelStandard(context.Background(), f.p, draft.ID, draft.Version, key)
+	require.NoError(t, e)
+	return version.ID
 }
 func (f *fixture) http(t *testing.T, user int64, method, path string, body any, key string) *httptest.ResponseRecorder {
 	t.Helper()
+	standardOwner := *f
+	standardOwner.p.UserID = user
+	switch in := body.(type) {
+	case d.AnnotationTask:
+		if in.StandardVersionID == "" {
+			in.StandardVersionID = standardOwner.standard(t, in.Type, in.Labels)
+		}
+		body = in
+	case d.TaggingTask:
+		if in.StandardVersionID == "" {
+			in.StandardVersionID = standardOwner.standard(t, "tagging", in.Config.LabelSchema)
+		}
+		body = in
+	}
 	raw, _ := json.Marshal(body)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -239,7 +311,7 @@ func TestLabelingIntegrationQASourceMappingAndTagEvidence(t *testing.T) {
 	reviewed, e := f.s.ReviewTagging(ctx, f.p, page.Items[0].ID, "approved", "reviewed", page.Items[0].Version)
 	require.NoError(t, e)
 	require.Contains(t, string(reviewed.Payload), "evidence_spans")
-	edited, e := f.s.UpdateTagging(ctx, f.p, tagID, reviewed.ID, d.TaggingResult{Tags: []string{"人工标签"}}, reviewed.Version)
+	edited, e := f.s.UpdateTagging(ctx, f.p, tagID, reviewed.ID, d.TaggingResult{Tags: []string{"财务"}}, reviewed.Version)
 	require.NoError(t, e)
 	require.NoError(t, json.Unmarshal(edited.Payload, &result))
 	require.Equal(t, "pending", result.ReviewStatus)
@@ -249,6 +321,9 @@ func TestLabelingIntegrationQASourceMappingAndTagEvidence(t *testing.T) {
 func command(t *testing.T, f *fixture, a *ga.Adapter, source l.DataAssetRef, params *tc.GovernanceParameters) tc.ExecutionCommand {
 	t.Helper()
 	cap := a.Capability()
+	if params != nil && params.StandardVersionID == "" {
+		params.StandardVersionID = f.standard(t, strings.TrimPrefix(cap.ID, "governance."), params.LabelSchema)
+	}
 	out := tc.ExecutionCommand{Scope: m.Scope{TenantID: f.p.TenantID, UserID: f.p.UserID}, TaskID: uuid.NewString(), PlanVersion: 1, Attempt: 1, InputRefs: []l.RefID{source.RefID}, Deadline: time.Now().UTC().Add(3 * time.Minute), Node: tc.Node{ID: "label", Capability: cap.ID, CapabilityVersion: 1, Inputs: []tc.InputBinding{{Asset: &source.RefID, Kind: source.Kind}}, OutputKinds: cap.OutputKinds, Tools: cap.Tools, Permissions: cap.Permissions, MaxAttempts: 1, MaxCallsPerAttempt: 34, TimeoutSeconds: 120, Parameters: &tc.NodeParameters{Governance: params}}}
 	seal(&out)
 	return out
@@ -544,4 +619,43 @@ func TestLabelingIntegrationListsExcludeOtherGovernedOwners(t *testing.T) {
 		}
 		require.Equal(t, 403, f.http(t, f.p.UserID, "GET", path+"/"+privateIDs[f.p.UserID+1], nil, "").Code)
 	}
+}
+
+func TestStandaloneStageKeysDoNotReturnAnotherUsersReceipt(t *testing.T) {
+	f := setup(t)
+	f.sharedUser.Store(true)
+	ctx := context.Background()
+	source := f.input(t, l.Input{Kind: "text", Text: "shared authorized data"})
+	_, err := f.assets.Invoke(ctx, f.p, "data-quality", []l.RefID{source.RefID}, nil, "legacy-shared-key", "")
+	require.NoError(t, err)
+	other := f.p
+	other.UserID++
+	_, err = f.assets.Invoke(ctx, other, "data-quality", []l.RefID{source.RefID}, nil, "legacy-shared-key", "")
+	require.ErrorIs(t, err, l.ErrConflict)
+	var invoke tool.InvokableTool
+	for _, item := range scenariotools.New(f.s, f.assets, nil) {
+		info, e := item.Info(ctx)
+		require.NoError(t, e)
+		if info.Name == "data_stage_run" {
+			invoke = item.(tool.InvokableTool)
+		}
+	}
+	require.NotNil(t, invoke)
+	body, _ := json.Marshal(scenariotools.StageInput{AgentID: "data-quality", InputRefs: []l.RefID{source.RefID}, IdempotencyKey: "same-key"})
+	ids := []string{}
+	for _, p := range []l.Principal{f.p, other} {
+		callCtx := agentctx.WithUserID(agentctx.WithTenantID(ctx, p.TenantID), p.UserID)
+		out, e := invoke.InvokableRun(callCtx, string(body))
+		require.NoError(t, e)
+		var stage l.StageRun
+		require.NoError(t, json.Unmarshal([]byte(out), &stage))
+		require.Equal(t, p.UserID, stage.UserID)
+		ids = append(ids, stage.ID)
+		replay, e := invoke.InvokableRun(callCtx, string(body))
+		require.NoError(t, e)
+		var same l.StageRun
+		require.NoError(t, json.Unmarshal([]byte(replay), &same))
+		require.Equal(t, stage.ID, same.ID)
+	}
+	require.NotEqual(t, ids[0], ids[1])
 }

@@ -12,6 +12,13 @@ import (
 // Resolve is repeated on every read so membership/policy revocation is effective.
 func (s *Service) authorizeRecord(ctx context.Context, p l.Principal, record *d.Record) error {
 	switch record.Kind {
+	case d.SFTDatasetKind, d.SFTDatasetVersionKind:
+		return s.authorizeSFT(ctx, p, record)
+	case d.LabelStandardKind, d.LabelStandardVersionKind:
+		if record.UserID != p.UserID {
+			return d.ErrNotFound
+		}
+		return nil
 	case d.GovernedKind:
 		if record.UserID != p.UserID {
 			return d.ErrForbidden

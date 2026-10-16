@@ -97,6 +97,41 @@ func (f *featureDBFixture) feature(t *testing.T, key string) (*d.Record, l.DataA
 	require.NoError(t, err)
 	return head, ref
 }
+
+func TestFeatureGovernedBindsNewSnapshotAndRetainsDefinitionAnchor(t *testing.T) {
+	f := featureDB(t)
+	ctx := context.Background()
+	head, anchor := f.feature(t, "definition")
+	actual, err := f.assets.ImportWithKey(ctx, f.p, l.Input{Kind: "table", Columns: []string{"entity", "amount", "event"}, Rows: [][]any{{"new", "42", "2026-02-01T00:00:00Z"}}}, "new snapshot", "actual")
+	require.NoError(t, err)
+	require.NoError(t, f.s.ValidateBoundFeatureVersion(ctx, f.p, head.ID, 1, actual.RefID.String()))
+	in := d.GovernedInvocation{OperationKey: strings.Repeat("a", 64), PayloadHash: strings.Repeat("b", 64), Profile: d.FeatureProfile, FeatureID: head.ID, FeatureVersion: 1, InputRef: actual.RefID, Deadline: time.Now().Add(time.Minute), TimeoutSeconds: 60, CallsReserved: 3}
+	r := f.repo.(d.GovernedRepository)
+	op, err := r.SubmitGoverned(ctx, f.p, in, false)
+	require.NoError(t, err)
+	_, err = r.UpdateGoverned(ctx, f.p, op.ID, func(record *d.Record, _ *d.GovernedExecution, _ d.Repository) error {
+		record.Status = "running"
+		return nil
+	})
+	require.NoError(t, err)
+	receipt, err := f.s.MaterializeGovernedFeature(ctx, f.p, head.ID, 1, op.ID)
+	require.NoError(t, err)
+	require.Equal(t, actual.RefID.String(), receipt.SourceRefID)
+	require.Equal(t, actual.Provenance.Digest, receipt.SourceDigest)
+	output, err := l.ParseRefID(receipt.OutputRefID)
+	require.NoError(t, err)
+	ref, body, err := f.assets.Resolve(ctx, f.p.TenantID, f.p.UserID, output)
+	require.NoError(t, err)
+	require.Equal(t, []l.RefID{actual.RefID, anchor.RefID}, ref.Parents)
+	require.Contains(t, string(body), "42.1")
+	require.NotContains(t, string(body), "9007199254740993")
+	stored, err := f.s.GetFeatureVersion(ctx, f.p, head.ID, 1)
+	require.NoError(t, err)
+	require.Equal(t, anchor.RefID.String(), stored.SourceRefID, "the definition stays immutable")
+	bad, err := f.assets.ImportWithKey(ctx, f.p, l.Input{Kind: "table", Columns: []string{"entity"}, Rows: [][]any{{"new"}}}, "missing fields", "bad")
+	require.NoError(t, err)
+	require.Error(t, f.s.ValidateBoundFeatureVersion(ctx, f.p, head.ID, 1, bad.RefID.String()))
+}
 func (f *featureDBFixture) api(t *testing.T, p l.Principal, method, path, key string, body any) (int, map[string]any) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

@@ -30,6 +30,7 @@ import (
 	"cognida/internal/service/feedback"
 	"cognida/internal/service/governance"
 	"cognida/internal/service/governedops"
+	hf "cognida/internal/service/huggingface"
 	"cognida/internal/service/knowledge"
 	"cognida/internal/service/lifecycle"
 	"cognida/internal/service/lineage"
@@ -60,6 +61,10 @@ import (
 // FeatureServices is assembled with the same storage and service dependencies
 // as the legacy endpoints, so the new console does not create parallel stores.
 type FeatureServices struct {
+	HuggingFace             *hf.Service
+	HuggingFaceHandler      *handler.HuggingFaceHandler
+	LabelStandardHandler    *handler.LabelStandardHandler
+	SFTHandler              *handler.SFTHandler
 	Feedback                *feedback.Service
 	FeedbackWorker          *feedback.Worker
 	FeedbackHandler         *handler.FeedbackHandler
@@ -147,6 +152,9 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		return authorize(ctx, l.Principal{TenantID: tenant, UserID: user}, scope)
 	}
 	originValidator := func(ctx context.Context, p l.Principal, ref l.DataAssetRef) error {
+		if strings.HasPrefix(ref.ProducerID, "huggingface-import:") && f.HuggingFace != nil {
+			return f.HuggingFace.ValidateGovernedOrigin(ctx, p, ref)
+		}
 		if strings.HasPrefix(ref.ProducerID, "governed-operation:") && f.Operations != nil {
 			return f.Operations.ValidateGovernedOrigin(ctx, p, ref)
 		}
@@ -225,6 +233,22 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	}
 	apiDispatcher := job.NewDispatcher(apiQueue, job.RetryPolicy{MaxAttempts: 1})
 	apiDispatcher.Register(apimodel.JobType, f.APISources, f.APISources)
+	var decoder hf.Decoder
+	if token := os.Getenv("INTERNAL_HTTP_AUTH_TOKEN"); token != "" {
+		decoder, err = hf.NewHTTPDecoder(cfg.Evaluation.PythonEndpoint, token)
+		if err != nil {
+			return nil, err
+		}
+	}
+	hfFetcher, err := collectionfetcher.NewHuggingFaceOperatorFetcher(collectionfetcher.HuggingFaceEgressConfig{SOCKS5Address: os.Getenv("HUGGINGFACE_SOCKS5_ADDRESS")})
+	if err != nil {
+		return nil, err
+	}
+	f.HuggingFace, err = hf.New(mysql.NewHuggingFaceRepository(db), life, hf.NewManagedCredentials(mysql.NewAPISourceRepository(db), cipher), hfFetcher, decoder, hf.Authorizer(authorize))
+	if err != nil {
+		return nil, err
+	}
+	f.HuggingFaceHandler = handler.NewHuggingFaceHandler(f.HuggingFace)
 	f.APIWorker = job.NewWorker(apiDispatcher, 2, time.Second)
 	f.APISourceHandler = handler.NewAPISourceHandler(f.APISources)
 	f.Warehouse = warehouse.NewService(mysql.NewWarehouseRepository(db), life, mysql.NewSemanticRepository(db), lineageRepository, authorize)
@@ -259,6 +283,8 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	f.DatasetVersionHandler = handler.NewDatasetVersionHandler(f.DatasetVersions)
 	f.Governance.ValidateSource, f.Governance.Apply, f.Governance.DiscoverSource = NewSuggestionHooks(db, processor)
 	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)
+	f.LabelStandardHandler = handler.NewLabelStandardHandler(f.Governance)
+	f.SFTHandler = handler.NewSFTHandler(f.Governance)
 	f.GovernanceWorker = governance.NewWorker(f.Governance)
 	adapters := map[string]tasksvc.ExecutionAdapter{}
 	capabilities := tasksvc.LifecycleCapabilities(lifecycle.Contracts())
@@ -323,7 +349,7 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		return nil, err
 	}
 	f.TaskControlHandler.SetSupervisor(supervisor)
-	for _, capability := range []string{"lifecycle.data-quality", "lifecycle.data-cleaning", "lifecycle.data-enrichment", "lifecycle.data-evaluation"} {
+	for _, capability := range []string{"lifecycle.data-quality", "lifecycle.data-cleaning", "lifecycle.data-preparation", "lifecycle.data-enrichment", "lifecycle.data-evaluation"} {
 		adapter, err := lifecycleadapter.New(life, capability)
 		if err != nil {
 			return nil, err

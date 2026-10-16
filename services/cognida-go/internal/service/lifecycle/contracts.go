@@ -2,11 +2,12 @@ package lifecycle
 
 import d "cognida/internal/model/lifecycle"
 
-var agentOrder = []string{"data-access", "data-quality", "data-cleaning", "data-enrichment", "data-asset", "data-analysis", "data-evaluation"}
+var agentOrder = []string{"data-access", "data-quality", "data-cleaning", "data-enrichment", "data-asset", "data-analysis", "data-evaluation", "data-preparation"}
 
 func Contracts() map[string]d.AgentContract {
 	data := []d.Kind{d.RawAsset, d.CleanedAsset, d.EnrichedAsset, d.PublishedAsset}
 	contracts := []d.AgentContract{
+		{ID: "data-preparation", Name: "Data Preparation Agent", Purpose: "Standardize cleaned data and certify immutable labeling inputs", InputKinds: []d.Kind{d.CleanedAsset, d.QualityReport}, OutputKinds: []d.Kind{d.CleanedAsset}, ToolAllowlist: []string{"asset.resolve", "data.standardize"}},
 		{ID: "data-access", Name: "Data Access Agent", Purpose: "Validate acquired input and preserve provenance", InputKinds: data, OutputKinds: []d.Kind{d.RawAsset}, ToolAllowlist: []string{"asset.resolve", "access.acquire"}},
 		{ID: "data-quality", Name: "Data Quality Agent", Purpose: "Profile data and produce evidence-backed quality gates", InputKinds: data, OutputKinds: append([]d.Kind{d.QualityReport}, data...), ToolAllowlist: []string{"asset.resolve", "quality.profile"}},
 		{ID: "data-cleaning", Name: "Data Cleaning Agent", Purpose: "Create an immutable cleaned version and recheck quality", InputKinds: append([]d.Kind{d.QualityReport}, data...), OutputKinds: []d.Kind{d.CleanedAsset, d.QualityReport}, ToolAllowlist: []string{"asset.resolve", "cleaning.transform", "quality.profile"}},
@@ -32,7 +33,7 @@ func Contracts() map[string]d.AgentContract {
 func DefaultTemplate() d.PipelineDefinition {
 	keys := []string{"access", "quality", "cleaning", "enrichment", "publication", "analysis", "evaluation"}
 	stages := []d.StageDefinition{}
-	for i, id := range agentOrder {
+	for i, id := range agentOrder[:7] {
 		st := d.StageDefinition{ID: keys[i], AgentID: id, MaxAttempts: 3, AllowedGates: []string{d.GatePassed}}
 		if i > 0 {
 			st.DependsOn = []string{keys[i-1]}
@@ -46,4 +47,12 @@ func DefaultTemplate() d.PipelineDefinition {
 		stages = append(stages, st)
 	}
 	return d.PipelineDefinition{ID: "web-knowledge-to-insight", Version: 1, Name: "Web knowledge to insight", Stages: stages, MaxStages: 7, Enabled: true}
+}
+
+func PreparationTemplate() d.PipelineDefinition {
+	return d.PipelineDefinition{ID: "clean-and-prepare", Version: 1, Name: "Clean and standardize before labeling", MaxStages: 3, Enabled: true, Stages: []d.StageDefinition{
+		{ID: "quality", AgentID: "data-quality", MaxAttempts: 3, AllowedGates: []string{d.GatePassed}},
+		{ID: "cleaning", AgentID: "data-cleaning", DependsOn: []string{"quality"}, MaxAttempts: 3, AllowedGates: []string{d.GatePassed, d.GateFailed}},
+		{ID: "preparation", AgentID: "data-preparation", DependsOn: []string{"cleaning"}, MaxAttempts: 3, AllowedGates: []string{d.GatePassed}},
+	}}
 }

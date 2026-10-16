@@ -6,6 +6,8 @@ export const navigationGroups: NavigationGroup[] = [
     { path: '/home', title: '工作总览', icon: 'home' },
     { path: '/tasks', title: '任务规划', icon: 'trace' },
     { path: '/collection-tasks', title: '网页采集', icon: 'collection' },
+    { path: '/hf-datasets', title: 'HF 数据集采集', icon: 'collection' },
+    { path: '/data-preparation', title: '数据准备', icon: 'quality' },
     { path: '/api-sources', title: 'API 采集', icon: 'collection' },
     { path: '/datasource', title: '数据源', icon: 'datasource' },
     { path: '/pipelines', title: '处理与发布', icon: 'trace' },
@@ -23,6 +25,8 @@ export const navigationGroups: NavigationGroup[] = [
   { title: '治理与质量', items: [
     { path: '/catalog', title: '数据目录', icon: 'datasource' },
     { path: '/quality', title: '数据质量', icon: 'quality' },
+    { path: '/label-standards', title: '标注标准库', icon: 'knowledge' },
+    { path: '/sft-datasets', title: 'SFT 数据集', icon: 'datasets' },
     { path: '/labeling', title: '标注与打标', icon: 'knowledge' },
     { path: '/sandbox', title: '脚本执行', icon: 'trace' },
     { path: '/warehouse', title: '数仓建模', icon: 'datasets' },

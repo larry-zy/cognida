@@ -9,7 +9,7 @@ export interface AssetRef {
   status: string;
   name?: string;
   producer_id: string;
-  provenance?: { source_type: string; source_id: string };
+  provenance?: { source_type: string; source_id: string; preparation?: PreparationProof };
   parents: RefID[];
   policy?: { sensitivity: string; scopes: string[]; approved: boolean };
   created_at: string;
@@ -104,7 +104,12 @@ export interface Page<T> {
   next_cursor: string;
   has_more: boolean;
 }
+export interface PreparationField { source: string; name: string; type: 'any' | 'text' | 'number' | 'boolean' | 'json'; required: boolean }
+export interface PreparationProof { version: number; source_ref_id: string; source_digest: string; output_digest: string; schema_digest: string; rows: number; fields: PreparationField[]; normalize_newlines: boolean }
+export interface PreparationInput { version: number; fields?: PreparationField[]; normalize_newlines?: boolean }
+export const isPreparedAsset = (ref?: AssetRef) => ref?.kind === 'cleaned_asset' && ref.provenance?.preparation?.version === 1;
 export const lifecycleApi = {
+  prepare: (id: string, input: PreparationInput) => withIdempotency(`/lifecycle/assets/${id}/prepare`, input, key => http.post<Invocation>(`/lifecycle/assets/${encodeURIComponent(id)}/prepare`, input, { headers: { 'Idempotency-Key': key } })),
   // The existing knowledge-base endpoint uses numbered pages; do not truncate
   // publication targets to the shared store's first cached page.
   knowledgeBases: (page = 1) =>

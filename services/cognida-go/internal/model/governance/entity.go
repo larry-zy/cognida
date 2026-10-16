@@ -88,13 +88,16 @@ type QAPair struct {
 }
 type AnnotationTask struct {
 	Meta
-	Name        string     `json:"name"`
-	Type        string     `json:"type"`
-	SourceRefID string     `json:"source_ref_id"`
-	Labels      []Label    `json:"labels"`
-	QAMapping   *QAMapping `json:"qa_mapping,omitempty"`
-	Status      string     `json:"status"`
-	ItemCount   int        `json:"item_count"`
+	StandardVersionID string              `json:"standard_version_id,omitempty"`
+	StandardDigest    string              `json:"standard_digest,omitempty"`
+	StandardSnapshot  *LabelStandardInput `json:"standard_snapshot,omitempty"`
+	Name              string              `json:"name"`
+	Type              string              `json:"type"`
+	SourceRefID       string              `json:"source_ref_id"`
+	Labels            []Label             `json:"labels"`
+	QAMapping         *QAMapping          `json:"qa_mapping,omitempty"`
+	Status            string              `json:"status"`
+	ItemCount         int                 `json:"item_count"`
 }
 type Entity struct {
 	ID    string `json:"id"`
@@ -154,11 +157,14 @@ type TaggingConfig struct {
 }
 type TaggingTask struct {
 	Meta
-	Name        string        `json:"name"`
-	SourceRefID string        `json:"source_ref_id"`
-	Config      TaggingConfig `json:"config"`
-	Status      string        `json:"status"`
-	Error       string        `json:"error,omitempty"`
+	StandardVersionID string              `json:"standard_version_id,omitempty"`
+	StandardDigest    string              `json:"standard_digest,omitempty"`
+	StandardSnapshot  *LabelStandardInput `json:"standard_snapshot,omitempty"`
+	Name              string              `json:"name"`
+	SourceRefID       string              `json:"source_ref_id"`
+	Config            TaggingConfig       `json:"config"`
+	Status            string              `json:"status"`
+	Error             string              `json:"error,omitempty"`
 }
 type TaggingResult struct {
 	Meta

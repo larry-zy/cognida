@@ -10,6 +10,11 @@ import (
 )
 
 func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.AnnotationTask, key string) (*d.Record, error) {
+	var bindErr error
+	in, bindErr = s.BindAnnotationStandard(ctx, p, in)
+	if bindErr != nil {
+		return nil, bindErr
+	}
 	if err := validateAnnotationTask(in); err != nil {
 		return nil, err
 	}
@@ -61,6 +66,9 @@ func (s *Service) CreateAnnotation(ctx context.Context, p l.Principal, in d.Anno
 	return record, nil
 }
 func validateAnnotation(task d.AnnotationTask, content string, a d.Annotation) error {
+	if err := validateStandardAnnotation(task.StandardSnapshot, content, a, false); err != nil {
+		return err
+	}
 	if a.EvaluationProfile != nil && task.Type != "qa" {
 		return d.ErrInvalid
 	}
@@ -92,7 +100,12 @@ func validateAnnotation(task d.AnnotationTask, content string, a d.Annotation) e
 	if len(a.Labels) > 100 || len(a.Entities) > 1000 || len(a.Relations) > 1000 {
 		return d.ErrInvalid
 	}
+	seenLabels := map[string]bool{}
 	for _, label := range a.Labels {
+		if seenLabels[label] {
+			return d.ErrInvalid
+		}
+		seenLabels[label] = true
 		if !labels[label] {
 			return fmt.Errorf("%w: unknown label", d.ErrInvalid)
 		}
@@ -188,6 +201,9 @@ func (s *Service) ReviewAnnotation(ctx context.Context, p l.Principal, taskID, i
 			return nil, d.ErrInvalid
 		}
 		if e = validateAnnotation(task, item.Content, item.Annotation); e != nil {
+			return nil, e
+		}
+		if e = validateStandardAnnotation(task.StandardSnapshot, item.Content, item.Annotation, true); e != nil {
 			return nil, e
 		}
 	}

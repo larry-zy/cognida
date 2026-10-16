@@ -223,7 +223,10 @@ def clean(request: CleanRequest) -> dict:
                     change["removed_by"] = name
         operations.extend(asdict(operation) for operation in result.operations)
     output = (
-        {"kind": "text", "text": "\n".join(frame["text"].astype(str))}
+        # A no-op cleaning pass must preserve the source bytes, including line
+        # endings. splitlines/join alone would change the content digest and
+        # invalidate reviewed knowledge labels even when no cleaner changed it.
+        {"kind": "text", "text": request.input.text if frame.equals(original) else "\n".join(frame["text"].astype(str))}
         if is_text
         else table_output(frame, request.input.column_types)
     )

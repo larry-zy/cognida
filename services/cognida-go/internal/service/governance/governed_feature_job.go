@@ -10,6 +10,10 @@ import (
 )
 
 func (s *Service) FeatureExecutionRequirements(ctx context.Context, p l.Principal, id string, version int) (int, bool, error) {
+	return s.FeatureExecutionRequirementsForSource(ctx, p, id, version, "")
+}
+
+func (s *Service) FeatureExecutionRequirementsForSource(ctx context.Context, p l.Principal, id string, version int, sourceRef string) (int, bool, error) {
 	f, e := s.featureVersion(ctx, p, id, version)
 	if e != nil {
 		return 0, false, e
@@ -24,11 +28,14 @@ func (s *Service) FeatureExecutionRequirements(ctx context.Context, p l.Principa
 	if e = s.checkFeatureEmbedding(def); e != nil {
 		return 0, true, e
 	}
-	_, input, e := s.input(ctx, p, f.SourceRefID, false)
+	if sourceRef == "" {
+		sourceRef = f.SourceRefID
+	}
+	_, input, e := s.input(ctx, p, sourceRef, false)
 	if e != nil {
 		return 0, true, e
 	}
-	if len(input.Rows) > 1000 {
+	if input.Kind != "table" || len(input.Rows) < 1 || len(input.Rows) > 1000 {
 		return 0, true, featureErr("governed_embedding_limit", "governed embedding supports at most 1000 rows per explicitly budgeted task")
 	}
 	return 2 + (len(input.Rows)+31)/32, true, nil
@@ -77,7 +84,7 @@ func (s *Service) runGovernedFeatureJob(ctx context.Context, record *d.Record, s
 		if e = s.ValidateGovernedFeature(work, p, state.Invocation.FeatureID, state.Invocation.FeatureVersion, state.Invocation.InputRef); e != nil {
 			return s.finishGovernedFeatureJob(ctx, record, nil, e)
 		}
-		required, _, err := s.FeatureExecutionRequirements(work, p, state.Invocation.FeatureID, state.Invocation.FeatureVersion)
+		required, _, err := s.FeatureExecutionRequirementsForSource(work, p, state.Invocation.FeatureID, state.Invocation.FeatureVersion, state.Invocation.InputRef.String())
 		if err != nil {
 			return s.finishGovernedFeatureJob(ctx, record, nil, err)
 		}

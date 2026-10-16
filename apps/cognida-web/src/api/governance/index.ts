@@ -45,6 +45,7 @@ export type Provenance = GovernanceProvenance & {
 };
 export type AnnotationTask = Omit<GovernanceAnnotationTask, "labels"> & {
   labels: Label[] | null;
+  standard_version_id?: string;
   qa_mapping?: QAMapping;
 };
 export type AnnotationItem = Omit<
@@ -58,6 +59,7 @@ export type AnnotationItem = Omit<
   provenance: Provenance;
 };
 export type TagTask = Omit<GovernanceTaggingTask, "config"> & {
+  standard_version_id?: string;
   config: GovernanceTaggingTask["config"] & { label_schema?: Label[] };
 };
 export type TagResult = Omit<

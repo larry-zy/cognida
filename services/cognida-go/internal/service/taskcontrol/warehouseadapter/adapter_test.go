@@ -61,3 +61,25 @@ func TestWarehouseBackfillRequiresOrderedExplicitInterval(t *testing.T) {
 	_, e = request(c.Node)
 	require.Error(t, e)
 }
+
+func TestWarehouseBindsExactlyOneDynamicFactAndKeepsAnchor(t *testing.T) {
+	a := &Adapter{}
+	c := command()
+	c.Node.Parameters.Warehouse.FactFromNode = "prepare"
+	c.Node.Inputs = append(c.Node.Inputs, tc.InputBinding{FromNode: "prepare", Kind: l.CleanedAsset})
+	c.Node.MaxCallsPerAttempt++
+	c.InputRefs = append(c.InputRefs, l.RefID{AssetID: "00000000-0000-4000-8000-000000000002", Version: 2})
+	seal(&c)
+	r, err := a.command(c)
+	require.NoError(t, err)
+	require.Equal(t, c.InputRefs[1].String(), r.FactSourceRef)
+	c.InputRefs[1].Version++
+	_, err = a.command(c)
+	require.ErrorIs(t, err, m.ErrConflict, "actual upstream snapshot is sealed in the command")
+	seal(&c)
+	c.Node.Parameters.Warehouse.FactSourceRef = c.InputRefs[0].String()
+	require.Error(t, a.validate(c.Node), "explicit and dynamic fact selection are mutually exclusive")
+	c.Node.Parameters.Warehouse.FactSourceRef = ""
+	c.Node.Inputs[1].FromNode = "other"
+	require.Error(t, a.validate(c.Node))
+}

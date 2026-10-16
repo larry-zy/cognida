@@ -18,18 +18,19 @@ const QAProfile = "governance-qa-columns-v1"
 const FeatureProfile = "governance-feature-engineering-v1"
 
 type GovernedInvocation struct {
-	OperationKey   string     `json:"operation_key"`
-	PayloadHash    string     `json:"payload_hash"`
-	Profile        string     `json:"profile"`
-	InputRef       l.RefID    `json:"input_ref"`
-	Labels         []string   `json:"labels,omitempty"`
-	LabelSchema    []Label    `json:"label_schema,omitempty"`
-	QAMapping      *QAMapping `json:"qa_mapping,omitempty"`
-	FeatureID      string     `json:"feature_id,omitempty"`
-	FeatureVersion int        `json:"feature_version,omitempty"`
-	Deadline       time.Time  `json:"deadline"`
-	TimeoutSeconds int        `json:"timeout_seconds"`
-	CallsReserved  int        `json:"calls_reserved"`
+	StandardVersionID string     `json:"standard_version_id,omitempty"`
+	OperationKey      string     `json:"operation_key"`
+	PayloadHash       string     `json:"payload_hash"`
+	Profile           string     `json:"profile"`
+	InputRef          l.RefID    `json:"input_ref"`
+	Labels            []string   `json:"labels,omitempty"`
+	LabelSchema       []Label    `json:"label_schema,omitempty"`
+	QAMapping         *QAMapping `json:"qa_mapping,omitempty"`
+	FeatureID         string     `json:"feature_id,omitempty"`
+	FeatureVersion    int        `json:"feature_version,omitempty"`
+	Deadline          time.Time  `json:"deadline"`
+	TimeoutSeconds    int        `json:"timeout_seconds"`
+	CallsReserved     int        `json:"calls_reserved"`
 }
 
 func (in GovernedInvocation) Validate() error {
@@ -37,6 +38,9 @@ func (in GovernedInvocation) Validate() error {
 		return ErrInvalid
 	}
 	if in.Profile == FeatureProfile {
+		if in.StandardVersionID != "" {
+			return ErrInvalid
+		}
 		if in.FeatureID == "" || len(in.FeatureID) > 64 || in.FeatureVersion < 1 || in.TimeoutSeconds > 300 || (in.CallsReserved < 3 || in.CallsReserved > 128) || len(in.Labels)+len(in.LabelSchema) > 0 || in.QAMapping != nil {
 			return ErrInvalid
 		}
@@ -58,7 +62,17 @@ func (in GovernedInvocation) Validate() error {
 		return ErrInvalid
 	}
 	labels := in.Schema()
-	if len(labels) < 1 || len(labels) > 30 {
+	if len(in.StandardVersionID) > 64 {
+		return ErrInvalid
+	}
+	if len(labels) == 0 && in.StandardVersionID != "" {
+		return nil
+	}
+	limit := 100
+	if in.Profile == TaggingProfile {
+		limit = 30
+	}
+	if len(labels) < 1 || len(labels) > limit {
 		return ErrInvalid
 	}
 	ids, names := map[string]bool{}, map[string]bool{}
@@ -111,12 +125,14 @@ func (in GovernedInvocation) AnnotationType() string {
 }
 
 type GovernedExecution struct {
-	Invocation   GovernedInvocation `json:"invocation"`
-	DomainID     string             `json:"domain_id"`
-	DomainKind   string             `json:"domain_kind"`
-	OutputRefs   []l.RefID          `json:"output_refs"`
-	Error        string             `json:"error,omitempty"`
-	FeatureJobID string             `json:"feature_job_id,omitempty"`
+	StandardSnapshot *LabelStandardInput `json:"standard_snapshot,omitempty"`
+	StandardDigest   string              `json:"standard_digest,omitempty"`
+	Invocation       GovernedInvocation  `json:"invocation"`
+	DomainID         string              `json:"domain_id"`
+	DomainKind       string              `json:"domain_kind"`
+	OutputRefs       []l.RefID           `json:"output_refs"`
+	Error            string              `json:"error,omitempty"`
+	FeatureJobID     string              `json:"feature_job_id,omitempty"`
 }
 
 func SameGoverned(a, b GovernedInvocation) bool {
