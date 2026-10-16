@@ -16,6 +16,7 @@
         </button>
       </div>
     </header>
+    <StrategiesPanel />
     <div v-if="error" role="alert" class="wb-error">{{ error }}</div>
     <div v-if="notice" role="status" class="wb-success">{{ notice }}</div>
     <div
@@ -194,6 +195,14 @@
             >{{ id }}</router-link
           >
         </div>
+        <div class="wb-actions">
+          <router-link
+            v-for="id in current.evidence_ref_ids || []"
+            :key="`feedback-${id}`"
+            :to="{ path: '/feedback', query: { output_ref: id } }"
+            >围绕此证据记录反馈与返工</router-link
+          >
+        </div>
         <p v-if="!current.evidence_ref_ids?.length" class="wb-muted">
           没有附加资产引用，请结合来源记录审查。
         </p>
@@ -226,6 +235,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import StrategiesPanel from "./StrategiesPanel.vue";
 import { useCursorOptions } from "@/composables/useCursorOptions";
 import { wt } from "@/i18n/workbench";
 

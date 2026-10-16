@@ -14,6 +14,7 @@
       </div>
     </div>
 
+    <ReviewedDatasetVersions />
     <!-- 筛选器 -->
     <div class="filter-bar">
       <UiRadioGroup
@@ -388,6 +389,7 @@
 </template>
 
 <script setup lang="ts">
+import ReviewedDatasetVersions from "./components/ReviewedDatasetVersions.vue"
 import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import toast from '@/utils/toast'

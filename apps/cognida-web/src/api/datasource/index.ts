@@ -3,7 +3,7 @@ import { http } from '@/utils/request'
 // ==================== 类型定义 ====================
 
 /** 数据源类型 */
-export type DatasourceType = 'mysql' | 'postgres'
+export type DatasourceType = 'mysql' | 'postgres' | 'clickhouse' | 'doris' | 'starrocks' | 'hive' | 'bigquery'
 
 /** 数据源状态 */
 export type DatasourceStatus = 'active' | 'inactive' | 'error' | 'need_credentials'
@@ -21,6 +21,7 @@ export interface Datasource {
   username: string
   /** 业务描述：帮助 AI 助手按业务语义自动选库（可选） */
   description?: string
+  extra?: {auth?: string; tls?: boolean; credential_ref?: string; project?: string; location?: string; max_scan_bytes?: number}
   status: DatasourceStatus
   last_health_check_at?: string
   created_at: string
@@ -85,6 +86,7 @@ export type TestDatasourceRequest =
       database_name: string
       username: string
       password: string
+      extra?: Record<string, unknown>
     }
 
 /**

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const transport = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const streams = vi.hoisted(() => ({ readSSE: vi.fn() }))
+vi.mock('@/utils/sse', () => streams)
 vi.mock('@/utils/request', () => ({ http: transport }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 1 }, currentTenant: { id: 1 } }) }))
 import { taskControlApi, type DraftInput, type PlanSpec } from './index'
@@ -47,4 +49,12 @@ describe('task control HTTP adapter', () => {
     await taskControlApi.cancel('task/id', 5, signal)
     expect(transport.post).toHaveBeenLastCalledWith('/governed-tasks/task%2Fid/cancel', { expected_version: 5 }, { signal })
   })
+  it('consumes authenticated durable state events and rejects another task identity', async () => {
+    streams.readSSE.mockImplementation(async function* () { yield { event: 'heartbeat', data: '{}' }; yield { event: 'state', data: '{"task_id":"task/id","task_version":2}' }; yield { event: 'terminal', data: '{"status":"completed"}' } })
+    const signal = new AbortController().signal, values = []; for await (const value of taskControlApi.events('task/id', signal)) values.push(value)
+    expect(values).toHaveLength(1); expect(streams.readSSE).toHaveBeenCalledWith('/api/v1/governed-tasks/task%2Fid/events', undefined, signal); expect(transport.post).not.toHaveBeenCalled()
+    streams.readSSE.mockImplementation(async function* () { yield { event: 'state', data: '{"task_id":"another","task_version":2}' } })
+    await expect(taskControlApi.events('task/id', signal).next()).rejects.toThrow('身份或版本不匹配')
+  })
+
 })

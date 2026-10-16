@@ -1,0 +1,39 @@
+{
+  "id": "ef669d98-75ea-47be-877e-78be99973488",
+  "status": "failed",
+  "version": 8,
+  "error": "research execution incomplete; existing evidence retained; no automatic paid-call replay",
+  "metadata": {
+    "failure": {
+      "code": "draft_citations_missing",
+      "stage": "validating",
+      "structure": {
+        "max_findings": 8,
+        "min_findings": 1,
+        "findings_null": false,
+        "findings_count": 4,
+        "summary_present": true,
+        "analysis_present": true,
+        "findings_present": true,
+        "summary_characters": 116,
+        "analysis_characters": 693,
+        "unknown_field_count": 0
+      }
+    },
+    "partial": true,
+    "timestamp": 1792119983,
+    "calls_used": 5,
+    "fact_checked": false,
+    "review_rounds": 0,
+    "total_sources": 6,
+    "semantic_review": false,
+    "citation_checked": false,
+    "model_calls_used": 2,
+    "execution_time_ms": 6868,
+    "sub_question_count": 3,
+    "verification_limit": "尚未完成引用 ID 与原文摘录核对；仅保留已收集来源，不能据此认定主张获得支持。",
+    "verified_fact_count": 0
+  },
+  "sources_count": 6,
+  "output_refs": []
+}

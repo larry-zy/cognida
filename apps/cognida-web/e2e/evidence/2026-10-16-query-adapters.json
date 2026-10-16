@@ -1,0 +1,593 @@
+{
+  "date": "2026-10-16",
+  "evidence": "actual isolated engine semantic query -> Redis ResultStore; each result then consumed by real seven-stage UI with explicit human approval and report",
+  "server_versions": {
+    "mysql": "8.0.46",
+    "postgres": "17.11",
+    "clickhouse": "25.12.11.4",
+    "doris": "4.1.3",
+    "starrocks": "3.5",
+    "hive": "4.0"
+  },
+  "browser_results": {
+    "mysql_postgres_clickhouse_starrocks_hive": {
+      "passed": 5,
+      "seconds": 25.5
+    },
+    "doris": {
+      "passed": 1,
+      "seconds": 5.1
+    }
+  },
+  "receipts": [
+    {
+      "datasource_id": "20261016074920312c8512b435f724",
+      "engine": "clickhouse",
+      "expires_at": "2026-10-16T08:19:20.743843+08:00",
+      "model": {
+        "model": {
+          "id": "236bf575-d0a4-4678-8487-8e52febd4037",
+          "tenant_id": 216160000,
+          "name": "warehouse_clickhouse_4b18adef-2bfb-4e23-98bf-9ad5025f7455",
+          "version": 1,
+          "status": "active",
+          "created_at": "0001-01-01T00:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z"
+        },
+        "logical_tables": [
+          {
+            "id": "f4f7ac89-2e34-4f9a-9b04-60767ea32bf2",
+            "model_id": "236bf575-d0a4-4678-8487-8e52febd4037",
+            "name": "samples",
+            "physical_table": "samples",
+            "database_id": "20261016074920312c8512b435f724",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "dimensions": [
+          {
+            "id": "9dea8a84-291d-4e37-9ff4-34946a73517c",
+            "model_id": "236bf575-d0a4-4678-8487-8e52febd4037",
+            "logical_table_id": "f4f7ac89-2e34-4f9a-9b04-60767ea32bf2",
+            "name": "code",
+            "expr": "code",
+            "data_type": "string",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "measures": [
+          {
+            "id": "659a2fce-fc94-4618-9090-438ca64f11b9",
+            "model_id": "236bf575-d0a4-4678-8487-8e52febd4037",
+            "logical_table_id": "f4f7ac89-2e34-4f9a-9b04-60767ea32bf2",
+            "name": "amount",
+            "expr": "amount",
+            "aggregation": "max",
+            "data_type": "decimal",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "metrics": null,
+        "relations": null
+      },
+      "query": {
+        "covered": true,
+        "sql": "SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10",
+        "database_id": "20261016074920312c8512b435f724",
+        "model": "warehouse_clickhouse_4b18adef-2bfb-4e23-98bf-9ad5025f7455",
+        "model_version": 1,
+        "resolved_metrics": [
+          "amount"
+        ],
+        "resolved_dimensions": [
+          "code"
+        ]
+      },
+      "result": {
+        "source_sql": "SELECT * FROM (SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10) AS cognida_bounded LIMIT 11",
+        "datasource_id": "20261016074920312c8512b435f724",
+        "source_version": "2026-10-15T23:49:20.626Z",
+        "result_id": "rs_08a3d7dd-2a73-44e8-97a7-85070b13d2da",
+        "owner": "216160000:sess-5108aad9",
+        "columns": [
+          "code",
+          "amount"
+        ],
+        "column_types": {
+          "amount": "Decimal(38, 9)",
+          "code": "String"
+        },
+        "rows": [
+          {
+            "amount": "2",
+            "code": "00124"
+          },
+          {
+            "amount": "9007199254740993.123456789",
+            "code": "00123"
+          }
+        ],
+        "created_at": 1792108160
+      },
+      "session_id": "sess-5108aad9"
+    },
+    {
+      "datasource_id": "20261016075146db1e3153b11f2bf7",
+      "engine": "doris",
+      "expires_at": "2026-10-16T08:21:46.355085+08:00",
+      "model": {
+        "model": {
+          "id": "b181c672-19ae-487d-b29a-ed6bc2b6b3a6",
+          "tenant_id": 216160000,
+          "name": "warehouse_doris_76fb3fa2-e3d4-4f89-baff-21bcc360a3f2",
+          "version": 1,
+          "status": "active",
+          "created_at": "0001-01-01T00:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z"
+        },
+        "logical_tables": [
+          {
+            "id": "f7447aa1-3438-4f2e-8c4f-65c392a47a90",
+            "model_id": "b181c672-19ae-487d-b29a-ed6bc2b6b3a6",
+            "name": "samples",
+            "physical_table": "samples",
+            "database_id": "20261016075146db1e3153b11f2bf7",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "dimensions": [
+          {
+            "id": "5fda57a2-5572-4368-b635-39ba5149d530",
+            "model_id": "b181c672-19ae-487d-b29a-ed6bc2b6b3a6",
+            "logical_table_id": "f7447aa1-3438-4f2e-8c4f-65c392a47a90",
+            "name": "code",
+            "expr": "code",
+            "data_type": "string",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "measures": [
+          {
+            "id": "94ae465c-bce2-4f19-84e2-f38d6db912d3",
+            "model_id": "b181c672-19ae-487d-b29a-ed6bc2b6b3a6",
+            "logical_table_id": "f7447aa1-3438-4f2e-8c4f-65c392a47a90",
+            "name": "amount",
+            "expr": "amount",
+            "aggregation": "max",
+            "data_type": "decimal",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "metrics": null,
+        "relations": null
+      },
+      "query": {
+        "covered": true,
+        "sql": "SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10",
+        "database_id": "20261016075146db1e3153b11f2bf7",
+        "model": "warehouse_doris_76fb3fa2-e3d4-4f89-baff-21bcc360a3f2",
+        "model_version": 1,
+        "resolved_metrics": [
+          "amount"
+        ],
+        "resolved_dimensions": [
+          "code"
+        ]
+      },
+      "result": {
+        "source_sql": "SELECT * FROM (SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10) AS cognida_bounded LIMIT 11",
+        "datasource_id": "20261016075146db1e3153b11f2bf7",
+        "source_version": "2026-10-15T23:51:46.039Z",
+        "result_id": "rs_1d22d408-75d5-40b9-92c2-f3c733e4850c",
+        "owner": "216160000:sess-454a7fd7",
+        "columns": [
+          "code",
+          "amount"
+        ],
+        "column_types": {
+          "amount": "DECIMAL",
+          "code": "CHAR"
+        },
+        "rows": [
+          {
+            "amount": "9007199254740993.123456789",
+            "code": "00123"
+          },
+          {
+            "amount": "1.200000000",
+            "code": "00234"
+          }
+        ],
+        "created_at": 1792108306
+      },
+      "session_id": "sess-454a7fd7"
+    },
+    {
+      "datasource_id": "202610160749210b8ed101fcf8f1be",
+      "engine": "hive",
+      "expires_at": "2026-10-16T08:19:24.659974+08:00",
+      "model": {
+        "model": {
+          "id": "aa734282-9348-4e4f-87ad-11abc36c08aa",
+          "tenant_id": 216160000,
+          "name": "warehouse_hive_7ed481c6-16b4-496c-9ee4-0915412aae68",
+          "version": 1,
+          "status": "active",
+          "created_at": "0001-01-01T00:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z"
+        },
+        "logical_tables": [
+          {
+            "id": "f6124c24-13e9-4159-90aa-2cb1f3b0ddaf",
+            "model_id": "aa734282-9348-4e4f-87ad-11abc36c08aa",
+            "name": "samples",
+            "physical_table": "samples",
+            "database_id": "202610160749210b8ed101fcf8f1be",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "dimensions": [
+          {
+            "id": "1d70dc4b-f04e-4968-b309-e91d93a2f5f9",
+            "model_id": "aa734282-9348-4e4f-87ad-11abc36c08aa",
+            "logical_table_id": "f6124c24-13e9-4159-90aa-2cb1f3b0ddaf",
+            "name": "code",
+            "expr": "code",
+            "data_type": "string",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "measures": [
+          {
+            "id": "4b7ff09a-9784-4977-805d-44eff92c0139",
+            "model_id": "aa734282-9348-4e4f-87ad-11abc36c08aa",
+            "logical_table_id": "f6124c24-13e9-4159-90aa-2cb1f3b0ddaf",
+            "name": "amount",
+            "expr": "amount",
+            "aggregation": "max",
+            "data_type": "decimal",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "metrics": null,
+        "relations": null
+      },
+      "query": {
+        "covered": true,
+        "sql": "SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10",
+        "database_id": "202610160749210b8ed101fcf8f1be",
+        "model": "warehouse_hive_7ed481c6-16b4-496c-9ee4-0915412aae68",
+        "model_version": 1,
+        "resolved_metrics": [
+          "amount"
+        ],
+        "resolved_dimensions": [
+          "code"
+        ]
+      },
+      "result": {
+        "source_sql": "SELECT * FROM (SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10) AS cognida_bounded LIMIT 11",
+        "datasource_id": "202610160749210b8ed101fcf8f1be",
+        "source_version": "2026-10-15T23:49:21.682Z",
+        "result_id": "rs_3dba1756-3242-4f34-b7cc-11ba5439b8ef",
+        "owner": "216160000:sess-72b2a886",
+        "columns": [
+          "code",
+          "amount"
+        ],
+        "column_types": {
+          "amount": "DECIMAL",
+          "code": "STRING"
+        },
+        "rows": [
+          {
+            "amount": "9007199254740993.123456789",
+            "code": "00123"
+          },
+          {
+            "amount": "1.200000000",
+            "code": "00234"
+          }
+        ],
+        "created_at": 1792108164
+      },
+      "session_id": "sess-72b2a886"
+    },
+    {
+      "datasource_id": "20261016074920e35adca41f77f0b6",
+      "engine": "mysql",
+      "expires_at": "2026-10-16T08:19:21.037596+08:00",
+      "model": {
+        "model": {
+          "id": "c2b05c1b-b7f5-490d-bc6e-74258875c049",
+          "tenant_id": 216160000,
+          "name": "warehouse_mysql_60bbf9af-27de-414f-8682-051058a67658",
+          "version": 1,
+          "status": "active",
+          "created_at": "0001-01-01T00:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z"
+        },
+        "logical_tables": [
+          {
+            "id": "1e14a4fb-c3dc-4969-99b8-ed580ad787fa",
+            "model_id": "c2b05c1b-b7f5-490d-bc6e-74258875c049",
+            "name": "samples",
+            "physical_table": "samples",
+            "database_id": "20261016074920e35adca41f77f0b6",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "dimensions": [
+          {
+            "id": "2b367f02-ea5b-430c-ad15-2182e6f81b22",
+            "model_id": "c2b05c1b-b7f5-490d-bc6e-74258875c049",
+            "logical_table_id": "1e14a4fb-c3dc-4969-99b8-ed580ad787fa",
+            "name": "code",
+            "expr": "code",
+            "data_type": "string",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "measures": [
+          {
+            "id": "8ac750ba-eb79-4e18-87d0-e13f6aee031a",
+            "model_id": "c2b05c1b-b7f5-490d-bc6e-74258875c049",
+            "logical_table_id": "1e14a4fb-c3dc-4969-99b8-ed580ad787fa",
+            "name": "amount",
+            "expr": "amount",
+            "aggregation": "max",
+            "data_type": "decimal",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "metrics": null,
+        "relations": null
+      },
+      "query": {
+        "covered": true,
+        "sql": "SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10",
+        "database_id": "20261016074920e35adca41f77f0b6",
+        "model": "warehouse_mysql_60bbf9af-27de-414f-8682-051058a67658",
+        "model_version": 1,
+        "resolved_metrics": [
+          "amount"
+        ],
+        "resolved_dimensions": [
+          "code"
+        ]
+      },
+      "result": {
+        "source_sql": "SELECT * FROM (SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10) AS cognida_bounded LIMIT 11",
+        "datasource_id": "20261016074920e35adca41f77f0b6",
+        "source_version": "2026-10-15T23:49:20.992Z",
+        "result_id": "rs_0a510c36-4b8a-4a9a-9434-d75c62f82dd8",
+        "owner": "216160000:sess-0664199e",
+        "columns": [
+          "code",
+          "amount"
+        ],
+        "column_types": {
+          "amount": "DECIMAL",
+          "code": "VARCHAR"
+        },
+        "rows": [
+          {
+            "amount": "9007199254740993.123456789",
+            "code": "00123"
+          },
+          {
+            "amount": "2.000000000",
+            "code": "00456"
+          }
+        ],
+        "created_at": 1792108161
+      },
+      "session_id": "sess-0664199e"
+    },
+    {
+      "datasource_id": "20261016074919af41ca78f530c1cc",
+      "engine": "postgres",
+      "expires_at": "2026-10-16T08:19:19.71969+08:00",
+      "model": {
+        "model": {
+          "id": "523e70ff-7a0c-401c-b635-baa304efeeb0",
+          "tenant_id": 216160000,
+          "name": "warehouse_postgres_62fd8a38-7922-40d3-9c4f-74edef0746cb",
+          "version": 1,
+          "status": "active",
+          "created_at": "0001-01-01T00:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z"
+        },
+        "logical_tables": [
+          {
+            "id": "28866baf-da72-4ae0-a571-7f45aee5fdf6",
+            "model_id": "523e70ff-7a0c-401c-b635-baa304efeeb0",
+            "name": "samples",
+            "physical_table": "samples",
+            "database_id": "20261016074919af41ca78f530c1cc",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "dimensions": [
+          {
+            "id": "1512abca-7130-44e9-be4a-a585c1f1889e",
+            "model_id": "523e70ff-7a0c-401c-b635-baa304efeeb0",
+            "logical_table_id": "28866baf-da72-4ae0-a571-7f45aee5fdf6",
+            "name": "code",
+            "expr": "code",
+            "data_type": "string",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "measures": [
+          {
+            "id": "16da1eca-e3b0-46ac-a821-8934e397fd9b",
+            "model_id": "523e70ff-7a0c-401c-b635-baa304efeeb0",
+            "logical_table_id": "28866baf-da72-4ae0-a571-7f45aee5fdf6",
+            "name": "amount",
+            "expr": "amount",
+            "aggregation": "max",
+            "data_type": "decimal",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "metrics": null,
+        "relations": null
+      },
+      "query": {
+        "covered": true,
+        "sql": "SELECT samples.code AS \"code\", MAX(samples.amount) AS \"amount\" FROM \"samples\" samples GROUP BY samples.code LIMIT 10",
+        "database_id": "20261016074919af41ca78f530c1cc",
+        "model": "warehouse_postgres_62fd8a38-7922-40d3-9c4f-74edef0746cb",
+        "model_version": 1,
+        "resolved_metrics": [
+          "amount"
+        ],
+        "resolved_dimensions": [
+          "code"
+        ]
+      },
+      "result": {
+        "source_sql": "SELECT * FROM (SELECT samples.code AS \"code\", MAX(samples.amount) AS \"amount\" FROM \"samples\" samples GROUP BY samples.code LIMIT 10) AS cognida_bounded LIMIT 11",
+        "datasource_id": "20261016074919af41ca78f530c1cc",
+        "source_version": "2026-10-15T23:49:19.673Z",
+        "result_id": "rs_5ded7a1e-062f-4f57-ba68-ee3f4ee22c2a",
+        "owner": "216160000:sess-007f5263",
+        "columns": [
+          "code",
+          "amount"
+        ],
+        "column_types": {
+          "amount": "NUMERIC",
+          "code": "VARCHAR"
+        },
+        "rows": [
+          {
+            "amount": "2.000000000",
+            "code": "00456"
+          },
+          {
+            "amount": "9007199254740993.123456789",
+            "code": "00123"
+          }
+        ],
+        "created_at": 1792108159
+      },
+      "session_id": "sess-007f5263"
+    },
+    {
+      "datasource_id": "202610160749213c80609b1c40486c",
+      "engine": "starrocks",
+      "expires_at": "2026-10-16T08:19:21.42187+08:00",
+      "model": {
+        "model": {
+          "id": "6ed53fd6-17f7-42ca-b665-3ff9c734d15a",
+          "tenant_id": 216160000,
+          "name": "warehouse_starrocks_fa559fbb-5b4a-42f6-9228-8f6ea2b74e72",
+          "version": 1,
+          "status": "active",
+          "created_at": "0001-01-01T00:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z"
+        },
+        "logical_tables": [
+          {
+            "id": "0b8d876a-cc4c-4c7d-ab4f-b0e909403533",
+            "model_id": "6ed53fd6-17f7-42ca-b665-3ff9c734d15a",
+            "name": "samples",
+            "physical_table": "samples",
+            "database_id": "202610160749213c80609b1c40486c",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "dimensions": [
+          {
+            "id": "d24b46b3-680d-48c0-a07d-7bd3758d4ec0",
+            "model_id": "6ed53fd6-17f7-42ca-b665-3ff9c734d15a",
+            "logical_table_id": "0b8d876a-cc4c-4c7d-ab4f-b0e909403533",
+            "name": "code",
+            "expr": "code",
+            "data_type": "string",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "measures": [
+          {
+            "id": "1aea7e6e-cc26-47ac-8517-219465f6f5c8",
+            "model_id": "6ed53fd6-17f7-42ca-b665-3ff9c734d15a",
+            "logical_table_id": "0b8d876a-cc4c-4c7d-ab4f-b0e909403533",
+            "name": "amount",
+            "expr": "amount",
+            "aggregation": "max",
+            "data_type": "decimal",
+            "created_at": "0001-01-01T00:00:00Z",
+            "updated_at": "0001-01-01T00:00:00Z"
+          }
+        ],
+        "metrics": null,
+        "relations": null
+      },
+      "query": {
+        "covered": true,
+        "sql": "SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10",
+        "database_id": "202610160749213c80609b1c40486c",
+        "model": "warehouse_starrocks_fa559fbb-5b4a-42f6-9228-8f6ea2b74e72",
+        "model_version": 1,
+        "resolved_metrics": [
+          "amount"
+        ],
+        "resolved_dimensions": [
+          "code"
+        ]
+      },
+      "result": {
+        "source_sql": "SELECT * FROM (SELECT samples.code AS `code`, MAX(samples.amount) AS `amount` FROM `samples` samples GROUP BY samples.code LIMIT 10) AS cognida_bounded LIMIT 11",
+        "datasource_id": "202610160749213c80609b1c40486c",
+        "source_version": "2026-10-15T23:49:21.304Z",
+        "result_id": "rs_1e555c28-126f-4fca-8057-44ba4467c197",
+        "owner": "216160000:sess-ed0b37e4",
+        "columns": [
+          "code",
+          "amount"
+        ],
+        "column_types": {
+          "amount": "DECIMAL",
+          "code": "VARCHAR"
+        },
+        "rows": [
+          {
+            "amount": "9007199254740993.123456789",
+            "code": "00123"
+          },
+          {
+            "amount": "1.200000000",
+            "code": "00234"
+          }
+        ],
+        "created_at": 1792108161
+      },
+      "session_id": "sess-ed0b37e4"
+    }
+  ],
+  "not_claimed": [
+    "BigQuery live",
+    "Hive LDAP/TLS/Kerberos",
+    "production performance"
+  ]
+}

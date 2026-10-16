@@ -176,7 +176,8 @@
             {{ mode === "annotation" ? "创建标注任务" : "创建并执行打标" }}
           </button>
         </form>
-        <section v-else class="wb-panel">
+        <PublishDatasetVersion v-if="mode === 'annotation' && activeTask" :key="activeTask.id" :task="activeTask as AnnotationTask" :items="items as AnnotationItem[]" />
+        <section v-if="currentID" class="wb-panel">
           <div class="wb-section-head" style="margin-top: 0">
             <h2>{{ activeTask?.name }}</h2>
             <span class="wb-badge">{{ activeTask?.status }}</span>
@@ -227,6 +228,7 @@
             {{ wt("加载更多") }}
           </button>
         </section>
+        <ModelLabelSuggestion v-if="currentItem && activeTask" :kind="mode" :task-id="activeTask.id" :item="currentItem" @updated="acceptModelSuggestion" />
         <section v-if="currentItem" class="wb-panel">
           <h2>{{ wt("审核工作区") }}</h2>
           <blockquote class="labeling-content">
@@ -288,6 +290,7 @@
                 />
               </label>
             </div>
+            <EvaluationProfileEditor v-if="(activeTask as AnnotationTask)?.type === 'qa'" v-model="annotation.evaluation_profile" />
             <label
               v-if="(activeTask as AnnotationTask)?.type === 'classification'"
               class="wb-label"
@@ -377,6 +380,7 @@
             </p>
             <button class="primary" :disabled="busy">保存人工修正</button>
           </form>
+          <ApplyKnowledgeLabels v-if="mode === 'tagging' && activeTask?.source_ref_id" :result="currentItem as TagResult" :source-ref="activeTask.source_ref_id" />
           <div class="review-controls">
             <hr class="wb-divider" />
             <label class="wb-label"
@@ -417,6 +421,11 @@ import {
   type GovernanceExecution,
 } from "@/api/governance";
 import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
+import ModelLabelSuggestion from './ModelLabelSuggestion.vue'
+import EvaluationProfileEditor from "./EvaluationProfileEditor.vue";
+import PublishDatasetVersion from "./PublishDatasetVersion.vue";
+import ApplyKnowledgeLabels from "./ApplyKnowledgeLabels.vue";
+import type { EvaluationProfile } from "@/api/evaluation/versions";
 import RecordEditor, {
   type EditorField,
 } from "@/components/workbench/RecordEditor.vue";
@@ -444,7 +453,7 @@ let generation = 0,
 const detailTask = ref<Task>();
 type Task = AnnotationTask | TagTask;
 type Item = AnnotationItem | TagResult;
-const mode = ref("annotation"),
+const mode = ref<"annotation" | "tagging">("annotation"),
   tasks = ref<Task[]>([]),
   items = ref<Item[]>([]),
   assets = ref<AssetRef[]>([]),
@@ -478,6 +487,7 @@ const annotation = reactive({
     entities: [] as Record<string, unknown>[],
     relations: [] as Record<string, unknown>[],
     qa: { question: "", reference_answer: "" },
+    evaluation_profile: undefined as EvaluationProfile | undefined,
   }),
   tagEdit = reactive({
     tags: "",
@@ -624,7 +634,7 @@ function newTask() {
   name.value = "";
   sourceRef.value = "";
 }
-async function changeMode(value: string) {
+async function changeMode(value: "annotation" | "tagging") {
   mode.value = value;
   newTask();
   await run(() => load());
@@ -705,6 +715,9 @@ async function loadItems(append = false) {
 }
 let annotationSnapshot = "",
   tagSnapshot = "";
+function acceptModelSuggestion(item: Item) {
+ items.value=items.value.map(existing=>existing.id===item.id?item:existing); selectItem(item)
+}
 function selectItem(item: Item) {
   currentItem.value = JSON.parse(JSON.stringify(item));
   reviewComment.value = "";
@@ -717,9 +730,11 @@ function selectItem(item: Item) {
           entities: item.annotation?.entities || [],
           relations: item.annotation?.relations || [],
           qa: item.annotation?.qa || { question: "", reference_answer: "" },
+          evaluation_profile: item.annotation?.evaluation_profile,
         }),
       ),
     );
+    annotation.evaluation_profile = item.annotation?.evaluation_profile ? JSON.parse(JSON.stringify(item.annotation.evaluation_profile)) : undefined;
     annotationSnapshot = JSON.stringify(annotationValue());
   } else {
     Object.assign(tagEdit, {
@@ -745,7 +760,7 @@ function annotationValue() {
     entities: entities(annotation.entities),
     relations: annotation.relations,
     ...((activeTask.value as AnnotationTask)?.type === "qa"
-      ? { qa: { ...annotation.qa } }
+      ? { qa: { ...annotation.qa }, evaluation_profile: annotation.evaluation_profile }
       : {}),
   };
 }

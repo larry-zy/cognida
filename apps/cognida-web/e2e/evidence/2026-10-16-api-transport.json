@@ -1,0 +1,41 @@
+{
+  "evidence_scope": "Credential-free DNS/TCP/TLS probe only; no HTTP or model request. Historical run had only sanitized error, so its exact failing stage cannot be reconstructed.",
+  "host": "jsonplaceholder.typicode.com",
+  "probe": [
+    {
+      "ip": "104.21.59.19",
+      "tcp_ok": true,
+      "tcp_ms": 215,
+      "tls_ok": false,
+      "tls_ms": 2785,
+      "timeout": true
+    },
+    {
+      "ip": "172.67.167.151",
+      "tcp_ok": true,
+      "tcp_ms": 169,
+      "tls_ok": true,
+      "tls_ms": 260
+    },
+    {
+      "ip": "2606:4700:3037::ac43:a797",
+      "tcp_ok": false,
+      "timeout": false
+    },
+    {
+      "ip": "2606:4700:3033::6815:3b13",
+      "tcp_ok": false,
+      "timeout": false
+    }
+  ],
+  "defect": "Previous transport tried alternate approved IPs only on TCP failure, never on a stalled TLS handshake.",
+  "fix": "Bound DNS plus TCP/TLS connection establishment to 10s overall, each address at most 3s and a fair remaining-budget share; validate the entire answer, use numeric addresses, preserve hostname verification and negotiated ALPN; no HTTP replay.",
+  "tests": {
+    "fetcher_race": "passed 8.297s",
+    "api_ingestion_real_tls_mysql_http_race": "4 tests passed 5.741s"
+  },
+  "logs": [
+    "api-transport-core.log",
+    "api-transport-integration.log"
+  ]
+}

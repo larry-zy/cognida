@@ -6,7 +6,7 @@ interface CollectionDetail {
   task: CollectionTask
   run?: { id: string; status: string }
   sources: Array<{ id: string; url: string }>
-  items?: Array<{ id: string; run_id: string; source_url: string; canonical_url?: string; status: string; knowledge_id?: string; normalized_object_key?: string; error_reason?: string }>
+  items?: Array<{ id: string; run_id: string; source_url: string; canonical_url?: string; status: string; knowledge_id?: string; asset_ref_id?: string; normalized_object_key?: string; error_reason?: string }>
   summary?: { outcome: string; total: number; usable: number; failed: number; rejected: number }
 }
 const sourceURL = process.env.COGNIDA_E2E_COLLECTION_URL
@@ -80,12 +80,13 @@ test('collection UI: inspect actual source outcome → open pipeline draft', asy
     expect(outcome.summary?.usable).toBe(outcome.summary?.total)
     if (!existingTaskID) expect(outcome.summary?.total).toBe(1)
     expect(outcome.run?.id).toBeTruthy()
-    const item = outcome.items?.find(item => ['accepted', 'skipped'].includes(item.status) && item.knowledge_id && item.normalized_object_key)
+    const item = outcome.items?.find(item => (['candidate'].includes(item.status) || (['accepted', 'skipped'].includes(item.status) && (item.knowledge_id || item.asset_ref_id))) && item.normalized_object_key)
     expect(item, 'collection produced a durable usable item').toBeDefined()
     await detail.getByRole('button', { name: '刷新', exact: true }).click()
     await expect(detail).toContainText(outcome.run!.id)
     await expect(detail).toContainText(item!.id)
-    await expect(detail).toContainText(item!.knowledge_id!)
+    if (item!.knowledge_id) await expect(detail).toContainText(item!.knowledge_id)
+    if (!existingTaskID) { expect(item!.status).toBe('candidate'); expect(item!.knowledge_id || '').toBe(''); await expect(detail).toContainText('审批与发布') }
     await page.screenshot({ path: info.outputPath('collection-source-outcome.png'), fullPage: true })
     // Observe real writes while following the source link. Opening the draft must not submit it.
     const automaticWrites: string[] = []

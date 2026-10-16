@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, type APIRequestContext, type Page, type PlaywrightWorkerArgs, type Response, type TestInfo } from '@playwright/test'
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightWorkerArgs, type Response, type TestInfo } from '@playwright/test'
 export interface AssetRef { asset_id: string; version: number; kind: string; producer_id: string; policy?: { approved: boolean } }
 export interface RunDetail {
   run: { id: string; status: string; error?: string }
@@ -126,6 +126,22 @@ export async function getData<T>(api: APIRequestContext, path: string): Promise<
 export async function attachJSON(info: TestInfo, name: string, value: unknown) {
   await info.attach(name, { body: Buffer.from(JSON.stringify(value, null, 2)), contentType: 'application/json' })
 }
+/** Select an authorized asset through the page's real cursor controls. */
+export async function selectPagedAsset(page: Page, select: Locator, value: string, moreName = '加载更多资产') {
+  const more = page.getByRole('button', { name: moreName, exact: true })
+  const present = () => select.locator('option').evaluateAll((options, target) => options.some(option => (option as HTMLOptionElement).value === target), value)
+  await expect(select).toBeVisible()
+  for (let count = 0; count < 100; count++) {
+    await expect.poll(async () => (await present()) || ((await more.isVisible()) && (await more.isEnabled())), { message: `Authorized source ${value} must be reachable through cursor pages` }).toBe(true)
+    if (await present()) { await select.selectOption(value); return }
+    const loaded = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/lifecycle/assets' && response.request().method() === 'GET')
+    await more.click()
+    const response = await loaded
+    expect(response.ok(), 'Load the next real authorized asset page').toBe(true)
+    await response.finished()
+  }
+  throw new Error('Source selection exceeded 100 real UI cursor pages')
+}
 function required(scenario: Scenario, key: keyof Scenario): string {
   const value = scenario[key]
   if (typeof value !== 'string' || !value.trim() || value.startsWith('REPLACE_')) throw new Error(`${scenario.id}: provide fixture field ${key}`)
@@ -216,7 +232,7 @@ export async function verifyVectorRetrieval(page: Page, info: TestInfo, kbID: st
     expect(response.request().postDataJSON()).toMatchObject({ retrieval_mode: 'vector', kb_ids: [kbID] })
     const result = (await response.json()).data
     await attachJSON(info, 'knowledge-search-response', result)
-    matching = (result?.items || []).filter((item: { knowledge_id: string; content: string }) => item.knowledge_id === knowledgeID && (!marker || item.content.includes(marker)))
+    matching = (result?.items || []).filter((item: { knowledge_id: string; content: string; sources?: string[] }) => item.knowledge_id === knowledgeID && (!marker || item.content.includes(marker)) && item.sources?.includes('milvus_vector'))
     return matching.length
   }, { timeout: 60_000, intervals: [1000, 2000, 5000], message: 'published document appears through real vector retrieval' }).toBeGreaterThan(0)
   for (const item of matching) {

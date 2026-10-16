@@ -8,6 +8,8 @@
 
 所有目标都必须显式传入，禁止向业务数据库或现有业务知识库写入测试数据：
 
+每轮完整回归应新建空的专用发布知识库，并同步更新 `COGNIDA_E2E_KNOWLEDGE_BASE_ID` 和 fixture 中更高优先级的 `target_knowledge_base_id`；研究及已有知识来源可引用单独的固定样本库。不要让多轮相同网页内容累计进入同一发布库，否则同文档内容的相同向量会竞争 Top20，无法保证最新文档进入结果。仍须断言本轮确切文档的真实向量命中，不能靠提高 TopK 或接受任意旧副本通过。
+
 ```sh
 cd apps/cognida-web
 export COGNIDA_E2E_ISOLATED=1
@@ -54,6 +56,36 @@ COGNIDA_E2E_COLLECTION_TASK_ID=YOUR_REAL_COLLECTION_TASK_ID npm run test:e2e -- 
 ```
 
 ## 证据与清理
+
+### 完整能力套件
+
+2026-10-16新增场景均需显式启用，未启用的 skip 不计通过。通用环境变量沿用上文；启用前须实际准备对应依赖。
+
+| 开关（设为`1`） | 用例与额外依赖 |
+| --- | --- |
+| `COGNIDA_E2E_DOMAIN_SPECIALISTS` | 领域专家与跨领域DAG；实际Python计算 |
+| `COGNIDA_E2E_FEATURE_OPERATIONS` | 特征物化、回填、时点查询、漂移监控 |
+| `COGNIDA_E2E_DURABLE_DOMAINS` | 采集、离线评测、持久研究；研究额外设置`COGNIDA_E2E_RESEARCH_KB_ID`及真实模型 |
+| `COGNIDA_E2E_GOVERNANCE_RELEASE` | 模型建议、固定数据集与知识标签检索；真实模型、Embedding和Milvus |
+| `COGNIDA_E2E_DOCUMENT_FORMATS` | 八格式真实字节→完整发布；Python文档依赖，可用`COGNIDA_E2E_PYTHON`指定解释器 |
+| `COGNIDA_E2E_API_SOURCES` | 正向公网JSON和非JSON拒绝；实际公网HTTPS访问 |
+| `COGNIDA_E2E_FEEDBACK` | 返工、隔离配对评测、激活与撤回；真实模型、Milvus与worker |
+| `COGNIDA_E2E_STRATEGIES` | 固定任务试验、策略门槛与回退；真实Python |
+| `COGNIDA_E2E_WAREHOUSE` | 分层模型、join/aggregate、候选与审批 |
+| `COGNIDA_E2E_QUERY_JOBS` | Hive持久查询；当前用例明确使用本轮`127.0.0.1:62308`测试实例，先核对fixture |
+| `COGNIDA_E2E_OPERATIONS` | 受管ETL/SQL、确认与旧版本回退 |
+| `COGNIDA_E2E_SANDBOX` | 实际Docker固定镜像、显式授权的受控开发profile |
+| `COGNIDA_E2E_REPLAN` | 真实Sandbox运行中的重规划，需同上Sandbox和任务控制器 |
+
+同时开启表中开关及下文Supervisor/任务执行开关后，可执行`npm run test:e2e -- --workers=1`。上游SQL结果有TTL，八来源fixture应在运行前重新通过真实查询生成；不要延长或伪造过期句柄。六引擎端到端通过`cmd/seed-lifecycle-sources -warehouse`生成真实语义查询结果，再将生成的scenario交给`lifecycle.spec.ts`。
+
+公网 JSON 正向场景在创建来源时明确授权最多 3 次请求，仍限制 1 页、3 条记录。只有真实回执为 `partial` 且 `retryable=true`，并确认零页、零记录、零字节、零产物和水位不变，才通过页面“从原快照检查点继续”最多继续两次；不会重新提交采集或新建运行。每次核对同一运行、来源版本、完整配置和原 deadline，请求计数逐次严格为 1、2、3，所有读取及恢复共享原 140 秒观察窗口。每次终态、恢复回执及恢复前来源状态均作为 JSON 证据保存；第三次仍未完整完成、授权/契约/超时错误或恢复 HTTP 失败均使场景失败。通用错误不能用来判断一定是瞬时网络故障；此场景验证的是产品允许的有界恢复。最终仍须核对 3 条精确记录、1 页真实读取证据、人工审批及 7 阶段和报告。若首请求即成功，不声称本次实际执行过恢复分支；恢复路径另有真实 TLS/MySQL 集成测试覆盖。
+
+Go/Python须配置相同`INTERNAL_HTTP_AUTH_TOKEN`及`GRPC_AUTH_TOKEN`；`PYTHON_EVALUATION_ENDPOINT`指向实际HTTP计算服务，`PYTHON_GRPC_TARGET`指向文档gRPC服务。Go的`BACKGROUND_WORKERS_ENABLED`不能为`false`；统一任务还要求`TASK_CONTROL_EXECUTION_ENABLED`不能为`false`。应用只连接专用E2E数据库，单元/集成fixture库不要启动后台worker。
+
+Sandbox默认关闭。受控开发验收须同时设置`SANDBOX_ENABLED=true`、`SANDBOX_PROFILE_ACCEPTED=true`、`SANDBOX_ALLOWED_PRINCIPALS=tenant_id:user_id`、`SANDBOX_IMAGE=registry/image@sha256:完整摘要`与绝对路径`SANDBOX_STAGING_DIR`。Docker必须能预拉取并实际运行该固定镜像；运行容器禁网，输入只读，不能通过放开网络或宿主目录绕过失败。更强隔离profile不在本机开发验收范围。
+
+完整结果、故障验证与明确未验收范围见[综合验收](ACCEPTANCE-2026-10-16-COMPLETE-LOOP.md)。
 
 ### Supervisor 规划验收
 

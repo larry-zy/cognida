@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ readSSE: vi.fn() }))
 vi.mock('@/utils/sse', () => mocks)
-import { streamResearch, type ResearchRequest } from './index'
+const transport = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+vi.mock('@/utils/request', () => ({ http: transport }))
+import { researchApi, streamResearch, type ResearchRequest } from './index'
 const request: ResearchRequest = { query: 'q', kb_ids: ['allowed'], kb_scope_mode: 'manual', graph_enabled: true, options: { enable_web_search: false, max_sub_questions: 3, timeout_seconds: 120 } }
 async function collect() { const values = []; for await (const value of streamResearch(request, new AbortController().signal)) values.push(value); return values }
 describe('research stream contract', () => {
@@ -22,4 +24,11 @@ describe('research stream contract', () => {
     expect((await collect())[0].error).toBe('no evidence')
     expect(mocks.readSSE).toHaveBeenCalledTimes(1)
   })
+  it('creates once under an explicit key and only reads or cancels the durable handle', async () => {
+    const signal = new AbortController().signal, body = { query: 'q', kb_ids: ['allowed'], graph_enabled: false, enable_web_search: false }
+    await researchApi.create(body, 'stable-key', signal); expect(transport.post).toHaveBeenLastCalledWith('/research/runs', body, { headers: { 'Idempotency-Key': 'stable-key' }, signal })
+    await researchApi.get('run/id', signal); expect(transport.get).toHaveBeenLastCalledWith('/research/runs/run%2Fid', { signal })
+    await researchApi.cancel('run/id', signal); expect(transport.post).toHaveBeenLastCalledWith('/research/runs/run%2Fid/cancel', {}, { signal })
+  })
+
 })

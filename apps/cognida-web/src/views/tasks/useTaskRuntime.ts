@@ -24,6 +24,7 @@ export function useTaskRuntime(context: RuntimeContext) {
   const readiness = ref<ExecutionReadiness>(), loading = ref(false), action = ref(''), error = ref(''), readinessError = ref(''), actionError = ref(''), uncertain = ref(false), updatedAt = ref('')
   let generation = 0, disposed = false, timer: ReturnType<typeof setTimeout> | undefined
   const requests = new Set<AbortController>()
+  let stream: AbortController | undefined, streamID = ''
   const busy = computed(() => Boolean(action.value))
   const consistent = computed(() => context.task.value && context.summary.value?.task_id === context.task.value.id && context.summary.value?.task_version === context.task.value.version && context.summary.value?.current_plan_version === context.task.value.current_plan_version)
   const canStart = computed(() => {
@@ -34,8 +35,37 @@ export function useTaskRuntime(context: RuntimeContext) {
   const shouldPoll = () => Boolean(context.task.value && (uncertain.value || (context.summary.value?.terminal !== true && activeStates.has(context.task.value.status))))
   const needsReadiness = (task: GovernedTask) => task.current_plan_version > 0 && !task.execution_plan_version && !task.started_at && ['draft', 'ready'].includes(task.status)
   function stopTimer() { if (timer) clearTimeout(timer); timer = undefined }
-  function schedule() { stopTimer(); if (!disposed && !document.hidden && shouldPoll()) timer = setTimeout(() => { void refresh() }, 4000) }
-  function reset() { generation++; stopTimer(); requests.forEach(request => request.abort()); requests.clear(); readiness.value = undefined; loading.value = false; action.value = ''; error.value = ''; readinessError.value = ''; actionError.value = ''; uncertain.value = false; updatedAt.value = '' }
+  function schedule() { maintainEvents(); stopTimer(); if (!disposed && !document.hidden && shouldPoll()) timer = setTimeout(() => { void refresh() }, 4000) }
+  function reset() { generation++; stopEvents(); stopTimer(); requests.forEach(request => request.abort()); requests.clear(); readiness.value = undefined; loading.value = false; action.value = ''; error.value = ''; readinessError.value = ''; actionError.value = ''; uncertain.value = false; updatedAt.value = '' }
+  function stopEvents() { stream?.abort(); stream = undefined; streamID = '' }
+  function maintainEvents() {
+    const task = context.task.value
+    if (disposed || document.hidden || context.planningBusy.value || !task || !shouldPoll()) { stopEvents(); return }
+    if (stream && streamID === task.id) return
+    stopEvents()
+    // Polling remains active if SSE is unavailable, disconnected or paused.
+    if (!taskControlApi.events) return
+    const current = new AbortController(), id = task.id, epoch = generation, scope = context.scope.value
+    stream = current; streamID = id
+    const live = () => stream === current && !current.signal.aborted && epoch === generation && context.scope.value === scope && context.task.value?.id === id
+    void (async () => {
+      try {
+        for await (const value of taskControlApi.events(id, current.signal)) {
+          if (!live()) return
+          if (value.task_version < (context.task.value?.version || 0)) continue
+          // The stream is a durable change signal. Pair GET task with summary
+          // through the existing consistency gate rather than mixing versions.
+          if (JSON.stringify(value) !== JSON.stringify(context.summary.value)) await refresh()
+        }
+      } catch (cause) {
+        if (!live()) return
+        const status = (cause as { status?: number })?.status
+        if (status && [401, 403, 404].includes(status)) { context.onInaccessible(id, '任务或来源已不可访问，请重新打开。'); return }
+        // A read-only refresh also handles a server-side permission error event.
+        await refresh()
+      } finally { if (stream === current) { stream = undefined; streamID = '' } }
+    })()
+  }
   function requestContext() {
     const id = context.task.value?.id, scope = context.scope.value, epoch = generation, abort = new AbortController()
     requests.add(abort)
@@ -104,9 +134,9 @@ export function useTaskRuntime(context: RuntimeContext) {
       if (request.live()) { action.value = ''; if (!uncertain.value) await refresh(); else schedule() }
     }
   }
-  function visibilityChanged() { if (document.hidden) stopTimer(); else if (context.task.value) void refresh() }
+  function visibilityChanged() { if (document.hidden) { stopTimer(); stopEvents() } else if (context.task.value) void refresh() }
   watch(context.scope, reset)
-  watch(context.planningBusy, busy => { if (busy) stopTimer(); else schedule() })
+  watch(context.planningBusy, busy => { if (busy) { stopTimer(); stopEvents() } else schedule() })
   onMounted(() => document.addEventListener('visibilitychange', visibilityChanged))
   onBeforeUnmount(() => { reset(); disposed = true; document.removeEventListener('visibilitychange', visibilityChanged) })
   return { readiness, loading, busy, action, error, readinessError, actionError, uncertain, updatedAt, canStart, canCancel, initialize, refresh, reset, start: () => mutate('start'), cancel: () => mutate('cancel') }

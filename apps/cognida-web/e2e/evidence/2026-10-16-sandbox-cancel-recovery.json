@@ -1,0 +1,19 @@
+{
+  "before": {
+    "id": "7d84618c-8bf8-5ad0-9206-38ca926239a9",
+    "state": "running",
+    "cancel_requested": true,
+    "output_refs": null,
+    "error_code": null,
+    "container_ids": []
+  },
+  "after": {
+    "id": "7d84618c-8bf8-5ad0-9206-38ca926239a9",
+    "state": "cancelled",
+    "cancel_requested": true,
+    "output_refs": null,
+    "error_code": "cancelled",
+    "container_ids": []
+  },
+  "recovery": "Normal application worker after rebuilding; no manual database state mutation; container already absent in before and after observations."
+}

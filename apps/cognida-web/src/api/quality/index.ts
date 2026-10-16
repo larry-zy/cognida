@@ -164,8 +164,8 @@ export const qualityApi = {
   },
 
   /** 数据源直评：从外部数据源指定表抽样后评估结构化质量（取数在 Go 侧完成） */
-  evaluateDatasource(data: DatasourceEvaluateRequest) {
-    return http.post<StructuredReport>('/quality/evaluate/datasource', data)
+  evaluateDatasource(data: DatasourceEvaluateRequest, key: string = crypto.randomUUID()) {
+    return http.post<StructuredReport>('/quality/evaluate/datasource', data, {headers:{'Idempotency-Key':key}})
   },
 
   /** 非结构化文本质量评估 */

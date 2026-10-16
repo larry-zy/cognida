@@ -6,7 +6,7 @@ import { http } from '@/utils/request'
  * leak into the shared chat/agent models.
  */
 export type CollectionTaskStatus = 'draft' | 'running' | 'completed' | 'failed' | 'cancelled'
-export type CollectionItemStatus = 'pending' | 'running' | 'accepted' | 'skipped' | 'rejected' | 'failed' | 'cancelled'
+export type CollectionItemStatus = 'pending' | 'running' | 'candidate' | 'accepted' | 'skipped' | 'rejected' | 'failed' | 'cancelled'
 
 export interface CreateCollectionTaskRequest {
   knowledge_base_id: string
@@ -25,6 +25,7 @@ export interface CollectionItemOutcome {
   status: CollectionItemStatus
   error_reason?: string
   content_hash?: string
+  asset_ref_id?: string
   knowledge_id?: string
   raw_object_key?: string
   normalized_object_key?: string
@@ -47,6 +48,7 @@ export interface CollectionRun {
 }
 
 export interface CollectionTask {
+  mode?: string
   id: string
   knowledge_base_id: string
   status: CollectionTaskStatus
@@ -64,6 +66,7 @@ export interface CollectionTaskDetailResponse {
     outcome: 'success' | 'partial' | 'failed' | 'running' | 'cancelled'
     total: number
     accepted: number
+    candidates?: number
     skipped: number
     rejected: number
     failed: number
@@ -89,6 +92,8 @@ export const collectionApi = {
   list(params?: { page?: number; page_size?: number; status?: CollectionTaskStatus }) {
     return http.get<CollectionTaskListResponse>('/collection-tasks', { params })
   },
+
+  getRun(id: string) { return http.get<CollectionTaskDetailResponse>(`/collection-runs/${encodeURIComponent(id)}`) },
 
   getById(id: string) {
     return http.get<CollectionTaskDetailResponse>(`/collection-tasks/${id}`)

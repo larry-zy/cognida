@@ -175,6 +175,8 @@ export interface QAPair {
  * 创建测评请求
  */
 export interface CreateEvaluationRequest {
+  dataset_version_id?: string
+ strategy_version_id?: string
   dataset_id: string
   type: 'rag' | 'qa' | 'agent' | 'sql'
   kb_id?: string

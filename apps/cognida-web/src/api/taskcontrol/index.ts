@@ -1,3 +1,4 @@
+import { readSSE } from '@/utils/sse'
 import { http } from '@/utils/request'
 import { withIdempotency } from '@/utils/idempotent'
 import type { RefID } from '@/api/lifecycle'
@@ -12,6 +13,11 @@ export interface TaskBudget {
 }
 export interface PlanInput { asset?: RefID; from_node?: string; kind: string }
 export interface NodeParameters {
+  sandbox?: {profile_id:string;profile_version:number;image_sha256:string;code:{name:string;ref:RefID;sha256:string;size_bytes:number};inputs:{name:string;ref:RefID;sha256:string;size_bytes:number}[];resources:import('@/api/sandbox').Limits}
+  warehouse?: {model_id:string;version:number;mode:string;fact_source_ref?:string;event_from?:string;event_to?:string}
+  collection?: { url: string; max_response_bytes: number }
+  evaluation?: { question_column: string; reference_answer_column: string; generated_answer_column: string }
+  research?: { query: string; kb_ids: string[]; graph_enabled: boolean; enable_web_search: boolean }
   governance?: { labels?: string[]; label_schema?: { id: string; name: string; keywords?: string[]; terms?: string[] }[]; qa_mapping?: { question_column: string; reference_answer_column: string } }
   feature?: { feature_id: string; version: number }
 }
@@ -45,6 +51,8 @@ export interface PlanValidation {
   reserved_seconds: number
 }
 export interface Capability {
+  first_input_passthrough_kinds?: string[]
+  required_any_input_kinds?: string[]
   parameter_kind?: string
   id: string
   version: number
@@ -80,6 +88,7 @@ export interface Proposal {
   task_version: number
   decision: { kind: 'clarify' | 'proposal' | 'unsupported'; explanation: string; questions?: Clarification[]; plan?: PlanSpec }
   validation?: PlanValidation
+  budget_adjustments?: { field: 'max_attempts' | 'max_calls' | 'max_cost_micros' | 'timeout_seconds'; before: number; after: number; reason: 'node_retry_reservations' }[]
   execution_enabled: false
   planning_calls: number
   saved: false
@@ -110,6 +119,16 @@ export interface ExecutionReadiness {
 const base = '/governed-tasks'
 const taskPath = (id: string) => `${base}/${encodeURIComponent(id)}`
 export const taskControlApi = {
+  async *events(id: string, signal: AbortSignal): AsyncGenerator<TaskSummary> {
+    for await (const event of readSSE(`/api/v1${taskPath(id)}/events`, undefined, signal)) {
+      if (event.event === 'terminal') return
+      if (event.event === 'error') throw new Error('任务或来源已不可访问，请重新读取')
+      if (event.event !== 'state') continue
+      const value = JSON.parse(event.data) as TaskSummary
+      if (value.task_id !== id || !Number.isSafeInteger(value.task_version) || value.task_version < 1) throw new Error('任务事件身份或版本不匹配')
+      yield value
+    }
+  },
   validate: (data: PlanSpec, signal?: AbortSignal) => http.post<PlanValidation>(`${base}/validate`, data, { signal }),
   capabilities: (signal?: AbortSignal) => http.get<{ capabilities: Capability[]; execution_enabled: boolean }>(`${base}/capabilities`, { signal }),
   list: (cursor = '', signal?: AbortSignal) => http.get<{ items: GovernedTask[]; next_cursor: string }>(base, { params: { cursor, page_size: 20 }, signal }),
@@ -126,4 +145,8 @@ export const taskControlApi = {
     return withIdempotency(path, data, key => http.post<GovernedTask>(path, data, { headers: { 'Idempotency-Key': key }, signal }))
   },
   cancel: (id: string, expectedVersion: number, signal?: AbortSignal) => http.post<GovernedTask>(`${taskPath(id)}/cancel`, { expected_version: expectedVersion }, { signal }),
+  replan: (id: string, expectedVersion: number, plan: PlanSpec, reason: string, signal?: AbortSignal) => {
+    const path = `${taskPath(id)}/replan`, data = { expected_version: expectedVersion, plan, reason }
+    return withIdempotency(path, data, key => http.post<{ plan: SavedPlan; validation: PlanValidation }>(path, data, { headers: { 'Idempotency-Key': key }, signal }))
+  },
 }

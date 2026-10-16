@@ -6,6 +6,7 @@ export const navigationGroups: NavigationGroup[] = [
     { path: '/home', title: '工作总览', icon: 'home' },
     { path: '/tasks', title: '任务规划', icon: 'trace' },
     { path: '/collection-tasks', title: '网页采集', icon: 'collection' },
+    { path: '/api-sources', title: 'API 采集', icon: 'collection' },
     { path: '/datasource', title: '数据源', icon: 'datasource' },
     { path: '/pipelines', title: '处理与发布', icon: 'trace' },
     { path: '/experts', title: '独立专家', icon: 'quality' }
@@ -23,11 +24,16 @@ export const navigationGroups: NavigationGroup[] = [
     { path: '/catalog', title: '数据目录', icon: 'datasource' },
     { path: '/quality', title: '数据质量', icon: 'quality' },
     { path: '/labeling', title: '标注与打标', icon: 'knowledge' },
+    { path: '/sandbox', title: '脚本执行', icon: 'trace' },
+    { path: '/warehouse', title: '数仓建模', icon: 'datasets' },
+    { path: '/operations', title: '受控 SQL 与 ETL', icon: 'audit' },
     { path: '/features', title: '特征工程', icon: 'datasets' },
+    { path: '/drift', title: '漂移监控', icon: 'datasets' },
     { path: '/semantic-models', title: '语义建模', icon: 'graph' },
     { path: '/evaluation', title: 'Agent 测评', icon: 'evaluation' },
     { path: '/datasets', title: '评测数据集', icon: 'datasets' },
-    { path: '/suggestions', title: '反馈与改进', icon: 'audit' }
+    { path: '/feedback', title: '反馈与返工', icon: 'audit' },
+    { path: '/suggestions', title: '策略与改进', icon: 'audit' }
   ] },
   { title: '系统与个人', items: [
     { path: '/memories', title: '长期记忆', icon: 'knowledge' },

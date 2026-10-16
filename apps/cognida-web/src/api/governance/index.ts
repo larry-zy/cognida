@@ -53,6 +53,7 @@ export type AnnotationItem = Omit<
 > & {
   annotation: GovernanceAnnotationItem["annotation"] & {
     qa?: { question: string; reference_answer: string };
+    evaluation_profile?: import("@/api/evaluation/versions").EvaluationProfile;
   };
   provenance: Provenance;
 };
@@ -91,7 +92,8 @@ export interface FeatureExpression {
   default?: string;
 }
 export interface FeatureDefinition {
-  kind: "field" | "expression" | "window_aggregate";
+  kind: "field" | "expression" | "window_aggregate" | "embedding";
+  embedding?: { model_id: string; revision: string; dimension: number };
   field?: string;
   entity_field?: string;
   event_time_field?: string;

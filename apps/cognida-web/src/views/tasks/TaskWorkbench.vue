@@ -59,6 +59,12 @@
                 <button class="primary" :disabled="busy">补充并生成计划</button>
               </form>
               <template v-if="proposal.decision.kind === 'proposal' && proposal.decision.plan">
+                <section v-if="proposal.budget_adjustments?.length" class="budget-adjustments" aria-label="候选预算补齐说明">
+                  <h3>已补齐节点与重试预留</h3>
+                  <p>控制器按节点及重试次数补齐了候选计划的汇总预留，仍在已授权任务预算内。下方预览已包含这些调整，请核对后保存。</p>
+                  <ul><li v-for="adjustment in proposal.budget_adjustments" :key="adjustment.field">{{ adjustmentLabels[adjustment.field].label }}：{{ adjustment.before }} → {{ adjustment.after }} {{ adjustmentLabels[adjustment.field].unit }}</li></ul>
+                  <p>初始任务预算与节点配置未变；尚未保存或启动任务。</p>
+                </section>
                 <TaskPlanPreview :plan="proposal.decision.plan" :validation="proposal.validation" :capabilities="capabilities" />
                 <p class="wb-muted small">候选仅在本页预览。保存会追加不可变计划版本，刷新页面前未保存的候选会丢失。</p><p v-if="proposal.task_version !== current.version" class="wb-error" role="alert">任务版本已变化，此候选已过期，不能保存。请核对当前任务后重新生成。</p>
                 <button class="primary" :disabled="busy || saveUncertain || runtime.uncertain || !proposal.validation?.valid || proposal.task_version !== current.version" @click="savePlan">保存计划</button>
@@ -71,6 +77,7 @@
 
             <section v-if="savedPlan" class="wb-panel" aria-labelledby="saved-plan-title"><div class="panel-heading"><div><span class="wb-kicker">03 / SAVED PLAN</span><h2 id="saved-plan-title">已保存计划 v{{ savedPlan.version }}</h2></div><span class="wb-badge">已持久化</span></div><TaskPlanPreview :plan="savedPlan.snapshot" :capabilities="capabilities" /><details><summary>快照摘要</summary><p class="snapshot-hash">{{ savedPlan.content_hash }}</p></details></section>
 
+            <TaskReplanPanel v-if="savedPlan" :key="`${auth.authEpoch}:${current.id}`" :task="current" :saved-plan="savedPlan" :summary="summary" :capabilities="capabilities" :scope="`${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`" :busy="busy" @dirty="replanDirty = $event" @busy="replanBusy = $event" @refresh="runtime.refresh" @committed="notice = '已保存新的执行计划版本，正在核对真实执行状态。'" @inaccessible="clearDetail(); detailError = '任务或来源当前不可访问。'" />
             <TaskExecutionPanel :task="current" :summary="summary" :saved-plan="savedPlan" :readiness="runtime.readiness" :error="runtime.error || summaryError" :readiness-error="runtime.readinessError" :action-error="runtime.actionError" :loading="runtime.loading" :busy="busy" :action="runtime.action" :uncertain="runtime.uncertain" :candidate-pending="Boolean(proposal)" :can-start="runtime.canStart" :can-cancel="runtime.canCancel" :updated-at="runtime.updatedAt" @start="runtime.start" @cancel="runtime.cancel" @refresh="runtime.refresh" />
           </template>
         </div>
@@ -89,6 +96,7 @@ import { taskControlApi, type Answer, type Capability, type Clarification, type 
 import DomainTaskForm from './DomainTaskForm.vue'
 import TaskPlanPreview from './TaskPlanPreview.vue'
 import TaskExecutionPanel from './TaskExecutionPanel.vue'
+import TaskReplanPanel from './TaskReplanPanel.vue'
 import { useTaskRuntime } from './useTaskRuntime'
 import { assetLabel, statusLabel } from './labels'
 import '@/components/workbench/workbench.css'
@@ -98,6 +106,10 @@ const hasIdentity = computed(() => Boolean(auth.user?.id && auth.currentTenant?.
 const goal = ref(''), assetChoice = ref(''), selectedRefs = ref<RefID[]>([]), assets = ref<AssetRef[]>([])
 const defaultBudget = (): TaskBudget => ({ max_nodes: 8, max_concurrency: 2, max_attempts: 16, max_calls: 64, max_cost_micros: 1000000, timeout_seconds: 600 })
 const budget = reactive(defaultBudget())
+const adjustmentLabels = {
+  max_attempts: { label: '总尝试次数', unit: '次' }, max_calls: { label: '总调用次数', unit: '次' },
+  max_cost_micros: { label: '成本额度', unit: '微成本单位（百万分之一计价单位）' }, timeout_seconds: { label: '总时限', unit: '秒' },
+}
 const budgetFields: { key: keyof TaskBudget; label: string; min: number; max: number }[] = [
   { key: 'max_nodes', label: '最多节点数', min: 1, max: 32 }, { key: 'max_concurrency', label: '最多并发数', min: 1, max: 8 },
   { key: 'max_attempts', label: '总尝试次数', min: 1, max: 160 }, { key: 'max_calls', label: '总调用次数', min: 1, max: 4096 },
@@ -109,16 +121,17 @@ const error = ref(''), notice = ref(''), action = ref(''), saveUncertain = ref(f
 const answers = reactive<Record<string, string>>(Object.create(null)), issues = ref<{ node_id?: string; field: string; message: string }[]>([])
 const answerHistory = ref<Answer[]>([])
 let proposalRound = 0
+const replanDirty = ref(false), replanBusy = ref(false)
 const runtime = reactive(useTaskRuntime({
   task: current, summary, savedPlan, proposal,
   scope: computed(() => `${auth.authEpoch}:${auth.user?.id || ''}:${auth.currentTenant?.id || ''}`),
-  planningBusy: computed(() => Boolean(action.value)),
+  planningBusy: computed(() => Boolean(action.value) || replanBusy.value),
   onInaccessible: (id, message) => { clearDetail(); detailID.value = id; detailError.value = message },
   onRefreshed: () => { summaryError.value = '' },
 }))
-const busy = computed(() => Boolean(action.value) || runtime.busy)
+const busy = computed(() => Boolean(action.value) || runtime.busy || replanBusy.value)
 const canPropose = computed(() => current.value && ['draft', 'ready'].includes(current.value.status) && !summary.value?.children?.length && !summaryError.value && !runtime.uncertain && !runtime.error)
-const hasUnsaved = computed(() => Boolean(proposal.value || (!current.value && (goal.value.trim() || selectedRefs.value.length))))
+const hasUnsaved = computed(() => Boolean(replanDirty.value || proposal.value || (!current.value && (goal.value.trim() || selectedRefs.value.length))))
 let epoch = 0, detailSequence = 0, actionSequence = 0, listSequence = 0, disposed = false
 const controllers = new Set<AbortController>()
 function controller() { const result = new AbortController(); controllers.add(result); return result }
@@ -313,6 +326,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; controllers.forEach(item => it
 </script>
 
 <style scoped>
+.budget-adjustments { padding: 16px; margin-bottom: 20px; border-left: 3px solid var(--primary); background: var(--bg-tertiary); font-size: 13px; line-height: 1.8; }.budget-adjustments h3 { margin: 0; }.budget-adjustments p { margin: 8px 0; }.budget-adjustments ul { padding-left: 20px; }
 .task-workbench { max-width: 1440px; }.task-workbench h1 { font-size: 30px; }.planning-boundary { display: flex; align-items: center; gap: 10px; padding: 14px 18px; margin-bottom: 24px; background: var(--primary-dim); border-left: 3px solid var(--primary); }.planning-boundary p { margin: 0; font-size: 12px; line-height: 1.7; }
 .task-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; }.task-main { min-width: 0; }.task-history { align-self: start; }.panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }.panel-heading h2 { margin: 0; }.panel-heading .wb-kicker { display: block; margin-bottom: 8px; }.small { font-size: 12px; line-height: 1.7; }.task-list { list-style: none; padding: 0; margin: 16px 0; }.task-list li + li { margin-top: 8px; }.task-list button { width: 100%; text-align: left; padding: 12px; }.task-list button.selected { border-color: var(--primary); background: var(--primary-dim); }.task-list strong { display: block; line-height: 1.6; overflow-wrap: anywhere; font-size: 13px; }.task-list span,.task-list time { display: block; color: var(--text-muted); margin-top: 7px; font-size: 11px; }
 .section-intro { display: flex; gap: 14px; }.section-intro h2 { margin-bottom: 6px; }.section-intro p { margin: 0; }.step-number { font-family: var(--font-mono); color: var(--primary); font-size: 13px; padding-top: 3px; }.draft-fields { border: 0; margin: 0; padding: 0; min-width: 0; }.draft-fields > .wb-label { margin-top: 10px; }.selected-inputs { list-style: none; padding: 0; margin: 12px 0 24px; }.selected-inputs li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }.selected-inputs span { overflow-wrap: anywhere; font-size: 13px; }.selected-inputs small { color: var(--text-muted); }.budget-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }.budget-heading h3 { margin: 0; }.clarification-note { padding: 16px; border-left: 3px solid var(--primary); background: var(--bg-tertiary); font-size: 13px; line-height: 1.8; }

@@ -72,6 +72,14 @@ describe('directoryTree/filterAcceptableFiles', () => {
     expect(result.rejectedByType.map((f) => f.name)).toEqual(['b.exe'])
   })
 
+  it('accepts implemented document formats and rejects legacy Office binaries', () => {
+    const good = ['a.txt', 'a.md', 'a.pdf', 'a.docx', 'a.xlsx', 'a.csv', 'a.html', 'a.pptx']
+    const bad = ['old.doc', 'old.xls', 'old.ppt']
+    const result = filterAcceptableFiles([...good, ...bad].map(name => makeFile(name)))
+    expect(result.accepted.map(file => file.name)).toEqual(good)
+    expect(result.rejectedByType.map(file => file.name)).toEqual(bad)
+  })
+
   it('按大小过滤超过限制的文件', () => {
     const small = makeFile('small.md', 10)
     const big = makeFile('big.md', MAX_KNOWLEDGE_FILE_SIZE + 1)

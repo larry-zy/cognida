@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
-import { attachJSON, createInput, getData, loginThroughUI } from './lifecycle.helpers'
+import { attachJSON, createInput, getData, loginThroughUI, selectPagedAsset } from './lifecycle.helpers'
 
 type Ref = { asset_id: string; version: number }
 async function post<T = any>(api: APIRequestContext, path: string, data: unknown, key = randomUUID()): Promise<T> {
@@ -37,7 +37,7 @@ test.describe('real feature engineering and labeling specialists', () => {
       const source = await tableInput(page); const sourceRef = `${source.asset_id}:${source.version}`
       await page.goto('/features')
       await page.getByLabel('名称', { exact: true }).fill(`一小时收入-${Date.now()}`)
-      await page.getByLabel(/^来源资产/).selectOption(sourceRef)
+      await selectPagedAsset(page, page.getByLabel(/^来源资产/), sourceRef)
       await page.getByLabel(/^计算方式/).selectOption('window_aggregate')
       await page.getByLabel('来源字段', { exact: true }).fill('amount')
       await page.getByLabel(/^实体标识字段/).fill('customer')
@@ -95,7 +95,7 @@ test.describe('real feature engineering and labeling specialists', () => {
         if (kind === 'tagging') await page.getByRole('button', { name: '智能打标', exact: true }).click()
         await page.getByRole('button', { name: '＋ 新建任务', exact: true }).click()
         await page.getByLabel('任务名称', { exact: true }).fill(`${kind}-${Date.now()}`)
-        await page.getByLabel(/^来源资产/).selectOption(`${source.asset_id}:${source.version}`)
+        await selectPagedAsset(page, page.getByLabel(/^来源资产/), `${source.asset_id}:${source.version}`)
         if (kind !== 'tagging') await page.getByLabel(/^标注类型/).selectOption(kind)
         await page.getByRole('button', { name: '＋ 添加标签', exact: true }).click()
         await page.getByLabel('标签1 标签名称', { exact: true }).fill(kind === 'named_entity' ? '城市' : '销售')
@@ -117,7 +117,7 @@ test.describe('real feature engineering and labeling specialists', () => {
       const qaSource = await createInput(page, { id: 'qa-table', source: 'table', columns: ['q', 'a'], rows: [['北京是什么？', '北京是中国的首都。']] }, `QA-${Date.now()}`)
       await page.goto('/labeling')
       await page.getByLabel('任务名称', { exact: true }).fill(`QA-${Date.now()}`)
-      await page.getByLabel(/^来源资产/).selectOption(`${qaSource.asset_id}:${qaSource.version}`)
+      await selectPagedAsset(page, page.getByLabel(/^来源资产/), `${qaSource.asset_id}:${qaSource.version}`)
       await page.getByLabel(/^标注类型/).selectOption('qa')
       await page.getByLabel('问题列', { exact: true }).fill('q'); await page.getByLabel('参考答案列', { exact: true }).fill('a')
       const qa = await action(page, '/annotation-tasks', () => page.getByRole('button', { name: '创建标注任务', exact: true }).click())

@@ -47,7 +47,7 @@ describe("suggestion review", () => {
         },
       });
     const wrapper = mount(SuggestionsView, {
-      global: { stubs: { RouterLink: true } },
+      global: { stubs: { RouterLink: true, StrategiesPanel: true } },
     });
     await flushPromises();
     await wrapper
@@ -79,7 +79,7 @@ describe("suggestion review", () => {
   });
   it("uses immutable versioned evidence references in creation", async () => {
     const wrapper = mount(SuggestionsView, {
-      global: { stubs: { RouterLink: true } },
+      global: { stubs: { RouterLink: true, StrategiesPanel: true } },
     });
     await flushPromises();
     expect(wrapper.get("select[multiple] option").attributes("value")).toBe(

@@ -1,0 +1,937 @@
+{
+  "report_name": "e2e-ui-final-report.json",
+  "stats": {
+    "startTime": "2026-10-16T03:36:57.514Z",
+    "duration": 490620.69,
+    "expected": 37,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "tests": [
+    {
+      "file": "api-sources-positive.spec.ts",
+      "title": "real public HTTPS JSON → candidate → seven stages → approval → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 10951,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "api-sources.spec.ts",
+      "title": "managed API credentials and fixed sources persist; non-JSON upstream fails visibly",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 4284,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "collection.spec.ts",
+      "title": "collection UI: inspect actual source outcome → open pipeline draft",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 4595,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "document-formats.spec.ts",
+      "title": "eight real document formats → parsed knowledge → approval → seven stages → report and Milvus",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 54418,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "domain-specialists.spec.ts",
+      "title": "window preview → fixed version → materialization → historical query → expert task",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 13678,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "domain-specialists.spec.ts",
+      "title": "classification, entity, knowledge tags and QA → evidence → manual review/export",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 8856,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "domain-specialists.spec.ts",
+      "title": "multiple specialists share a durable DAG and real result bindings",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 28836,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "durable-domains.spec.ts",
+      "title": "actual HTTPS collection creates a candidate, never a published document",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 11452,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "durable-domains.spec.ts",
+      "title": "existing answers are snapshotted and scored by real deterministic Python graders",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 14268,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "durable-domains.spec.ts",
+      "title": "real research persists reviewed claims and survives refresh without another generation",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 10556,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "feature-operations.spec.ts",
+      "title": "full partitions → incremental → backfill → withdrawal preserves historical exact values",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 12083,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "feature-operations.spec.ts",
+      "title": "real baseline candidate → separate approval → changed distribution → persistent monitoring",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 7420,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "feedback.spec.ts",
+      "title": "feedback real source → bounded cleaning → isolated paired validation → approval activation and withdrawal",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 31858,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "governance-release.spec.ts",
+      "title": "real model suggestion → human review → immutable QA version → draft change preserves version",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 6002,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "governance-release.spec.ts",
+      "title": "knowledge tag review → apply receipt → real vector label filter",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5248,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "text / manual-text: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5715,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "table / manual-table: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5143,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "web / public-web: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 6366,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "knowledge / existing-knowledge: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5736,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "datasource / database-table: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5541,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "result / query-result: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5524,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "evaluation / evaluation: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 17038,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "lifecycle.spec.ts",
+      "title": "collection / collected-candidate: create → seven stages → approve → publish → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 5883,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "operations.spec.ts",
+      "title": "governed ETL and SQL preserve exact values, require confirmation, retain and restore prior versions",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 16929,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "query-jobs.spec.ts",
+      "title": "Hive durable query → exact results → reload and same-key replay",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 2763,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "sandbox.spec.ts",
+      "title": "fixed source → actual isolated Python → candidate → refresh → cancel",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 23393,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "sandbox.spec.ts",
+      "title": "typed domain task → Sandbox distribution → actual candidate → restored domain detail",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 13085,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "strategies.spec.ts",
+      "title": "real fixed parent trials → regression gates → explicit approval, activation and rollback",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 33628,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "supervisor.spec.ts",
+      "title": "supervisor: real source → model candidate → explicit save → refresh",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 7096,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "task-replan.spec.ts",
+      "title": "running replan preserves real Sandbox execution and changes only the future expert",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 34924,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "task-runtime.spec.ts",
+      "title": "four real expert nodes → terminal results → reload recovery",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 37195,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "task-runtime.spec.ts",
+      "title": "two independent quality roots dispatch under an explicit concurrency budget",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 14293,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "task-runtime.spec.ts",
+      "title": "cancel request remains distinct from the confirmed cancellation outcome",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 7871,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "warehouse.spec.ts",
+      "title": "warehouse real join/aggregate → candidate → approval → fixed historical output",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 9227,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "workspace: real counts → run detail deep link → report",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 2680,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "workspace: mobile navigation and collection dialog remain keyboard accessible",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 2702,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "workspace.spec.ts",
+      "title": "workspace: run a real quality expert and reopen its result by deep link",
+      "status": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration_ms": 1996,
+          "retry": 0
+        }
+      ]
+    }
+  ],
+  "api_attempts": [
+    {
+      "id": "95a7542f-2642-4432-8dac-9be9f4cf9093",
+      "status": "completed",
+      "requests": 1,
+      "retryable": false,
+      "record_count": 3,
+      "bytes": 897,
+      "deadline": "2026-10-16T03:39:00.427432Z",
+      "error": null
+    }
+  ],
+  "api_ingestion": {
+    "source_id": "44a0900b-e1a5-566a-9f62-97be54738905",
+    "run_id": "95a7542f-2642-4432-8dac-9be9f4cf9093",
+    "status": "completed",
+    "requests": 1,
+    "record_count": 3,
+    "pages": 1,
+    "evidence_scope": "Real JSONPlaceholder public HTTPS GET with synthetic records. Public service does not validate the disposable Bearer; authentication/pagination are independently covered by real TLS integration fixtures."
+  },
+  "research": {
+    "run_id": "8b1dbd75-8b7e-4188-8210-de3cd133aa85",
+    "status": "succeeded",
+    "metadata": {
+      "partial": false,
+      "timestamp": 1792121972,
+      "calls_used": 6,
+      "fact_checked": false,
+      "review_rounds": 1,
+      "total_sources": 6,
+      "semantic_review": true,
+      "citation_checked": true,
+      "model_calls_used": 3,
+      "execution_time_ms": 6622,
+      "sub_question_count": 3,
+      "verification_limit": "引文格式和摘录由程序核对；语义状态是受限模型审查意见，不证明来源真实性。已知同文转载归组，未知转载仍可能存在。",
+      "reviewed_source_ids": [
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6"
+      ],
+      "verified_fact_count": 0
+    },
+    "source_count": 6,
+    "claim_count": 4,
+    "claims": [
+      {
+        "status": "supported",
+        "matched_quotes": 1
+      },
+      {
+        "status": "supported",
+        "matched_quotes": 1
+      },
+      {
+        "status": "supported",
+        "matched_quotes": 1
+      },
+      {
+        "status": "supported",
+        "matched_quotes": 2
+      }
+    ]
+  },
+  "feedback": {
+    "case_id": "13208938-13f9-4b73-a1ca-83aabb65d7dd",
+    "publication_id": "027a3048-ac80-5d3c-83e8-87ef705ff9a3",
+    "dataset_version_id": "2578c81a-1b87-43ea-8353-bdb71108ccd0",
+    "gate": {
+      "metric": "rouge_l",
+      "higher_is_better": true,
+      "min_pairs": 2,
+      "max_regression": 0,
+      "min_improvement": 0.01
+    },
+    "comparison": {
+      "baseline_id": "a48968a8-17c7-57cc-a5da-759ad525e6d0",
+      "candidate_id": "8458d210-6257-56f8-8c34-a9f9934c4535",
+      "metric": "rouge_l",
+      "pairs": 4,
+      "missing_pairs": 0,
+      "baseline_mean": 0,
+      "candidate_mean": 1,
+      "improvement": 1,
+      "lower_95": 1,
+      "upper_95": 1,
+      "gate": "eligible_for_review",
+      "recommendation": "候选通过本次增益门槛，可进入人工审核和限量灰度。",
+      "method": "paired_mean_delta_normal_95_v1",
+      "limitations": [
+        "按问题和参考答案配对；仅在相同数据集、评分器与运行条件下解释增益。",
+        "区间为配对均值的正态近似；小样本或相关样本不能证明统计显著性。",
+        "结果不自动修改生产配置；推广和回滚均需人工审核。"
+      ]
+    },
+    "summary": {
+      "task_id": "0bdaef8b-6dd8-42fb-9243-aa32582a3d68",
+      "task_version": 9,
+      "status": "completed",
+      "current_plan_version": 1,
+      "planned_nodes": 1,
+      "children": [
+        {
+          "id": "29d8a40c-7f01-46ea-8811-a864bb597511",
+          "node_id": "repair",
+          "plan_version": 1,
+          "attempt": 1,
+          "domain": "lifecycle",
+          "domain_id": "cdc4b390-2036-475a-8ff7-16b5a1e20339",
+          "dispatch_status": "bound",
+          "domain_status": "succeeded",
+          "domain_kind": "invocation",
+          "receipt_present": true
+        }
+      ],
+      "result_refs": [
+        {
+          "asset_id": "b1e68181-d883-5ebc-9cbe-09102a3c1660",
+          "version": 3
+        },
+        {
+          "asset_id": "dedc3028-3990-51d5-9a8e-c52b6f2bd512",
+          "version": 4
+        }
+      ],
+      "warnings": [
+        "领域状态来自最近一次持久化核对；预算显示为已预留额度，不代表实际模型费用。"
+      ],
+      "execution_enabled": true,
+      "terminal": true,
+      "can_cancel": false,
+      "nodes": [
+        {
+          "node_id": "repair",
+          "capability": "lifecycle.data-cleaning",
+          "status": "succeeded",
+          "attempt": 1,
+          "output_refs": [
+            {
+              "asset_id": "b1e68181-d883-5ebc-9cbe-09102a3c1660",
+              "version": 3
+            },
+            {
+              "asset_id": "dedc3028-3990-51d5-9a8e-c52b6f2bd512",
+              "version": 4
+            }
+          ],
+          "domain_kind": "invocation",
+          "domain_id": "cdc4b390-2036-475a-8ff7-16b5a1e20339"
+        }
+      ],
+      "usage": {
+        "reserved_attempts": 1,
+        "reserved_calls": 3,
+        "reserved_cost_micros": 0
+      }
+    }
+  },
+  "scope": "complete-governed-data-loop; real UI/API/DB/Milvus/models/Docker; fixed synthetic samples, not production quality estimates",
+  "publication_isolation_before_suite": {
+    "id": "20261016113656a70179bf53fc0bf9",
+    "name": "Governed acceptance 29d91676",
+    "description": "Fresh empty publication destination for ui-final",
+    "avatar": "",
+    "type": "",
+    "tenant_id": 216160000,
+    "user_id": 2,
+    "document_count": 0,
+    "chunk_count": 0,
+    "storage_size": 0,
+    "status": 1,
+    "is_public": false,
+    "created_at": 1792121816,
+    "updated_at": 1792121816,
+    "setting": {
+      "chunk_strategy": "paragraph",
+      "chunk_size": 500,
+      "chunk_overlap": 50,
+      "id": 45,
+      "kb_id": "20261016113656a70179bf53fc0bf9",
+      "graph_enabled": false,
+      "bm25_enabled": false,
+      "chunking_config": "{\"strategy\": \"paragraph\", \"chunk_size\": 500, \"chunk_overlap\": 50}",
+      "settings_json": "",
+      "updated_at": 1792121816
+    }
+  },
+  "configured_models": {
+    "chat": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
+    },
+    "knowledge_embedding": {
+      "provider": "dashscope",
+      "model": "text-embedding-v4"
+    },
+    "feature_embedding_revision_configured": false,
+    "claim": "Configured provider/model identifiers; no immutable remote model weights or provider revision claim"
+  },
+  "history": [
+    {
+      "report_name": "e2e-complete-report.json",
+      "stats": {
+        "startTime": "2026-10-16T00:14:31.109Z",
+        "duration": 578027.21,
+        "expected": 26,
+        "skipped": 0,
+        "unexpected": 11,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-verified-report.json",
+      "stats": {
+        "startTime": "2026-10-16T00:26:20.350Z",
+        "duration": 496908.593,
+        "expected": 35,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-final-accepted-report.json",
+      "stats": {
+        "startTime": "2026-10-16T00:44:53.384Z",
+        "duration": 539866.0560000001,
+        "expected": 34,
+        "skipped": 0,
+        "unexpected": 3,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-public-json-recovered-report.json",
+      "stats": {
+        "startTime": "2026-10-16T00:55:00.220Z",
+        "duration": 11166.169,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-research-diagnostics-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:00:16.687Z",
+        "duration": 30408.578999999998,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-strategy-paging-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:02:50.815Z",
+        "duration": 33405.219,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-research-structured-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:15:32.344Z",
+        "duration": 16293.489,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-research-partial-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:32:15.847Z",
+        "duration": 11319.72,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-research-contract-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:39:54.382Z",
+        "duration": 16723.569000000003,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-release-37-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:40:54.867Z",
+        "duration": 510114.037,
+        "expected": 36,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-public-tls-fallback-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:53:05.561Z",
+        "duration": 13279.331,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-release-final-report.json",
+      "stats": {
+        "startTime": "2026-10-16T01:53:43.164Z",
+        "duration": 511106.84500000003,
+        "expected": 35,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-model-contracts-report.json",
+      "stats": {
+        "startTime": "2026-10-16T02:10:24.266Z",
+        "duration": 23732.24,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-model-budget-report.json",
+      "stats": {
+        "startTime": "2026-10-16T02:28:14.763Z",
+        "duration": 24835.017,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-accepted-final-report.json",
+      "stats": {
+        "startTime": "2026-10-16T02:29:55.972Z",
+        "duration": 537222.426,
+        "expected": 36,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-isolated-final-report.json",
+      "stats": {
+        "startTime": "2026-10-16T02:41:31.324Z",
+        "duration": 500838.973,
+        "expected": 35,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-sandbox-cancel-fixed-report.json",
+      "stats": {
+        "startTime": "2026-10-16T02:58:15.589Z",
+        "duration": 57178.644,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-cancel-fixed-final-report.json",
+      "stats": {
+        "startTime": "2026-10-16T03:03:46.953Z",
+        "duration": 494499.21,
+        "expected": 36,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-research-citations-report.json",
+      "stats": {
+        "startTime": "2026-10-16T03:18:16.210Z",
+        "duration": 17080.057,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-citations-final-report.json",
+      "stats": {
+        "startTime": "2026-10-16T03:19:06.961Z",
+        "duration": 527394.214,
+        "expected": 34,
+        "skipped": 0,
+        "unexpected": 3,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-public-network-recovered-report.json",
+      "stats": {
+        "startTime": "2026-10-16T03:22:21.104Z",
+        "duration": 20167.202999999998,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      }
+    },
+    {
+      "report_name": "e2e-ui-recovery-report.json",
+      "stats": {
+        "startTime": "2026-10-16T03:34:37.024Z",
+        "duration": 22355.589,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "external_boundaries": {
+    "bigquery": "implemented; local REST fixture + actual MySQL/asset/analysis tests; no live GCP IAM/billing project acceptance",
+    "sandbox": "controlled_development only; no strong multi-tenant isolation claim",
+    "feature_embedding": "implemented; fixed-port + actual MySQL tests; live version-pinned model materialization not accepted without trusted EMBEDDING_REVISION",
+    "deferred": [
+      "RL",
+      "model training/deployment",
+      "independent production infrastructure"
+    ]
+  },
+  "checks": {
+    "go_core_packages_passed": 101,
+    "go_real_integration_packages_passed": 17,
+    "go_real_integration_cached_packages": 12,
+    "python_offline": {
+      "passed": 676,
+      "skipped": 3
+    },
+    "python_live_http_model_passed": 1,
+    "frontend": {
+      "files": 56,
+      "passed": 351
+    },
+    "typecheck": "passed",
+    "production_build": "passed",
+    "migrations": "16–35 up/down/up in isolated MySQL; version35 clean",
+    "go_core_cached_packages": 97
+  },
+  "runtime_source_fingerprint": {
+    "sha256": "6a76c44762984071bb84e4f2439ea71fda114cb4a0b0ad753834b222a482436e",
+    "files": 1220,
+    "base_commit": "4d1dc64ef1ddb4d127e35197671f64d32a18ac7a"
+  }
+}

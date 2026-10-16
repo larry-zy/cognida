@@ -1,0 +1,265 @@
+{
+  "date": "2026-10-16",
+  "tenant_id": 216160000,
+  "services": {
+    "actions": [
+      {
+        "pid": 62710,
+        "signal": "TERM"
+      },
+      {
+        "pid": 65473,
+        "signal": "TERM"
+      },
+      {
+        "pid": 83712,
+        "signal": "TERM"
+      },
+      {
+        "pid": 67449,
+        "signal": "TERM"
+      },
+      {
+        "pid": 83185,
+        "signal": "TERM"
+      }
+    ],
+    "owned_process_count": 5,
+    "owned_ports_remaining": {
+      "62311": [],
+      "62312": [],
+      "62313": [],
+      "62314": []
+    },
+    "preserved_before": {
+      "18888": [
+        20630
+      ],
+      "19530": [
+        64770
+      ],
+      "7474": [
+        15781
+      ],
+      "7687": [
+        15781
+      ]
+    },
+    "preserved_after": {
+      "18888": [
+        20630
+      ],
+      "19530": [
+        64770
+      ],
+      "7474": [
+        15781
+      ],
+      "7687": [
+        15781
+      ]
+    }
+  },
+  "shared_projection_cleanup": {
+    "knowledge_base_count": 38,
+    "document_count": 257,
+    "vectors": {
+      "coworker_knowledge_bm25_v1": {
+        "after_owned": 0,
+        "after_total": 21,
+        "before_owned": 0,
+        "before_total": 21
+      },
+      "link": {
+        "after_owned": 0,
+        "after_total": 117,
+        "before_owned": 252,
+        "before_total": 369
+      }
+    },
+    "graph": {
+      "after_owned": 0,
+      "after_total": 98,
+      "before_owned": 190,
+      "before_total": 288,
+      "blocked_unscoped_communities": [],
+      "safe_unscoped_communities": 0,
+      "unscoped_communities": 0
+    }
+  },
+  "resources": {
+    "removed_containers": [
+      "c4b9b7ed1dac8572ae16339a6e7d607a861eebfd23fbdc388c8da92e9b7cc878",
+      "204af29789dacdc6057c6a0a652dfc5594a683155b4d85871229d3c9870086fb",
+      "69c06efdc9d146ed97516cc77e84151cc46066783bc0fd73b8feaea13e9b682a",
+      "9720b745c2f5c994c5945e89def71642aeaee70210fa693b3e97a02f8638d273",
+      "e5ab1962f72bf05e45aa8bafeeaacf4ed6bb185aa51f27a85e122dfe7d859542",
+      "95df781b621c0b8106b8273dc6ad54c23577e24ee7c2262febc5a271966b88b6",
+      "58fd4090415e5cff1d68a6a8588b4f870156a16f1eb356e62d7713eba35aa011"
+    ],
+    "removed_volumes": [
+      "0692c53719707ac67cacbd53da35394563c6218ccf10b8cc9dea7dc224b0cfe7",
+      "2767cbc364bdf3f83ea8a02345c7d21b9595f42668389c33791c6bb6b8e61a51",
+      "6036bc738fdf56e520d15816a2e9a32f5996bab9092f86dd770f40ac0b6712f6",
+      "6893d9109e60c74daae41ff8ecf6985974c8d1a8c7baeaf4b2ec84c59529b2e3"
+    ],
+    "unrelated_containers_preserved": [
+      "0158c68c30d9fb8e3956a6faa094feacc8631ce6ea2eee2e25c0100d455d355c",
+      "27e13ee0eea1af7b5179bcf8b5f6b633cdeaf4ab27254e425bf0b2f197a9aee7",
+      "3817079322d1c6c04b2d156eb20841cfc1a7190a20cf435d64bc8b2b1e86c6d4",
+      "3895e4b93ca13a123b98df9aa9b36ce4b77373254e712d0d71e2ab8976e5c746",
+      "4eb5fda1a8df427b5f6b93a6e42d412b126063eb31c2427675537d93305b1547",
+      "62f155862f99c7b8d33d696909ce8e625468c59621ade67b18fd7a286e353f79",
+      "702b60eb169819db8f465a32dea3dfe0fe2ea495940ed0df8b19581f733ab104",
+      "7e54e62523ea402c39f8b5a85186a56d62cd052bb72c9f00c5839e3433e26d28",
+      "81312dc7eba2885185c0ca2e39b400906acb649d83cf405454eebf6b3c2627e4",
+      "a9140670d97de45e55fb0d70d0703faf19d696d011cb2d981e4933417d892e53",
+      "b2cc1fa209b90497d8803d1aa2ff873d0a73258c8b2c773f376ab02be42506da",
+      "c56efe9e1b9e3edb25798f70ef855992155716dedaa5e91a817f230c6b03b9c4",
+      "d05f77d79f761195317a91b866f171c6f72b8389307bc2a9ba7813a84bd369c4",
+      "d53020af79fce1722fe12903457e61a8e2e5fc6fa89cc95e8d3baa54a45f51ff",
+      "d8296982c09dca5c09e5f97949ce1c71504d346680c8d16448aa35e861aa0b44",
+      "ddec0db7af36b4707e4df11740ca8b0d7682a628fe043cbbb3fc116649d19e4e",
+      "eeda33292242e298ae8a4ff6b1cbb043a42be6d9028ac37af780b4fe68d965ef"
+    ],
+    "removed_credentials_and_data": [
+      "mysql.env",
+      "sandbox.env",
+      "test.env",
+      "account.json",
+      "e2e.env",
+      "e2e-objects/",
+      "uploads/",
+      "sandbox-staging/"
+    ],
+    "removed_binaries": [
+      "cognida-server",
+      "cognida-server-draft-contract",
+      "cognida-server-release-review",
+      "cognida-server-budgeted",
+      "cognida-server-final-accepted",
+      "cognida-server-strategies",
+      "cognida-server-final-domains",
+      "cognida-server-final",
+      "cognida-server-structured",
+      "cognida-server-ops",
+      "cognida-server-verified",
+      "cognida-server-query",
+      "cognida-server-complete",
+      "cognida-server-next",
+      "cognida-server-release",
+      "cognida-server-review",
+      "cognida-server-compiled",
+      "cognida-server-fixed",
+      "cognida-server-cancel-fixed",
+      "cognida-server-feedback",
+      "cognida-server-domains",
+      "cognida-server-partial",
+      "cognida-server-citations",
+      "migration-roundtrip-migrate"
+    ],
+    "sandbox_containers_remaining": []
+  },
+  "feedback_withdrawal_before_environment_cleanup": {
+    "tenant_id": 216160000,
+    "rows": [
+      {
+        "publication_id": "9150fdb9-5912-5c4a-a859-bda7283a5c19",
+        "knowledge_id": "97c70819-009f-5562-aa0c-19977d76b6b9",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "47400890-418d-5d3e-8355-46f41689f325",
+        "knowledge_id": "94036640-7059-5109-9a1c-5a62907b2de0",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "d1fdc0a7-711b-5778-8fd0-f35cabc43898",
+        "knowledge_id": "cc2b159d-4721-5acb-b603-8302d8887fc5",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "6e781b6d-ad83-548b-b9a2-e93cc199e7fa",
+        "knowledge_id": "07baa3ad-fe0b-5044-a722-07de5fedf170",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "0a4d862d-377b-5337-80e1-4cc55bb7cc12",
+        "knowledge_id": "989df826-fb7c-5f44-9f74-059871a21b09",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "9a717304-e4a0-5d3b-85b8-7f49e9cec69a",
+        "knowledge_id": "5b793490-81c9-5d1a-8188-a9ff23ee04dd",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "f4f68421-cc9a-5dff-9e92-a6e518cf8991",
+        "knowledge_id": "41b6b9fa-f6c4-5517-9403-624fe8756693",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "3bcb0540-870b-5dda-988e-e84c50f9f129",
+        "knowledge_id": "e2ddb534-0a39-5813-96d2-7044d384de79",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "d84c6005-4c6f-53e1-b28c-03c0630018ce",
+        "knowledge_id": "1f23d7f1-d547-547c-8e2d-41b632e5ca76",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "1062ec2b-9106-5a78-a35f-4def85d2cad7",
+        "knowledge_id": "4d964b89-069d-55f0-9169-8ec742a67e29",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "4d822461-083e-5835-8230-db2c4881f0c2",
+        "knowledge_id": "33e193c5-af28-5c10-983d-d1ab48544c5d",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      },
+      {
+        "publication_id": "027a3048-ac80-5d3c-83e8-87ef705ff9a3",
+        "knowledge_id": "0422ade7-07bf-52df-b1e8-a66c862460ec",
+        "status": "cleaned",
+        "documents": 0,
+        "chunks": 0,
+        "vectors": 0
+      }
+    ]
+  },
+  "boundary": "Exact task-owned scope only; shared collections, unrelated tenants and pre-existing services preserved. No global container or volume pruning."
+}

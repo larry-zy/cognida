@@ -212,6 +212,7 @@ async function onDatasourceChange() {
   }
 }
 
+let datasourceIntent='',datasourceKey=''
 async function runDatasource() {
   if (!dsId.value) {
     dsError.value = '请选择数据源'
@@ -232,11 +233,10 @@ async function runDatasource() {
   dsReport.value = null
   await dsTask.run(
     async () => {
-      const res = await qualityApi.evaluateDatasource({
-        datasource_id: dsId.value,
-        table: dsTable.value,
-        sample_size: dsSampleSize.value
-      })
+      const input={datasource_id:dsId.value,table:dsTable.value,sample_size:dsSampleSize.value}
+      const intent=JSON.stringify(input)
+      if(intent!==datasourceIntent){datasourceIntent=intent;datasourceKey=crypto.randomUUID()}
+      const res = await qualityApi.evaluateDatasource(input,datasourceKey)
       const report = res.data ?? null
       // 后端空样本短路径：业务成功但无行，用提示而非错误态
       if (report && report.record_count === 0) {

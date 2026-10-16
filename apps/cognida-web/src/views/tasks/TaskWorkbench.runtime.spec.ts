@@ -4,7 +4,7 @@ import { defineComponent, reactive } from 'vue'
 import { createMemoryHistory, createRouter, RouterView, useRoute } from 'vue-router'
 import type { GovernedTask, PlanSpec, Proposal, TaskSummary } from '@/api/taskcontrol'
 
-const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn(), readiness: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
+const api = vi.hoisted(() => ({ capabilities: vi.fn(), list: vi.fn(), get: vi.fn(), assess: vi.fn(), create: vi.fn(), propose: vi.fn(), appendPlan: vi.fn(), plan: vi.fn(), summary: vi.fn(), readiness: vi.fn(), start: vi.fn(), cancel: vi.fn(), events: vi.fn() }))
 vi.mock('@/api/taskcontrol', () => ({ taskControlApi: api }))
 vi.mock('@/api/lifecycle', () => ({ lifecycleApi: { assets: vi.fn().mockResolvedValue({ data: { items: [], next_cursor: '' } }) } }))
 const auth = reactive({ authEpoch: 1, user: { id: 1 }, currentTenant: { id: 1 } })
@@ -32,7 +32,7 @@ async function setup() {
 async function tick() { await vi.advanceTimersByTimeAsync(4000); await flushPromises() }
 describe('governed task execution controls', () => {
   beforeEach(() => {
-    vi.clearAllMocks(); vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.clearAllMocks(); api.events.mockImplementation(async function* () {}); vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false); vi.spyOn(window, 'confirm').mockReturnValue(true)
     auth.authEpoch++; auth.currentTenant.id = 1; state = task(); stateSummary = summary()
     api.capabilities.mockResolvedValue({ data: { capabilities: [{ id: 'lifecycle.data-cleaning', version: 1, execution: { profile: 'bounded-clean', base_calls: 1, calls_per_input: 1, max_timeout_seconds: 30 } }], execution_enabled: true } })
@@ -96,7 +96,7 @@ describe('governed task execution controls', () => {
     const { wrapper } = await setup(); await button(wrapper, '启动任务')!.trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('操作结果尚未确认'); expect(button(wrapper, '启动任务')).toBeUndefined()
     state = task('running', 3); stateSummary = summary(); await tick()
-    expect(wrapper.text()).not.toContain('操作结果尚未确认'); expect(wrapper.text()).toContain('本次执行固定使用计划 v1')
+    expect(wrapper.text()).not.toContain('操作结果尚未确认'); expect(wrapper.text()).toContain('当前执行计划 v1')
     expect(api.start).toHaveBeenCalledTimes(1); expect(api.cancel).not.toHaveBeenCalled()
   })
   it('pauses automatic reads while hidden and resumes immediately when the document returns', async () => {
@@ -154,4 +154,11 @@ describe('governed task execution controls', () => {
     await wrapper.get('.runtime-nodes a').trigger('click'); await flushPromises()
     expect(router.currentRoute.value.path).toBe('/pipelines'); expect(router.currentRoute.value.query.run_id).toBe('run/one')
   })
+  it('uses read-only stream changes and falls back to polling without replaying commands', async () => {
+    state = task('running', 3); stateSummary = summary(); let notify!: () => void
+    api.events.mockImplementationOnce(async function* () { await new Promise<void>(resolve => { notify = resolve }); yield structuredClone(stateSummary); throw new Error('stream disconnected') })
+    const { wrapper } = await setup(); expect(api.events).toHaveBeenCalledWith('task-1', expect.any(AbortSignal)); state = task('completed', 4); stateSummary = summary(); notify(); await flushPromises()
+    expect(wrapper.text()).toContain('已成功 1 / 1 个节点'); expect(api.start).not.toHaveBeenCalled(); expect(api.cancel).not.toHaveBeenCalled(); expect(api.get.mock.calls.length).toBeGreaterThan(1)
+  })
+
 })

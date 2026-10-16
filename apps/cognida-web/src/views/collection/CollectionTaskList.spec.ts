@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, RouterLinkStub, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { defineComponent, reactive } from 'vue'
-const api = vi.hoisted(() => ({ list: vi.fn(), getById: vi.fn(), create: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), getById: vi.fn(), getRun: vi.fn(), create: vi.fn(), start: vi.fn(), cancel: vi.fn() }))
 const lifecycle = vi.hoisted(() => ({ knowledgeBases: vi.fn() }))
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 const route = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
@@ -68,7 +68,7 @@ describe('collection source to lifecycle flow', () => {
     const { wrapper } = setup(); await flushPromises()
     await button(wrapper, 'task-one').trigger('click'); await flushPromises()
     expect(api.getById).toHaveBeenCalledTimes(1)
-    for (const text of ['run-task-one', 'item-task-one', '部分来源采集失败', '入库 1 · 跳过 0 · 拒绝 0 · 失败 1', 'Remote source is unavailable', 'content-fingerprint']) expect(wrapper.text()).toContain(text)
+    for (const text of ['run-task-one', 'item-task-one', '部分来源采集失败', '已采集 1 · 跳过 0 · 拒绝 0 · 失败 1', 'Remote source is unavailable', 'content-fingerprint']) expect(wrapper.text()).toContain(text)
     const links = wrapper.findAllComponents(RouterLinkStub)
     expect(links.find(link => link.text() === '转入流水线')!.props('to')).toEqual({ path: '/pipelines', query: { source: 'collection', run_id: 'run-task-one', item_id: 'item-task-one', name: 'https://example.com' } })
     expect(links.filter(link => link.text() === '转入流水线')).toHaveLength(1)
@@ -168,4 +168,9 @@ describe('collection source to lifecycle flow', () => {
     expect((wrapper.get('form textarea').element as HTMLTextAreaElement).value).toBe('https://example.org')
     expect(api.create).not.toHaveBeenCalled(); expect(api.start).not.toHaveBeenCalled()
   })
+  it('opens an exact run deep link and exposes candidate continuation without claiming publication', async () => {
+    route.query = { run_id: 'run-task-one' }; const result = payload(); result.items[0]!.status = 'candidate'; result.items[0]!.knowledge_id = ''; api.getRun.mockResolvedValue({ data: result })
+    const { wrapper } = setup(); await flushPromises(); expect(api.getRun).toHaveBeenCalledWith('run-task-one'); expect(api.getById).not.toHaveBeenCalled(); expect(wrapper.text()).toContain('候选 · 待审批'); expect(wrapper.text()).toContain('展示指定运行'); expect(wrapper.text()).toContain('转入流水线'); expect(wrapper.text()).not.toContain('已入库'); expect(api.start).not.toHaveBeenCalled()
+  })
+
 })

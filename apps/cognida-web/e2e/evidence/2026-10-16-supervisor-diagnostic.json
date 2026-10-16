@@ -1,0 +1,233 @@
+{
+  "task_id": "0886a353-2eb9-4ecc-af5d-9628f3a1fcb7",
+  "scope": "one newly authorized read-only proposal; historical 400 cause remains unknown",
+  "model_proposals_submitted": 1,
+  "saved": false,
+  "started": false,
+  "before": {
+    "http_status": 200,
+    "elapsed_ms": 8,
+    "body": {
+      "code": 0,
+      "message": "success",
+      "data": {
+        "tenant_id": 216160000,
+        "user_id": 2,
+        "id": "0886a353-2eb9-4ecc-af5d-9628f3a1fcb7",
+        "goal": "按顺序先调用 data-quality 对输入做质检，再调用 data-cleaning 清洗，保留 cleaned_asset 和 quality_report 候选。使用现有受控算子的默认规则，无需自定义代码，不发布、不分析。只生成两个节点的计划，各尝试一次；清洗同时绑定质检返回的原始数据和质量报告。",
+        "input_refs": [
+          {
+            "version": 1,
+            "asset_id": "cc1e2c15-20c0-5e41-b258-1e75647bac98"
+          }
+        ],
+        "budget": {
+          "max_calls": 64,
+          "max_nodes": 8,
+          "max_attempts": 16,
+          "max_concurrency": 2,
+          "max_cost_micros": 1000000,
+          "timeout_seconds": 600
+        },
+        "result_refs": [],
+        "request_id": "81a23c7f-40fb-4cc3-9d43-d88d25b33c00",
+        "status": "draft",
+        "version": 1,
+        "current_plan_version": 0,
+        "execution_plan_version": 0,
+        "created_at": "2026-10-16T11:25:44.541607+08:00",
+        "updated_at": "2026-10-16T11:25:44.541607+08:00"
+      },
+      "request_id": "173a6398-494e-4a41-96c9-28c8e2dba973"
+    }
+  },
+  "request": {
+    "expected_version": 1,
+    "answers": []
+  },
+  "proposal": {
+    "http_status": 200,
+    "elapsed_ms": 2758,
+    "body": {
+      "code": 0,
+      "message": "success",
+      "data": {
+        "task_id": "0886a353-2eb9-4ecc-af5d-9628f3a1fcb7",
+        "task_version": 1,
+        "decision": {
+          "kind": "proposal",
+          "explanation": "按目标顺序构建两节点链：先由 lifecycle.data-quality 对 raw_asset 质检并透传原始数据、产出质量报告，再由 lifecycle.data-cleaning 同时绑定质检透传的 raw_asset 与 quality_report 进行清洗，产出 cleaned_asset 与 quality_report 候选。两节点各尝试一次，不发布、不分析，全部使用受控算子默认规则（quality-default-v1 min_score=70；clean-trim-dedup-v1 keep=first min_score=70），无需自定义代码。",
+          "plan": {
+            "schema_version": 1,
+            "budget": {
+              "max_nodes": 2,
+              "max_concurrency": 1,
+              "max_attempts": 2,
+              "max_calls": 6,
+              "max_cost_micros": 0,
+              "timeout_seconds": 600
+            },
+            "nodes": [
+              {
+                "id": "quality",
+                "capability": "lifecycle.data-quality",
+                "capability_version": 1,
+                "depends_on": [],
+                "inputs": [
+                  {
+                    "asset": {
+                      "asset_id": "cc1e2c15-20c0-5e41-b258-1e75647bac98",
+                      "version": 1
+                    },
+                    "kind": "raw_asset"
+                  }
+                ],
+                "output_kinds": [
+                  "quality_report",
+                  "raw_asset"
+                ],
+                "tools": [
+                  "asset.resolve",
+                  "quality.profile"
+                ],
+                "permissions": [
+                  "read"
+                ],
+                "max_attempts": 1,
+                "max_calls_per_attempt": 2,
+                "max_cost_micros_per_attempt": 0,
+                "timeout_seconds": 300
+              },
+              {
+                "id": "cleaning",
+                "capability": "lifecycle.data-cleaning",
+                "capability_version": 1,
+                "depends_on": [
+                  "quality"
+                ],
+                "inputs": [
+                  {
+                    "from_node": "quality",
+                    "kind": "raw_asset"
+                  },
+                  {
+                    "from_node": "quality",
+                    "kind": "quality_report"
+                  }
+                ],
+                "output_kinds": [
+                  "cleaned_asset",
+                  "quality_report"
+                ],
+                "tools": [
+                  "asset.resolve",
+                  "cleaning.transform",
+                  "quality.profile"
+                ],
+                "permissions": [
+                  "read"
+                ],
+                "max_attempts": 1,
+                "max_calls_per_attempt": 4,
+                "max_cost_micros_per_attempt": 0,
+                "timeout_seconds": 300
+              }
+            ]
+          }
+        },
+        "validation": {
+          "valid": true,
+          "execution_enabled": false,
+          "authorization_scope": "lifecycle_asset",
+          "origin_revalidated": false,
+          "topological_order": [
+            "quality",
+            "cleaning"
+          ],
+          "approval_required": [],
+          "input_refs": [
+            {
+              "asset_id": "cc1e2c15-20c0-5e41-b258-1e75647bac98",
+              "version": 1
+            }
+          ],
+          "reserved_attempts": 2,
+          "reserved_calls": 6,
+          "reserved_cost_micros": 0,
+          "reserved_seconds": 600
+        },
+        "execution_enabled": false,
+        "planning_calls": 1,
+        "saved": false
+      },
+      "request_id": "6fbd5267-0745-4f14-bebe-e348d3e40b4e"
+    }
+  },
+  "after": {
+    "http_status": 200,
+    "elapsed_ms": 3,
+    "body": {
+      "code": 0,
+      "message": "success",
+      "data": {
+        "tenant_id": 216160000,
+        "user_id": 2,
+        "id": "0886a353-2eb9-4ecc-af5d-9628f3a1fcb7",
+        "goal": "按顺序先调用 data-quality 对输入做质检，再调用 data-cleaning 清洗，保留 cleaned_asset 和 quality_report 候选。使用现有受控算子的默认规则，无需自定义代码，不发布、不分析。只生成两个节点的计划，各尝试一次；清洗同时绑定质检返回的原始数据和质量报告。",
+        "input_refs": [
+          {
+            "version": 1,
+            "asset_id": "cc1e2c15-20c0-5e41-b258-1e75647bac98"
+          }
+        ],
+        "budget": {
+          "max_calls": 64,
+          "max_nodes": 8,
+          "max_attempts": 16,
+          "max_concurrency": 2,
+          "max_cost_micros": 1000000,
+          "timeout_seconds": 600
+        },
+        "result_refs": [],
+        "request_id": "81a23c7f-40fb-4cc3-9d43-d88d25b33c00",
+        "status": "draft",
+        "version": 1,
+        "current_plan_version": 0,
+        "execution_plan_version": 0,
+        "created_at": "2026-10-16T11:25:44.541607+08:00",
+        "updated_at": "2026-10-16T11:25:44.541607+08:00"
+      },
+      "request_id": "fe819b4d-6b47-4b14-9c32-60f58e2139e6"
+    }
+  },
+  "summary": {
+    "http_status": 200,
+    "elapsed_ms": 7,
+    "body": {
+      "code": 0,
+      "message": "success",
+      "data": {
+        "task_id": "0886a353-2eb9-4ecc-af5d-9628f3a1fcb7",
+        "task_version": 1,
+        "status": "draft",
+        "current_plan_version": 0,
+        "planned_nodes": 0,
+        "children": [],
+        "result_refs": [],
+        "warnings": [
+          "领域状态来自最近一次持久化核对；预算显示为已预留额度，不代表实际模型费用。"
+        ],
+        "execution_enabled": true,
+        "terminal": false,
+        "can_cancel": true,
+        "nodes": [],
+        "usage": {
+          "reserved_attempts": 0,
+          "reserved_calls": 0,
+          "reserved_cost_micros": 0
+        }
+      },
+      "request_id": "4c45242c-a27f-42ed-8620-dfc026c78b9d"
+    }
+  }
+}

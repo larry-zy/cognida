@@ -9,6 +9,7 @@ export interface AssetRef {
   status: string;
   name?: string;
   producer_id: string;
+  provenance?: { source_type: string; source_id: string };
   parents: RefID[];
   policy?: { sensitivity: string; scopes: string[]; approved: boolean };
   created_at: string;

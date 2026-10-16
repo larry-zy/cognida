@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-16",
+  "test_file": "apps/cognida-web/e2e/query-jobs.spec.ts",
+  "test": "Hive durable query → exact results → reload and same-key replay",
+  "status": "passed",
+  "test_seconds": 4.2,
+  "suite_seconds": 4.8,
+  "remote": "actual isolated HiveServer2 4.0, NONE authentication, retained sessions",
+  "job_id": "e63eb38b-8768-4ad8-a5e3-c62020af945b",
+  "terminal_status": "succeeded",
+  "remote_status": "succeeded",
+  "cleanup_pending": false,
+  "row_count": 2,
+  "verified_values": ["00123", "9007199254740993.123456789", "9223372036854775807"],
+  "assertions": ["real HTTP submission from UI", "persisted result pagination", "same-key same-ID replay", "changed-budget HTTP 409", "reload reads original persisted values"],
+  "cleanup": "test deletes its own synthetic datasource and closes API/browser contexts; environment owned by root",
+  "not_claimed": ["live BigQuery", "Hive LDAP/TLS/Kerberos", "production performance or load testing"]
+}

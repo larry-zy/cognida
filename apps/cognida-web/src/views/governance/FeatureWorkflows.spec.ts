@@ -79,6 +79,36 @@ beforeEach(() => {
   api.create.mockResolvedValue({ data: feature });
 });
 describe("feature computation workflow", () => {
+  it("submits the feature head ID when historical version records have independent IDs", async () => {
+    api.list.mockImplementation(async (path: string) => ({
+      data: {
+        items: path.endsWith("/versions")
+          ? [{ ...feature, id: "immutable-version-record" }]
+          : [],
+      },
+    }));
+    const job = {
+      id: "job",
+      version: 1,
+      status: "completed",
+      request: { feature_id: "feature", feature_version: 2, mode: "full" },
+      committed_rows: 0,
+      total_rows: 0,
+      partitions: [],
+    };
+    api.create.mockResolvedValue({ data: job });
+    api.get.mockImplementation(async (path: string) => ({
+      data: path.startsWith("/feature-jobs/") ? job : feature,
+    }));
+    const { wrapper } = await open("?feature_id=feature");
+    await wrapper.get('[aria-label="分区物化任务"] form').trigger("submit");
+    await flushPromises();
+    expect(api.create).toHaveBeenCalledWith(
+      "/feature-jobs",
+      expect.objectContaining({ feature_id: "feature", feature_version: 2 }),
+    );
+    wrapper.unmount();
+  });
   it("keeps optional event time when switching from field to expression", async () => {
     const { wrapper } = await open();
     await draft(wrapper);
@@ -117,7 +147,10 @@ describe("feature computation workflow", () => {
     );
     const { wrapper } = await open("?feature_id=feature");
     await field(wrapper, "读取实体").get("input").setValue("original");
-    await wrapper.findAll("form")[2].trigger("submit");
+    await wrapper
+      .findAll("form")
+      .find((f) => f.text().includes("读取实体"))!
+      .trigger("submit");
     await field(wrapper, "读取实体").get("input").setValue("new");
     finish({
       data: [
@@ -134,7 +167,9 @@ describe("feature computation workflow", () => {
   });
   it("writes manual decimal values using the exact literal channel", async () => {
     const { wrapper } = await open("?feature_id=feature");
-    const form = wrapper.findAll("form")[1];
+    const form = wrapper
+      .findAll("form")
+      .find((f) => f.find('input[placeholder="customer-1001"]').exists())!;
     await form.get('input[placeholder="customer-1001"]').setValue("entity");
     await form
       .get('input[placeholder="输入特征值"]')

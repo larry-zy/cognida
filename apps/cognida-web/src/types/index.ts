@@ -363,6 +363,7 @@ export interface ChunkListResponse {
 // 知识检索相关
 // 注意：字段与后端 SearchKnowledge 绑定保持一致（min_score，而非 score_threshold）
 export interface SearchRequest {
+  applied_labels?: string[]
   retrieval_mode?: 'auto' | 'vector' | 'bm25' | 'hybrid'
   query: string
   kb_ids: string[]

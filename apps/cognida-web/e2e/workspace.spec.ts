@@ -11,6 +11,8 @@ test('workspace: real counts → run detail deep link → report', async ({ page
     await expect(page.locator('[data-section="assets"] .source-status__count')).toHaveText(`${assets.items.length}条已读取`)
     await expect(page.locator('.source-status [role="alert"]')).toHaveCount(0)
     await attachJSON(info, 'overview-real-counts', { runs: runs.items.length, assets: assets.items.length })
+    await page.getByRole('group', { name: '任务记录类型' }).getByRole('button', { name: '处理流程', exact: true }).click()
+    await expect(page.getByRole('group', { name: '任务记录类型' }).getByRole('button', { name: '处理流程', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({ path: info.outputPath('workspace-desktop.png'), fullPage: true })
     const runLink = page.getByRole('link', { name: /^查看处理流程 / }).first()
     expect(runs.items.length, 'run lifecycle scenarios before the workspace acceptance').toBeGreaterThan(0)

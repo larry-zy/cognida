@@ -122,6 +122,7 @@
             @update:model-value="optionDrafts[stage.id] = $event"
           />
           </details>
+          <CleaningReview v-if="!isPipeline && executor === 'data-cleaning'" :source-ref="assetSelection" :options="cleaningPreviewOptions" @confirmed="cleaningPreviewDigest=$event" />
           <div v-if="needsPublication && selectedInputKind === 'text'" class="wb-stack">
             <p v-if="targetError" class="wb-error" role="alert">{{ targetError }}</p>
             <p v-else-if="!targetLoading && !publicationTargets.length" class="wb-muted">当前工作空间暂无知识库，请先在知识库页面创建。</p>
@@ -381,6 +382,7 @@
             {{ assetDetail.ref.kind }} · {{ statusLabel(assetDetail.ref.status) }}
           </p>
           <AnalysisReport :content="assetDetail.content" />
+          <CleaningReview v-if="assetDetail.ref.kind === 'cleaned_asset'" :cleaned-ref="`${assetDetail.ref.asset_id}:${assetDetail.ref.version}`" />
           <details><summary>原始资产内容</summary><pre class="wb-code">{{
             typeof assetDetail.content === "string"
               ? assetDetail.content
@@ -417,6 +419,7 @@ import {
 import DecisionCard from "@/components/workbench/DecisionCard.vue";
 import AnalysisReport from "@/components/workbench/AnalysisReport.vue";
 import RecordEditor from "@/components/workbench/RecordEditor.vue";
+import CleaningReview from "./CleaningReview.vue";
 import ExpertOptionsForm from "./ExpertOptionsForm.vue";
 import LifecycleRunGuide from "./LifecycleRunGuide.vue";
 import { defaultOptions, validatedOptions } from "./expertOptions";
@@ -426,6 +429,7 @@ const route = useRoute(),
   isPipeline = computed(() => route.path.startsWith("/pipelines")),
   resource = computed(() => "runs" as "runs" | "invocations");
 const workbenchRoot = ref<HTMLElement>(), createPanel = ref<HTMLDetailsElement>(), inputSelect = ref<HTMLSelectElement>(), executionPanel = ref<HTMLElement>(), assetPanel = ref<HTMLElement>();
+const cleaningPreviewDigest = ref("");
 const createExpanded = ref(false), initialLoading = ref(true), initialError = ref(false), historyLoading = ref(false), detailLoading = ref(false), assetDetailLoading = ref(false), writing = ref(false);
 const detailErrorID = ref('');
 const agents = ref<Agent[]>([]),
@@ -541,6 +545,12 @@ const parameterStages = computed(() => isPipeline.value
   ? templates.value.find((t) => t.id === executor.value)?.stages || []
   : executor.value ? [{ id: executor.value, agent_id: executor.value }] : []);
 const optionDrafts = reactive<Record<string, ExpertOptions>>({});
+// Preview and execution hash the same validated option shape.
+const cleaningPreviewOptions = computed(() => {
+  const draft = optionDrafts["data-cleaning"] || defaultOptions("data-cleaning");
+  try { return validatedOptions("data-cleaning", draft, selectedInputKind.value, publicationTargets.value); }
+  catch { return draft; }
+});
 const needsPublication = computed(() => parameterStages.value.some((stage) => stage.agent_id === "data-asset"));
 const selectedInputKind = ref(""), inputLoading = ref(false), inputError = ref("");
 const publicationTargets = ref<PublicationTarget[]>([]), targetLoading = ref(false), targetError = ref(""), targetHasMore = ref(false);
@@ -745,6 +755,7 @@ async function start() {
       try { return [stage.id, validatedOptions(stage.agent_id, optionDrafts[stage.id] || defaultOptions(stage.agent_id), selectedInputKind.value, publicationTargets.value)]; }
       catch (error) { const section = [...(workbenchRoot.value?.querySelectorAll<HTMLDetailsElement>('[data-options-stage]') || [])].find(item => item.dataset.optionsStage === stage.id); if (section) { section.open = true; section.scrollIntoView?.({ block: 'nearest' }); } throw error; }
     }));
+    if(!isPipeline.value && executor.value==="data-cleaning" && cleaningPreviewDigest.value) Object.assign(options[executor.value],{preview_digest:cleaningPreviewDigest.value});
     const data = {
       ...(isPipeline.value
         ? { template_id: executor.value }

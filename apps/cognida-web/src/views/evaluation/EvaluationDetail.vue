@@ -3,7 +3,9 @@
     <!-- 返回按钮 -->
     <div class="back-header">
       <UiButton variant="secondary" icon @click="goBack">
-        <template #icon><el-icon><ArrowLeft /></el-icon></template>
+        <template #icon
+          ><el-icon><ArrowLeft /></el-icon
+        ></template>
         返回列表
       </UiButton>
     </div>
@@ -13,49 +15,102 @@
       <el-icon class="is-loading" :size="48"><Loading /></el-icon>
       <p>加载中...</p>
     </div>
+    <div v-else-if="detailError" role="alert" class="wb-error">
+      <p>{{ detailError }}</p>
+      <UiButton @click="loadDetail">重新读取</UiButton>
+    </div>
 
     <!-- 内容 -->
     <template v-else-if="detail">
+      <p v-if="detail.type === 'offline'" class="offline-notice">
+        已有答案离线评分：对固定输入中的答案运行确定性评分器，本次未调用模型生成答案。
+      </p>
       <!-- 任务信息卡片 -->
       <UiCard class="info-card">
         <template #header>
           <div class="card-header">
             <h3>任务信息</h3>
-            <UiTag v-if="detail.task" :variant="getStatusType(detail.task.status)">
+            <UiTag
+              v-if="detail.task"
+              :variant="getStatusType(detail.task.status)"
+            >
               {{ getStatusText(detail.task.status) }}
             </UiTag>
-            <RouterLink v-if="detail.task?.status === EvaluationStatus.Completed && detail.task.total_count > 0" :to="{ path: '/pipelines', query: { source: 'evaluation', run_id: detail.task.task_id, name: detail.dataset_name ? `${detail.dataset_name}评测结果` : '评测结果' } }">转入流水线</RouterLink>
+            <RouterLink
+              v-if="
+                detail.task?.status === EvaluationStatus.Completed &&
+                detail.task.total_count > 0
+              "
+              :to="{
+                path: '/pipelines',
+                query: {
+                  source: 'evaluation',
+                  run_id: detail.task.task_id,
+                  name: detail.dataset_name
+                    ? `${detail.dataset_name}评测结果`
+                    : '评测结果',
+                },
+              }"
+              >转入流水线</RouterLink
+            >
           </div>
         </template>
         <UiDescriptions v-if="detail.task" :column="3" border>
-          <UiDescriptionsItem label="任务ID">{{ detail.task.task_id.substring(0, 8) }}...</UiDescriptionsItem>
-          <UiDescriptionsItem label="数据集id">{{ detail.task.dataset_id || detail.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="任务ID"
+            >{{ detail.task.task_id.substring(0, 8) }}...</UiDescriptionsItem
+          >
+          <UiDescriptionsItem label="数据集id">{{
+            detail.task.dataset_id || detail.dataset_id
+          }}</UiDescriptionsItem>
           <UiDescriptionsItem label="数据集名称" :mono="false">
             <button
-              v-if="detail.dataset_name || detail.task.dataset_id || detail.dataset_id"
+              v-if="
+                detail.dataset_name ||
+                detail.task.dataset_id ||
+                detail.dataset_id
+              "
               type="button"
               class="dataset-name-link"
               title="查看数据集"
-              @click.stop="goToDataset(detail.dataset_name, detail.task.dataset_id || detail.dataset_id)"
+              @click.stop="
+                goToDataset(
+                  detail.dataset_name,
+                  detail.task.dataset_id || detail.dataset_id,
+                )
+              "
             >
-              {{ detail.dataset_name || detail.task.dataset_id || detail.dataset_id }}
+              {{
+                detail.dataset_name ||
+                detail.task.dataset_id ||
+                detail.dataset_id
+              }}
             </button>
             <span v-else>-</span>
           </UiDescriptionsItem>
           <UiDescriptionsItem label="进度">
             {{ detail.task.success_count }} / {{ detail.task.total_count }}
           </UiDescriptionsItem>
-          <UiDescriptionsItem label="创建时间">{{ formatTime(detail.task.created_at) }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="创建时间">{{
+            formatTime(detail.task.created_at)
+          }}</UiDescriptionsItem>
           <UiDescriptionsItem label="更新时间">
             {{ formatTime(detail.task.updated_at) }}
           </UiDescriptionsItem>
-          <UiDescriptionsItem v-if="detail.task.error_message" label="错误信息" :span="3">
+          <UiDescriptionsItem
+            v-if="detail.task.error_message"
+            label="错误信息"
+            :span="3"
+          >
             <UiText type="danger">{{ detail.task.error_message }}</UiText>
           </UiDescriptionsItem>
         </UiDescriptions>
         <UiDescriptions v-else :column="3" border>
-          <UiDescriptionsItem label="任务ID">{{ detail.task_id?.substring(0, 8) }}...</UiDescriptionsItem>
-          <UiDescriptionsItem label="数据集id">{{ detail.dataset_id }}</UiDescriptionsItem>
+          <UiDescriptionsItem label="任务ID"
+            >{{ detail.task_id?.substring(0, 8) }}...</UiDescriptionsItem
+          >
+          <UiDescriptionsItem label="数据集id">{{
+            detail.dataset_id
+          }}</UiDescriptionsItem>
           <UiDescriptionsItem label="数据集名称" :mono="false">
             <button
               v-if="detail.dataset_name || detail.dataset_id"
@@ -79,7 +134,11 @@
           <h3>聚合指标</h3>
         </template>
         <div class="metrics-grid">
-          <div class="metric-card" v-for="item in aggregateEntries" :key="item.key">
+          <div
+            class="metric-card"
+            v-for="item in aggregateEntries"
+            :key="item.key"
+          >
             <div class="metric-label">{{ item.label }}</div>
             <div class="metric-value">{{ item.text }}</div>
           </div>
@@ -106,8 +165,15 @@
                 :options="sortOrderOptions"
                 @change="handleSortChange"
               />
-              <UiButton variant="secondary" size="sm" icon @click="exportResults">
-                <template #icon><el-icon><Download /></el-icon></template>
+              <UiButton
+                variant="secondary"
+                size="sm"
+                icon
+                @click="exportResults"
+              >
+                <template #icon
+                  ><el-icon><Download /></el-icon
+                ></template>
                 导出
               </UiButton>
             </div>
@@ -123,7 +189,9 @@
             class="search-input"
             clearable
           >
-            <template #prefix><el-icon><Search /></el-icon></template>
+            <template #prefix
+              ><el-icon><Search /></el-icon
+            ></template>
           </UiInput>
           <div class="score-sliders">
             <UiSlider
@@ -145,7 +213,9 @@
               @change="handleScoreMaxChange"
             />
           </div>
-          <span class="filter-label">得分: {{ scoreRange[0] }}% - {{ scoreRange[1] }}%</span>
+          <span class="filter-label"
+            >得分: {{ scoreRange[0] }}% - {{ scoreRange[1] }}%</span
+          >
         </div>
 
         <!-- QA 列表 -->
@@ -153,14 +223,37 @@
           <div v-for="qa in displayQAResults" :key="qa.index" class="qa-item">
             <div class="qa-header">
               <span class="qa-index">#{{ qa.index + 1 }}</span>
+              <RouterLink
+                v-if="qa.id"
+                :to="{
+                  path: '/feedback',
+                  query: { task_id: taskId, result_id: String(qa.id) },
+                }"
+                >记录此结果反馈并返工</RouterLink
+              >
               <div class="qa-metrics">
+                <UiTag
+                  v-for="(value, name) in qa.scores || {}"
+                  :key="name"
+                  size="sm"
+                  variant="info"
+                  >{{ name }}: {{ value }}</UiTag
+                >
                 <UiTag v-if="qa.bleu !== undefined" size="sm" variant="info">
                   BLEU: {{ formatPercent(qa.bleu) }}
                 </UiTag>
-                <UiTag v-if="qa.rouge1 !== undefined" size="sm" variant="success">
+                <UiTag
+                  v-if="qa.rouge1 !== undefined"
+                  size="sm"
+                  variant="success"
+                >
                   ROUGE-1: {{ formatPercent(qa.rouge1) }}
                 </UiTag>
-                <UiTag v-if="qa.score !== undefined" size="sm" :variant="getScoreType(qa.score)">
+                <UiTag
+                  v-if="qa.score !== undefined"
+                  size="sm"
+                  :variant="getScoreType(qa.score)"
+                >
                   得分: {{ formatPercent(qa.score) }}
                 </UiTag>
               </div>
@@ -183,17 +276,24 @@
               <div v-if="qa.generated_answer" class="qa-block">
                 <div class="qa-label">
                   <el-icon><ChatLineSquare /></el-icon>
-                  生成答案
+                  {{ detail.type === "offline" ? "已有答案" : "生成答案" }}
                 </div>
                 <div class="qa-text">{{ qa.generated_answer }}</div>
               </div>
-              <div v-if="qa.retrieved_passages && qa.retrieved_passages.length > 0" class="qa-block">
+              <div
+                v-if="qa.retrieved_passages && qa.retrieved_passages.length > 0"
+                class="qa-block"
+              >
                 <div class="qa-label">
                   <el-icon><Document /></el-icon>
                   检索段落
                 </div>
                 <div class="qa-passages">
-                  <div v-for="(p, i) in qa.retrieved_passages.slice(0, 2)" :key="i" class="passage-item">
+                  <div
+                    v-for="(p, i) in qa.retrieved_passages.slice(0, 2)"
+                    :key="i"
+                    class="passage-item"
+                  >
                     {{ p }}
                   </div>
                 </div>
@@ -220,9 +320,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import toast from '@/utils/toast'
+import { ref, computed, watch, onUnmounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAuthStore } from "@/stores/auth";
+import toast from "@/utils/toast";
 import {
   UiButton,
   UiCard,
@@ -233,8 +334,8 @@ import {
   UiInput,
   UiSelect,
   UiSlider,
-  UiPagination
-} from '@/components'
+  UiPagination,
+} from "@/components";
 import {
   ArrowLeft,
   Loading,
@@ -243,302 +344,365 @@ import {
   QuestionFilled,
   CircleCheck,
   ChatLineSquare,
-  Document
-} from '@element-plus/icons-vue'
-import { evaluationApi } from '@/api/evaluation'
-import { connectTaskProgress, type SSEConnection } from '@/utils/sse'
-import { taskAggregateEntries } from './evaluation-config'
+  Document,
+} from "@element-plus/icons-vue";
+import { evaluationApi } from "@/api/evaluation";
+import { connectTaskProgress, type SSEConnection } from "@/utils/sse";
+import { taskAggregateEntries } from "./evaluation-config";
 import {
   EvaluationStatus,
   EvaluationStatusText,
   EvaluationStatusType,
   type EvaluationDetail,
   type QAResult,
-  type SSEProgressEvent
-} from '@/types'
+  type SSEProgressEvent,
+} from "@/types";
 
-const route = useRoute()
-const router = useRouter()
-const taskId = computed(() => route.params.id as string || route.query.taskId as string)
+const route = useRoute();
+const router = useRouter();
+const auth = useAuthStore();
+const taskId = computed(
+  () => (route.params.id as string) || (route.query.taskId as string),
+);
 
-const loading = ref(true)
-const qaLoading = ref(false)
-const detail = ref<EvaluationDetail | null>(null)
-const qaResults = ref<QAResult[]>([])
-const sseClient = ref<SSEConnection | null>(null)
+const loading = ref(true);
+const qaLoading = ref(false);
+const detail = ref<EvaluationDetail | null>(null);
+const detailError = ref("");
+const qaResults = ref<
+  (QAResult & { id?: string | number; scores?: Record<string, number> })[]
+>([]);
+let generation = 0;
+const sseClient = ref<SSEConnection | null>(null);
 
 // 筛选和排序
-const searchQuery = ref('')
-const scoreRange = ref<[number, number]>([0, 100])
-const sortBy = ref('index')
-const sortOrder = ref<'asc' | 'desc'>('desc')
-const currentPage = ref(1)
-const pageSize = ref(20)
-const totalQAResults = ref(0)
+const searchQuery = ref("");
+const scoreRange = ref<[number, number]>([0, 100]);
+const sortBy = ref("index");
+const sortOrder = ref<"asc" | "desc">("desc");
+const currentPage = ref(1);
+const pageSize = ref(20);
+const totalQAResults = ref(0);
 
 // 排序选项
 const sortByOptions = [
-  { label: '按索引', value: 'index' },
-  { label: '按 BLEU', value: 'bleu' },
-  { label: '按 ROUGE-1', value: 'rouge1' },
-  { label: '按得分', value: 'score' }
-]
+  { label: "按索引", value: "index" },
+  { label: "按 BLEU", value: "bleu" },
+  { label: "按 ROUGE-1", value: "rouge1" },
+  { label: "按得分", value: "score" },
+];
 const sortOrderOptions = [
-  { label: '降序', value: 'desc' },
-  { label: '升序', value: 'asc' }
-]
+  { label: "降序", value: "desc" },
+  { label: "升序", value: "asc" },
+];
 
 // 得分滑块刻度
 const scoreMarks = [
-  { value: 0, label: '0%' },
-  { value: 50, label: '50%' },
-  { value: 100, label: '100%' }
-]
+  { value: 0, label: "0%" },
+  { value: 50, label: "50%" },
+  { value: 100, label: "100%" },
+];
 
 // 任务级聚合指标（注册表驱动动态渲染：per-QA 均值 ∪ 后端 detail.metrics 扁平聚合）
-const aggregateEntries = computed(() => taskAggregateEntries(detail.value))
+const aggregateEntries = computed(() => taskAggregateEntries(detail.value));
 
 // 过滤和排序后的 QA 结果
 const filteredQAResults = computed(() => {
-  let results = [...qaResults.value]
+  let results = [...qaResults.value];
 
   // 搜索过滤
   if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    results = results.filter(qa =>
-      qa.question.toLowerCase().includes(query) ||
-      qa.reference_answer.toLowerCase().includes(query)
-    )
+    const query = searchQuery.value.toLowerCase();
+    results = results.filter(
+      (qa) =>
+        qa.question.toLowerCase().includes(query) ||
+        qa.reference_answer.toLowerCase().includes(query),
+    );
   }
 
   // 得分范围过滤
-  results = results.filter(qa => {
-    if (qa.score === undefined) return true
-    const scorePercent = qa.score * 100
-    return scorePercent >= scoreRange.value[0] && scorePercent <= scoreRange.value[1]
-  })
+  results = results.filter((qa) => {
+    if (qa.score === undefined) return true;
+    const scorePercent = qa.score * 100;
+    return (
+      scorePercent >= scoreRange.value[0] && scorePercent <= scoreRange.value[1]
+    );
+  });
 
   // 排序
   results.sort((a, b) => {
-    let aVal: number, bVal: number
+    let aVal: number, bVal: number;
 
     switch (sortBy.value) {
-      case 'bleu':
-        aVal = a.bleu ?? 0
-        bVal = b.bleu ?? 0
-        break
-      case 'rouge1':
-        aVal = a.rouge1 ?? 0
-        bVal = b.rouge1 ?? 0
-        break
-      case 'score':
-        aVal = a.score ?? 0
-        bVal = b.score ?? 0
-        break
+      case "bleu":
+        aVal = a.bleu ?? 0;
+        bVal = b.bleu ?? 0;
+        break;
+      case "rouge1":
+        aVal = a.rouge1 ?? 0;
+        bVal = b.rouge1 ?? 0;
+        break;
+      case "score":
+        aVal = a.score ?? 0;
+        bVal = b.score ?? 0;
+        break;
       default:
-        aVal = a.index
-        bVal = b.index
+        aVal = a.index;
+        bVal = b.index;
     }
 
-    return sortOrder.value === 'asc' ? aVal - bVal : bVal - aVal
-  })
+    return sortOrder.value === "asc" ? aVal - bVal : bVal - aVal;
+  });
 
-  return results
-})
+  return results;
+});
 
 // 分页显示的 QA 结果
 const displayQAResults = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredQAResults.value.slice(start, end)
-})
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return filteredQAResults.value.slice(start, end);
+});
 
 function getStatusType(status: EvaluationStatus) {
-  return EvaluationStatusType[status]
+  return EvaluationStatusType[status];
 }
 
 function getStatusText(status: EvaluationStatus) {
-  return EvaluationStatusText[status]
+  return EvaluationStatusText[status];
 }
 
 function formatTime(timeStr: string): string {
-  if (!timeStr) return '-'
-  return new Date(timeStr).toLocaleString('zh-CN')
+  if (!timeStr) return "-";
+  return new Date(timeStr).toLocaleString("zh-CN");
 }
 
 function formatPercent(value: number): string {
-  return (value * 100).toFixed(2) + '%'
+  return (value * 100).toFixed(2) + "%";
 }
 
-function getScoreType(score: number): 'success' | 'warning' | 'danger' | 'info' {
-  if (score >= 0.8) return 'success'
-  if (score >= 0.6) return 'info'
-  if (score >= 0.4) return 'warning'
-  return 'danger'
+function getScoreType(
+  score: number,
+): "success" | "warning" | "danger" | "info" {
+  if (score >= 0.8) return "success";
+  if (score >= 0.6) return "info";
+  if (score >= 0.4) return "warning";
+  return "danger";
 }
 
 /** 跳转数据集管理，并把名称 / ID 写入筛选条件 */
 async function goToDataset(name?: string, id?: string) {
-  const query: Record<string, string> = {}
-  if (name?.trim()) query.name = name.trim()
-  if (id?.trim()) query.id = id.trim()
-  await router.push({ path: '/datasets', query })
+  const query: Record<string, string> = {};
+  if (name?.trim()) query.name = name.trim();
+  if (id?.trim()) query.id = id.trim();
+  await router.push({ path: "/datasets", query });
 }
 
 function goBack() {
-  router.push({ name: 'EvaluationList' })
+  router.push({ name: "EvaluationList" });
 }
 
 async function loadDetail() {
-  if (!taskId.value) return
-
-  loading.value = true
+  if (!taskId.value) return;
+  const request = ++generation,
+    id = taskId.value;
+  disconnectSSE();
+  detail.value = null;
+  qaResults.value = [];
+  detailError.value = "";
+  loading.value = true;
   try {
-    const res = await evaluationApi.getResult(taskId.value)
+    const res = await evaluationApi.getResult(id);
+    if (request !== generation) return;
     if (res.data) {
-      detail.value = res.data
+      const item = res.data;
+      // The real HTTP response is flat; retain compatibility with older nested responses.
+      detail.value = {
+        ...item,
+        task: item.task || {
+          task_id: item.task_id,
+          dataset_id: item.dataset_id,
+          type: item.type,
+          status: item.status,
+          total_count: item.total_count,
+          success_count: item.success_count,
+          failure_count: item.failure_count,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        },
+      };
 
       // 如果任务正在运行，连接 SSE
-      if (res.data.task?.status === EvaluationStatus.Running) {
-        connectSSE(taskId.value)
+      if (detail.value.task?.status === EvaluationStatus.Running) {
+        connectSSE(id);
       }
 
-      // 加载 QA 结果
-      await loadQAResults()
-    }
+      if (Array.isArray(item.qa_results)) {
+        qaResults.value = item.qa_results.map((row, index) => ({
+          ...row,
+          index: row.index ?? index,
+        }));
+        totalQAResults.value = qaResults.value.length;
+      } else await loadQAResults(request);
+    } else throw new Error("服务未返回评测详情。");
   } catch (error: any) {
-    toast.error(error.message || '加载详情失败')
+    if (request !== generation) return;
+    detail.value = null;
+    qaResults.value = [];
+    detailError.value = [401, 403, 404].includes(error?.response?.status)
+      ? "评测或来源当前不可访问，请核对身份与权限。"
+      : "评测详情读取失败，请重试。";
   } finally {
-    loading.value = false
+    if (request === generation) loading.value = false;
   }
 }
 
-async function loadQAResults() {
-  if (!taskId.value) return
+async function loadQAResults(request = generation) {
+  if (!taskId.value) return;
 
-  qaLoading.value = true
+  qaLoading.value = true;
   try {
     const res = await evaluationApi.getQAResults(taskId.value, {
       page: currentPage.value,
-      page_size: 1000 // 获取所有结果用于前端筛选
-    })
+      page_size: 1000, // 获取所有结果用于前端筛选
+    });
+    if (request !== generation) return;
     if (res.data) {
-      qaResults.value = res.data.results || []
-      totalQAResults.value = res.data.total || qaResults.value.length
+      qaResults.value = res.data.results || [];
+      totalQAResults.value = res.data.total || qaResults.value.length;
     }
   } catch (error: any) {
-    console.error('Failed to load QA results:', error)
+    console.error("Failed to load QA results:", error);
   } finally {
-    qaLoading.value = false
+    if (request === generation) qaLoading.value = false;
   }
 }
 
 function connectSSE(id: string) {
-  disconnectSSE()
+  disconnectSSE();
 
   sseClient.value = connectTaskProgress(
     id,
     {
       onMessage: (event) => {
         try {
-          const data = JSON.parse(event.data) as SSEProgressEvent
+          const data = JSON.parse(event.data) as SSEProgressEvent;
 
-          if (detail.value?.task && detail.value.task.task_id === data.task_id) {
-            detail.value.task.status = data.data.status
+          if (
+            detail.value?.task &&
+            detail.value.task.task_id === data.task_id
+          ) {
+            detail.value.task.status = data.data.status;
 
             // 完成或失败时重新加载
-            if (data.data.status === EvaluationStatus.Completed ||
-                data.data.status === EvaluationStatus.Failed) {
-              disconnectSSE()
-              loadDetail()
+            if (
+              data.data.status === EvaluationStatus.Completed ||
+              data.data.status === EvaluationStatus.Failed
+            ) {
+              disconnectSSE();
+              loadDetail();
             }
           }
         } catch (e) {
-          console.error('Failed to parse SSE message:', e)
+          console.error("Failed to parse SSE message:", e);
         }
-      }
+      },
     },
-    { autoReconnect: true }
-  )
+    { autoReconnect: true },
+  );
 }
 
 function disconnectSSE() {
-  sseClient.value?.disconnect()
-  sseClient.value = null
+  sseClient.value?.disconnect();
+  sseClient.value = null;
 }
 
 function handleSortChange() {
-  currentPage.value = 1
+  currentPage.value = 1;
 }
 
 function handleFilterChange() {
-  currentPage.value = 1
+  currentPage.value = 1;
 }
 
 // 得分下限滑块：不得超过上限
 function handleScoreMinChange(value: number) {
   if (value > scoreRange.value[1]) {
-    scoreRange.value[1] = value
+    scoreRange.value[1] = value;
   }
-  scoreRange.value[0] = value
-  handleFilterChange()
+  scoreRange.value[0] = value;
+  handleFilterChange();
 }
 
 // 得分上限滑块：不得低于下限
 function handleScoreMaxChange(value: number) {
   if (value < scoreRange.value[0]) {
-    scoreRange.value[0] = value
+    scoreRange.value[0] = value;
   }
-  scoreRange.value[1] = value
-  handleFilterChange()
+  scoreRange.value[1] = value;
+  handleFilterChange();
 }
 
 function handlePageChange(page: number) {
-  currentPage.value = page
+  currentPage.value = page;
 }
 
 function handleSizeChange(size: number) {
-  pageSize.value = size
-  currentPage.value = 1
+  pageSize.value = size;
+  currentPage.value = 1;
 }
 
 function exportResults() {
   if (!filteredQAResults.value.length) {
-    toast.warning('没有可导出的数据')
-    return
+    toast.warning("没有可导出的数据");
+    return;
   }
 
   // 生成 CSV
-  const headers = ['Index', 'Question', 'Reference Answer', 'Generated Answer', 'BLEU', 'ROUGE-1', 'Score']
-  const rows = filteredQAResults.value.map(qa => [
+  const headers = [
+    "Index",
+    "Question",
+    "Reference Answer",
+    "Generated Answer",
+    "BLEU",
+    "ROUGE-1",
+    "Score",
+  ];
+  const rows = filteredQAResults.value.map((qa) => [
     qa.index,
     `"${qa.question.replace(/"/g, '""')}"`,
     `"${qa.reference_answer.replace(/"/g, '""')}"`,
-    `"${(qa.generated_answer || '').replace(/"/g, '""')}"`,
-    qa.bleu?.toFixed(4) || '',
-    qa.rouge1?.toFixed(4) || '',
-    qa.score?.toFixed(4) || ''
-  ])
+    `"${(qa.generated_answer || "").replace(/"/g, '""')}"`,
+    qa.bleu?.toFixed(4) || "",
+    qa.rouge1?.toFixed(4) || "",
+    qa.score?.toFixed(4) || "",
+  ]);
 
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `evaluation_${taskId.value}_results.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `evaluation_${taskId.value}_results.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 
-  toast.success('导出成功')
+  toast.success("导出成功");
 }
 
-onMounted(() => {
-  loadDetail()
-})
+watch(
+  () =>
+    `${taskId.value}:${auth.authEpoch}:${auth.currentTenant?.id}:${auth.user?.id}`,
+  () => {
+    void loadDetail();
+  },
+  { immediate: true },
+);
 
 onUnmounted(() => {
-  disconnectSSE()
-})
+  generation++;
+  disconnectSSE();
+});
 </script>
 
 <style scoped>

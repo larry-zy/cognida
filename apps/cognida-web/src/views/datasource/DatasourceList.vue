@@ -123,6 +123,8 @@
       />
     </div>
 
+    <QueryJobsPanel />
+
     <!-- 创建/编辑对话框 -->
     <UiModal
       v-model="dialogVisible"
@@ -170,7 +172,7 @@
           </div>
 
           <!-- Host -->
-          <div class="form-field">
+          <div v-if="form.type !== 'bigquery'" class="form-field">
             <label class="form-label">
               Host <span class="required">*</span>
             </label>
@@ -182,7 +184,7 @@
           </div>
 
           <!-- Port -->
-          <div class="form-field">
+          <div v-if="form.type !== 'bigquery'" class="form-field">
             <label class="form-label">
               Port <span class="required">*</span>
             </label>
@@ -196,7 +198,7 @@
           </div>
 
           <!-- 用户名 -->
-          <div class="form-field">
+          <div v-if="form.type !== 'bigquery'" class="form-field">
             <label class="form-label">
               用户名 <span class="required">*</span>
             </label>
@@ -208,10 +210,10 @@
           </div>
 
           <!-- 密码 -->
-          <div class="form-field">
+          <div v-if="form.type !== 'bigquery'" class="form-field">
             <label class="form-label">
               密码
-              <span v-if="!editingId" class="required">*</span>
+              <span v-if="!editingId && passwordRequired" class="required">*</span>
             </label>
             <UiInput
               v-model="form.password"
@@ -223,6 +225,23 @@
             <span v-if="editingId" class="form-hint">留空将保留原密码</span>
           </div>
 
+          <template v-if="form.type === 'bigquery'">
+            <label class="form-field form-label">受管凭据引用<input v-model="form.username" aria-label="受管凭据引用" required /><span class="form-hint">仅填写运维登记的引用，不接收文件路径或服务账号私钥。</span></label>
+            <label class="form-field form-label">Google Cloud 项目<input v-model="form.project" aria-label="Google Cloud 项目" required /></label>
+            <label class="form-field form-label">BigQuery 区域<input v-model="form.location" aria-label="BigQuery 区域" required /></label>
+            <label class="form-field form-label">扫描字节上限<input v-model.number="form.maxScanBytes" aria-label="扫描字节上限" type="number" min="1" max="9007199254740991" required /></label>
+            <p class="form-field--full form-hint">数据库名为数据集 ID。服务端固定 Google HTTPS 地址，查询先 dry-run 再检查扫描预算；未配置受管凭据时会明确拒绝，不会代用其他项目。</p>
+          </template>
+          <div v-if="form.type === 'hive'" class="form-field form-field--full">
+            <label class="form-label">Hive 身份验证
+              <select v-model="form.auth" aria-label="Hive 身份验证"><option value="NONE">NONE（受控开发）</option><option value="NOSASL">NOSASL（受控开发）</option><option value="LDAP">LDAP</option><option value="CUSTOM">CUSTOM</option></select>
+            </label>
+            <span class="form-hint">使用显式服务身份；生产账户须在 Hive 侧限制只读。当前不支持 Kerberos。</span>
+          </div>
+          <div v-if="form.type === 'hive' || form.type === 'clickhouse'" class="form-field form-field--full">
+            <label class="form-label"><input v-model="form.tls" type="checkbox" />验证服务器证书并启用 TLS</label>
+            <span class="form-hint">使用服务端系统信任根，LDAP/CUSTOM 必须启用。</span>
+          </div>
           <!-- 描述 -->
           <div class="form-field form-field--full">
             <label class="form-label">
@@ -268,11 +287,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { UiButton, UiTable, UiTag, UiModal, UiInput, UiInputNumber, UiSelect, UiPagination, UiAsyncStatus } from '@/components'
 import { datasourceApi } from '@/api/datasource'
 import type { Datasource, DatasourceType } from '@/api/datasource'
 import toast from '@/utils/toast'
+import QueryJobsPanel from './QueryJobsPanel.vue'
 import { useAsyncTask, type AsyncStatus } from '@/composables/useAsyncTask'
 import { ElMessageBox } from '@/utils/confirm'
 
@@ -291,7 +311,12 @@ const columns = [
 
 const typeOptions = [
   { label: 'MySQL', value: 'mysql' },
-  { label: 'PostgreSQL', value: 'postgres' }
+  { label: 'PostgreSQL', value: 'postgres' },
+  { label: 'ClickHouse', value: 'clickhouse' },
+  { label: 'Apache Doris', value: 'doris' },
+  { label: 'StarRocks', value: 'starrocks' },
+  { label: 'HiveServer2', value: 'hive' },
+  { label: 'BigQuery', value: 'bigquery' }
 ]
 
 const typeFilterOptions = [
@@ -302,12 +327,19 @@ const typeFilterOptions = [
 // 各类型默认端口
 const defaultPortByType: Record<DatasourceType, number> = {
   mysql: 3306,
-  postgres: 5432
+  postgres: 5432,
+  clickhouse: 9000,
+  doris: 9030,
+  starrocks: 9030,
+  hive: 10000,
+  bigquery: 443
 }
 
 // 切换类型时，若端口仍为其它类型的默认值则自动改为新类型默认端口
 function onTypeChange(value: string | number | (string | number)[]) {
   const type = value as DatasourceType
+  if (type === 'bigquery') {form.host='bigquery.googleapis.com';form.port=443;form.password=''}
+  else if(form.host==='bigquery.googleapis.com'){form.host='';form.username=''}
   const currentIsDefault = Object.values(defaultPortByType).includes(form.port)
   if (currentIsDefault) {
     form.port = defaultPortByType[type] ?? form.port
@@ -397,6 +429,11 @@ interface FormState {
   username: string
   password: string
   description: string
+  auth: string
+  tls: boolean
+  project: string
+  location: string
+  maxScanBytes: number
 }
 
 const form = reactive<FormState>({
@@ -407,8 +444,15 @@ const form = reactive<FormState>({
   database_name: '',
   username: '',
   password: '',
-  description: ''
+  description: '',
+  auth: 'NONE',
+  tls: false,
+  project: '',
+  location: 'US',
+  maxScanBytes: 10000000
 })
+const passwordRequired = computed(() => form.type !== 'bigquery' && (form.type !== 'hive' || ['LDAP', 'CUSTOM'].includes(form.auth)))
+const connectionExtra = () => form.type === 'bigquery' ? {credential_ref:form.username,project:form.project,location:form.location,max_scan_bytes:form.maxScanBytes} : form.type === 'hive' ? {auth: form.auth, tls: form.tls} : form.type === 'clickhouse' ? {tls: form.tls} : undefined
 
 const errors = reactive<Partial<Record<keyof FormState, string>>>({})
 
@@ -421,6 +465,11 @@ function resetForm() {
   form.username = ''
   form.password = ''
   form.description = ''
+  form.auth = 'NONE'
+  form.tls = false
+  form.project = ''
+  form.location = 'US'
+  form.maxScanBytes = 10000000
   Object.keys(errors).forEach(k => delete (errors as any)[k])
   testFormTask.reset()   // 清掉上次的测试连接三态，避免打开弹窗时残留
 }
@@ -440,6 +489,11 @@ function openEditDialog(row: Datasource) {
   form.database_name = row.database_name
   form.username      = row.username
   form.description   = row.description ?? ''
+  form.auth = row.extra?.auth || 'NONE'
+  form.tls = row.extra?.tls || false
+  form.project = row.extra?.project || ''
+  form.location = row.extra?.location || 'US'
+  form.maxScanBytes = row.extra?.max_scan_bytes || 10000000
   form.password      = ''        // 永不回填密码
   Object.keys(errors).forEach(k => delete (errors as any)[k])
   testFormTask.reset()
@@ -457,7 +511,9 @@ function validateForm(): boolean {
   if (!form.host.trim())          { errors.host = '请输入 Host'; ok = false }
   if (!form.database_name.trim()) { errors.database_name = '请输入数据库名'; ok = false }
   if (!form.username.trim())      { errors.username = '请输入用户名'; ok = false }
-  if (!editingId.value && !form.password) { errors.password = '创建时密码不能为空'; ok = false }
+  if (!editingId.value && passwordRequired.value && !form.password) { errors.password = '创建时密码不能为空'; ok = false }
+  if (form.type === 'hive' && passwordRequired.value && !form.tls) { errors.password = 'LDAP/CUSTOM 必须开启 TLS'; ok = false }
+  if (form.type === 'bigquery') {form.host='bigquery.googleapis.com';form.port=443;form.password='';if(!form.project || !form.location || !Number.isSafeInteger(form.maxScanBytes) || form.maxScanBytes<1) {errors.name='请填写有效项目、区域和扫描字节上限';ok=false}}
   return ok
 }
 
@@ -474,7 +530,8 @@ async function submitForm() {
         database_name: form.database_name,
         username:      form.username,
         password:      form.password,  // 空字符串 = 保留旧密码
-        description:    form.description
+        description:    form.description,
+        extra: connectionExtra()
       })
       toast.success('数据源已更新')
     } else {
@@ -486,7 +543,8 @@ async function submitForm() {
         database_name: form.database_name,
         username:      form.username,
         password:      form.password,
-        description:    form.description
+        description:    form.description,
+        extra: connectionExtra()
       })
       toast.success('数据源已创建')
     }
@@ -518,7 +576,7 @@ async function testFormConnection() {
     await testSavedById(editingId.value)
     return
   }
-  if (!form.password) {
+  if (!form.password && passwordRequired.value) {
     toast.warning('请先填写密码')
     return
   }
@@ -531,7 +589,8 @@ async function testFormConnection() {
         port:          form.port,
         database_name: form.database_name,
         username:      form.username,
-        password:      form.password
+        password:      form.password,
+        extra: connectionExtra()
       })
       const result = res.data
       // testConnection 不抛异常、用 result.ok 表达成败；这里主动抛出让状态机落到 error

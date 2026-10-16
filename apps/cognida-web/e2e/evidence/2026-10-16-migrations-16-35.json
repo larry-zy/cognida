@@ -1,0 +1,609 @@
+{
+  "database": "cognida_review_migrations_final_20261016",
+  "container": "cognida-complete-mysql",
+  "container_id": "95df781b621c0b8106b8273dc6ad54c23577e24ee7c2262febc5a271966b88b6",
+  "port": 62301,
+  "created_empty": true,
+  "baseline": 15,
+  "range": [
+    16,
+    35
+  ],
+  "force_used": false,
+  "steps": [
+    {
+      "command": "migrate-db up 15",
+      "expected_version": 15,
+      "duration_seconds": 2.643,
+      "exit_code": 0,
+      "version": 15,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 16,
+      "duration_seconds": 0.052,
+      "exit_code": 0,
+      "version": 16,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 15,
+      "duration_seconds": 0.03,
+      "exit_code": 0,
+      "version": 15,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 16,
+      "duration_seconds": 0.046,
+      "exit_code": 0,
+      "version": 16,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 17,
+      "duration_seconds": 0.041,
+      "exit_code": 0,
+      "version": 17,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 16,
+      "duration_seconds": 0.03,
+      "exit_code": 0,
+      "version": 16,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 17,
+      "duration_seconds": 0.042,
+      "exit_code": 0,
+      "version": 17,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 18,
+      "duration_seconds": 0.065,
+      "exit_code": 0,
+      "version": 18,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 17,
+      "duration_seconds": 0.056,
+      "exit_code": 0,
+      "version": 17,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 18,
+      "duration_seconds": 0.053,
+      "exit_code": 0,
+      "version": 18,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 19,
+      "duration_seconds": 0.029,
+      "exit_code": 0,
+      "version": 19,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 18,
+      "duration_seconds": 0.022,
+      "exit_code": 0,
+      "version": 18,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 19,
+      "duration_seconds": 0.029,
+      "exit_code": 0,
+      "version": 19,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 20,
+      "duration_seconds": 0.042,
+      "exit_code": 0,
+      "version": 20,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 19,
+      "duration_seconds": 0.027,
+      "exit_code": 0,
+      "version": 19,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 20,
+      "duration_seconds": 0.041,
+      "exit_code": 0,
+      "version": 20,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 21,
+      "duration_seconds": 0.029,
+      "exit_code": 0,
+      "version": 21,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 20,
+      "duration_seconds": 0.02,
+      "exit_code": 0,
+      "version": 20,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 21,
+      "duration_seconds": 0.026,
+      "exit_code": 0,
+      "version": 21,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 22,
+      "duration_seconds": 0.034,
+      "exit_code": 0,
+      "version": 22,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 21,
+      "duration_seconds": 0.02,
+      "exit_code": 0,
+      "version": 21,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 22,
+      "duration_seconds": 0.033,
+      "exit_code": 0,
+      "version": 22,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 23,
+      "duration_seconds": 0.032,
+      "exit_code": 0,
+      "version": 23,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 22,
+      "duration_seconds": 0.022,
+      "exit_code": 0,
+      "version": 22,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 23,
+      "duration_seconds": 0.027,
+      "exit_code": 0,
+      "version": 23,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 24,
+      "duration_seconds": 0.12,
+      "exit_code": 0,
+      "version": 24,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 23,
+      "duration_seconds": 0.117,
+      "exit_code": 0,
+      "version": 23,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 24,
+      "duration_seconds": 0.132,
+      "exit_code": 0,
+      "version": 24,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 25,
+      "duration_seconds": 0.03,
+      "exit_code": 0,
+      "version": 25,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 24,
+      "duration_seconds": 0.021,
+      "exit_code": 0,
+      "version": 24,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 25,
+      "duration_seconds": 0.034,
+      "exit_code": 0,
+      "version": 25,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 26,
+      "duration_seconds": 0.077,
+      "exit_code": 0,
+      "version": 26,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 25,
+      "duration_seconds": 0.048,
+      "exit_code": 0,
+      "version": 25,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 26,
+      "duration_seconds": 0.075,
+      "exit_code": 0,
+      "version": 26,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 27,
+      "duration_seconds": 0.068,
+      "exit_code": 0,
+      "version": 27,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 26,
+      "duration_seconds": 0.036,
+      "exit_code": 0,
+      "version": 26,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 27,
+      "duration_seconds": 0.077,
+      "exit_code": 0,
+      "version": 27,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 28,
+      "duration_seconds": 0.034,
+      "exit_code": 0,
+      "version": 28,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 27,
+      "duration_seconds": 0.022,
+      "exit_code": 0,
+      "version": 27,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 28,
+      "duration_seconds": 0.034,
+      "exit_code": 0,
+      "version": 28,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 29,
+      "duration_seconds": 0.047,
+      "exit_code": 0,
+      "version": 29,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 28,
+      "duration_seconds": 0.031,
+      "exit_code": 0,
+      "version": 28,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 29,
+      "duration_seconds": 0.045,
+      "exit_code": 0,
+      "version": 29,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 30,
+      "duration_seconds": 0.045,
+      "exit_code": 0,
+      "version": 30,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 29,
+      "duration_seconds": 0.036,
+      "exit_code": 0,
+      "version": 29,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 30,
+      "duration_seconds": 0.052,
+      "exit_code": 0,
+      "version": 30,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 31,
+      "duration_seconds": 0.068,
+      "exit_code": 0,
+      "version": 31,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 30,
+      "duration_seconds": 0.041,
+      "exit_code": 0,
+      "version": 30,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 31,
+      "duration_seconds": 0.072,
+      "exit_code": 0,
+      "version": 31,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 32,
+      "duration_seconds": 0.033,
+      "exit_code": 0,
+      "version": 32,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 31,
+      "duration_seconds": 0.021,
+      "exit_code": 0,
+      "version": 31,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 32,
+      "duration_seconds": 0.034,
+      "exit_code": 0,
+      "version": 32,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 33,
+      "duration_seconds": 0.047,
+      "exit_code": 0,
+      "version": 33,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 32,
+      "duration_seconds": 0.026,
+      "exit_code": 0,
+      "version": 32,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 33,
+      "duration_seconds": 0.045,
+      "exit_code": 0,
+      "version": 33,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 34,
+      "duration_seconds": 0.034,
+      "exit_code": 0,
+      "version": 34,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 33,
+      "duration_seconds": 0.02,
+      "exit_code": 0,
+      "version": 33,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 34,
+      "duration_seconds": 0.035,
+      "exit_code": 0,
+      "version": 34,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 35,
+      "duration_seconds": 0.03,
+      "exit_code": 0,
+      "version": 35,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db down 1",
+      "expected_version": 34,
+      "duration_seconds": 0.021,
+      "exit_code": 0,
+      "version": 34,
+      "dirty": false,
+      "passed": true
+    },
+    {
+      "command": "migrate-db up 1",
+      "expected_version": 35,
+      "duration_seconds": 0.03,
+      "exit_code": 0,
+      "version": 35,
+      "dirty": false,
+      "passed": true
+    }
+  ],
+  "status": "passed",
+  "files": {
+    "000016_knowledge_labels.up.sql": "4aebd18eb2a3d708cb4d483badc713b3b4a5d283aa2336c4946b4ce3a229c1dd",
+    "000016_knowledge_labels.down.sql": "576519858c60d9abf031fef1fbd3664e267d9814e800c0fefccd89b0afdd688d",
+    "000017_evaluation_versions.up.sql": "5b3df4a264952dd7942252094f4b86b7cd51022a60389687ff3eac2dd526e450",
+    "000017_evaluation_versions.down.sql": "9b8fbc62707a14a40facf18be7d8301bd6700e20638e9ffc38725623ce583ade",
+    "000018_evaluation_snapshots.up.sql": "bf868650231ae00ec5c8a24ea55c9e8c699ae561efe7222c1b446fefbc4045a5",
+    "000018_evaluation_snapshots.down.sql": "c8c376aa81220ff5d7aa0fb7b49bff3f1df3279450a765dd79c9287486111c5e",
+    "000019_evaluation_offline.up.sql": "f8c50c0d739eccf813545d46afb86b60822d61400e73a6f79c699ae3c37744b2",
+    "000019_evaluation_offline.down.sql": "1c68564d41d7e064cfa693184bfa1b76f07dcdf140a2eb2cc3e10b920676fb8f",
+    "000020_feature_jobs.up.sql": "5306204c67db2e80900673594a20335738195d69b14a734341e58b5558ac8212",
+    "000020_feature_jobs.down.sql": "618b91266f62d68065d3d7ff323a150242af4f25d9990d3cc1fff9278a74904f",
+    "000021_feature_job_values.up.sql": "6594a61d22e640d481aa0702982949f51200760a7f2a85ecd3678858a52b7227",
+    "000021_feature_job_values.down.sql": "f8cf960052964a855d527e764ff33d3c4e5f0438f6b0bcae24ee77fac7523d09",
+    "000022_drift_records.up.sql": "171c62a790a2da24e3ee11c9b9acf2c6d026ee9aeb52918f5972268bf63ff9bf",
+    "000022_drift_records.down.sql": "91f90a71de870e356bd9ea97135f366dc50ffaef885ec4e2c2eb98aa42bc44a8",
+    "000023_drift_events.up.sql": "159bb9611dcc06a1687ec15cefc8246f39eebdc59b64181bb07e7cc6491932f4",
+    "000023_drift_events.down.sql": "af0e09cfc4ff0156c889785e472050e9972a780f9ad9ff12bdc761d9f502e200",
+    "000024_collection_candidates.up.sql": "0585ef8c790d1d87d5a61d26eed661e952f3f848849f178741be106d09e3696c",
+    "000024_collection_candidates.down.sql": "43ade684b4fd87cb1d7180c1f78d51153a0fcc7d2aebebd9d68f9f611e643476",
+    "000025_research_runs.up.sql": "22c5b2605dc461d9b7959bf680815195ebfb1514931a864baf808b97e1e974b5",
+    "000025_research_runs.down.sql": "eb3f33af2e018d898498f511dc35e52c30819759db70c0ff33b98ec5936cfede",
+    "000026_api_ingestion.up.sql": "86f84017c1cd6e97706cf7fed2b9ea7d697f70fb8d0e9d082ada83035b4a1c5e",
+    "000026_api_ingestion.down.sql": "f897a9aa9b024d717ce12a4868bc8986fc88d347e8b4879082a2f6a5110ba3e0",
+    "000027_governed_operations.up.sql": "966dd4b403a61218900b6ef080c81e189904619e9181a2efafe65bfffb727b48",
+    "000027_governed_operations.down.sql": "c426a1607815a0ef863aeed611db08eceaed5feb29465af2997a852f2a943b54",
+    "000028_sandbox_runs.up.sql": "9a773f99561d48218bfc950e6e605d9ded5a047cabcbf801e91faa9bd53ed7d4",
+    "000028_sandbox_runs.down.sql": "9f4604582ee83a4bc5ec7f47008fcc683f6851241ceae29e43703bd2660aa6dd",
+    "000029_warehouse_models.up.sql": "22c4963c03db1ecff732a4a3073f40ff2992e650ea5f6fe4de2dcbf74e4d8067",
+    "000029_warehouse_models.down.sql": "60ff46d9e39f25c90c4bceeb5f752768d4b01c4cd2ad8fe4b97e653ba91e5936",
+    "000030_warehouse_runs.up.sql": "9c461de6fa5b4313d93bfd5da4153bf1de4ebf1f6f96ac4cfd26e8d735a658a6",
+    "000030_warehouse_runs.down.sql": "5d7a7f8d266db1f9884fcbdd257a1aea7fc12c63e429cd666b92b6d4be11a3d8",
+    "000031_strategy_versions.up.sql": "07d18c226fc732cec3af87055f2f36517653d74c9dc126018f9b32e6c69fe94e",
+    "000031_strategy_versions.down.sql": "d72c8d05df15989f7fdb6bdcad5b45bf1a94a4c704b5bd936453ad0ca0405347",
+    "000032_query_jobs.up.sql": "59c047cb3a2d3aa749d370ef68b62d4b9cd19e0f827d4dddcf863cc8330f7b1a",
+    "000032_query_jobs.down.sql": "24b574bfb2e3f9ab677e4c83d04e7368d5313cc7b1994e42de70622ecb7288dd",
+    "000033_quality_feedback.up.sql": "e44f51c0d37d614f56185cc5d2bf10ac3bfff7c8a80fc6b8bab898dafd31d3a4",
+    "000033_quality_feedback.down.sql": "222d554e6696759e6629b6d201e30c67ad80c5d162c0a4c54b4017f71f41cf1d",
+    "000034_feedback_publication.up.sql": "59f5648738744596a511e47d1dfab67d6ff8e87303d76f7f38c40dff8b4d06dd",
+    "000034_feedback_publication.down.sql": "660a67ad038cffa9ac7d85f95dda07a2654d3280c82e2953c15cc2068c7ed22e",
+    "000035_task_control_replans.up.sql": "811c74323b14aad9fc091f4c7ab9726301cb7c5a1767b7ac13761e7972c59e4d",
+    "000035_task_control_replans.down.sql": "4aed33acd22849fb89d4d7e1f7dbabc19d81a5c7799ef32d7c16f64f6b03666c"
+  },
+  "final_version": 35,
+  "final_dirty": false
+}

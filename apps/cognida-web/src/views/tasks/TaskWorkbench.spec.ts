@@ -92,6 +92,39 @@ describe('Supervisor task planning', () => {
     expect(navigation.replace).not.toHaveBeenCalled()
     expect(navigation.leave?.()).toBe(true); wrapper.unmount()
   })
+  it('shows deterministic budget adjustments and saves the exact compiled candidate only on explicit save', async () => {
+    const compiled: PlanSpec = {
+      ...plan, budget: { ...budget, max_attempts: 3, max_calls: 5, max_cost_micros: 300, timeout_seconds: 90 },
+      nodes: plan.nodes.map(node => ({ ...node, max_cost_micros_per_attempt: 100 })),
+    }
+    api.propose.mockResolvedValue({ data: {
+      ...proposal(), decision: { ...proposal().decision, plan: compiled }, validation: { ...validation, reserved_cost_micros: 300 },
+      budget_adjustments: [
+        { field: 'max_attempts', before: 2, after: 3, reason: 'node_retry_reservations' },
+        { field: 'max_calls', before: 3, after: 5, reason: 'node_retry_reservations' },
+        { field: 'max_cost_micros', before: 0, after: 300, reason: 'node_retry_reservations' },
+        { field: 'timeout_seconds', before: 60, after: 90, reason: 'node_retry_reservations' },
+      ],
+    } })
+    const wrapper = await setup(); await begin(wrapper)
+    const note = wrapper.get('[aria-label="候选预算补齐说明"]')
+    expect(note.text()).toContain('已补齐节点与重试预留')
+    expect(note.text()).toContain('总尝试次数：2 → 3 次'); expect(note.text()).toContain('总调用次数：3 → 5 次')
+    expect(note.text()).toContain('成本额度：0 → 300 微成本单位'); expect(note.text()).toContain('总时限：60 → 90 秒')
+    expect(note.text()).toContain('尚未保存或启动任务')
+    expect(wrapper.findComponent({ name: 'TaskPlanPreview' }).props('plan')).toEqual(compiled)
+    expect(api.create.mock.calls[0][0].budget).toEqual(budget)
+    expect(api.appendPlan).not.toHaveBeenCalled(); expect(api.start).not.toHaveBeenCalled()
+    route.query = { task_id: 'task-1' }; await flushPromises()
+    api.get.mockResolvedValue({ data: task('task-1', 2, 1) }); api.summary.mockResolvedValue({ data: summary('task-1', 2, 1) })
+    api.plan.mockResolvedValue({ data: { ...saved(), snapshot: compiled } })
+    await button(wrapper, '保存计划').trigger('click'); await flushPromises()
+    expect(api.appendPlan).toHaveBeenCalledWith('task-1', 1, compiled, expect.any(AbortSignal))
+    expect(api.start).not.toHaveBeenCalled()
+    expect(wrapper.find('[aria-label="候选预算补齐说明"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'TaskPlanPreview' }).props('plan')).toEqual(compiled)
+    wrapper.unmount()
+  })
   it('keeps question text and prior answers across clarification rounds with repeated question IDs', async () => {
     const first = { ...proposal(), decision: { kind: 'clarify', explanation: '<img src=x onerror=alert(1)>', questions: [{ id: 'q1', question: '要保留原始行吗？', options: ['是', '否'] }] } }
     const second = { ...proposal(), decision: { kind: 'clarify', explanation: '继续确认', questions: [{ id: 'q1', question: '报告要包含什么？' }] } }

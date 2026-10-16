@@ -46,6 +46,11 @@
     <section v-if="result" class="wb-panel" style="margin-top: 16px">
       <h3>{{ gateLabel[result.gate] || result.gate }}</h3>
       <p>{{ result.recommendation }}</p>
+      <router-link
+        v-if="comparedCandidate"
+        :to="{ path: `/evaluation/${encodeURIComponent(comparedCandidate)}` }"
+        >查看候选逐题结果并记录返工反馈</router-link
+      >
       <div class="wb-metrics">
         <div>
           <strong>{{ result.pairs }}</strong
@@ -102,7 +107,8 @@ const form = reactive({
   }),
   busy = ref(false),
   error = ref(""),
-  result = ref<Comparison>();
+  result = ref<Comparison>(),
+  comparedCandidate = ref("");
 const gateLabel: Record<string, string> = {
   insufficient_evidence: "证据不足",
   regression: "发现回退",
@@ -113,12 +119,15 @@ async function compare() {
   busy.value = true;
   error.value = "";
   result.value = undefined;
+  comparedCandidate.value = "";
   try {
     if (form.baseline_id === form.candidate_id)
       throw new Error("请选择不同的两个任务");
+    const input = { ...form };
     result.value = (
-      await http.post<Comparison>("/evaluation/compare", { ...form })
+      await http.post<Comparison>("/evaluation/compare", input)
     ).data;
+    comparedCandidate.value = input.candidate_id;
   } catch (e) {
     error.value = e instanceof Error ? e.message : "对比失败";
   } finally {

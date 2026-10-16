@@ -84,9 +84,7 @@
               }}<select v-model="form.type">
                 <option value="numerical">数值</option>
                 <option value="categorical">类别</option>
-                <option value="vector" disabled>
-                  向量（暂不支持自动计算）
-                </option>
+                <option value="vector">向量</option>
               </select></label
             ><label class="wb-full"
               >{{ wt("业务说明")
@@ -99,6 +97,12 @@
                 <option value="field">字段映射</option>
                 <option value="expression">表达式转换</option>
                 <option value="window_aggregate">时间窗口聚合</option>
+                <option
+                  value="embedding"
+                  :disabled="!embeddingModel?.available"
+                >
+                  真实模型向量（embedding）
+                </option>
               </select></label
             ><label
               >{{ wt("来源资产")
@@ -188,14 +192,45 @@
               </select></label
             >
           </div>
+          <div
+            v-if="
+              form.definition.kind === 'embedding' && form.definition.embedding
+            "
+            class="wb-form"
+          >
+            <p class="wb-footnote wb-full">
+              固定模型 {{ form.definition.embedding.model_id }} · 修订
+              {{
+                form.definition.embedding.revision
+              }}。预览会实际调用模型；不生成替代向量，也不保证金额上限。持久化请使用分区物化任务。
+            </p>
+            <label
+              >向量维度<input
+                v-model.number="form.definition.embedding.dimension"
+                type="number"
+                min="1"
+                max="4096"
+                required
+            /></label>
+          </div>
+          <p v-if="!embeddingModel?.available" class="wb-footnote">
+            模型向量当前不可用：{{
+              embeddingModel?.reason || "尚未加载可信模型配置"
+            }}
+          </p>
           <p class="wb-footnote">
-            每次最多计算 1,000 行。窗口按实体与事件时间计算 (当前时间 − 窗口,
+            同步预览最多计算 1,000 行；分区任务支持完整快照最多 10,000
+            行。窗口按实体与事件时间计算 (当前时间 − 窗口,
             当前时间]。已有版本不可覆盖，修改定义将创建新版本。
           </p>
           <div class="wb-actions">
             <button
               type="button"
-              :disabled="busy || form.type === 'vector'"
+              :disabled="
+                busy ||
+                (form.definition.kind === 'embedding' &&
+                  !embeddingModel?.available)
+              "
               @click="previewDefinition"
             >
               预览计算结果</button
@@ -275,6 +310,16 @@
             </table>
           </div>
         </form>
+        <FeatureJobsPanel
+          v-if="selectedVersion"
+          :feature="selectedVersion"
+          :assets="assets"
+          :job-id="
+            typeof route?.query.job_id === 'string'
+              ? route.query.job_id
+              : undefined
+          "
+        />
         <section v-if="form.id" class="wb-panel">
           <button
             v-if="versionOptions.state.hasMore || versionOptions.state.error"
@@ -289,7 +334,13 @@
             }}
           </button>
           <h2>{{ wt("实体特征值") }}</h2>
-          <button :disabled="busy" @click="compute">计算并物化所选版本</button>
+          <button
+            v-if="selectedVersion?.definition.kind !== 'embedding'"
+            :disabled="busy"
+            @click="compute"
+          >
+            计算并物化所选版本
+          </button>
           <div v-if="receipt" class="wb-success" role="status">
             <strong
               >已物化 {{ receipt.count }} 个特征值 · v{{
@@ -414,6 +465,12 @@ import {
 } from "@/api/governance";
 import { lifecycleApi, type AssetRef } from "@/api/lifecycle";
 import FeatureExpressionEditor from "./FeatureExpressionEditor.vue";
+import FeatureJobsPanel from "./FeatureJobsPanel.vue";
+import type {
+  EmbeddingModel,
+  FeatureJob,
+} from "@/api/governance/featureOperations";
+const embeddingModel = ref<EmbeddingModel>();
 import "@/components/workbench/workbench.css";
 const execution = ref<GovernanceExecution>();
 const executionStatus = (status: string) =>
@@ -534,11 +591,28 @@ const kindLabel = (kind: string) =>
     field: "字段映射",
     expression: "表达式",
     window_aggregate: "时间窗口聚合",
+    embedding: "固定模型向量",
   })[kind] || kind;
 function changeDefinition() {
   const kind = form.definition.kind,
     entity = form.definition.entity_field,
     event = form.definition.event_time_field;
+  if (kind === "embedding") {
+    form.type = "vector";
+    form.definition = {
+      kind,
+      field: "",
+      entity_field: entity,
+      event_time_field: event,
+      embedding: {
+        model_id: embeddingModel.value?.model_id || "",
+        revision: embeddingModel.value?.revision || "",
+        dimension: 1024,
+      },
+    };
+    return;
+  }
+  if (form.type === "vector") form.type = "numerical";
   form.definition =
     kind === "expression"
       ? {
@@ -594,7 +668,13 @@ function validateExpression(expr?: FeatureExpression): void {
 function draft() {
   if (!form.name.trim() || !form.source_ref_id)
     throw new Error("请填写名称并选择来源资产");
-  if (form.type === "vector") throw new Error("当前不支持自动计算向量特征");
+  if (
+    form.definition.kind === "embedding" &&
+    (!embeddingModel.value?.available ||
+      form.definition.embedding?.model_id !== embeddingModel.value.model_id ||
+      form.definition.embedding?.revision !== embeddingModel.value.revision)
+  )
+    throw new Error("可信模型配置不可用或已变更，请重新选择模型向量");
   const def = form.definition;
   if (def.kind === "expression") validateExpression(def.expression);
   else if (def.aggregate !== "count" && !def.field?.trim())
@@ -646,11 +726,14 @@ async function save() {
     notice.value = `版本 v${form.version} 已保存`;
   });
 }
-const selectedVersion = computed(
-  () =>
+const selectedVersion = computed(() => {
+  const version =
     versions.value.find((v) => v.version === valueVersion.value) ||
-    (form.version === valueVersion.value ? form : undefined),
-);
+    (form.version === valueVersion.value ? form : undefined);
+  // Historical version records have their own storage IDs. Operations target
+  // the feature head together with an explicit immutable version number.
+  return version ? { ...version, id: form.id } : undefined;
+});
 function parsedValue() {
   if (!selectedVersion.value) throw new Error("请选择已有的特征版本");
   if (selectedVersion.value.type === "numerical") {
@@ -755,7 +838,18 @@ async function openLink() {
       typeof route?.query.execution_id === "string"
         ? route.query.execution_id
         : "";
-    if (executionID) {
+    const jobID =
+      typeof route?.query.job_id === "string" ? route.query.job_id : "";
+    if (jobID) {
+      const res = await api.get<FeatureJob>(
+        `/feature-jobs/${encodeURIComponent(jobID)}`,
+      );
+      current(epoch);
+      if (!res.data) throw new Error("任务不存在或无权查看");
+      id = res.data.request.feature_id;
+      version = res.data.request.feature_version;
+    }
+    if (executionID && !jobID) {
       const res = await api.get<GovernanceExecution>(
         `/governance-executions/${encodeURIComponent(executionID)}`,
       );
@@ -786,7 +880,11 @@ async function openLink() {
   });
 }
 watch(
-  () => [route?.query.execution_id, route?.query.feature_id],
+  () => [
+    route?.query.execution_id,
+    route?.query.feature_id,
+    route?.query.job_id,
+  ],
   () => void openLink(),
 );
 watch(identity, () => {
@@ -794,6 +892,7 @@ watch(identity, () => {
   newFeature();
   features.value = [];
   assets.value = [];
+  embeddingModel.value = undefined;
   next.value = "";
   void initialize();
 });
@@ -801,10 +900,21 @@ async function initialize() {
   const epoch = generation;
   await run(async () => {
     await Promise.all([load(), assetOptions.reset()]);
+    current(epoch);
+    try {
+      const res = await api.get<EmbeddingModel>("/feature-models");
+      current(epoch);
+      embeddingModel.value = res?.data;
+    } catch {
+      if (epoch === generation)
+        embeddingModel.value = { available: false, reason: "无法读取模型配置" };
+    }
   });
   if (
     epoch === generation &&
-    (route?.query.execution_id || route?.query.feature_id)
+    (route?.query.execution_id ||
+      route?.query.feature_id ||
+      route?.query.job_id)
   )
     await openLink();
 }

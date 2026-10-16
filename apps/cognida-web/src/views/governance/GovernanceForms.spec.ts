@@ -127,7 +127,9 @@ describe("governance create contracts", () => {
       .find((b) => b.text().includes("Versioned"))!
       .trigger("click");
     await flushPromises();
-    const form = wrapper.findAll("form")[1];
+    const form = wrapper
+      .findAll("form")
+      .find((f) => f.find('input[placeholder="customer-1001"]').exists())!;
     await form.get('input[type="number"]').setValue("1");
     await form.get('input[placeholder="customer-1001"]').setValue("entity");
     await form.get('input[placeholder="输入特征值"]').setValue("12");

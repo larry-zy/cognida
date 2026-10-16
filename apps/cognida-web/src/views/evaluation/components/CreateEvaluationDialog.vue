@@ -28,6 +28,9 @@
         <div class="form-tip">可选择现有数据集或使用默认数据集</div>
       </UiFormItem>
 
+      <UiFormItem label="固定审核版本"><select v-model="selectedVersion"><option value="">现有数据集（创建时生成快照）</option><option v-for="version in matchingVersions" :key="version.id" :value="version.id">{{ version.name }} · v{{ version.version }} · {{ version.id }}</option></select><div class="form-tip">选择固定版本会绑定其样本及清单；未兼容的标注类型不会作为 QA 评测。</div><button v-if="versionCursor" type="button" :disabled="versionBusy" @click="loadVersions(true)">加载更多固定版本</button><button v-if="versionError" type="button" :disabled="versionBusy" @click="loadVersions()">重试加载固定版本</button><div v-if="versionError" class="form-tip" role="alert">{{ versionError }}</div></UiFormItem>
+
+      <UiFormItem label="固定策略版本"><StrategyEvaluationSelect v-model="strategyVersion" :type="formData.type" :open="visible" /></UiFormItem>
       <!-- 知识库 -->
       <UiFormItem label="知识库">
         <UiSelect v-model="formData.kb_id" :options="kbOptions" clearable placeholder="请选择知识库（可选）" />
@@ -110,9 +113,12 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, watch, onMounted } from 'vue'
+import StrategyEvaluationSelect from "./StrategyEvaluationSelect.vue";
+const strategyVersion=ref("");
+import { reactive, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { UiModal, UiForm, UiFormItem, UiSelect, UiCheckbox, UiTextarea, UiButton } from '@/components'
 import toast from '@/utils/toast'
+import { useAuthStore } from '@/stores/auth'
 import {
   GRADER_GROUPS,
   LLM_JUDGE_DIMENSIONS,
@@ -122,6 +128,7 @@ import {
   buildGraderGroups,
   type GraderGroup
 } from '../evaluation-config'
+import { datasetVersionsApi, type DatasetVersion } from "@/api/evaluation/versions"
 import { evaluationApi } from '@/api/evaluation'
 import type { AgentSummary } from '@/api/agent'
 import type { Datasource } from '@/api/datasource'
@@ -167,6 +174,35 @@ const runtimeMetrics = AGENT_RUNTIME_METRICS.map(m => ({
   label: METRIC_DISPLAY[m.key]?.label ?? m.key,
   desc: m.desc
 }))
+
+const selectedVersion = ref("")
+const fixedVersions = ref<DatasetVersion[]>([])
+const versionError = ref("")
+const matchingVersions = computed(() => fixedVersions.value.filter(v => v.profile === formData.type))
+watch(() => formData.type, () => { selectedVersion.value = "" })
+const auth = useAuthStore()
+const versionCursor = ref(''), versionBusy = ref(false)
+let versionEpoch = 0
+function resetVersions() {
+  versionEpoch++; fixedVersions.value=[]; selectedVersion.value=''; versionCursor.value=''; versionError.value=''; versionBusy.value=false
+}
+async function loadVersions(append = false) {
+  if (!visible.value) return
+  const epoch=++versionEpoch
+  versionBusy.value=true; versionError.value=''
+  try {
+    const result=await datasetVersionsApi.list(append ? versionCursor.value : '')
+    if(epoch!==versionEpoch || !visible.value)return
+    fixedVersions.value=append ? [...fixedVersions.value, ...(result.data?.items || [])] : result.data?.items || []
+    versionCursor.value=result.data?.next_cursor || ''
+  } catch {
+    if(epoch!==versionEpoch)return
+    versionError.value='固定版本加载失败，请重试或检查来源权限'
+  } finally { if(epoch===versionEpoch)versionBusy.value=false }
+}
+watch(() => `${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`, () => { resetVersions(); if(visible.value)void loadVersions() })
+watch(visible, open => { resetVersions(); if(open)void loadVersions() }, {immediate:true})
+onBeforeUnmount(() => {versionEpoch++})
 
 const selectedGraders = ref<string[]>(['rouge', 'bleu'])
 // 默认覆盖 Agent 关注的多个维度：正确 / 完整 / 相关 / 有用
@@ -308,7 +344,9 @@ function handleSubmit(): void {
     }
   }
   const request: CreateEvaluationRequest = {
-    dataset_id: formData.dataset_id,
+    dataset_id: fixedVersions.value.find(v => v.id === selectedVersion.value)?.dataset_id || formData.dataset_id,
+    dataset_version_id: selectedVersion.value || undefined,
+ strategy_version_id:strategyVersion.value||undefined,
     type: formData.type,
     kb_id: formData.kb_id || undefined,
     agent_id: runsAgent.value ? formData.agent_id : undefined,

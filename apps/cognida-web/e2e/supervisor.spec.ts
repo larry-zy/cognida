@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { attachJSON, createInput, getData, loginThroughUI } from './lifecycle.helpers'
+import { attachJSON, createInput, getData, loginThroughUI, selectPagedAsset } from './lifecycle.helpers'
 
 // This opt-in scenario spends one real model request and persists an isolated
 // draft/plan. It does not intercept requests or invoke domain executors.
@@ -15,13 +15,17 @@ test('supervisor: real source → model candidate → explicit save → refresh'
     await page.goto('/tasks')
     await expect(page.getByRole('heading', { name: '先明确目标，再审阅计划', exact: true })).toBeVisible()
     await page.getByLabel('任务目标', { exact: true }).fill('按顺序先调用 data-quality 对输入做质检，再调用 data-cleaning 清洗，保留 cleaned_asset 和 quality_report 候选。使用现有受控算子的默认规则，无需自定义代码，不发布、不分析。只生成两个节点的计划，各尝试一次；清洗同时绑定质检返回的原始数据和质量报告。')
-    await page.getByLabel('可选资产', { exact: true }).selectOption(`${asset.asset_id}:${asset.version}`)
+    await selectPagedAsset(page, page.getByLabel('可选资产', { exact: true }), `${asset.asset_id}:${asset.version}`)
     await page.getByRole('button', { name: '添加输入', exact: true }).click()
     const proposed = page.waitForResponse(response => response.url().includes('/supervisor/propose') && response.request().method() === 'POST', { timeout: 55_000 })
     await page.getByRole('button', { name: '核对并生成候选计划', exact: true }).click()
     const response = await proposed
+    // Preserve the handler's public, sanitized response even when it is not 200.
+    // Do not fetch or attach the provider's raw model output or request headers.
+    const responseBody = await response.text()
+    await attachJSON(info, 'supervisor-propose-http-response', { status: response.status(), body: responseBody })
     expect(response.status(), 'actual Supervisor model/API response').toBe(200)
-    const candidate = (await response.json()).data
+    const candidate = JSON.parse(responseBody).data
     expect(candidate.decision.kind).toBe('proposal')
     expect(candidate.execution_enabled).toBe(false)
     expect(candidate.saved).toBe(false)

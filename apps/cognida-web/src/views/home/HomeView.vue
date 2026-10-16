@@ -76,10 +76,13 @@
 
       <section class="wb-panel recent-panel" aria-labelledby="recent-title">
         <div class="panel-heading"><div><span class="wb-kicker">WORK RECORDS</span><h2 id="recent-title">任务与运行</h2></div><span class="wb-muted">本页已读取记录 · 按更新时间排列 · 显示前 12 条</span></div>
-        <p v-if="workLoading && !recent.length" class="overview-empty" role="status">正在读取任务记录…</p>
-        <p v-else-if="!recent.length" class="overview-empty">{{ workHasError ? '部分记录读取失败，请重试对应模块。' : '还没有任务记录。从上方选择采集或处理入口开始。' }}</p>
+        <div class="recent-filters" role="group" aria-label="任务记录类型">
+          <button v-for="filter in recentFilters" :key="filter.key" :aria-pressed="recentKind === filter.key" @click="recentKind = filter.key">{{ filter.label }}</button>
+        </div>
+        <p v-if="recentLoading && !filteredRecent.length" class="overview-empty" role="status">正在读取任务记录…</p>
+        <p v-else-if="!filteredRecent.length" class="overview-empty">{{ recentHasError ? '部分记录读取失败，请重试对应模块。' : recentKind === 'all' ? '还没有任务记录。从上方选择采集或处理入口开始。' : '当前读取范围内没有此类任务，请从上方打开完整列表。' }}</p>
         <ul v-else class="recent-list" aria-label="任务与运行">
-          <li v-for="item in recent.slice(0, 12)" :key="item.key">
+          <li v-for="item in filteredRecent.slice(0, 12)" :key="item.key">
             <span class="item-category">{{ item.category }}</span><div class="recent-list__name"><strong>{{ item.title }}</strong><small>{{ shortId(item.id) }}</small></div>
             <span class="status-label" :class="`tone-${item.tone}`">{{ item.statusLabel }}</span><time :datetime="item.time">{{ formatTime(item.time) }}</time><router-link :to="item.to" class="inline-action" :aria-label="`查看${item.category} ${item.id}`">查看详情 →</router-link>
           </li>
@@ -100,7 +103,8 @@ import { useAuthStore } from '@/stores/auth'
 
 interface Section<T> { items: T[]; status: 'loading' | 'ready' | 'error'; error: string; hasMore: boolean }
 type SectionKey = 'runs' | 'invocations' | 'collection' | 'assets'
-interface Activity { needsAttention: boolean; key: string; id: string; category: string; title: string; status: string; statusLabel: string; tone: string; reason: string; action: string; time: string; to: RouteLocationRaw }
+type ActivityKind = Exclude<SectionKey, 'assets'>
+interface Activity { kind: ActivityKind; needsAttention: boolean; key: string; id: string; category: string; title: string; status: string; statusLabel: string; tone: string; reason: string; action: string; time: string; to: RouteLocationRaw }
 const makeSection = <T,>(): Section<T> => ({ items: [], status: 'loading', error: '', hasMore: false })
 const runs = reactive(makeSection<Invocation>()), invocations = reactive(makeSection<Invocation>()), collection = reactive(makeSection<CollectionTask>()), assets = reactive(makeSection<AssetRef>())
 const state = { runs, invocations, collection, assets }
@@ -116,6 +120,13 @@ const sections = computed(() => [
 const loading = computed(() => hasIdentity.value && sections.value.some(section => section.state.status === 'loading'))
 const workLoading = computed(() => [runs, invocations, collection].some(section => section.status === 'loading'))
 const workHasError = computed(() => [runs, invocations, collection].some(section => section.status === 'error'))
+const recentKind = ref<ActivityKind | 'all'>('all')
+const recentFilters = [
+  { key: 'all', label: '全部' }, { key: 'runs', label: '处理流程' },
+  { key: 'invocations', label: '专家任务' }, { key: 'collection', label: '网页采集' }
+] as const
+const recentLoading = computed(() => recentKind.value === 'all' ? workLoading.value : state[recentKind.value].status === 'loading')
+const recentHasError = computed(() => recentKind.value === 'all' ? workHasError.value : state[recentKind.value].status === 'error')
 const flowSteps = [
   { number: '01', title: '采集来源', description: '网页与数据连接', path: '/collection-tasks' },
   { number: '02', title: '处理与审批', description: '质量、清洗与发布', path: '/pipelines' },
@@ -128,13 +139,13 @@ function shortId(id: string) { return id.length > 20 ? `${id.slice(0, 12)}…${i
 function formatTime(value: string) { const d = new Date(value); return Number.isNaN(d.getTime()) ? '时间未提供' : d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) }
 function lifecycleActivity(item: Invocation, kind: 'runs' | 'invocations'): Activity {
   const approval = item.status === 'awaiting_approval'
-  return { needsAttention: ['awaiting_approval', 'failed', 'quarantined'].includes(item.status), key: `${kind}:${item.id}`, id: item.id, category: kind === 'runs' ? '处理流程' : '专家任务', title: item.template_id || item.agent_id || shortId(item.id), status: item.status, statusLabel: statusLabels[item.status] || item.status, tone: tone(item.status), reason: item.error || (approval ? '需要人工核对发布目标与证据，审批后才能继续。' : item.status === 'quarantined' ? '质量门禁未通过，查看问题后调整输入或处理参数。' : '查看运行详情，确认失败原因和可重试的步骤。'), action: approval ? '前往审批' : '查看原因', time: item.updated_at || item.created_at, to: { path: kind === 'runs' ? '/pipelines' : '/experts', query: { [kind === 'runs' ? 'run_id' : 'invocation_id']: item.id } } }
+  return { kind, needsAttention: ['awaiting_approval', 'failed', 'quarantined'].includes(item.status), key: `${kind}:${item.id}`, id: item.id, category: kind === 'runs' ? '处理流程' : '专家任务', title: item.template_id || item.agent_id || shortId(item.id), status: item.status, statusLabel: statusLabels[item.status] || item.status, tone: tone(item.status), reason: item.error || (approval ? '需要人工核对发布目标与证据，审批后才能继续。' : item.status === 'quarantined' ? '质量门禁未通过，查看问题后调整输入或处理参数。' : '查看运行详情，确认失败原因和可重试的步骤。'), action: approval ? '前往审批' : '查看原因', time: item.updated_at || item.created_at, to: { path: kind === 'runs' ? '/pipelines' : '/experts', query: { [kind === 'runs' ? 'run_id' : 'invocation_id']: item.id } } }
 }
 function collectionActivity(item: CollectionTask): Activity {
   // A completed collection may contain failed sources; the backend carries its
   // partial-outcome explanation on error_message while retaining completed.
   const partial = item.status === 'completed' && Boolean(item.error_message?.trim())
-  return { needsAttention: partial || ['failed', 'draft'].includes(item.status), key: `collection:${item.id}`, id: item.id, category: '网页采集', title: `采集任务 ${shortId(item.id)}`, status: item.status, statusLabel: partial ? '采集部分失败' : statusLabels[item.status] || item.status, tone: partial ? 'warning' : tone(item.status), reason: item.error_message || (item.status === 'draft' ? '来源已保存，核对目标知识库后开始采集。' : '打开详情查看每个来源的结果与失败原因。'), action: partial ? '查看来源' : item.status === 'draft' ? '继续采集' : '查看原因', time: item.updated_at || item.created_at || '', to: { path: '/collection-tasks', query: { task_id: item.id } } }
+  return { kind: 'collection', needsAttention: partial || ['failed', 'draft'].includes(item.status), key: `collection:${item.id}`, id: item.id, category: '网页采集', title: `采集任务 ${shortId(item.id)}`, status: item.status, statusLabel: partial ? '采集部分失败' : statusLabels[item.status] || item.status, tone: partial ? 'warning' : tone(item.status), reason: item.error_message || (item.status === 'draft' ? '来源已保存，核对目标知识库后开始采集。' : '打开详情查看每个来源的结果与失败原因。'), action: partial ? '查看来源' : item.status === 'draft' ? '继续采集' : '查看原因', time: item.updated_at || item.created_at || '', to: { path: '/collection-tasks', query: { task_id: item.id } } }
 }
 const recent = computed<Activity[]>(() => [
   ...(runs.status === 'ready' ? runs.items.map(item => lifecycleActivity(item, 'runs')) : []),
@@ -142,6 +153,9 @@ const recent = computed<Activity[]>(() => [
   ...(collection.status === 'ready' ? collection.items.map(collectionActivity) : [])
 ].sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0)))
 const attention = computed(() => recent.value.filter(item => item.needsAttention).sort((a, b) => Number(b.status === 'awaiting_approval') - Number(a.status === 'awaiting_approval')))
+// Filter before the display limit so busy expert activity cannot hide every
+// pipeline/collection link. This remains the explicitly loaded page scope.
+const filteredRecent = computed(() => recentKind.value === 'all' ? recent.value : recent.value.filter(item => item.kind === recentKind.value))
 let generation = 0, disposed = false
 const controllers = new Map<SectionKey, AbortController>()
 function errorMessage(error: unknown): string {
@@ -177,6 +191,7 @@ function retry(key: SectionKey) {
 async function refresh() { await Promise.all((Object.keys(state) as SectionKey[]).map(retry)) }
 watch(() => [auth.authEpoch, auth.user?.id, auth.currentTenant?.id], () => {
   generation++; controllers.forEach(controller => controller.abort()); controllers.clear(); updatedAt.value = ''
+  recentKind.value = 'all'
   Object.values(state).forEach(section => Object.assign(section, makeSection()))
   if (hasIdentity.value) void refresh()
 }, { immediate: true })
@@ -233,6 +248,9 @@ onBeforeUnmount(() => { disposed = true; generation++; controllers.forEach(contr
 .asset-destinations { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 22px; }
 .asset-destinations a { color: var(--primary); text-decoration: none; font-size: 12px; }
 .recent-list { margin-top: 18px; }
+.recent-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.recent-filters button { font-size: 12px; padding: 7px 12px; }
+.recent-filters button[aria-pressed="true"] { color: var(--primary); background: var(--primary-dim); border-color: var(--primary); }
 .recent-list li { display: grid; grid-template-columns: 80px minmax(0, 1fr) 90px 110px 80px; align-items: center; gap: 16px; padding: 15px 0; border-bottom: 1px solid var(--border-subtle); }
 .recent-list li:last-child { border-bottom: 0; }
 .item-category { font-size: 11px; color: var(--text-muted); }

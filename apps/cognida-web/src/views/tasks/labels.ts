@@ -1,5 +1,6 @@
 const capabilities: Record<string, string> = {
-  'governance.feature-engineering': '特征工程', 'governance.tagging': '知识标签候选',
+  'collection.snapshot': '网页候选采集', 'evaluation.offline-text-v1': '已有答案离线评分', 'research.deep-research': '证据研究',
+  'sandbox.execute': 'Sandbox 受控开发', 'warehouse.transform': '数仓受管转换', 'governance.feature-engineering': '特征工程', 'governance.tagging': '知识标签候选',
   'governance.classification': '分类预标注', 'governance.named_entity': '实体预标注',
   'governance.qa': '问答样本标注',
   'lifecycle.data-access': '数据接入', 'lifecycle.data-quality': '质量检查',

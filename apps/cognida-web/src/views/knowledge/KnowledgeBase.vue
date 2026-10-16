@@ -57,7 +57,7 @@
             <input
               ref="fileInputRef"
               type="file"
-              accept=".txt,.md,.pdf,.doc,.docx"
+              :accept="ACCEPTED_KNOWLEDGE_EXTENSIONS.join(',')"
               multiple
               style="display: none"
               @change="handleFileChange"
@@ -79,7 +79,7 @@
               <template #icon><el-icon><FolderOpened /></el-icon></template>
               选择文件夹上传
             </UiButton>
-            <UiText class="hint">支持 txt, md, pdf, doc, docx 格式，可多选或整个文件夹批量上传</UiText>
+            <UiText class="hint">支持 TXT、Markdown、文本 PDF、DOCX、XLSX、CSV、HTML、PPTX，每个文件不超过 10 MiB。旧 DOC/XLS/PPT 请先转换；扫描 PDF 请先 OCR。可多选或批量上传</UiText>
           </div>
 
           <UiDivider />
@@ -152,6 +152,7 @@
           </div>
 
           <div class="search-options"><label>检索模式<select v-model="searchMode"><option value="hybrid">混合</option><option value="vector">向量</option><option value="bm25">关键词</option><option value="auto">自动（有界选择与一次回退）</option></select></label>
+            <label>已审核知识标签<input v-model="searchLabels" placeholder="标签 ID，多个以逗号分隔" maxlength="2000" /></label>
             <UiText>Top K:</UiText>
             <UiInputNumber v-model="searchTopK" :min="1" :max="20" size="sm" />
             <UiText>相似度阈值:</UiText>
@@ -453,7 +454,7 @@ import GraphView from './GraphView.vue'
 import DirectoryTreePicker from './DirectoryTreePicker.vue'
 import { knowledgeApi } from '@/api/knowledge'
 import { computeFileHash } from '@/utils/hash'
-import { filterAcceptableFiles } from '@/utils/directoryTree'
+import { ACCEPTED_KNOWLEDGE_EXTENSIONS, filterAcceptableFiles } from '@/utils/directoryTree'
 import type {
   KnowledgeBase,
   KnowledgeBaseStats,
@@ -543,6 +544,7 @@ const batchUpload = useBatchUpload(kbId)
 
 // 检索相关
 const searchQuery = ref('')
+const searchLabels = ref('')
 const searchMode = ref<'auto'|'vector'|'bm25'|'hybrid'>('hybrid')
 const searchTopK = ref(5)
 const searchThreshold = ref(0.6)
@@ -902,6 +904,7 @@ async function handleSearch() {
   }
 
   searchLoading.value = true
+  searchResults.value = []
   hasSearched.value = true
   try {
     const res = await knowledgeApi.search({
@@ -909,7 +912,8 @@ async function handleSearch() {
       retrieval_mode: searchMode.value,
       kb_ids: [kbId.value],
       top_k: searchTopK.value,
-      min_score: searchThreshold.value
+      min_score: searchThreshold.value,
+      applied_labels: [...new Set(searchLabels.value.split(/[,，]/).map(label => label.trim()).filter(Boolean))]
     })
     if (res.data) {
       // 后端返回 { total, items }

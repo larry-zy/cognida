@@ -89,6 +89,32 @@ describe('real workspace overview states', () => {
     expect(signal.aborted).toBe(true)
   })
 
+  it('keeps pipeline links reachable when newer expert activity fills the mixed display limit', async () => {
+    api.runs.mockResolvedValue({ items: [run('older-pipeline', 'succeeded')], hasMore: true })
+    api.invocations.mockResolvedValue({ items: Array.from({ length: 13 }, (_, index) => ({
+      ...run(`expert-${index}`, 'succeeded'), updated_at: '2026-10-16T08:00:00Z'
+    })), hasMore: false })
+    const { wrapper } = await setup(); await flushPromises()
+    expect(wrapper.get('.recent-list').findAll('li')).toHaveLength(12)
+    expect(wrapper.get('.recent-list').find('a[href="/pipelines?run_id=older-pipeline"]').exists()).toBe(false)
+    const filters = wrapper.get('[role="group"][aria-label="任务记录类型"]')
+    const pipelines = filters.findAll('button').find(button => button.text() === '处理流程')!
+    await pipelines.trigger('click')
+    expect(pipelines.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('.recent-list').findAll('li')).toHaveLength(1)
+    expect(wrapper.get('.recent-list a').attributes('href')).toBe('/pipelines?run_id=older-pipeline')
+    expect(api.runs).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-section="runs"]').text()).toContain('还有更多')
+    await filters.findAll('button').find(button => button.text() === '网页采集')!.trigger('click')
+    expect(wrapper.find('.recent-list').exists()).toBe(false)
+    expect(wrapper.text()).toContain('当前读取范围内没有此类任务')
+    api.runs.mockResolvedValue(empty()); api.invocations.mockResolvedValue(empty())
+    auth.authEpoch++; auth.currentTenant.id = 2; await flushPromises()
+    expect(filters.findAll('button').find(button => button.text() === '全部')!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.text()).not.toContain('older-pipeline')
+    wrapper.unmount()
+  })
+
   it('keeps completed collections with partial failures actionable without changing their terminal status', async () => {
     api.collection.mockResolvedValue({ items: [
       { id: 'partial-task', status: 'completed', error_message: '部分来源失败：2/3 可用', created_at: '2026-10-15T08:00:00Z' },

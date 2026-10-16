@@ -33,6 +33,10 @@ export const knowledgeApi = {
     return http.get<KnowledgeBase[]>('/knowledge-bases')
   },
 
+  getPage(page = 1, pageSize = 100) {
+    return http.get<{ items: KnowledgeBase[]; total: number; page: number; size: number }>('/knowledge-bases', { params: { page, page_size: pageSize } })
+  },
+
   /**
    * 获取知识库详情
    */

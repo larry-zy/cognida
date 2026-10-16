@@ -1,0 +1,124 @@
+{
+  "id": "502c605f-5ccb-451a-bfc3-11131d7d8317",
+  "status": "failed",
+  "error": "API source request failed",
+  "requests": 1,
+  "record_count": 0,
+  "pages": [],
+  "output_refs": null,
+  "created_at": "2026-10-16T03:19:09.768268Z",
+  "updated_at": "2026-10-16T03:19:14.861303Z",
+  "later_credential_free_probe": [
+    {
+      "ip": "104.21.59.19",
+      "ms": 172,
+      "ok": true,
+      "stage": "connect",
+      "tls_ms": 1203,
+      "tls_ok": true
+    },
+    {
+      "ip": "172.67.167.151",
+      "ms": 173,
+      "ok": true,
+      "stage": "connect",
+      "tls_ms": 292,
+      "tls_ok": true
+    },
+    {
+      "ip": "2606:4700:3037::ac43:a797",
+      "ms": 0,
+      "ok": false,
+      "stage": "connect",
+      "timeout": false
+    },
+    {
+      "ip": "2606:4700:3033::6815:3b13",
+      "ms": 0,
+      "ok": false,
+      "stage": "connect",
+      "timeout": false
+    }
+  ],
+  "diagnostic_limit": "The failed receipt contains a sanitized generic request error, so the exact historical failure stage is unknown. Later DNS/TCP/verified TLS and single production HTTP probes are separate observations, not proof of the original cause. No production fetch or security logic was changed. The subsequent UI test explicitly configures a three-request budget and permits at most two product resume actions at an unchanged deadline, with each failed attempt retained and the final data, approval and report assertions preserved.",
+  "later_single_production_http_probe": {
+    "bytes": 897,
+    "content_type": "application/json",
+    "elapsed_ms": 4671,
+    "events": [
+      {
+        "answer_count": 4,
+        "elapsed_ms": 24,
+        "error_code": "none",
+        "stage": "dns"
+      },
+      {
+        "answer_count": 4,
+        "elapsed_ms": 26,
+        "error_code": "none",
+        "stage": "dns"
+      },
+      {
+        "elapsed_ms": 26,
+        "network": "tcp",
+        "stage": "connect_start"
+      },
+      {
+        "elapsed_ms": 241,
+        "error_code": "none",
+        "network": "tcp",
+        "stage": "connect_done"
+      },
+      {
+        "elapsed_ms": 2527,
+        "network": "tcp",
+        "stage": "connect_start"
+      },
+      {
+        "elapsed_ms": 2707,
+        "error_code": "none",
+        "network": "tcp",
+        "stage": "connect_done"
+      },
+      {
+        "elapsed_ms": 2999,
+        "stage": "tls_start"
+      },
+      {
+        "elapsed_ms": 2999,
+        "error_code": "none",
+        "protocol": "h2",
+        "stage": "tls_done"
+      },
+      {
+        "elapsed_ms": 3000,
+        "reused": false,
+        "stage": "got_conn",
+        "tls_protocol": "h2",
+        "verified_chains": 1
+      },
+      {
+        "elapsed_ms": 3000,
+        "error_code": "none",
+        "stage": "wrote_request"
+      },
+      {
+        "elapsed_ms": 3296,
+        "stage": "first_response_byte"
+      },
+      {
+        "elapsed_ms": 3296,
+        "error_code": "none",
+        "error_type": "<nil>",
+        "http_status": 200,
+        "protocol": "HTTP/2.0",
+        "stage": "round_trip"
+      }
+    ],
+    "http_status": 200,
+    "ok": true,
+    "public_error_code": "none",
+    "requests_invoked": 1,
+    "scope": "single production FetchJSON request; no credentials or response content retained"
+  }
+}

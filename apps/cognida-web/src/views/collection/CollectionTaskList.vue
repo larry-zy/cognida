@@ -3,11 +3,11 @@
     <header class="collection-tasks__header">
       <div>
         <span class="collection-eyebrow">从网页到可用知识</span><h2>网页采集任务</h2>
-        <p>仅采集明确指定的 HTTPS 地址，并将通过校验的内容写入选定知识库。</p>
+        <p>仅采集明确指定的 HTTPS 地址，保存候选快照。清洗、审批与发布完成后才进入知识检索。</p>
       </div>
       <UiButton variant="primary" @click="createVisible = true">创建采集任务</UiButton>
     </header>
-    <ol class="collection-flow" aria-label="采集操作流程"><li><b>01</b> 选择知识库与来源</li><li><b>02</b> 开始采集并核对结果</li><li><b>03</b> 查看知识或转入流水线</li></ol>
+    <ol class="collection-flow" aria-label="采集操作流程"><li><b>01</b> 选择知识库与来源</li><li><b>02</b> 开始采集并核对结果</li><li><b>03</b> 候选转入流水线审批发布</li></ol>
     <div class="collection-tasks__toolbar">
       <UiSelect v-model="statusFilter" aria-label="筛选采集任务状态" :options="statusOptions" style="width: 160px" @update:model-value="loadTasks" />
       <UiButton variant="ghost" :loading="loading" @click="loadTasks">刷新</UiButton>
@@ -25,8 +25,8 @@
       <template #cell-actions="{ row }">
         <div class="actions">
           <UiButton size="sm" variant="ghost" @click="openDetail(row.id)">详情</UiButton>
-          <UiButton v-if="row.status === 'draft'" size="sm" variant="primary" :disabled="pendingTasks.has(row.id)" @click="startTask(row.id)">开始</UiButton>
-          <UiButton v-if="canCancel(row.status)" size="sm" variant="danger" :disabled="pendingTasks.has(row.id)" @click="cancelTask(row.id)">取消</UiButton>
+          <UiButton v-if="row.status === 'draft' && row.mode !== 'snapshot'" size="sm" variant="primary" :disabled="pendingTasks.has(row.id)" @click="startTask(row.id)">开始</UiButton>
+          <UiButton v-if="canCancel(row.status) && row.mode !== 'snapshot'" size="sm" variant="danger" :disabled="pendingTasks.has(row.id)" @click="cancelTask(row.id)">取消</UiButton>
         </div>
       </template>
     </UiTable>
@@ -70,16 +70,16 @@
         <UiAlert v-if="detail.task.error_message || detail.run?.error_message" type="error" :title="detail.task.error_message || detail.run?.error_message" />
         <UiAlert v-if="detail.summary?.outcome === 'partial'" type="warning" title="部分来源采集失败">可用来源 {{ detail.summary.usable }} / {{ detail.summary.total }}，请查看各来源原因。</UiAlert>
         <div class="detail-actions">
-          <UiButton v-if="detail.task.status === 'draft'" variant="primary" :disabled="pendingTasks.has(detail.task.id)" @click="startTask(detail.task.id)">开始采集</UiButton>
-          <UiButton v-if="canCancel(detail.task.status)" variant="danger" :disabled="pendingTasks.has(detail.task.id)" @click="cancelTask(detail.task.id)">取消任务</UiButton>
+          <UiButton v-if="detail.task.status === 'draft' && !selectedRunId && detail.task.mode !== 'snapshot'" variant="primary" :disabled="pendingTasks.has(detail.task.id)" @click="startTask(detail.task.id)">开始采集</UiButton>
+          <UiButton v-if="canCancel(detail.task.status) && !selectedRunId && detail.task.mode !== 'snapshot'" variant="danger" :disabled="pendingTasks.has(detail.task.id)" @click="cancelTask(detail.task.id)">取消任务</UiButton>
           <UiButton v-if="['failed', 'cancelled'].includes(detail.task.status) || detail.summary?.outcome === 'partial'" variant="primary" @click="prepareRetry">新建任务重新采集</UiButton>
           <UiButton variant="ghost" :loading="detailLoading" @click="refreshDetail">刷新</UiButton>
-          <RouterLink v-if="detailCounts.usable" :to="`/knowledge/${encodeURIComponent(detail.task.knowledge_base_id)}`">查看知识库 →</RouterLink>
+          <RouterLink v-if="detail.items?.some(item => !!item.knowledge_id) && detail.task.knowledge_base_id" :to="`/knowledge/${encodeURIComponent(detail.task.knowledge_base_id)}`">查看知识库 →</RouterLink>
         </div>
         <details class="collection-technical"><summary>任务与运行信息</summary><div class="detail-summary">
           <div><span>任务 ID</span><code>{{ detail.task.id }}</code></div>
           <div><span>状态</span><UiTag :variant="statusVariant(detail.task.status)">{{ statusLabel(detail.task.status) }}</UiTag></div>
-          <div><span>目标知识库</span><RouterLink :to="`/knowledge/${encodeURIComponent(detail.task.knowledge_base_id)}`">{{ knowledgeBaseName(detail.task.knowledge_base_id) }} · 查看知识库</RouterLink></div>
+          <div><span>目标知识库</span><RouterLink v-if="detail.task.knowledge_base_id" :to="`/knowledge/${encodeURIComponent(detail.task.knowledge_base_id)}`">{{ knowledgeBaseName(detail.task.knowledge_base_id) }} · 查看知识库</RouterLink></div>
           <div><span>创建时间</span>{{ formatDate(detail.task.created_at) }}</div>
           <template v-if="detail.run">
             <div><span>最新运行 ID</span><code>{{ detail.run.id }}</code></div>
@@ -89,7 +89,7 @@
           </template>
         </div></details>
         <p v-if="!detail.run">尚未开始采集。来源：{{ detail.sources.map(source => source.url).join('、') }}</p>
-        <p v-else>展示最新一次运行；执行中每 4 秒更新。关闭详情不影响后台采集。</p>
+        <p v-else>{{ selectedRunId ? '展示指定运行；' : '展示最新一次运行；' }}执行中每 4 秒更新。关闭详情不影响后台采集。</p>
         <div class="source-result-head"><h3>来源结果</h3><div class="source-filters" aria-label="筛选来源结果"><button v-for="filter in itemFilters" :key="filter.value" type="button" :aria-pressed="itemFilter === filter.value" @click="itemFilter = filter.value">{{ filter.label }}</button></div></div>
         <UiTable :columns="itemColumns" :data="visibleItems" hover>
           <template #empty><p class="collection-empty">{{ detail.run ? '此筛选下暂无来源结果。执行中的结果会自动更新。' : '开始采集后，来源结果会显示在这里。' }}</p></template>
@@ -145,7 +145,7 @@ const itemFilters = [{ value: 'all', label: '全部来源' }, { value: 'usable',
 const visibleItems = computed(() => (detail.value?.items || []).filter(item => itemFilter.value === 'all' || (itemFilter.value === 'usable' ? isUsable(item) : ['failed', 'rejected'].includes(item.status))))
 const detailCounts = computed(() => detail.value ? sourceCounts(detail.value) : { total: 0, pending: 0, usable: 0, accepted: 0, skipped: 0, rejected: 0, failed: 0 })
 const detailHeadline = computed(() => detail.value?.summary?.outcome === 'partial' ? '采集已结束，部分来源需要处理' : ({ draft: '准备开始采集', running: '正在采集指定来源', completed: '采集完成，内容已可使用', failed: '采集未成功，请检查来源原因', cancelled: '采集已取消' } as Record<string, string>)[detail.value?.task.status || ''] || '采集进度')
-const detailNextStep = computed(() => ({ draft: '核对目标知识库和来源后，点击开始采集。', running: '结果会自动更新。离开本页不会中止已开始的任务。', completed: '查看已入库内容，或将可用来源转入流水线继续清洗、审批与分析。', failed: '查看失败或拒绝原因。修正地址后可创建新任务重新采集。', cancelled: '已完成的来源会保留；如需继续，可使用原地址创建新任务。' } as Record<string, string>)[detail.value?.task.status || ''] || '')
+const detailNextStep = computed(() => ({ draft: '核对目标知识库和来源后，点击开始采集。', running: '结果会自动更新。离开本页不会中止已开始的任务。', completed: '已采集内容仅为候选。转入流水线完成清洗、审批与发布后，才进入正式知识检索。', failed: '查看失败或拒绝原因。修正地址后可创建新任务重新采集。', cancelled: '已完成的来源会保留；如需继续，可使用原地址创建新任务。' } as Record<string, string>)[detail.value?.task.status || ''] || '')
 let disposed = false, epoch = 0, listRequest = 0, detailRequest = 0, knowledgePage = 1, formGeneration = 0
 let createAttempt: { payload: string; key: string } | undefined
 let timer: ReturnType<typeof setInterval> | undefined
@@ -177,35 +177,36 @@ function statusLabel(status: CollectionTaskStatus) {
   return ({ draft: '草稿', running: '执行中', completed: '已完成', failed: '失败', cancelled: '已取消' })[status] || status
 }
 function itemStatusLabel(status: string) {
-  return ({ pending: '等待中', running: '执行中', accepted: '已入库', skipped: '已跳过', rejected: '已拒绝', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] || status
+  return ({ pending: '等待中', running: '执行中', candidate: '候选 · 待审批', accepted: '已有回执', skipped: '已跳过', rejected: '已拒绝', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] || status
 }
 function statusVariant(status: string) {
   return (({ draft: 'info', running: 'primary', completed: 'success', failed: 'danger', cancelled: 'warning' } as Record<string, string>)[status] || 'info') as 'info' | 'primary' | 'success' | 'danger' | 'warning'
 }
 function itemStatusVariant(status: string) {
-  return status === 'rejected' ? 'danger' : status === 'skipped' ? 'warning' : statusVariant(status === 'accepted' ? 'completed' : status)
+  return status === 'candidate' ? 'warning' : status === 'rejected' ? 'danger' : status === 'skipped' ? 'warning' : statusVariant(status === 'accepted' ? 'completed' : status)
 }
 function canCancel(status: CollectionTaskStatus) { return status === 'draft' || status === 'running' }
-function isUsable(item: CollectionItemOutcome) { return item.status === 'accepted' || (item.status === 'skipped' && !!item.knowledge_id) }
+function isUsable(item: CollectionItemOutcome) { return (item.status === 'candidate' && !!item.content_hash && !!item.normalized_object_key) || ((item.status === 'accepted' || item.status === 'skipped') && !!(item.knowledge_id || item.asset_ref_id)) }
 function clearFilter() { statusFilter.value = ''; void loadTasks() }
 function shortId(id: string) { return id.length > 12 ? `${id.slice(0, 8)}…` : id }
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString() : '—' }
 function progressLabel(task: CollectionTask) { return summaries[task.id] || (task.status === 'draft' ? '尚未开始' : '打开详情查看') }
 function sourceCounts(payload: CollectionTaskDetailResponse) {
   const items = payload.items || []
-  return payload.summary || {
+  if (payload.summary) return { ...payload.summary, accepted: payload.summary.accepted + (payload.summary.candidates || 0) }
+  return {
     total: payload.sources.length,
-    accepted: items.filter(item => item.status === 'accepted').length,
+    accepted: items.filter(item => item.status === 'accepted' || item.status === 'candidate').length,
     skipped: items.filter(item => item.status === 'skipped').length,
     failed: items.filter(item => item.status === 'failed').length,
     rejected: items.filter(item => item.status === 'rejected').length,
-    pending: Math.max(0, payload.sources.length - items.filter(item => ['accepted', 'skipped', 'rejected', 'failed', 'cancelled'].includes(item.status)).length),
+    pending: Math.max(0, payload.sources.length - items.filter(item => ['candidate', 'accepted', 'skipped', 'rejected', 'failed', 'cancelled'].includes(item.status)).length),
     usable: items.filter(isUsable).length
   }
 }
 function progressSummary(payload: CollectionTaskDetailResponse) {
   const counts = sourceCounts(payload)
-  return `共 ${counts.total} 个 · 入库 ${counts.accepted} · 跳过 ${counts.skipped} · 拒绝 ${counts.rejected} · 失败 ${counts.failed} · 待处理 ${counts.pending}`
+  return `共 ${counts.total} 个 · 已采集 ${counts.accepted} · 跳过 ${counts.skipped} · 拒绝 ${counts.rejected} · 失败 ${counts.failed} · 待处理 ${counts.pending}`
 }
 function knowledgeBaseName(id: string) { return knowledgeBases.value.find(kb => kb.id === id)?.name || id }
 function active(requestEpoch: number) { return !disposed && requestEpoch === epoch }
@@ -271,8 +272,9 @@ function safeSourceURL(value: string) { return isHttpsUrl(value) ? value : undef
 function resetCreateForm() { ++formGeneration; createForm.knowledge_base_id = ''; createForm.urlsText = ''; createError.value = ''; createAttempt = undefined; createFormRef.value?.clearValidate() }
 function closeCreateDialog() { createVisible.value = false; resetCreateForm() }
 function dismissCreateDialog() { if (!creating.value) createVisible.value = false }
-function closeDetail() { ++detailRequest; detailVisible.value = false; selectedTaskId.value = ''; detail.value = undefined; detailLoading.value = false; detailError.value = ''; detailActionError.value = '' }
-async function openDetail(id: string) { itemFilter.value = 'all'; detailActionError.value = ''; selectedTaskId.value = id; detail.value = undefined; detailVisible.value = true; await refreshDetail() }
+const selectedRunId = ref('')
+function closeDetail() { selectedRunId.value = ''; ++detailRequest; detailVisible.value = false; selectedTaskId.value = ''; detail.value = undefined; detailLoading.value = false; detailError.value = ''; detailActionError.value = '' }
+async function openDetail(id: string, runOnly = false) { selectedRunId.value = runOnly ? id : ''; itemFilter.value = 'all'; detailActionError.value = ''; selectedTaskId.value = id; detail.value = undefined; detailVisible.value = true; await refreshDetail() }
 function prepareRetry() {
   if (!detail.value) return
   const failedURLs = (detail.value.items || []).filter(item => ['failed', 'rejected'].includes(item.status)).map(item => item.source_url)
@@ -289,7 +291,7 @@ async function refreshDetail() {
   detailLoading.value = true
   detailError.value = ''
   try {
-    const payload = (await collectionApi.getById(id)).data
+    const payload = (await (selectedRunId.value ? collectionApi.getRun(selectedRunId.value) : collectionApi.getById(id))).data
     if (!active(requestEpoch) || request !== detailRequest || id !== selectedTaskId.value) return
     if (!payload) throw new Error('采集任务详情为空')
     detail.value = payload
@@ -297,7 +299,7 @@ async function refreshDetail() {
     const index = tasks.value.findIndex(task => task.id === id)
     if (index >= 0) tasks.value[index] = payload.task
   } catch (cause) {
-    if (active(requestEpoch) && request === detailRequest) detailError.value = message(cause, '采集任务详情加载失败')
+    if (active(requestEpoch) && request === detailRequest) { const status = (cause as { response?: { status?: number } })?.response?.status; if (status && [401, 403, 404].includes(status)) detail.value = undefined; detailError.value = message(cause, '采集任务详情加载失败') }
   } finally { if (active(requestEpoch) && request === detailRequest) detailLoading.value = false }
 }
 async function startTask(id: string) {
@@ -337,8 +339,9 @@ watch(() => `${auth.authEpoch}:${auth.currentTenant?.id}`, () => {
   knowledgePage = 1; knowledgeHasMore.value = true; knowledgeLoading.value = false; creating.value = false
   void Promise.all([loadKnowledgeBases(), loadTasks()])
 })
-watch(() => route?.query.task_id, (value) => {
-  if (typeof value === 'string' && value.trim()) void openDetail(value.trim())
+watch(() => [route?.query.task_id, route?.query.run_id], ([value, runID]) => {
+  if (typeof runID === 'string' && runID.trim()) void openDetail(runID.trim(), true)
+  else if (typeof value === 'string' && value.trim()) void openDetail(value.trim())
   else closeDetail()
 }, { immediate: true })
 function warnBeforeUnload(event: BeforeUnloadEvent) { if (hasDraft.value || creating.value) { event.preventDefault(); event.returnValue = '' } }

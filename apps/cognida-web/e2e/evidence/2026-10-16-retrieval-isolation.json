@@ -1,0 +1,15 @@
+{
+  "report": "e2e-accepted-final-report.json",
+  "run_id": "94d69a88-ee69-4fc2-934e-5d22b2791592",
+  "knowledge_base_id": "20261016063550c65cc4f7fef4810c",
+  "published_knowledge_id": "7563cef9-f9f1-5646-b7b4-93fe38e8eb74",
+  "run_status": "succeeded",
+  "target_vectors_present": 1,
+  "same_text_documents_in_shared_test_kb": 21,
+  "returned_top_k": 20,
+  "returned_exact_score_one": 20,
+  "returned_all_same_content": true,
+  "returned_all_milvus": true,
+  "target_in_top_k": false,
+  "resolution": "Use a fresh isolated publication KB per full run; retain exact document, provenance, Top20 and 60s assertions."
+}
