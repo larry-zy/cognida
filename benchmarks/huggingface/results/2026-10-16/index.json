@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "note": "Sanitized statistics and failure IDs only; original full artifacts remain in the local run directory. No raw model responses or corpus text.",
+  "artifacts": [
+    {
+      "file": "verification.json",
+      "sha256": "eb4c885e23cfc5913cb88dcf255216088bf1e3758c3f9a6f922fe2ca8460d1cf",
+      "source_sha256": "124362153584be3b332b80673813413bebb567059c4a31aba8821f077a147c0d"
+    },
+    {
+      "file": "cleanup.json",
+      "sha256": "3a99c103e71e5204af9d1e453187c5ef91363ccfc45e841256aa213ff78a8423",
+      "source_sha256": "bfeacdf01f08449c99510b8f97c0fb38d565ab673b4bb5093a4296378f285a8f"
+    },
+    {
+      "file": "label-final-verification.json",
+      "sha256": "c7cf077f19ea8854b704a12837a0e4c385b1c28e99a77091ea2e46780eb56385",
+      "source_sha256": "cad62896ace4a58ac95e98b690bc83d25539f4b3150bc8677cc074a2e7e63bbb"
+    },
+    {
+      "file": "label-comparison.json",
+      "sha256": "11756e2bf05a93805d71c90ee22616cddfb07f3073dd2c42bb3aa20e91cb4a7c",
+      "source_sha256": "d6f947515db4526cf3791a4aaf1b2d1271edc3c5b5f60abf83eaa862c120f3a1"
+    },
+    {
+      "file": "label-diagnostic-v2-analysis.json",
+      "sha256": "bdbb9b05f81882ebb38f20b8b598d076c20af94b2cd1f9af2f174ca359494b31",
+      "source_sha256": "c8a27188688c8384809eab937dfe781d476260f2794339dada4a246c056e5ded"
+    },
+    {
+      "file": "label-diagnostic-analysis.json",
+      "sha256": "33c61f15872ed4d0a8c1a2ec627bd5153017ec8cdd6e0e1d2f8a26f503a9dc26",
+      "source_sha256": "ae035a4fb84919d952729136050412c1141c84c995685903bd6effe29ccfd1fc"
+    },
+    {
+      "file": "cleaning-live.json",
+      "sha256": "ec2f53894464b0635749a04b21c1cb549575932c8a8c0755b4e76ab67d751058",
+      "source_sha256": "43dcb5692e2fc1d8a0c50b3aca4f0fee07677390e2ad475ed2f154e679eb11be"
+    },
+    {
+      "file": "cleaning-before-after.json",
+      "sha256": "0c6ef43cf2600eb0767710b2323e3a105335199b18d097fdc65f500f055a2dc8",
+      "source_sha256": "3053cf7833240b5096b3f02a670b1d19a86e106b5fddc8538d368fa8620ae91b"
+    },
+    {
+      "file": "ingestion-http.json",
+      "sha256": "c3fb62b4b1775b92ffef56952500df57d67c2025757a843afdb837e689bb974c",
+      "source_sha256": "142f5916569138db51a402ea952f91631d86a5accb63dc1c02e7f7c4d2091f90"
+    },
+    {
+      "file": "feature-materialization.json",
+      "sha256": "e176673b45b2ebb13dab89e51366ef9412271252bb82cdc53ac6556c966fb5dd",
+      "source_sha256": "fd20f15c34661dc54f7edb11a40b601ff96d9b4bd7cd9ce245a3c8c4907b3c06"
+    },
+    {
+      "file": "feature-window.json",
+      "sha256": "8a6e22a086c40675df35ff3136d5d63cbcfa1f5f75dbe31fdd4a0c27563fdd30",
+      "source_sha256": "da8d1e0ff6011ece132135258d5479130d285f6482e68a95b84f6aceef3d2a15"
+    },
+    {
+      "file": "drift.json",
+      "sha256": "1e1f12fd74254a8b84ad00b4f4484db4a8bc765221489b44027a7535ee09ef0f",
+      "source_sha256": "f7d32afe3cb5778421ac02b8e5f6e1e7d33d6dd3b34fba4df10e106a92946aa6"
+    },
+    {
+      "file": "banking77-v2-protocol.json",
+      "sha256": "0dc7623043c38f51c648aaf9456d8beff78d2564a246dc2ba9f8c66d9b134e56",
+      "source_sha256": "8cbcb66df5b95ffca4341e5f3c1a88ef9f33991880d21d97124798fcd9f8de30"
+    },
+    {
+      "file": "banking77-v2-rules.json",
+      "sha256": "51dc9b436601c088351ea2a7ca7f74bed0b6dc30f249aa47dab0214c4c99148d",
+      "source_sha256": "0f6bad57523d713f3cc0342ff63004cc6ddbf5952b069aa5073322dff791e85e"
+    },
+    {
+      "file": "banking77-v2-model.json",
+      "sha256": "4753953f0286a6a32b6ddd67c05acf6ddde74fbd8f0745d58d17b50f021f7806",
+      "source_sha256": "45b9adc6e74c15f9361a4341c7288f49b393737a29e6ebbe2d98e88d4a2c70d3"
+    },
+    {
+      "file": "banking77-v2-oracle.json",
+      "sha256": "8afdac7dadebeab3cb1c156c41017df21260e096e17e0a5a52d6706967ca5387",
+      "source_sha256": "07e50ad6085b2afe076794709afafd60f5d119806172e3f7bc38c5d81e269ad0"
+    },
+    {
+      "file": "banking77-v3-protocol.json",
+      "sha256": "55774f58c365b75e2d1c574eb37b136537843ec64ee748f8d57cb67b0f65d928",
+      "source_sha256": "5add8fdfd79317eb2c7640f57cb65e8a566b03eaaf5693e849df05dcaffba37f"
+    },
+    {
+      "file": "banking77-v3-model.json",
+      "sha256": "28009a48efd324c8add111cb3fdc522049ad440abc75c4b42937608756be1e30",
+      "source_sha256": "2bcd7c7c3aa1c87bc1ef0346feaa905980e6c7880708123dee4395ba4d98e1c6"
+    },
+    {
+      "file": "banking77-v3-paired-rules.json",
+      "sha256": "68ab479e9fc7b3ad98900281850969c257db90398fc42a3ff2928e2c9f195518",
+      "source_sha256": "c74687d5899c13316e50db02dab69c571180c7640dbd06961a41febbc31f3d57"
+    },
+    {
+      "file": "massive_zh-v2-protocol.json",
+      "sha256": "5f3de8833037e37889756dae177e41169d5be8034e194fb2017afc49abc82e71",
+      "source_sha256": "7bfcea7693291454faea551cec242eee98482fff4c0831a8805304f05cbfab88"
+    },
+    {
+      "file": "massive_zh-v2-rules.json",
+      "sha256": "4585ce6329c12097441e4da29dd5f3b203896402ebc9da917be63a4684db6bbf",
+      "source_sha256": "d6ad712985f14503e650cc448e93f1e5f9f523e5dda8f7b4f963f56cbf41273a"
+    },
+    {
+      "file": "massive_zh-v2-model.json",
+      "sha256": "1dd3eb8d23e895ce8f90950f023692362c3a1a76d91ff8e52e07a971bf1ebb9f",
+      "source_sha256": "8c1fb1e50db143a961d497203656807ebf06e44f81b8156aa776fd1e747fa877"
+    },
+    {
+      "file": "massive_zh-v2-oracle.json",
+      "sha256": "fef6797702ea1ce5329776af60138fd5d62a3fa00433a99d16185092836ae29e",
+      "source_sha256": "c49af3322a594a5b772edcf31d9cc3bfc1ebf644917946089f63a5fb37bc3cca"
+    },
+    {
+      "file": "massive_zh-v3-protocol.json",
+      "sha256": "0ee8241b470dd6a0e63b101f9906b93ac28ca737a9167db8b6d84e91f3909003",
+      "source_sha256": "975c36a9dd665ac5d0e17a5b5e73551dd94806eff3cce38016d221b7e5a6bd66"
+    },
+    {
+      "file": "massive_zh-v3-model.json",
+      "sha256": "adb4e8ef7856b4ef86bc98b83d4b624c728fd719471e680402f0c21532d7075f",
+      "source_sha256": "71978520295f1801d50f8ce705643e448765f32c2f816615c47536b921674e93"
+    },
+    {
+      "file": "massive_zh-v3-paired-rules.json",
+      "sha256": "455c264bc684cfd8a8ed7c0a3b33b392b934eab8fec20c124d19f1c1a6903865",
+      "source_sha256": "ac8e470b3e41808e643b4559770ec1e27efb836f9673f8f6f63ea2d87cdde0ea"
+    },
+    {
+      "file": "few_nerd-v2-protocol.json",
+      "sha256": "45566f592cdca4e1a1cd13360a225578e06728c9cd6d51ae7124c165b96bc0c5",
+      "source_sha256": "0d4583df47149f1aadd289f93dd6998929b17b0b2331a49d6dff4bbf015d9559"
+    },
+    {
+      "file": "few_nerd-v2-rules.json",
+      "sha256": "d8f93851fdb5b3f04e62ccbe9ce79e3577763560c392fbf3d061918dc7846b73",
+      "source_sha256": "aff49ce0c1c6d49955b76e855e2c168cb51d953f06c574914a3164dfa5d34868"
+    },
+    {
+      "file": "few_nerd-v2-model.json",
+      "sha256": "abbd10ce2abc0d43354072a8698e31714b856b620de17b623c08b7461e99651c",
+      "source_sha256": "30ccde07d7eaa9067f06591f20f9fcfcb6816bb62d07d0a6474f00ba533dada6"
+    },
+    {
+      "file": "few_nerd-v2-oracle.json",
+      "sha256": "77f44367fc3a8c138163f00410a35834040b1b235d80c6d2ea98d35e61690e44",
+      "source_sha256": "d9f84059e46c9014226242684caa8a4301d811ac8e87019d09a3aeb05c349cd4"
+    },
+    {
+      "file": "few_nerd-v3-protocol.json",
+      "sha256": "7b86ab211e4c8a3c8248d58bd6492f13a267e84f6212767dc3df573cd5ffd195",
+      "source_sha256": "b73afa1be8800e7d846df6a4c61c1d5390148e89bdd93c95877858471cb8f907"
+    },
+    {
+      "file": "few_nerd-v3-model.json",
+      "sha256": "d0e7d1c44b1df11328a835b0d5f39bd60da1fcbecf12e7b115b381a40757a289",
+      "source_sha256": "00234c84b76185ef9807dce6c26daf663f6680ff6dbf1d3d4477801504717a2e"
+    },
+    {
+      "file": "few_nerd-v3-paired-rules.json",
+      "sha256": "ef1f3b18a5129be1f1d732ee4526d8edd49afe339788e75653c0c1e6d366896a",
+      "source_sha256": "4d67d95ed32f16141ab864ca7359499604e0cb89dcfd77c5f85a760440745854"
+    },
+    {
+      "file": "train-diagnostic-v1.json",
+      "sha256": "63e76f29a8f6aa2057cf1b2d56bb826c12b1ca58b5b968c07de786c64acc6299",
+      "source_sha256": "1405bb384a5add6c86ead1ff88284b4f1cc74101b8825cce9df119081e570b3d"
+    },
+    {
+      "file": "train-diagnostic-v2.json",
+      "sha256": "098465c3dad6801185a5dd8fe5d34b528ba96be6f8b5987b4022ce128b8f64d3",
+      "source_sha256": "15aecaaafe263edd84f5bb4e0a1f858bd2872e16e949168e447403160775db96"
+    }
+  ]
+}

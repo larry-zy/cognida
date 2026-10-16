@@ -1,0 +1,20 @@
+{
+  "original_artifact": "labels/banking77/v2/oracle-publication.json",
+  "original_sha256": "07e50ad6085b2afe076794709afafd60f5d119806172e3f7bc38c5d81e269ad0",
+  "data": {
+    "dataset": "mteb/banking77",
+    "idempotent_replay": true,
+    "immutable_after_annotation_edit": true,
+    "kind": "oracle_fixture_not_automatic_quality",
+    "manifest_sha256": "77084f7dac6e98c7b482ac568b13ae5e8ffc6e95a05bf132ef5b3f8cafffee96",
+    "other_owner_rejected": true,
+    "profile": "classification",
+    "reviewed_published": true,
+    "revision": "18072d2685ea682290f7b8924d94c62acc19c0b2",
+    "revoked_source_rejected": true,
+    "samples": 3,
+    "service_rule_parity": true,
+    "transport": "real TCP HTTP, real MySQL and local object store; fixture identity, unused rejecting queue",
+    "unreviewed_rejected": true
+  }
+}

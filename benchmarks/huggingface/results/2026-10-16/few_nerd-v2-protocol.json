@@ -1,0 +1,851 @@
+{
+  "original_artifact": "labels/few_nerd/v2/protocol.json",
+  "original_sha256": "0d4583df47149f1aadd289f93dd6998929b17b0b2331a49d6dff4bbf015d9559",
+  "data": {
+    "version": "hf_label_v2",
+    "created_at": "2026-10-16T07:36:50.889621Z",
+    "config": {
+      "dataset": "DFKI-SLT/few-nerd",
+      "revision": "205f3e9c9f3577ea2561d43f2f62dc249ab92d5b",
+      "language": "en",
+      "kind": "named_entity",
+      "train_file": "$RUN/data/few_nerd/train.jsonl",
+      "test_file": "$RUN/data/few_nerd/test.jsonl",
+      "train_sha256": "179322189212699a7e7f7172d72ba6ad02d1a08291c32edaa8c477356da45b1c",
+      "test_sha256": "5e958eb4776690c8dc16f44a20543e97afd0fbcb06b87fe04e9d0eaff86fd178",
+      "labels": [
+        {
+          "id": "art",
+          "name": "art"
+        },
+        {
+          "id": "building",
+          "name": "building"
+        },
+        {
+          "id": "event",
+          "name": "event"
+        },
+        {
+          "id": "location",
+          "name": "location"
+        },
+        {
+          "id": "organization",
+          "name": "organization"
+        },
+        {
+          "id": "other",
+          "name": "other"
+        },
+        {
+          "id": "person",
+          "name": "person"
+        },
+        {
+          "id": "product",
+          "name": "product"
+        }
+      ]
+    },
+    "rules": [
+      {
+        "id": "art",
+        "name": "art",
+        "terms": [
+          "Bible",
+          "Carmen",
+          "Glasgow Herald",
+          "Doctor Who",
+          "Star Trek",
+          "Hamlet",
+          "The New York Times",
+          "Don Giovanni",
+          "New York Times",
+          "Sonny Stitt",
+          "Tosca",
+          "Hebrew Bible",
+          "Rescue Me",
+          "Harry Potter",
+          "La bohème",
+          "Les Misérables",
+          "Rigoletto",
+          "Time",
+          "Toy Story",
+          "Godspell",
+          "Guys and Dolls",
+          "Home Improvement",
+          "King Lear",
+          "Last Man Standing",
+          "Looney Tunes",
+          "Macbeth",
+          "New Testament",
+          "Sesame Street",
+          "The Sound of Music",
+          "Venus de Milo",
+          "Washington Post",
+          "West Side Story",
+          "Amara Prema",
+          "Billboard",
+          "Fiddler on the Roof",
+          "Gianni Schicchi",
+          "La Traviata",
+          "Life",
+          "Madama Butterfly",
+          "My Fair Lady",
+          "Never Be Free",
+          "Recount",
+          "Star Wars",
+          "Teen Wolf",
+          "The Office",
+          "Theogony",
+          "Tomorrow",
+          "Wall Street Journal",
+          "Ad nos , ad salutarem undam",
+          "Anything Goes"
+        ]
+      },
+      {
+        "id": "building",
+        "name": "building",
+        "terms": [
+          "Broadway",
+          "White House",
+          "British Library",
+          "British Museum",
+          "Lenox Library",
+          "Libby Dam",
+          "Minneapolis Public Library",
+          "Three Gorges Dam",
+          "Wellcome Library",
+          "World Trade Center",
+          "Glen Canyon Dam",
+          "KFC",
+          "Royal Opera House",
+          "Caesars Palace",
+          "National Theatre",
+          "New York Public Library",
+          "Toronto Public Library",
+          "Chalk River Laboratories",
+          "Louvre",
+          "McDonald 's",
+          "Theatre Royal",
+          "Waldorf-Astoria Hotel",
+          "Bancroft Library",
+          "Banff Springs Hotel",
+          "Bentley Historical Library",
+          "Burger King",
+          "Detroit Public Library",
+          "Mitchell Library",
+          "National Library",
+          "O'Shaughnessy Dam",
+          "State Library of New South Wales",
+          "State Library of South Australia",
+          "State Library of Victoria",
+          "Aswan Dam",
+          "Aswan High Dam",
+          "Biblioteca de Catalunya",
+          "Brooklyn Public Library",
+          "Caesar 's Palace",
+          "Carnegie Hall",
+          "Grand Coulee Dam",
+          "Houghton Library",
+          "IHOP",
+          "John Rylands Library",
+          "La Scala",
+          "Library of Congress",
+          "Lincoln Center",
+          "Royal Danish Library",
+          "San Francisco Public Library",
+          "Shasta Dam",
+          "Vancouver Public Library"
+        ]
+      },
+      {
+        "id": "event",
+        "name": "event",
+        "terms": [
+          "World War II",
+          "World War I",
+          "Second World War",
+          "World Cup",
+          "First World War",
+          "Olympic",
+          "Australian Open",
+          "American Civil War",
+          "Civil War",
+          "Summer Olympics",
+          "French Open",
+          "Vietnam War",
+          "Olympics",
+          "Super Bowl",
+          "Tour de France",
+          "Wimbledon Championships",
+          "Olympic Games",
+          "FIFA World Cup",
+          "Russian Revolution",
+          "Korean War",
+          "World Series",
+          "Cold War",
+          "Grand Slam",
+          "Stanley Cup Finals",
+          "NCAA",
+          "US Open",
+          "Winter Olympics",
+          "Great Depression",
+          "Formula One",
+          "French Revolution",
+          "Holocaust",
+          "Stanley Cup",
+          "Cannes Film Festival",
+          "U.S. presidential election",
+          "World Championships",
+          "American Revolutionary War",
+          "Scottish Parliament election",
+          "Wimbledon",
+          "ATP World Tour",
+          "FA Cup",
+          "Grand Prix",
+          "NHL Entry Draft",
+          "Hungarian Revolution",
+          "Renaissance",
+          "UEFA Euro",
+          "ATP Tour",
+          "Davis Cup",
+          "Miss Universe",
+          "Operation Barbarossa",
+          "UEFA Cup"
+        ]
+      },
+      {
+        "id": "location",
+        "name": "location",
+        "terms": [
+          "United States",
+          "American",
+          "London",
+          "British",
+          "California",
+          "New York",
+          "England",
+          "France",
+          "French",
+          "Canada",
+          "German",
+          "U.S .",
+          "Japan",
+          "India",
+          "Europe",
+          "Germany",
+          "US",
+          "Australia",
+          "UK",
+          "China",
+          "Florida",
+          "New York City",
+          "Paris",
+          "Japanese",
+          "Los Angeles",
+          "Italy",
+          "Canadian",
+          "Italian",
+          "Australian",
+          "English",
+          "New Zealand",
+          "Spain",
+          "America",
+          "European",
+          "Texas",
+          "Russia",
+          "Indian",
+          "United Kingdom",
+          "Russian",
+          "Chinese",
+          "Ireland",
+          "Chicago",
+          "Scotland",
+          "Poland",
+          "Virginia",
+          "Pennsylvania",
+          "Washington",
+          "San Francisco",
+          "Spanish",
+          "Egypt"
+        ]
+      },
+      {
+        "id": "organization",
+        "name": "organization",
+        "terms": [
+          "Christian",
+          "NFL",
+          "BBC",
+          "Republican",
+          "Catholic",
+          "Apple",
+          "CBS",
+          "NBA",
+          "NBC",
+          "NCAA",
+          "Democratic",
+          "NHL",
+          "NASA",
+          "ABC",
+          "Oxford",
+          "Muslim",
+          "Buddhist",
+          "University of California",
+          "Christianity",
+          "Democratic Party",
+          "Royal Navy",
+          "Harvard University",
+          "ESPN",
+          "ITV",
+          "Disney",
+          "U.S. Navy",
+          "Yankees",
+          "Fox",
+          "Congress",
+          "National Park Service",
+          "Supreme Court",
+          "Yale University",
+          "Buddhism",
+          "Microsoft",
+          "British Army",
+          "FDA",
+          "Nazi",
+          "Parliament",
+          "Republican Party",
+          "AFL",
+          "CIA",
+          "Labour",
+          "Columbia University",
+          "IBM",
+          "New York Times",
+          "RAF",
+          "United States Navy",
+          "Harvard",
+          "Jewish",
+          "Nintendo"
+        ]
+      },
+      {
+        "id": "other",
+        "name": "other",
+        "terms": [
+          "$",
+          "English",
+          "Earth",
+          "DNA",
+          "£",
+          "French",
+          "Spanish",
+          "Sun",
+          "German",
+          "US $",
+          "p53",
+          "Latin",
+          "Jupiter",
+          "Greek",
+          "Chinese",
+          "Arabic",
+          "HIV",
+          "AIDS",
+          "USD",
+          "RNA",
+          "dollar",
+          "MBA",
+          "Milky Way",
+          "€",
+          "COVID-19",
+          "PhD",
+          "Hindi",
+          "TGF-β",
+          "Saturn",
+          "Japanese",
+          "Portuguese",
+          "euro",
+          "hemoglobin",
+          "iron",
+          "oxygen",
+          "STAT3",
+          "Sanskrit",
+          "Ph.D .",
+          "Pluto",
+          "carbon dioxide",
+          "protein",
+          "Shiva",
+          "dollars",
+          "Dutch",
+          "Jesus",
+          "Mars",
+          "Russian",
+          "Solar System",
+          "Telugu",
+          "Vishnu"
+        ]
+      },
+      {
+        "id": "person",
+        "name": "person",
+        "terms": [
+          "Obama",
+          "Smith",
+          "Barack Obama",
+          "Johnson",
+          "William",
+          "John",
+          "Thomas",
+          "Brown",
+          "Williams",
+          "Henry",
+          "Alexander",
+          "Napoleon",
+          "Davis",
+          "Jones",
+          "Taylor",
+          "Wilson",
+          "Charles",
+          "Hitler",
+          "Michael",
+          "Robert",
+          "Jackson",
+          "Mary",
+          "Evans",
+          "Philip",
+          "James",
+          "Lee",
+          "Bush",
+          "Lewis",
+          "Richard",
+          "Wright",
+          "King",
+          "Miller",
+          "Elizabeth",
+          "Clark",
+          "Maia",
+          "George W. Bush",
+          "Kennedy",
+          "Anderson",
+          "David",
+          "Harris",
+          "Nixon",
+          "White",
+          "Armstrong",
+          "Howard",
+          "Clinton",
+          "Frederick",
+          "George Washington",
+          "Richard Nixon",
+          "Robinson",
+          "Trump"
+        ]
+      },
+      {
+        "id": "product",
+        "name": "product",
+        "terms": [
+          "Linux",
+          "Windows",
+          "Macintosh",
+          "Android",
+          "Microsoft Windows",
+          "YouTube",
+          "PlayStation",
+          "Commodore 64",
+          "Wii",
+          "PC",
+          "iOS",
+          "Facebook",
+          "Unix",
+          "Xbox 360",
+          "Apple II",
+          "DOS",
+          "Xbox",
+          "PlayStation 2",
+          "NES",
+          "Mac",
+          "Twitter",
+          "Wii Remote",
+          "Amiga",
+          "Cabernet Sauvignon",
+          "MS-DOS",
+          "PDP-11",
+          "Game Boy Advance",
+          "Nintendo 64",
+          "PlayStation 3",
+          "Mac OS",
+          "Wii U",
+          "iPhone",
+          "Boeing 737-200",
+          "Game Boy Color",
+          "IBM PC",
+          "Mac OS X",
+          "PDP-10",
+          "iMac",
+          "iTunes",
+          "Apple Macintosh",
+          "Ferrari",
+          "Game Boy",
+          "InterCity 125",
+          "Java",
+          "MacBook Pro",
+          "Merlot",
+          "OpenBSD",
+          "Ubuntu",
+          "Amstrad CPC",
+          "Atari ST"
+        ]
+      }
+    ],
+    "rules_sha256": "7378353de16976132c544093f8db630169ccb211faeaaffd358a2c2bf3c8fa79",
+    "prompt_sha256": "f160fa669abbe2783bbb7395ac958c1e0b0f95da6111eab576cc8ee3400ee6f4",
+    "code_sha256": {
+      "annotation.go": "22f10abc72e16415df48f029e37236484da90b9d2eb1f5564838a26711cc5c6f",
+      "label_benchmark.go": "efe3f82f1c34bfe1f10df3016bad53ea86317d38563d0854e36fc2425ce98825",
+      "label_benchmark_protocol.go": "1827008d06621571cd1e71e5c364fbe6f2ca787d4bd8378845e0230b1dab40f7",
+      "label_benchmark_runner_integration_test.go": "da26a78cf4776152fbb7f1d30058a977e7682da5ea1b402d3ec6f67741bb88ab",
+      "label_rules.go": "20ea36189c6613847e7224c3bbbbdcadb01e5a0a51e1f6bab81d2ad4347bc023",
+      "label_suggester.go": "8665276a6ffaf54faddda0db1c6be7070c2c362bda11c40fca8bf059158598fa",
+      "label_suggestions.go": "69afc061edee04ac09722aea58efd4c24ac3c06220610e5157335a506ab65a35"
+    },
+    "model_selection": [
+      {
+        "id": "test:22254",
+        "text_sha256": "81fc696d1106f142cbd67a68f5bf66268357dfe0f5eb5488fdc45fe818dee9c6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:15528",
+        "text_sha256": "f6c540e951fe9c45546b0aa8c6e98b9a9ba961cdf80d63d3f0d540db19ff1083",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:23122",
+        "text_sha256": "fe70b62d8f1379752315cd886105b0e37f8c2210e9e4237aac9f1b14b64b5bd2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:25939",
+        "text_sha256": "a09d560d89b428f46eb667debe4af7fe7cc806869e5deeb9eb1ed88e16fa6cd4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:6752",
+        "text_sha256": "52de4aaa8a67b08d3f8741ae69118e2e7b14a5df6fc88d69eef5dce61add8164",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:29812",
+        "text_sha256": "02ca5880291cbf33354a782c61bbdc27715573c89d6c1410ff266cbe1e756f29",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:19591",
+        "text_sha256": "c8ca00511bb9606af6b9a752d4cb12b69ed10158d390659f38dc26c7ec793370",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:16612",
+        "text_sha256": "fb1bd4e0ae94a8dd0b3ebfd67caf054c9aaa3876a3544dc0f10b561bdc4f4628",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:25199",
+        "text_sha256": "2b2a107e36bc1fb3dc8bc277a05c70c7835da795e6ce185e6d25360fac4ad95a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:14848",
+        "text_sha256": "38fe723c0e52b7226b3766821d6d902acf4731b392b7e6aa40a33d984728045a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:7113",
+        "text_sha256": "cb31bf379f544a5695bfb8c7fca41f285b90335159bd649cc3bdf7d77c82a6ef",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:21870",
+        "text_sha256": "d813e39e8a498953ed7eaaecb20aa9afa0491782bc82e35ff4681a4fdfb59d94",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:19480",
+        "text_sha256": "d2ff3c18ea537f06d2a3fed708be01885835db7c95df546ae006997a9f3980e2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:15793",
+        "text_sha256": "ab7f6f7718a9c748e8b159e94185f8470358c711f6ba55f7d195eb4bf3978e67",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:11455",
+        "text_sha256": "bff55b321da98d49924e76829ddff1bdcd9411a1ca2cca8fbc084b8b1eb82ced",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:24327",
+        "text_sha256": "78d40df8a670084803cda9029cc916f334eb1f3090e522e058adb7d8c818080b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:17231",
+        "text_sha256": "1ae69e46036ef8e41b2123993e47d7fd34809ed1591edf1e1a2c13a1a189cc93",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:15144",
+        "text_sha256": "5ee40b7101d8c05a19021b0fd1b3993001f600635727a5f6f7c55660226da8a0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:5367",
+        "text_sha256": "6740d01f9a979275452dc86ca69e942a6deaad6822fc231b3ccaa92519a5a658",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:15734",
+        "text_sha256": "281746df10656eb31c246400f63bea0b11efaa887b32bdfd3e827e4e7a2cf96c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:31479",
+        "text_sha256": "db318b85640523435ac2b2047da94690f5b82338c5473e271733c878f95076f7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:25922",
+        "text_sha256": "39f6e5862a5e09b8a55ab7b91d570508eaa2e352bcab3c8f54c33db765ec2699",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:13603",
+        "text_sha256": "2c28b47fdadb8b37070b8e1906cc0fe20ad3086be85c6e338b2d5deeb634de3a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:26610",
+        "text_sha256": "2603b56ed80c49f0d7938c9fa1402f367ec498cfd802466c1b3be98f91c9a1e1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:9462",
+        "text_sha256": "b04b65c641d8cf6ceeb48c2260085577470de9c157d82c5432df0105790757cf",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:24784",
+        "text_sha256": "bb443cb9adc738a289a30e3942d015b7b38a51710f6e7e0dc55ca0490927c0c5",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:22853",
+        "text_sha256": "41b5a3fb8296ac400b73263f6f70f86d68190cd0d206a0d915d11368cea29cef",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:23626",
+        "text_sha256": "1e85222513c48cc72b94531ca935e533b13367da5b340a839b44a3d90a1b599e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:7372",
+        "text_sha256": "bdfba4b224b4903147267211e20d98f1eb6fb9edb504e1176e0741836fe6a289",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2846",
+        "text_sha256": "bdff7f9d8a00e08c1c7cd7b62985e97b374843b179c410c98a52fbc047f8f46d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:19244",
+        "text_sha256": "60f2cf27ba6c0e02c5c8b1c2af7a3060d50812f495e8e094f72ff6dc1ab4beb6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:29580",
+        "text_sha256": "8d80c8daed12bd58aa1c66e3bf0a1517346109c966e1075b87a62ff2eb95148f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:32478",
+        "text_sha256": "6f6d643980f188fbc622cc13d161c44739aab229382da71989a9608bf09c2784",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:32914",
+        "text_sha256": "26ebbc54ac2a3a40fafe58f1c2be5ab1ede081c4d39ef93f5c759cb4d3ef507a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:19437",
+        "text_sha256": "3a8893e6e11be2586517867e31ffcc17a4442bd5d0f8b843ff9af99e99e36f1b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:31230",
+        "text_sha256": "0f57848e10966d6f22297134fb777a8247d63a74957c043fc9d6ddf6878660ad",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:27818",
+        "text_sha256": "caa635f798875b80b019dfb8fb7844965d247119637ab3e6f90cb0115d79542c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:24534",
+        "text_sha256": "d1e39c2b664235c6c499801b26004f997aea2356d2a2ec43042c28e6a5465dda",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:8821",
+        "text_sha256": "a360edd26468e52cee6921749732b4448f59f6d7e7795423c3b8db0d64c967b3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:3399",
+        "text_sha256": "43ffc5c31885be8360b694ac730268ac05e3360c19f0122f89466212675c1b43",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:24547",
+        "text_sha256": "9357d7beb3b9052d1f5405a5c1c45b7119060af13a8a7b805d6a169884ff270a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:17446",
+        "text_sha256": "85ab367d7a444767c1641c79e9022af4cc0e30fb95659d6508fa0873e6e89972",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:8415",
+        "text_sha256": "471be96184c4d7539751c435d9c7c540b6d218dad35eff4e8c6204f19d4f5e2b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:8517",
+        "text_sha256": "4c38d97c93806d1e462beab96bed940272045631571f60634dda02a161c265a7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:35406",
+        "text_sha256": "32738c19f1ddb1a4c9844e818c18374c98d8958dffa46494db76c76efb4ae495",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:27746",
+        "text_sha256": "1d5703446abb575f3e426268be47657d36552d081e1b8bb87e0c59a1795464bf",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:36805",
+        "text_sha256": "ca8981eea201720e68a3478b7a342979841f9c83d9225305c52393a2b496a39d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:30407",
+        "text_sha256": "e2804163cfd419a3688a104bf057d015b0eb1fd007faa124a2769d1cc8c5581d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:16884",
+        "text_sha256": "3bff1396b32cac468979e7d1801be3c90b5baa2df96b7c65c8161f95ba5b8f18",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:34458",
+        "text_sha256": "8f465b2c3411d76e04313c080168703b1fdac4e33b8f0c86d89fae28076ccbcf",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:30706",
+        "text_sha256": "3f04bb58448033c0a48168006f647353a890d2b4b05782bf29e4028db3b2dd71",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:25925",
+        "text_sha256": "03c8cd8517ab35e07e996b62066acf679c302ce56f6a92106898e25101077005",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:26172",
+        "text_sha256": "c23dccb5e51bf2a53ff02f75368a8633fe76ad2bcd5127c67f0d272f33450aa7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:10581",
+        "text_sha256": "95b6b5aeeed41abe52ba598480654d4dde795ed57435dc7e6734ed533ad771f0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:12638",
+        "text_sha256": "0d35da2d5dd2d0f505e614dc89bd2d71a72b5e68c43dfd5e9601994f7379da26",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:874",
+        "text_sha256": "c66609c14059ffc20d4ac5fb5fbbec260ef19947a9a19248710fdaf451e5329b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:26090",
+        "text_sha256": "2d85f5cd56d996d4acfd8528066f22e6606f95949411509714770517a61434d5",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:12326",
+        "text_sha256": "9d9a453f1104bf81ee60e5f223aab5e023c074192d19914a97e26440757df4f9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:20596",
+        "text_sha256": "38bb6aa5bb13fde5820bc6a12b6a2634916bbae054e56605a24df92848d7f62f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:29802",
+        "text_sha256": "d013c623060473e049c1afebe3f75a671b3662c3a4c09832f0363fbeb4cac98e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:17623",
+        "text_sha256": "d017e7a9ede4bb67d3eddeb3572e087f79bd024e8dc49b38ccd23d60ace205b0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:36819",
+        "text_sha256": "3f33101bbdabad1b2781a15cf4034abd035d6b0ceec68b61305c1ddb7cabf319",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:32821",
+        "text_sha256": "e3228f0528709e063fb9c4255befb9d3422be559772c90525b47003924cf699c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:19000",
+        "text_sha256": "0cf443255fc89e8058294010bfc9af8bdc82919ce9f307dc93efe39a508fcdb9",
+        "train_text_overlap": false
+      }
+    ],
+    "seed": "cognida-hf-label-v1-20261016",
+    "model": "deepseek-v4-flash",
+    "provider": "deepseek",
+    "model_call_limit": 64,
+    "parallel": 2,
+    "train_rows": 131767,
+    "official_test_rows": 37648,
+    "train_test_overlap_rows": 3599,
+    "notes": [
+      "Official full held-out rule denominator is unchanged; exact-text overlap and unseen-text metrics are separate.",
+      "Classification model sample: min(2, official test class size) hash-ranked examples per declared class. NER: 64 hash-ranked unseen texts. No difficulty/length filtering. MASSIVE cooking_query has zero test rows, general_greet one: 117 selected, no train substitution or budget reallocation. This protocol correction preceded all model calls.",
+      "One model call per selected sample, concurrency two, 20 second production deadline, 4096 tokens, no retry or repair.",
+      "Gold labels never enter model requests; taxonomy names are public schema. Training-only literal rules do not enter model prompts.",
+      "NER exact coarse spans use the downloader's space-joined token reconstruction. Uncertain valid spans are scored; coverage is reported separately.",
+      "Manual gold review/publication is an oracle fixture, never automatic annotation quality. No billing estimates; missing cost remains null."
+    ]
+  }
+}

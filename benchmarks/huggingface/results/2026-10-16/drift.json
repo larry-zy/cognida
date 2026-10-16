@@ -1,0 +1,4343 @@
+{
+  "original_artifact": "features/final/drift-benchmark.json",
+  "original_sha256": "f7d32afe3cb5778421ac02b8e5f6e1e7d33d6dd3b34fba4df10e106a92946aa6",
+  "data": {
+    "abrupt_first_detection_delay_windows": 0,
+    "baseline_mix": "250 red + 750 white; stable current windows each 50 red + 150 white, disjoint from baseline and one another",
+    "baseline_rows": 1000,
+    "cases": [
+      {
+        "name": "identical",
+        "class": "deterministic_control",
+        "window": 0,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 74.494,
+        "report_id": "da5a8b6e-ae6b-4e07-b75d-1b1474dfdcc3",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "3dfcc560-bebf-5698-be69-a888bcd6392b:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 39
+        }
+      },
+      {
+        "name": "permutation",
+        "class": "deterministic_control",
+        "window": 1,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 68.463,
+        "report_id": "c2a998ab-8685-4163-ac80-fc9bb91d3318",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "d21ad2b1-571c-5ec6-bb67-46ae39fa6182:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "e7327ed4fcbf7d77bcd97ef5b31b63301f846cfca4ef47c826b8ee1bb60d4165",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 39
+        }
+      },
+      {
+        "name": "stable-stratified-00",
+        "class": "stable_control",
+        "window": 0,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.565,
+        "report_id": "0cd95d47-0318-4861-b83c-9a21aa74277c",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "3e50a407-89ce-5934-852e-24bbba960c9a:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "f31ce9265f80bc939238454c9f0e651c6738a359c54e55d871bfc1532c3cd771",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03199999999999992,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.038999999999999924,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07700000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05400000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.031,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05899999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04699999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05399999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08400000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.039000000000000035,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03500000000000003,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.033999999999999975,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.08400000000000002,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 27
+        }
+      },
+      {
+        "name": "stable-stratified-01",
+        "class": "stable_control",
+        "window": 1,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.248,
+        "report_id": "6a79f4c4-3e0e-4c4a-9fe2-5ecf4f654804",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "93ea9d2f-dcfb-555a-8243-3695c7bcc24f:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "9e8ade17433348ca41b8a3fcb18e8d3f19a6e367bb6e83f96d3489a3d0287905",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05799999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04000000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07199999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.1070000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.063,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.035999999999999976,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.044000000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05499999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09399999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07600000000000007,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.1070000000000001,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-02",
+        "class": "stable_control",
+        "window": 2,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 47.533,
+        "report_id": "e6d768c7-7aa3-4558-ba2e-0ca51ae7dd0f",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "8ec08dbf-d96f-5ba6-a0be-0324793b835d:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "b8cd5684ea17bd3ebf618f0e08f3343fd51283c6834dad65069b6cd9796d9cf7",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.033999999999999975,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05399999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.045999999999999985,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.046999999999999986,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.060000000000000026,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04799999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05200000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04600000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05999999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06000000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.062,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.041999999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.062,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-03",
+        "class": "stable_control",
+        "window": 3,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 46.49,
+        "report_id": "890d3a3d-9451-4b04-b7f6-cbd4e97e6b9d",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "fbfc93c6-57de-5df9-b1ce-f24487cefa15:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "6f20cfa0a034c5f2aa0c9545c6e173d8207744f5f02b3e025254b0a5f03c27f1",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.119,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.10399999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.049000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08499999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.035,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04699999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.035,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07099999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04399999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.051000000000000045,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04599999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.059,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06599999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.119,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-04",
+        "class": "stable_control",
+        "window": 4,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 50.218,
+        "report_id": "12e021b8-3eb7-4f61-a907-e97332eb868a",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "a2728f22-0969-5aa6-a489-71a23f4b1cbc:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "e85013f1cfe0da65bfea3d96c86f19882bc8cb21ecb844f70d3f82754ad1d66c",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06400000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.061000000000000054,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.064,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.10900000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.028999999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.028000000000000025,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09099999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08199999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07800000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07400000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.033999999999999975,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.10900000000000004,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-05",
+        "class": "stable_control",
+        "window": 5,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.266,
+        "report_id": "8172c6b2-8ea7-4585-9a0a-8790e4982a9a",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "9f85d6b0-60c9-5950-a189-89d2c8529a3e:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "2ba5d6eb549c07c74be15f290fdaab0a33edbadfedde26e40874d3c5f9dc3820",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.042,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.037000000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06399999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.067,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05700000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04600000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07499999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07299999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.064,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05499999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05099999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.07499999999999996,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-06",
+        "class": "stable_control",
+        "window": 6,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.3,
+        "report_id": "20db782b-1f08-497d-956e-7b7f3f121743",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "89cbc973-4346-5af9-bb0f-22b0f7b83409:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "efec1b43cc683ffdf3ebe90b9e2f2a8945023abe11973670433796faf2579b06",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07099999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03199999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05600000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04500000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05000000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.055999999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.048000000000000015,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.044999999999999984,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.045999999999999985,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04000000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05700000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04400000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.07099999999999998,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-07",
+        "class": "stable_control",
+        "window": 7,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 47.131,
+        "report_id": "4866c6fb-b8a8-4356-a39c-153ab5eae210",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "377037e2-26d7-5098-b0dd-a0047c4a8f00:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "29f96041eaf089f58d089aacc6130d4024b11fb67684ec8060516ed8d59e955b",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04400000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04200000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06599999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.052000000000000046,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.010000000000000009,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.063,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04099999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07900000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.027999999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.029000000000000026,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04300000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03600000000000003,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05999999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.07900000000000001,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-08",
+        "class": "stable_control",
+        "window": 8,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 55.976,
+        "report_id": "079e7aea-7b5c-4af8-b8a7-97d5c8f0aedf",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "04c50d60-9d16-517f-9134-15c2644e4ef1:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "f2167263eef1f1e7aeaaee22756ff8bb006aa4d630ce80cf992e7ff0cd373832",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04300000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.030000000000000027,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04899999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05800000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.015000000000000013,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.052999999999999936,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05099999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.10699999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.015000000000000013,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08399999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05999999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.049000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.045999999999999985,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.10699999999999998,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-09",
+        "class": "stable_control",
+        "window": 9,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.063,
+        "report_id": "fb63ce1d-d3a8-4877-984d-07b43f8be17b",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "b0c5bde8-e512-5865-8adc-efbe52d3005b:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "5c43c499838f667e9efcb3e2034d55c4d9d7a1c7a151c3eec705cc18929c579c",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04500000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04899999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07600000000000007,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07999999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.015000000000000013,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04800000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04999999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06300000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04899999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04999999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04799999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04400000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.050000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.07999999999999996,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-10",
+        "class": "stable_control",
+        "window": 10,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.883,
+        "report_id": "df9dba2e-acc4-4188-9e5f-4cfc3e2fb54b",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "f0e313d4-b6ba-586f-ac38-26a3fe0ad386:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "9eee665c78c31126981fd3d831a0e220363042a279b80410cf1db6d741de15a7",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04699999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.046999999999999986,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.034,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07600000000000007,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05000000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07699999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04400000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04999999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.041999999999999926,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05699999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.031,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.039000000000000035,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.07699999999999999,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-11",
+        "class": "stable_control",
+        "window": 11,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 47.251,
+        "report_id": "4aff52a3-924e-41fc-b47d-7ab625ba741d",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "22904ac2-6229-519e-a320-0585de972f20:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "dd5722d631914ebfe1a1c3d8192a46c6f47ddae13be264404cac9f84384fd6ce",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06600000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.030000000000000027,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.050000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09500000000000003,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.030000000000000027,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.039000000000000035,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06400000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05900000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04399999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08400000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.069,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.10100000000000009,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.065,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.10100000000000009,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-12",
+        "class": "stable_control",
+        "window": 12,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 47.712,
+        "report_id": "c4d8014a-2cab-4921-a658-2203e90e80b4",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "40cb03a8-2cf5-53e4-851f-afe9c42dbcd7:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "18ea5b13502b761ada6312d772421e02a98394aacf0603e3980d6c4fbc737f66",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.051000000000000045,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04600000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05499999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.068,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.035,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07300000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05800000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06599999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.034999999999999976,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04499999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04799999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.061999999999999944,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05099999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.07300000000000001,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-13",
+        "class": "stable_control",
+        "window": 13,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 49.238,
+        "report_id": "47288078-7327-4e67-8b3b-6bb9faf6dccf",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "4277d770-f3e3-5585-9878-0f03913bffb9:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "05a6c5e69ffeb5e4b15d252e6633d221b361820331ad952edbba5b9ed5e7b372",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.051000000000000045,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.041000000000000036,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08000000000000007,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.066,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03799999999999992,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06299999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08499999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.018000000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09199999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.063,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06999999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09199999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.09199999999999997,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 27
+        }
+      },
+      {
+        "name": "stable-stratified-14",
+        "class": "stable_control",
+        "window": 14,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 51.949,
+        "report_id": "a4a90d88-cf3f-4e0f-bc10-0f9f088e58cd",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "1ae446bc-38f3-5909-8235-b75882462cbc:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "74ca96d1824c744b8c3d2743c1088de2e9a930a456cecf94efa650545e2d0e73",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.049000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.041000000000000036,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.041000000000000036,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05400000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07499999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.032,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08900000000000008,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.019000000000000017,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05399999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08100000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.02999999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06899999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.08900000000000008,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 27
+        }
+      },
+      {
+        "name": "stable-stratified-15",
+        "class": "stable_control",
+        "window": 15,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 47.37,
+        "report_id": "c4ea588b-f0a2-41e3-9ca4-3393fd5f32bc",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "69b7f7a3-5df7-55fd-970d-15d39444554e:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "1edc1f1505d3349e109a74ac3ffc89be2889d47afc2f00373c8c4c9a6549469d",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.11499999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.11099999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05500000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07300000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.030000000000000027,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03200000000000003,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.047000000000000014,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.063,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07399999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07300000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07499999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.061000000000000054,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03599999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.11499999999999999,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-16",
+        "class": "stable_control",
+        "window": 16,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 48.932,
+        "report_id": "1544de18-b0f7-4da5-b046-8eec735ba0f3",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "4a7fb86e-cfb8-51a1-bae6-ce4eb217d5ec:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "e9ae15a2da27f409b64ae54597267f9c2a6ce13943a5967f07c1223a1fd53c23",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.040000000000000036,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.101,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03700000000000003,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05300000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.010000000000000009,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06299999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04799999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.038000000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08400000000000002,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04500000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08700000000000008,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04199999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.101,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-17",
+        "class": "stable_control",
+        "window": 17,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 47.282,
+        "report_id": "cdd36bf5-ec66-421e-9f2c-ee1d5ed14f89",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "c7002182-2899-5ad7-b654-116e1774bdef:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "8e37fc4445cd05fe2de5caf53dca0c5ce9ca8c36e794298f248830ba7454c32c",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07400000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05900000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03300000000000003,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04000000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.035,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03299999999999992,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.03799999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.049000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08399999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04700000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.051999999999999935,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04699999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04400000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.08399999999999996,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-18",
+        "class": "stable_control",
+        "window": 18,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 49.121,
+        "report_id": "b4b370a1-bcaa-4ea2-a91e-d595754be56c",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "ce894c32-c0ef-5245-bdf1-b4b2ee2d9bbc:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "c0816ac1a9d5523135fe53e0b97f178634481a65ec1d7cc43c1d2739b71e5a8e",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06499999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.09199999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05199999999999999,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05800000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.020000000000000018,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.030000000000000027,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.052000000000000046,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.063,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.020000000000000018,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.038000000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.050000000000000044,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04699999999999993,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.029000000000000026,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.09199999999999997,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "stable-stratified-19",
+        "class": "stable_control",
+        "window": 19,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 52.691,
+        "report_id": "5fe265de-9c5f-4d27-957c-e2b5e1e73ffe",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "d4b7337d-fea6-5c99-b02e-88ea4daea42b:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "7c8581b5fbc8a360cfd448b321fc35addeed4da8177415e45ebb383c169bb01b",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 200,
+          "baseline_sample": 1000,
+          "current_sample": 200,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05400000000000005,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.069,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.036000000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08099999999999996,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.025000000000000022,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04300000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.067,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.06400000000000006,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.05899999999999994,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.08999999999999997,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.07900000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.04700000000000004,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 200,
+              "effect": 0.02700000000000001,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.08999999999999997,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "red-versus-white",
+        "class": "real_group_comparison",
+        "window": 0,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 70.569,
+        "report_id": "53929187-ce90-4941-bef7-15007b63a8e5",
+        "report": {
+          "baseline_id": "081dc218-7f78-4b17-a218-19cda9e75cda",
+          "baseline_version": 2,
+          "baseline_ref_id": "eae83c03-c3b8-566d-be06-b3eb5fb94f2d:1",
+          "current_ref_id": "bcb79742-3a99-5743-b0f2-e206d3caad85:1",
+          "baseline_digest": "e18739a405d5d23357180b1d6a10a2e2d96fc2d3ab39e67fe9ebfefcb4f78860",
+          "current_digest": "87b8e056634565c93b81b4318d988aae50c70935cf135870dfb39e22e60e23c3",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.105,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.8260000000000001,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.299,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.477,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.13,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.441,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.5359999999999999,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.358,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.13,
+              "threshold": 0.2,
+              "status": "stable"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.5090000000000001,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.533,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.776,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.64,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.8260000000000001,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 26
+        }
+      },
+      {
+        "name": "abrupt-alcohol-plus5",
+        "class": "synthetic_abrupt",
+        "window": 0,
+        "synthetic": true,
+        "shift": "+5 alcohol",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 69.302,
+        "report_id": "a3b57991-076b-4bd9-8ebe-00479df91cba",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "9fbc172c-8300-5661-9326-4951d773d309:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "4ac99ad8623aa54112a36d34a878674818ecf4bbe123afb800f142f32687a17b",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.991,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.991,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-prelude-0",
+        "class": "synthetic_gradual",
+        "window": 0,
+        "synthetic": true,
+        "shift": "0",
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 71.327,
+        "report_id": "b8a06497-b203-4d6c-b1f7-736c15f716fb",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "60d0b388-81dd-5a46-987c-85c45adc2fd1:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 39
+        }
+      },
+      {
+        "name": "gradual-prelude-1",
+        "class": "synthetic_gradual",
+        "window": 1,
+        "synthetic": true,
+        "shift": "0",
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 72.589,
+        "report_id": "67d847fc-35aa-4bc9-b06d-e5959b495abb",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "3fe24b74-1471-5ef1-9c20-cf37da18be32:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 39
+        }
+      },
+      {
+        "name": "gradual-prelude-2",
+        "class": "synthetic_gradual",
+        "window": 2,
+        "synthetic": true,
+        "shift": "0",
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 92.186,
+        "report_id": "a7cf5de8-5664-4ee1-b937-d5eb54729f2b",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "40e612ab-3d16-5958-9c2c-16b591fb1b4b:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 39
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus0.1",
+        "class": "synthetic_gradual",
+        "window": 3,
+        "synthetic": true,
+        "shift": "+0.1 alcohol",
+        "known_intervention": true,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 74.532,
+        "report_id": "d7776bc5-576a-4419-b35c-5314d7bbdf0e",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "5e759817-8439-5f52-9cf9-e153acae1439:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "2d7b516ac5ae8e0cb8e40720a23e845cd1502c6d3eb694a86b093409c5d7fddf",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.056999999999999995,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.056999999999999995,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus0.25",
+        "class": "synthetic_gradual",
+        "window": 4,
+        "synthetic": true,
+        "shift": "+0.25 alcohol",
+        "known_intervention": true,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 76.014,
+        "report_id": "c050cfe2-c2f7-4d20-82ee-8e66c822eea4",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "33f79ff4-0ab2-5383-8e2c-51f5e5288200:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "64df69a4f220c7b9777b43e5d394c9df4cc98aa2db0a7bd6bc91647f224c9c7b",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.13,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.13,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus0.5",
+        "class": "synthetic_gradual",
+        "window": 5,
+        "synthetic": true,
+        "shift": "+0.5 alcohol",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 76.8,
+        "report_id": "55b4ce05-ec06-4971-b5f5-73217a5d3e57",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "229b4918-fcee-50ec-a604-208c00ccf160:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "dcbd057f9ccd66d111320f5603afabaf6d252cdb087d0832fa419776350a573c",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.201,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.201,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus0.75",
+        "class": "synthetic_gradual",
+        "window": 6,
+        "synthetic": true,
+        "shift": "+0.75 alcohol",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 76.403,
+        "report_id": "6bd23974-91d7-463c-a545-f5f2d3c55461",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "c4f1a2e9-8d58-568e-a045-22ecc5f6e201:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "91344e32ee08c42fbbd68cb1664295562649805dd38638e344ec4527e65d0c10",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.289,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.289,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus1",
+        "class": "synthetic_gradual",
+        "window": 7,
+        "synthetic": true,
+        "shift": "+1 alcohol",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 73.538,
+        "report_id": "cdc17bb4-1841-4b5d-915e-bbf90a10d42e",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "5cf861d5-9271-5aa0-8ec5-19b753866cf8:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "cb1327b697f75afcf218ca7d448a8facdbbb678585bdc9df3dbfd900cdb026b7",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.34900000000000003,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.34900000000000003,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus1.5",
+        "class": "synthetic_gradual",
+        "window": 8,
+        "synthetic": true,
+        "shift": "+1.5 alcohol",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 76.619,
+        "report_id": "8605726b-fd5e-41b8-9fce-91af331810ef",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "62ed31ad-27a4-5fc7-bd43-51f3758122ae:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "179789c5634543c1ae1f7a0c62ecf093df6e456b3ad4efc3d5a7d2a18b221a96",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.482,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.482,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "gradual-alcohol-plus2",
+        "class": "synthetic_gradual",
+        "window": 9,
+        "synthetic": true,
+        "shift": "+2 alcohol",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 75.22,
+        "report_id": "621256d1-89d0-4c32-a077-e7d4d8dcdca9",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "bf2d20c0-1f8a-56f5-8b98-fc19df4215ca:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "ed184676a8fb8aadbe25a08798e7b634f7a53c467a5e94f975ad8980fb6eec52",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.608,
+              "threshold": 0.2,
+              "status": "changed"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.608,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 38
+        }
+      },
+      {
+        "name": "missing-alcohol-50percent",
+        "class": "synthetic_missing",
+        "window": 0,
+        "synthetic": true,
+        "shift": "every second alcohol cell set null",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 78.193,
+        "report_id": "bb56a0e7-7142-4077-894a-d5c914e69675",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "6507527e-37f5-5118-956b-0503c7bc4193:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "dc30282109a17cb0bd2b9bae247ba10a0fe854af34bbbd045c50202587fb8d1e",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 1000,
+              "effect": 0.5,
+              "threshold": 0.2,
+              "status": "changed"
+            },
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 500,
+              "effect": 0.028999999999999998,
+              "threshold": 0.2,
+              "status": "stable"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0.5,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 37
+        }
+      },
+      {
+        "name": "schema-drop-density",
+        "class": "synthetic_schema",
+        "window": 0,
+        "synthetic": true,
+        "shift": "density removed",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 68.935,
+        "report_id": "307daf9d-b6f2-4f98-9f35-0b311e9770b1",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "685d9939-0a71-5b2f-9b63-ff68b2efd553:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "868499d140a68bdb84a5314352aa05f39f4f7db4cb088fe65b5e5789736b3105",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "density",
+              "method": "schema",
+              "baseline_count": 0,
+              "current_count": 0,
+              "threshold": 0,
+              "status": "changed",
+              "detail": "字段新增或删除"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 37,
+          "zero_stable_metrics_omitted": 36
+        }
+      },
+      {
+        "name": "schema-alcohol-to-text",
+        "class": "synthetic_schema",
+        "window": 1,
+        "synthetic": true,
+        "shift": "alcohol DECIMAL to VARCHAR",
+        "known_intervention": true,
+        "detected": true,
+        "status": "changed",
+        "elapsed_ms": 70.589,
+        "report_id": "c28559a6-c9ec-4825-a84a-4402ba9edff5",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "4d83f880-aecc-59bd-b7d0-6e177c182638:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "292feb6ea43c3c3acc4e65eef4edc646a770a80559ac016ba0bfda42861ccad4",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 1000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "schema",
+              "baseline_count": 0,
+              "current_count": 0,
+              "threshold": 0,
+              "status": "changed",
+              "detail": "DECIMAL → VARCHAR"
+            }
+          ],
+          "changed": true,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 38,
+          "zero_stable_metrics_omitted": 37
+        }
+      },
+      {
+        "name": "insufficient-19",
+        "class": "boundary",
+        "window": 0,
+        "synthetic": false,
+        "known_intervention": false,
+        "detected": false,
+        "status": "insufficient",
+        "elapsed_ms": 49.185,
+        "report_id": "dfd0af00-ebec-46f8-9813-d0e4a38cd7d1",
+        "report": {
+          "baseline_id": "a7edfe28-7a1f-494e-850b-4e8e22deabef",
+          "baseline_version": 2,
+          "baseline_ref_id": "4eea34d4-e37d-533f-bb5a-2e39c1b13c92:1",
+          "current_ref_id": "1539bf4b-e079-5fcb-8cbb-795bf6f745fa:1",
+          "baseline_digest": "23cd0cd0437b39e70908c49bd49f5b6ec3cd4f4d12c215d962269d422ca08584",
+          "current_digest": "1a9ed6d90f2cbba5429535b5dac0a28c2d8c6e4ab9261f0ac01aafda2db0ba0f",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 1000,
+          "current_rows": 19,
+          "baseline_sample": 1000,
+          "current_sample": 19,
+          "metrics": [
+            {
+              "field": "alcohol",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "alcohol",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "chlorides",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "chlorides",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "citric_acid",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "citric_acid",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "density",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "density",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "derived_quality_band",
+              "method": "categorical_total_variation",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "fixed_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "free_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "ph",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "ph",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "quality",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "quality",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "residual_sugar",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "sulphates",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "sulphates",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "total_sulfur_dioxide",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "missing_rate_delta",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            },
+            {
+              "field": "volatile_acidity",
+              "method": "empirical_ks",
+              "baseline_count": 1000,
+              "current_count": 19,
+              "threshold": 0.2,
+              "status": "insufficient"
+            }
+          ],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 39,
+          "zero_stable_metrics_omitted": 13
+        }
+      },
+      {
+        "name": "10k-identical-capped-sampling",
+        "class": "synthetic_scale_control",
+        "window": 0,
+        "synthetic": true,
+        "shift": "10x repeated 1000 real rows, 8 columns",
+        "known_intervention": false,
+        "detected": false,
+        "status": "stable",
+        "elapsed_ms": 130.924,
+        "report_id": "572575d8-da38-47af-81d3-6354f47ac9f0",
+        "report": {
+          "baseline_id": "e8065826-942d-4e00-bd0f-f7659cbdeb58",
+          "baseline_version": 2,
+          "baseline_ref_id": "1b0f7296-d314-5473-81c2-4270cd996479:1",
+          "current_ref_id": "a4921c56-2537-5e4c-ad62-2404951ef1d4:1",
+          "baseline_digest": "a2391b22cca5b1c94aefaa5f352bcdb3de3950fd906ded0a22a8cf48ce56d9b8",
+          "current_digest": "a2391b22cca5b1c94aefaa5f352bcdb3de3950fd906ded0a22a8cf48ce56d9b8",
+          "sampling": {
+            "limit": 1000,
+            "seed": "wine-drift-benchmark-20261016",
+            "minimum": 20
+          },
+          "baseline_rows": 10000,
+          "current_rows": 10000,
+          "baseline_sample": 1000,
+          "current_sample": 1000,
+          "metrics": [],
+          "changed": false,
+          "limitations": [
+            "分布变化不等于质量下降，也不证明模型性能变化。",
+            "效应量是经验分布距离，不是正确概率；未报告显著性 p 值。",
+            "样本由固定种子对真实行号做 SHA-256 排序选取；行顺序属于固定快照。"
+          ],
+          "maximum_effect": 0,
+          "metric_count": 24,
+          "zero_stable_metrics_omitted": 24
+        }
+      }
+    ],
+    "dataset": {
+      "dataset_id": "codesignal/wine-quality",
+      "revision": "a90690dd91e947252ac664b495fb043ca545da23",
+      "license": "cc-by-4.0",
+      "files": [
+        {
+          "split": "red",
+          "path": "$RUN/data/wine_quality/raw/winequality-red.csv",
+          "sha256": "8f5623588cc693aebf976bba4742fbc37bd7dac28f4a77c52e2db71ae56b5f85",
+          "format": "csv",
+          "delimiter": ";",
+          "rows": 1599
+        },
+        {
+          "split": "white",
+          "path": "$RUN/data/wine_quality/raw/winequality-white.csv",
+          "sha256": "8326cb4a472d06de426e0d5f791852f131fc0d7e90779c6d71644b3a05a5ede1",
+          "format": "csv",
+          "delimiter": ";",
+          "rows": 4898
+        }
+      ]
+    },
+    "fixed_snapshot_monitor": {
+      "automatic_latest_production_batch_fetch": false,
+      "newer_unselected_snapshot_ignored": true,
+      "note": "Only explicit refresh connector configuration can request a fresh snapshot; no live connector was configured or benchmarked.",
+      "report_ids": [
+        "a3b57991-076b-4bd9-8ebe-00479df91cba",
+        "a3b57991-076b-4bd9-8ebe-00479df91cba"
+      ],
+      "runs": 2,
+      "same_snapshot_reused": true
+    },
+    "gradual_first_detection_delay_windows": 2,
+    "limitations": [
+      "No natural business drift event gold labels exist; red/white is a cross-sectional group comparison, not a detection-rate benchmark.",
+      "False alarms are observed flags on predeclared stratified controls, not a calibrated population significance level.",
+      "Synthetic detection metrics describe the listed injected shifts only; distribution change does not establish quality or model-performance loss.",
+      "Synthetic delay is counted in observation windows, not real time.",
+      "Wall-clock durations include local HTTP handler, object I/O and MySQL operations and are not a production SLA."
+    ],
+    "minimum": 20,
+    "observed_false_alarm_count": 0,
+    "observed_false_alarm_denominator": 20,
+    "observed_false_alarm_rate": 0,
+    "passed": true,
+    "protocol": "wine-drift-v1-fixed-before-observation",
+    "sampling_limit": 1000,
+    "seed": 20261016,
+    "stable_window_rows": 200,
+    "stable_windows": 20,
+    "synthetic_detection_count": 9,
+    "synthetic_detection_rate": 0.8181818181818182,
+    "synthetic_intervention_windows": 11,
+    "threshold": 0.2
+  }
+}

@@ -1,0 +1,287 @@
+{
+  "original_artifact": "labels/train-diagnostic-v2/summary.json",
+  "original_sha256": "15aecaaafe263edd84f5bb4e0a1f858bd2872e16e949168e447403160775db96",
+  "data": {
+    "actual_calls": 12,
+    "kind": "engineering_diagnostic_not_quality",
+    "raw_private_files": "0600; never copy into public evidence",
+    "results": [
+      {
+        "index": 0,
+        "dataset": "banking77",
+        "id": "train:0",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 277,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 116,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "ed10e21ebb20945dd95a6e5d9e86c73b897ba8f1bbb6768111c65156f7738549",
+        "usage": {
+          "prompt_tokens": 1731,
+          "completion_tokens": 65,
+          "total_tokens": 1796
+        }
+      },
+      {
+        "index": 1,
+        "dataset": "banking77",
+        "id": "train:1",
+        "error_code": "contract_error",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 323,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 120,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "13187a1857bc4dca19fa04e65f9430d8faaae5a171b663e792d4a05731394e34",
+        "usage": {
+          "prompt_tokens": 1739,
+          "completion_tokens": 77,
+          "total_tokens": 1816
+        }
+      },
+      {
+        "index": 2,
+        "dataset": "banking77",
+        "id": "train:2",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 268,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 100,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "798f7290b54bc6ac8ef79f2fdcd0720288a04fcc5684eeeea44543b6a4856e26",
+        "usage": {
+          "prompt_tokens": 1737,
+          "completion_tokens": 64,
+          "total_tokens": 1801
+        }
+      },
+      {
+        "index": 3,
+        "dataset": "banking77",
+        "id": "train:3",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 371,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 156,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "b6f73d4a65b80b3922aa2cd65ff0de4217f86736b7c4b0afa18e0eb6714783ce",
+        "usage": {
+          "prompt_tokens": 1737,
+          "completion_tokens": 84,
+          "total_tokens": 1821
+        }
+      },
+      {
+        "index": 4,
+        "dataset": "banking77",
+        "id": "train:4",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 358,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 161,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "3769a846f2ae5c67450b1f4461bf37e65000ad048c00efc554749b80817a1ed9",
+        "usage": {
+          "prompt_tokens": 1740,
+          "completion_tokens": 89,
+          "total_tokens": 1829
+        }
+      },
+      {
+        "index": 5,
+        "dataset": "banking77",
+        "id": "train:5",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 283,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 87,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "22de374c9a1a9901b473b84b8764d9ac301aff423ed91769accf4ff1bd08b2f9",
+        "usage": {
+          "prompt_tokens": 1732,
+          "completion_tokens": 70,
+          "total_tokens": 1802
+        }
+      },
+      {
+        "index": 6,
+        "dataset": "massive_zh",
+        "id": "train:0",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 232,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 86,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "ec9c36bfc0e00230019c3a99e0a2993905c919f7f78ea6cdaa28d9a8629f9570",
+        "usage": {
+          "prompt_tokens": 1242,
+          "completion_tokens": 62,
+          "total_tokens": 1304
+        }
+      },
+      {
+        "index": 7,
+        "dataset": "massive_zh",
+        "id": "train:1",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 282,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 46,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "1d75f6d57a6f7ff6889be64eeef36dcebc611099ecfb9f997c054325e3cdc5ae",
+        "usage": {
+          "prompt_tokens": 1242,
+          "completion_tokens": 72,
+          "total_tokens": 1314
+        }
+      },
+      {
+        "index": 8,
+        "dataset": "massive_zh",
+        "id": "train:2",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 296,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 129,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "b4fa538d21cb6834969972ee9d67f7aab05c7d346b8ae1767d9f840bc0260497",
+        "usage": {
+          "prompt_tokens": 1238,
+          "completion_tokens": 76,
+          "total_tokens": 1314
+        }
+      },
+      {
+        "index": 9,
+        "dataset": "massive_zh",
+        "id": "train:3",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 297,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 144,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "f6be6a71e7b024e39fc97c5e693ad79736cc323ea21347fd99b824f57e546895",
+        "usage": {
+          "prompt_tokens": 1236,
+          "completion_tokens": 74,
+          "total_tokens": 1310
+        }
+      },
+      {
+        "index": 10,
+        "dataset": "massive_zh",
+        "id": "train:4",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 406,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 215,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "5937ebe66e1f1ee8e5e75c2361cf8ba5539113734c8117022493e2e6e383f356",
+        "usage": {
+          "prompt_tokens": 1240,
+          "completion_tokens": 97,
+          "total_tokens": 1337
+        }
+      },
+      {
+        "index": 11,
+        "dataset": "massive_zh",
+        "id": "train:5",
+        "error_code": "",
+        "diagnosis": {
+          "code": "evidence_offset_bounds",
+          "content_bytes": 311,
+          "evidence_count": 1,
+          "evidence_index": 0,
+          "finish_reason": "stop",
+          "labels_count": 1,
+          "rationale_runes": 127,
+          "tool_calls": 0,
+          "unknown_top_level_fields": 0
+        },
+        "response_sha256": "6446199321eb2a81e39d26d66780e942c28a2760913b6c219b25c62f4da56236",
+        "usage": {
+          "prompt_tokens": 1238,
+          "completion_tokens": 75,
+          "total_tokens": 1313
+        }
+      }
+    ]
+  }
+}

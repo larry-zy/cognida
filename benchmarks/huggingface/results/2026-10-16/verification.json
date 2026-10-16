@@ -1,0 +1,79 @@
+{
+  "original_artifact": "verification.json",
+  "original_sha256": "124362153584be3b332b80673813413bebb567059c4a31aba8821f077a147c0d",
+  "data": {
+    "schema_version": 1,
+    "baseline_commit": "00f8675",
+    "database_migration": {
+      "version": 36,
+      "dirty": false,
+      "isolated_name_prefix": "cognida_review_"
+    },
+    "python": {
+      "version": "3.11.15",
+      "passed": 689,
+      "skipped": 3,
+      "seconds": 26.59,
+      "skip_scope": [
+        "live analysis provider opt-in not enabled",
+        "image/Milvus opt-in not enabled",
+        "document browser integration: installed Python Playwright browser unavailable"
+      ]
+    },
+    "go": {
+      "command": "go test ./internal/... -count=1",
+      "passed_packages": 101,
+      "failed_packages": 0
+    },
+    "dataset_script_unit_tests": 4,
+    "ingestion_http": {
+      "passed": true,
+      "race_passed": true,
+      "race_package_seconds": 3.023
+    },
+    "feature_drift": {
+      "tests": 5,
+      "passed": true,
+      "seconds": 23.702,
+      "race_seconds": 98.208,
+      "race_passed": true
+    },
+    "dependencies": {
+      "requests": "2.34.2",
+      "pyarrow": "24.0.0",
+      "pandas": "3.0.3",
+      "pytest": "9.1.1"
+    },
+    "logs": [
+      {
+        "path": "go-final.log",
+        "sha256": "08558e54a5ab510223cb58ccc56d9a8eb393134ec520ff9ba9801a873215ef2c"
+      },
+      {
+        "path": "python-all.log",
+        "sha256": "59c9b7a88d6063325a6a2f23d96c31a2a55a16d864cc856800543530252fca83"
+      },
+      {
+        "path": "evidence/ingestion.log",
+        "sha256": "a311f9d466195d4c2acaa4a121a47031e02479e446f90fae1717603e9065d790"
+      },
+      {
+        "path": "evidence/ingestion-race.log",
+        "sha256": "e199f600af8832bca14c3b36770fbe29e243677510d75b1f60c42c1128e635d3"
+      },
+      {
+        "path": "features-final.log",
+        "sha256": "136745c243d221bf539e1e6ccc244c7945d5576f53af3754102cb0a63f381db9"
+      },
+      {
+        "path": "features-final-race.log",
+        "sha256": "e634dc5c32bea2cb01d1acab3856834638c3a67b84b6691df4eda19c5611c8b6"
+      },
+      {
+        "path": "evidence/cleaning/core.log",
+        "sha256": "9233eab2acf4c1ff9e0ff30603e3cd488f2f6f3c16f6ec8f5700928c94c6935c"
+      }
+    ],
+    "browser_e2e_rerun": false
+  }
+}

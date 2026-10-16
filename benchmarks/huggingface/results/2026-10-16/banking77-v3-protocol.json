@@ -1,0 +1,1977 @@
+{
+  "original_artifact": "labels/banking77/v3/protocol.json",
+  "original_sha256": "5add8fdfd79317eb2c7640f57cb65e8a566b03eaaf5693e849df05dcaffba37f",
+  "data": {
+    "version": "hf_label_v3_literal_contract",
+    "created_at": "2026-10-16T07:54:57.59335Z",
+    "config": {
+      "dataset": "mteb/banking77",
+      "revision": "18072d2685ea682290f7b8924d94c62acc19c0b2",
+      "language": "en",
+      "kind": "classification",
+      "train_file": "$RUN/data/banking77/train.jsonl",
+      "test_file": "$RUN/data/banking77/test.jsonl",
+      "train_sha256": "d469ab408a9844bf9fa3b7c7b02e3c4ff02930a762a8fc06f3fc4372e612fc90",
+      "test_sha256": "3115a96029a147cf87e72161840cd76bab0a589e87843cac44eba2cbfcebe220",
+      "labels": [
+        {
+          "id": "Refund_not_showing_up",
+          "name": "Refund_not_showing_up"
+        },
+        {
+          "id": "activate_my_card",
+          "name": "activate_my_card"
+        },
+        {
+          "id": "age_limit",
+          "name": "age_limit"
+        },
+        {
+          "id": "apple_pay_or_google_pay",
+          "name": "apple_pay_or_google_pay"
+        },
+        {
+          "id": "atm_support",
+          "name": "atm_support"
+        },
+        {
+          "id": "automatic_top_up",
+          "name": "automatic_top_up"
+        },
+        {
+          "id": "balance_not_updated_after_bank_transfer",
+          "name": "balance_not_updated_after_bank_transfer"
+        },
+        {
+          "id": "balance_not_updated_after_cheque_or_cash_deposit",
+          "name": "balance_not_updated_after_cheque_or_cash_deposit"
+        },
+        {
+          "id": "beneficiary_not_allowed",
+          "name": "beneficiary_not_allowed"
+        },
+        {
+          "id": "cancel_transfer",
+          "name": "cancel_transfer"
+        },
+        {
+          "id": "card_about_to_expire",
+          "name": "card_about_to_expire"
+        },
+        {
+          "id": "card_acceptance",
+          "name": "card_acceptance"
+        },
+        {
+          "id": "card_arrival",
+          "name": "card_arrival"
+        },
+        {
+          "id": "card_delivery_estimate",
+          "name": "card_delivery_estimate"
+        },
+        {
+          "id": "card_linking",
+          "name": "card_linking"
+        },
+        {
+          "id": "card_not_working",
+          "name": "card_not_working"
+        },
+        {
+          "id": "card_payment_fee_charged",
+          "name": "card_payment_fee_charged"
+        },
+        {
+          "id": "card_payment_not_recognised",
+          "name": "card_payment_not_recognised"
+        },
+        {
+          "id": "card_payment_wrong_exchange_rate",
+          "name": "card_payment_wrong_exchange_rate"
+        },
+        {
+          "id": "card_swallowed",
+          "name": "card_swallowed"
+        },
+        {
+          "id": "cash_withdrawal_charge",
+          "name": "cash_withdrawal_charge"
+        },
+        {
+          "id": "cash_withdrawal_not_recognised",
+          "name": "cash_withdrawal_not_recognised"
+        },
+        {
+          "id": "change_pin",
+          "name": "change_pin"
+        },
+        {
+          "id": "compromised_card",
+          "name": "compromised_card"
+        },
+        {
+          "id": "contactless_not_working",
+          "name": "contactless_not_working"
+        },
+        {
+          "id": "country_support",
+          "name": "country_support"
+        },
+        {
+          "id": "declined_card_payment",
+          "name": "declined_card_payment"
+        },
+        {
+          "id": "declined_cash_withdrawal",
+          "name": "declined_cash_withdrawal"
+        },
+        {
+          "id": "declined_transfer",
+          "name": "declined_transfer"
+        },
+        {
+          "id": "direct_debit_payment_not_recognised",
+          "name": "direct_debit_payment_not_recognised"
+        },
+        {
+          "id": "disposable_card_limits",
+          "name": "disposable_card_limits"
+        },
+        {
+          "id": "edit_personal_details",
+          "name": "edit_personal_details"
+        },
+        {
+          "id": "exchange_charge",
+          "name": "exchange_charge"
+        },
+        {
+          "id": "exchange_rate",
+          "name": "exchange_rate"
+        },
+        {
+          "id": "exchange_via_app",
+          "name": "exchange_via_app"
+        },
+        {
+          "id": "extra_charge_on_statement",
+          "name": "extra_charge_on_statement"
+        },
+        {
+          "id": "failed_transfer",
+          "name": "failed_transfer"
+        },
+        {
+          "id": "fiat_currency_support",
+          "name": "fiat_currency_support"
+        },
+        {
+          "id": "get_disposable_virtual_card",
+          "name": "get_disposable_virtual_card"
+        },
+        {
+          "id": "get_physical_card",
+          "name": "get_physical_card"
+        },
+        {
+          "id": "getting_spare_card",
+          "name": "getting_spare_card"
+        },
+        {
+          "id": "getting_virtual_card",
+          "name": "getting_virtual_card"
+        },
+        {
+          "id": "lost_or_stolen_card",
+          "name": "lost_or_stolen_card"
+        },
+        {
+          "id": "lost_or_stolen_phone",
+          "name": "lost_or_stolen_phone"
+        },
+        {
+          "id": "order_physical_card",
+          "name": "order_physical_card"
+        },
+        {
+          "id": "passcode_forgotten",
+          "name": "passcode_forgotten"
+        },
+        {
+          "id": "pending_card_payment",
+          "name": "pending_card_payment"
+        },
+        {
+          "id": "pending_cash_withdrawal",
+          "name": "pending_cash_withdrawal"
+        },
+        {
+          "id": "pending_top_up",
+          "name": "pending_top_up"
+        },
+        {
+          "id": "pending_transfer",
+          "name": "pending_transfer"
+        },
+        {
+          "id": "pin_blocked",
+          "name": "pin_blocked"
+        },
+        {
+          "id": "receiving_money",
+          "name": "receiving_money"
+        },
+        {
+          "id": "request_refund",
+          "name": "request_refund"
+        },
+        {
+          "id": "reverted_card_payment?",
+          "name": "reverted_card_payment?"
+        },
+        {
+          "id": "supported_cards_and_currencies",
+          "name": "supported_cards_and_currencies"
+        },
+        {
+          "id": "terminate_account",
+          "name": "terminate_account"
+        },
+        {
+          "id": "top_up_by_bank_transfer_charge",
+          "name": "top_up_by_bank_transfer_charge"
+        },
+        {
+          "id": "top_up_by_card_charge",
+          "name": "top_up_by_card_charge"
+        },
+        {
+          "id": "top_up_by_cash_or_cheque",
+          "name": "top_up_by_cash_or_cheque"
+        },
+        {
+          "id": "top_up_failed",
+          "name": "top_up_failed"
+        },
+        {
+          "id": "top_up_limits",
+          "name": "top_up_limits"
+        },
+        {
+          "id": "top_up_reverted",
+          "name": "top_up_reverted"
+        },
+        {
+          "id": "topping_up_by_card",
+          "name": "topping_up_by_card"
+        },
+        {
+          "id": "transaction_charged_twice",
+          "name": "transaction_charged_twice"
+        },
+        {
+          "id": "transfer_fee_charged",
+          "name": "transfer_fee_charged"
+        },
+        {
+          "id": "transfer_into_account",
+          "name": "transfer_into_account"
+        },
+        {
+          "id": "transfer_not_received_by_recipient",
+          "name": "transfer_not_received_by_recipient"
+        },
+        {
+          "id": "transfer_timing",
+          "name": "transfer_timing"
+        },
+        {
+          "id": "unable_to_verify_identity",
+          "name": "unable_to_verify_identity"
+        },
+        {
+          "id": "verify_my_identity",
+          "name": "verify_my_identity"
+        },
+        {
+          "id": "verify_source_of_funds",
+          "name": "verify_source_of_funds"
+        },
+        {
+          "id": "verify_top_up",
+          "name": "verify_top_up"
+        },
+        {
+          "id": "virtual_card_not_working",
+          "name": "virtual_card_not_working"
+        },
+        {
+          "id": "visa_or_mastercard",
+          "name": "visa_or_mastercard"
+        },
+        {
+          "id": "why_verify_identity",
+          "name": "why_verify_identity"
+        },
+        {
+          "id": "wrong_amount_of_cash_received",
+          "name": "wrong_amount_of_cash_received"
+        },
+        {
+          "id": "wrong_exchange_rate_for_cash_withdrawal",
+          "name": "wrong_exchange_rate_for_cash_withdrawal"
+        }
+      ]
+    },
+    "rules": [
+      {
+        "id": "Refund_not_showing_up",
+        "name": "Refund_not_showing_up",
+        "keywords": [
+          "my refund",
+          "refund but",
+          "requested a",
+          "refund in",
+          "contacted the"
+        ]
+      },
+      {
+        "id": "activate_my_card",
+        "name": "activate_my_card",
+        "keywords": [
+          "activate my",
+          "activating",
+          "activating my",
+          "activation",
+          "activate it"
+        ]
+      },
+      {
+        "id": "age_limit",
+        "name": "age_limit",
+        "keywords": [
+          "children",
+          "how old",
+          "age limit",
+          "kids",
+          "my children"
+        ]
+      },
+      {
+        "id": "apple_pay_or_google_pay",
+        "name": "apple_pay_or_google_pay",
+        "keywords": [
+          "google pay",
+          "apple pay",
+          "apple",
+          "google",
+          "watch"
+        ]
+      },
+      {
+        "id": "atm_support",
+        "name": "atm_support",
+        "keywords": [
+          "closest",
+          "the closest",
+          "atms accept",
+          "atms can",
+          "closest atm"
+        ]
+      },
+      {
+        "id": "automatic_top_up",
+        "name": "automatic_top_up",
+        "keywords": [
+          "auto",
+          "auto top",
+          "the auto",
+          "an auto",
+          "automatically"
+        ]
+      },
+      {
+        "id": "balance_not_updated_after_bank_transfer",
+        "name": "balance_not_updated_after_bank_transfer",
+        "keywords": [
+          "uk account",
+          "a uk",
+          "from france",
+          "my uk",
+          "international transfers"
+        ]
+      },
+      {
+        "id": "balance_not_updated_after_cheque_or_cash_deposit",
+        "name": "balance_not_updated_after_cheque_or_cash_deposit",
+        "keywords": [
+          "deposited a",
+          "i deposited",
+          "cheque deposit",
+          "deposited cash",
+          "deposit showing"
+        ]
+      },
+      {
+        "id": "beneficiary_not_allowed",
+        "name": "beneficiary_not_allowed",
+        "keywords": [
+          "a beneficiary",
+          "my beneficiary",
+          "beneficiary",
+          "not possible",
+          "beneficiary not"
+        ]
+      },
+      {
+        "id": "cancel_transfer",
+        "name": "cancel_transfer",
+        "keywords": [
+          "wrong account",
+          "tomorrow",
+          "by tomorrow",
+          "to revert",
+          "a typo"
+        ]
+      },
+      {
+        "id": "card_about_to_expire",
+        "name": "card_about_to_expire",
+        "keywords": [
+          "expire",
+          "expires",
+          "to expire",
+          "about to",
+          "card expires"
+        ]
+      },
+      {
+        "id": "card_acceptance",
+        "name": "card_acceptance",
+        "keywords": [
+          "businesses",
+          "what businesses",
+          "businesses that",
+          "to where",
+          "what places"
+        ]
+      },
+      {
+        "id": "card_arrival",
+        "name": "card_arrival",
+        "keywords": [
+          "card you",
+          "tracking",
+          "you sent",
+          "tracking number",
+          "to track"
+        ]
+      },
+      {
+        "id": "card_delivery_estimate",
+        "name": "card_delivery_estimate",
+        "keywords": [
+          "delivered on",
+          "delivery to",
+          "it delivered",
+          "certain date",
+          "deliver to"
+        ]
+      },
+      {
+        "id": "card_linking",
+        "name": "card_linking",
+        "keywords": [
+          "reactivate",
+          "link",
+          "to link",
+          "found it",
+          "link it"
+        ]
+      },
+      {
+        "id": "card_not_working",
+        "name": "card_not_working",
+        "keywords": [
+          "restaurant today",
+          "working anymore",
+          "card stopped",
+          "work anymore",
+          "any transactions"
+        ]
+      },
+      {
+        "id": "card_payment_fee_charged",
+        "name": "card_payment_fee_charged",
+        "keywords": [
+          "when paying",
+          "paid with",
+          "for payments",
+          "for card",
+          "for paying"
+        ]
+      },
+      {
+        "id": "card_payment_not_recognised",
+        "name": "card_payment_not_recognised",
+        "keywords": [
+          "card shown",
+          "couple payments",
+          "shown in",
+          "are a",
+          "make myself"
+        ]
+      },
+      {
+        "id": "card_payment_wrong_exchange_rate",
+        "name": "card_payment_wrong_exchange_rate",
+        "keywords": [
+          "last saturday",
+          "russian",
+          "official",
+          "official interbank",
+          "ruble"
+        ]
+      },
+      {
+        "id": "card_swallowed",
+        "name": "card_swallowed",
+        "keywords": [
+          "swallowed",
+          "card out",
+          "atm swallowed",
+          "atm took",
+          "atm ate"
+        ]
+      },
+      {
+        "id": "cash_withdrawal_charge",
+        "name": "cash_withdrawal_charge",
+        "keywords": [
+          "for withdrawing",
+          "withdrawing money",
+          "for atm",
+          "always thought",
+          "atm fees"
+        ]
+      },
+      {
+        "id": "cash_withdrawal_not_recognised",
+        "name": "cash_withdrawal_not_recognised",
+        "keywords": [
+          "500",
+          "a 500",
+          "copy",
+          "copy of",
+          "a copy"
+        ]
+      },
+      {
+        "id": "change_pin",
+        "name": "change_pin",
+        "keywords": [
+          "cash machines",
+          "pin without",
+          "can change",
+          "saw my",
+          "someone saw"
+        ]
+      },
+      {
+        "id": "compromised_card",
+        "name": "compromised_card",
+        "keywords": [
+          "card details",
+          "be using",
+          "are transactions",
+          "else is",
+          "my permission"
+        ]
+      },
+      {
+        "id": "contactless_not_working",
+        "name": "contactless_not_working",
+        "keywords": [
+          "contactless",
+          "my contactless",
+          "contactless payments",
+          "a contactless",
+          "contactless is"
+        ]
+      },
+      {
+        "id": "country_support",
+        "name": "country_support",
+        "keywords": [
+          "what countries",
+          "countries are",
+          "countries you",
+          "i live",
+          "countries do"
+        ]
+      },
+      {
+        "id": "declined_card_payment",
+        "name": "declined_card_payment",
+        "keywords": [
+          "a shop",
+          "card declined",
+          "shop",
+          "kept getting",
+          "out today"
+        ]
+      },
+      {
+        "id": "declined_cash_withdrawal",
+        "name": "declined_cash_withdrawal",
+        "keywords": [
+          "hill",
+          "notting",
+          "notting hill",
+          "atm wouldn",
+          "different atms"
+        ]
+      },
+      {
+        "id": "declined_transfer",
+        "name": "declined_transfer",
+        "keywords": [
+          "but same",
+          "online yesterday",
+          "transfer declined",
+          "again today",
+          "decline message"
+        ]
+      },
+      {
+        "id": "direct_debit_payment_not_recognised",
+        "name": "direct_debit_payment_not_recognised",
+        "keywords": [
+          "direct debit",
+          "debit payment",
+          "a direct",
+          "direct",
+          "debit that"
+        ]
+      },
+      {
+        "id": "disposable_card_limits",
+        "name": "disposable_card_limits",
+        "keywords": [
+          "of disposable",
+          "many disposable",
+          "transactions can",
+          "cards per",
+          "one disposable"
+        ]
+      },
+      {
+        "id": "edit_personal_details",
+        "name": "edit_personal_details",
+        "keywords": [
+          "my address",
+          "edit",
+          "personal details",
+          "address",
+          "edit my"
+        ]
+      },
+      {
+        "id": "exchange_charge",
+        "name": "exchange_charge",
+        "keywords": [
+          "for exchanging",
+          "discount",
+          "a discount",
+          "exchange fee",
+          "exchanging foreign"
+        ]
+      },
+      {
+        "id": "exchange_rate",
+        "name": "exchange_rate",
+        "keywords": [
+          "rates are",
+          "what your",
+          "exchange rates",
+          "rate will",
+          "what exchange"
+        ]
+      },
+      {
+        "id": "exchange_via_app",
+        "name": "exchange_via_app",
+        "keywords": [
+          "aud",
+          "and gbp",
+          "to gbp",
+          "usd and",
+          "exchange usd"
+        ]
+      },
+      {
+        "id": "extra_charge_on_statement",
+        "name": "extra_charge_on_statement",
+        "keywords": [
+          "1 charge",
+          "extra pound",
+          "1 fee",
+          "a pound",
+          "1 extra"
+        ]
+      },
+      {
+        "id": "failed_transfer",
+        "name": "failed_transfer",
+        "keywords": [
+          "mortgage",
+          "a flat",
+          "5 times",
+          "flat and",
+          "mortgage payment"
+        ]
+      },
+      {
+        "id": "fiat_currency_support",
+        "name": "fiat_currency_support",
+        "keywords": [
+          "fiat",
+          "fiat currencies",
+          "and exchange",
+          "holding and",
+          "multiple currencies"
+        ]
+      },
+      {
+        "id": "get_disposable_virtual_card",
+        "name": "get_disposable_virtual_card",
+        "keywords": [
+          "these disposable",
+          "about disposable",
+          "cards work",
+          "how disposable",
+          "about these"
+        ]
+      },
+      {
+        "id": "get_physical_card",
+        "name": "get_physical_card",
+        "keywords": [
+          "pin yet",
+          "locate my",
+          "separately",
+          "pin sent",
+          "pin separately"
+        ]
+      },
+      {
+        "id": "getting_spare_card",
+        "name": "getting_spare_card",
+        "keywords": [
+          "second card",
+          "more cards",
+          "more physical",
+          "for sending",
+          "out more"
+        ]
+      },
+      {
+        "id": "getting_virtual_card",
+        "name": "getting_virtual_card",
+        "keywords": [
+          "a virtual",
+          "those virtual",
+          "have virtual",
+          "of those",
+          "card yet"
+        ]
+      },
+      {
+        "id": "lost_or_stolen_card",
+        "name": "lost_or_stolen_card",
+        "keywords": [
+          "a stolen",
+          "is stolen",
+          "police",
+          "wallet with",
+          "stolen card"
+        ]
+      },
+      {
+        "id": "lost_or_stolen_phone",
+        "name": "lost_or_stolen_phone",
+        "keywords": [
+          "phone was",
+          "phone is",
+          "my phone",
+          "mugged",
+          "phone"
+        ]
+      },
+      {
+        "id": "order_physical_card",
+        "name": "order_physical_card",
+        "keywords": [
+          "a real",
+          "cards delivered",
+          "real",
+          "real card",
+          "a physical"
+        ]
+      },
+      {
+        "id": "passcode_forgotten",
+        "name": "passcode_forgotten",
+        "keywords": [
+          "password",
+          "my password",
+          "passcode",
+          "my passcode",
+          "the passcode"
+        ]
+      },
+      {
+        "id": "pending_card_payment",
+        "name": "pending_card_payment",
+        "keywords": [
+          "payment still",
+          "just showing",
+          "through at",
+          "pending payment",
+          "payment pending"
+        ]
+      },
+      {
+        "id": "pending_cash_withdrawal",
+        "name": "pending_cash_withdrawal",
+        "keywords": [
+          "withdrawal still",
+          "pending cash",
+          "transaction still",
+          "in progress",
+          "machine declined"
+        ]
+      },
+      {
+        "id": "pending_top_up",
+        "name": "pending_top_up",
+        "keywords": [
+          "new customer",
+          "an hour",
+          "half an",
+          "over an",
+          "your top"
+        ]
+      },
+      {
+        "id": "pending_transfer",
+        "name": "pending_transfer",
+        "keywords": [
+          "eu transfers",
+          "money immediately",
+          "transfer pending",
+          "do eu",
+          "immediately online"
+        ]
+      },
+      {
+        "id": "pin_blocked",
+        "name": "pin_blocked",
+        "keywords": [
+          "unblock",
+          "unblock my",
+          "me unblock",
+          "to unblock",
+          "unblocked"
+        ]
+      },
+      {
+        "id": "receiving_money",
+        "name": "receiving_money",
+        "keywords": [
+          "salary",
+          "my salary",
+          "in gbp",
+          "salary is",
+          "salary in"
+        ]
+      },
+      {
+        "id": "request_refund",
+        "name": "request_refund",
+        "keywords": [
+          "item refunded",
+          "changed my",
+          "on something",
+          "to return",
+          "product"
+        ]
+      },
+      {
+        "id": "reverted_card_payment?",
+        "name": "reverted_card_payment?",
+        "keywords": [
+          "or two",
+          "payment reverted",
+          "made was",
+          "money didn",
+          "week or"
+        ]
+      },
+      {
+        "id": "supported_cards_and_currencies",
+        "name": "supported_cards_and_currencies",
+        "keywords": [
+          "and currencies",
+          "express to",
+          "are accepted",
+          "currencies and",
+          "us credit"
+        ]
+      },
+      {
+        "id": "terminate_account",
+        "name": "terminate_account",
+        "keywords": [
+          "delete my",
+          "delete",
+          "close my",
+          "to delete",
+          "to close"
+        ]
+      },
+      {
+        "id": "top_up_by_bank_transfer_charge",
+        "name": "top_up_by_bank_transfer_charge",
+        "keywords": [
+          "sepa transfer",
+          "a sepa",
+          "for receiving",
+          "receiving money",
+          "by transfer"
+        ]
+      },
+      {
+        "id": "top_up_by_card_charge",
+        "name": "top_up_by_card_charge",
+        "keywords": [
+          "international card",
+          "european bank",
+          "us card",
+          "european card",
+          "a european"
+        ]
+      },
+      {
+        "id": "top_up_by_cash_or_cheque",
+        "name": "top_up_by_cash_or_cheque",
+        "keywords": [
+          "with cash",
+          "use cash",
+          "find top",
+          "by cash",
+          "using cash"
+        ]
+      },
+      {
+        "id": "top_up_failed",
+        "name": "top_up_failed",
+        "keywords": [
+          "up failed",
+          "declined for",
+          "alternatives",
+          "problem or",
+          "today urgently"
+        ]
+      },
+      {
+        "id": "top_up_limits",
+        "name": "top_up_limits",
+        "keywords": [
+          "up limits",
+          "any amount",
+          "any top",
+          "many top",
+          "up limit"
+        ]
+      },
+      {
+        "id": "top_up_reverted",
+        "name": "top_up_reverted",
+        "keywords": [
+          "crypto top",
+          "saw it",
+          "there and",
+          "disappeared from",
+          "s disappeared"
+        ]
+      },
+      {
+        "id": "topping_up_by_card",
+        "name": "topping_up_by_card",
+        "keywords": [
+          "else top",
+          "friends top",
+          "can other",
+          "friends to",
+          "was gone"
+        ]
+      },
+      {
+        "id": "transaction_charged_twice",
+        "name": "transaction_charged_twice",
+        "keywords": [
+          "charged twice",
+          "twice",
+          "twice for",
+          "double charged",
+          "same transaction"
+        ]
+      },
+      {
+        "id": "transfer_fee_charged",
+        "name": "transfer_fee_charged",
+        "keywords": [
+          "receiver",
+          "transfer fee",
+          "the receiver",
+          "transfer more",
+          "for transferring"
+        ]
+      },
+      {
+        "id": "transfer_into_account",
+        "name": "transfer_into_account",
+        "keywords": [
+          "another bank",
+          "this one",
+          "account into",
+          "at another",
+          "from another"
+        ]
+      },
+      {
+        "id": "transfer_not_received_by_recipient",
+        "name": "transfer_not_received_by_recipient",
+        "keywords": [
+          "landlord",
+          "money transaction",
+          "before yesterday",
+          "day before",
+          "transfer within"
+        ]
+      },
+      {
+        "id": "transfer_timing",
+        "name": "transfer_timing",
+        "keywords": [
+          "from europe",
+          "transfer something",
+          "from china",
+          "us transfer",
+          "an urgent"
+        ]
+      },
+      {
+        "id": "unable_to_verify_identity",
+        "name": "unable_to_verify_identity",
+        "keywords": [
+          "proving",
+          "10 minutes",
+          "are clear",
+          "economic",
+          "economic area"
+        ]
+      },
+      {
+        "id": "verify_my_identity",
+        "name": "verify_my_identity",
+        "keywords": [
+          "identity checks",
+          "documents do",
+          "what documents",
+          "for identity",
+          "documentation"
+        ]
+      },
+      {
+        "id": "verify_source_of_funds",
+        "name": "verify_source_of_funds",
+        "keywords": [
+          "my source",
+          "source of",
+          "funds come",
+          "source",
+          "funds came"
+        ]
+      },
+      {
+        "id": "verify_top_up",
+        "name": "verify_top_up",
+        "keywords": [
+          "verification code",
+          "up verification",
+          "up card",
+          "verify top",
+          "verifying the"
+        ]
+      },
+      {
+        "id": "virtual_card_not_working",
+        "name": "virtual_card_not_working",
+        "keywords": [
+          "got rejected",
+          "a subscription",
+          "gym",
+          "subscription to",
+          "the gym"
+        ]
+      },
+      {
+        "id": "visa_or_mastercard",
+        "name": "visa_or_mastercard",
+        "keywords": [
+          "a visa",
+          "visa",
+          "visa and",
+          "and mastercard",
+          "visa card"
+        ]
+      },
+      {
+        "id": "why_verify_identity",
+        "name": "why_verify_identity",
+        "keywords": [
+          "about me",
+          "identity details",
+          "need so",
+          "passed yet",
+          "account although"
+        ]
+      },
+      {
+        "id": "wrong_amount_of_cash_received",
+        "name": "wrong_amount_of_cash_received",
+        "keywords": [
+          "gave me",
+          "20",
+          "gave",
+          "100",
+          "only got"
+        ]
+      },
+      {
+        "id": "wrong_exchange_rate_for_cash_withdrawal",
+        "name": "wrong_exchange_rate_for_cash_withdrawal",
+        "keywords": [
+          "currency at",
+          "home currency",
+          "for foreign",
+          "known",
+          "bit concerned"
+        ]
+      }
+    ],
+    "rules_sha256": "a26224cee0697f2d8ec687f328b908c07ef5071c6c5e3bd02c82864a485f8783",
+    "prompt_sha256": "6f67da0639eec3bca6743163ade2252cc2eb209b1e2f7f10628016abce55bd02",
+    "code_sha256": {
+      "annotation.go": "22f10abc72e16415df48f029e37236484da90b9d2eb1f5564838a26711cc5c6f",
+      "label_benchmark.go": "65c7055297d2735c53864d8408717ef7d108ad1e04acfc94e18e5f394704f4fd",
+      "label_benchmark_protocol.go": "1827008d06621571cd1e71e5c364fbe6f2ca787d4bd8378845e0230b1dab40f7",
+      "label_benchmark_runner_integration_test.go": "07b0daa0adaaf4ede754ff99609e2bbe4987bb055aed035b60e8f0a571ea7ad4",
+      "label_literal_contract.go": "e17d3c226eda4a7925f059bd540a7f41201cadd032e74c8cf3027822b92ddb6f",
+      "label_rules.go": "20ea36189c6613847e7224c3bbbbdcadb01e5a0a51e1f6bab81d2ad4347bc023",
+      "label_suggester.go": "bf1909d8d024dd6ffcc63eebea226e8ee2f67e93b3e1a3e92ea0ef6deb2e2b39",
+      "label_suggestions.go": "69afc061edee04ac09722aea58efd4c24ac3c06220610e5157335a506ab65a35"
+    },
+    "model_selection": [
+      {
+        "id": "test:1762",
+        "text_sha256": "fad7b26d3e88893bf9277dcc9c10a50daa2e5fe00b619cca8b79f2f6dd095849",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1795",
+        "text_sha256": "0c092d3bab798d12fcf0439bfd59b72fa7072d69e64d9774cd7e01f18bb429f0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2846",
+        "text_sha256": "d6e79ae063d09769cea890e96ee8169dfe3262f86e687502174eb0268ec1270e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2864",
+        "text_sha256": "8f7069d3b12638fd8b64a7b49753dfb63d9d9c8a35b1476fbbde31e6c1262374",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:495",
+        "text_sha256": "42ea792247ff088e04f2042de19398f8fd9ebf4b02ea2a11586ec29358e978ba",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:496",
+        "text_sha256": "c3c0fb198b9d5dc67a13f512aaedcb7f7486e445f6be6467d0603eac633301e8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2993",
+        "text_sha256": "fddfda605a725cc6120cc93a27d544009dd5671e1eb13affc72336a391d02eb4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2980",
+        "text_sha256": "67f473e6deef6db891250074ea9e70c90840cfc62cc01c8031cb7416b1ac4471",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1471",
+        "text_sha256": "cb21983d6612a81642e980ec6d2865c1040fcd0cd697fc62a8c944ff7b7d05c7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1473",
+        "text_sha256": "766f3a0ebe7c8b70fb85444696f8ed820c3402690c233c52743eb44b524024eb",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:350",
+        "text_sha256": "e91a251afc1d3acf91082e920856be85fedfa4c7f0a9ea20051674699032d2ee",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:343",
+        "text_sha256": "25e5bf9f76633efd9af349adc10d603843497555181c5657c577da0811720f7d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2706",
+        "text_sha256": "ac6e6555de0468f2f74e116765040a6094313e1387b1ebe1e0f92c564ab45ce2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2703",
+        "text_sha256": "dd34371a877c4208b15c1c82a570f593a51e6d0d66d3bd563e66e30d3af14061",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1042",
+        "text_sha256": "003233e27c6b193d61beedc44148e9c29860750e0c16df2f2dc521e89348c489",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1057",
+        "text_sha256": "348ae2fc59aa10d62c25ae48fc88c4f85582f29da6d07245d70a4069f0a8be6b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2162",
+        "text_sha256": "d2e1304520937c88780077ced7a9e0126585ff30c82b6bb4574a4e65bc1955cc",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2187",
+        "text_sha256": "c95faa0005412ebd53d75ed9c7c514706e8b26aabd87c9882b5c877bf6c22975",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:694",
+        "text_sha256": "759a6efa8d4ba22164d8797d8b412d4016e185ba43f7c66f59c52fcafd7977db",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:697",
+        "text_sha256": "c3cd29f8062953b8f324f948c6e26e92647f040281be6cf5c930d2f275138466",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2948",
+        "text_sha256": "a4ee90d7996aef97d410439c2ec090a9ebc5a483a5fe91138f0c860bcef36aa7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2957",
+        "text_sha256": "bffa28210fac559ba4850ca8a101632503d4ed120f5155ca46dc8c2c1b4518e3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:982",
+        "text_sha256": "b802e72d3975073d6307db1d744e0223cc767176697e92610393d4b9000aefe6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:973",
+        "text_sha256": "f66618c58c30f10bb1b30ee01fa67e96139c75e0b9ea288e528af0018362e9f7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:35",
+        "text_sha256": "967a309537c44c6f87a7c7d8c1d74e87899b44782997c6bc660da34394057b62",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:11",
+        "text_sha256": "c7e069b7c94f447f0fca4f394792d62ec7dc6a342de8134ab3aad77ead113c5d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:283",
+        "text_sha256": "606984c7123456f44b630992793e7c832e5cae7c3b58e680aadeed4de6c0492b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:313",
+        "text_sha256": "679a259547548a0fb99884e366633a92eacdd3ee5e25b61379f5c060d92f42f4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:43",
+        "text_sha256": "bf32b2ba002696b4a2e3c9c0a3523a3c446cade4d2fa7d7ed01050911d28663a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:57",
+        "text_sha256": "bcb45df58b0070344c94b86408707609b5267f9b2fd5dfca68c132d961c4f509",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:385",
+        "text_sha256": "ed5d84d7baff5164d27123edd80d97e0e93a621f2d3fa94cc8194aeebf824518",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:387",
+        "text_sha256": "05a9251436204ee9e2e07f912b6aeb5d1ba89dc887f461c1d3e4b97ada4078cf",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:808",
+        "text_sha256": "b5cff8bac2a8aceb07268a975265ed670cc8e8c22d5ec5f724ff4d24c6319213",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:801",
+        "text_sha256": "4274bc367d25f686fe78566db0b714bdf0ead6d89a0988784fa2eeba06923c7d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1107",
+        "text_sha256": "4698668cdff2c9045a308af8bfbd155b9a73f24be6c08639abc27ba5766d9641",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1088",
+        "text_sha256": "f8418dcbf1cfbe2a7281d574a4d59cdff023233ca1d11c75d2199fcb4b70d1d8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:138",
+        "text_sha256": "94cf80fbab83985428ef50719a987cf8521637f769ed3c4848f9192346d94cec",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:142",
+        "text_sha256": "c6ac28e1628c0219fa4e7867303a17a548955e60dcee023c307ef10400ceb32a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1929",
+        "text_sha256": "732584a9f880a7a5e618b94e5399a149e52787ea5bfd3b8ee74cc0462640c302",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1955",
+        "text_sha256": "b561a7f4f9aa8435bd22c8c2e729589d9af96db970a156fc9c11e0fb29c41a33",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2908",
+        "text_sha256": "95d5eb67fe1bac1eb3614243037a7c71430108289c8b13def25dd3e41780fbdb",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2901",
+        "text_sha256": "5d0a2100a51169c423f77949a24e5971029f6c4b61fed4d53e4ce5f06bb61d17",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2753",
+        "text_sha256": "0ac491e1e0781fe2a841e22df53d7d646cd6b502b553cdbad784eabc274f3500",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2740",
+        "text_sha256": "1c67bd3fd68b251e824196ead2a99825a92f3845065f804910018e9fce9296ee",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2129",
+        "text_sha256": "c7750abc92387e560f8656344537a81dfbc2fc5bf9551a6dbbd80286d0b6034b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2147",
+        "text_sha256": "a56e5ccf0be53ffd296710b3ae1f85ff03c380f01ef92f6e41d2ec0530e4efc0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1425",
+        "text_sha256": "6e8d9b0b74ad67e997513fc999fc7edcd88845f3a2fcd085bfded0a31e3e9c73",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1422",
+        "text_sha256": "971b87857631feef44a5da25294f90874bd0ddab7b59cf47aad9dfc79c9c93c2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:589",
+        "text_sha256": "9e6fe55c4706435ad1be81ce108354a1e1a0562f0eac9dc9d9c3cd83ebb73337",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:579",
+        "text_sha256": "04df2d2dc1671f149c82344e042f30029af3f38a6e6136b62444f01bb559fcde",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:3048",
+        "text_sha256": "405095400a6081994e4b6a99493bf697d8d94fc33b9242bd658da5059ce7c161",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:3070",
+        "text_sha256": "5946146bf779fd412a5a727146d2f1050d88a50a9744d4e67a5098a12b565fbb",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1826",
+        "text_sha256": "c7ad6f01ea4a453af647fd91f29e169192adb71df60fef069fd6f802f6a56e06",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1805",
+        "text_sha256": "0731ed9c2e76efd6ea8b9be840ad973b6beb9bf51adcdc13b61a776903163c6b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1582",
+        "text_sha256": "4ad16fbf1524e112273a99de5bc86313eaa84c8068bd3034509017c5201e049a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1597",
+        "text_sha256": "f01ef9383676e7aeca9bb1a7e967acd06d510f5d0f5ecb5d42b7429435ae1b67",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1737",
+        "text_sha256": "19f1aec403a86f93f58bccc5478b13705a2a2a642ebcea384277cc704f03cb0b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1726",
+        "text_sha256": "44ced2879fca4c5a0e1cd6e255f6460c9635cfea99fe29a860c9a86500846234",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1488",
+        "text_sha256": "86a108ac3ee27ece3fe2dc928e7a636fa37d7c368896d893d88664e047a92ffe",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1492",
+        "text_sha256": "f10b51ff493316656ab881324b08600fd748d61e3a30691918c65ed6dddca5a8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1397",
+        "text_sha256": "e114ff6e676ec409293f8ff8686e83a3b52d410e61e896b9a79de9aee1b1adb6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1372",
+        "text_sha256": "63cd51ef08e532d506a80187ad4f017c42c7ad09f457dc6a83377014cd755d0f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1155",
+        "text_sha256": "f85a0f0fe2e7e5febd7190a2c90cab4eafc123c6799a374dcb86a697a7678be0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1128",
+        "text_sha256": "ba522caeb1ff230bbd8e70f86f5f7ec9e49495ec62ecdb85aefbc4526faf2486",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2798",
+        "text_sha256": "28154f4d915ca0104a7203f31e0b3a978dda7858baccf2c5bfde7328b0e3f909",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2781",
+        "text_sha256": "ef83c70c3ea18be9fe737f0f388859b340137b66530f49531e312fd52698a22d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:90",
+        "text_sha256": "61c8454f0e8070e14ae9255f9e2692dbfde3c66b783a5a53dc7da4b281551ea9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:116",
+        "text_sha256": "d3ded0c89191b4231e97d0612be2c78569b88c916d89060dfe6597e288170219",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:413",
+        "text_sha256": "1fa406cd82c70aea7bc239bb4647a46f8cdcee93a2077697357701407f7dfa50",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:408",
+        "text_sha256": "c2b740ac016e54ba06f8904995152a9e10b67cfb769072e8554577b9b84fa2d9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:162",
+        "text_sha256": "d264d13557b835b16ec08b3e4e97ce5c4cbc1a4732eb7ef0d8eb3d53b16d26e0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:197",
+        "text_sha256": "a085ee7e75dfb529399185562d39f905568f990a6e93af83db05ed598a3e791e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2306",
+        "text_sha256": "504989b0cc208d215e6b762e1b0fc2893cf9874eafd7469602683f40bbb2edd9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2307",
+        "text_sha256": "f6ef84ba94906a09eb04ae0abf7d266d6ebcbd0201d2374f103f76a08f38808a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:249",
+        "text_sha256": "9da2be044c7621a037fae7be81a7e0d4b4ea68507a58f5c03a359db9d0fb8c21",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:257",
+        "text_sha256": "18f5dca29c8b4881527a6736dbacba7d64b84205627208e1e2e2452868023920",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2602",
+        "text_sha256": "52cd1d5e2a7fa3e5beeb72f0026d92826ca7811038d9a93374f5dbe8d7c8f7db",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2630",
+        "text_sha256": "88d3f4717f363301a52373c20fd8918f5b9d0685c7ddf4b2fbe809e5a73c0f69",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1248",
+        "text_sha256": "e1432530dac7e2ea541d667a13e92ac4aa100547f28e858964802b7ba014edfb",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1274",
+        "text_sha256": "c239150cfb718351311d64263f97a2b138906a2a3d25b56b1500cd4a314b9ffd",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2405",
+        "text_sha256": "eb5e69c09797c618c469e00588b26af09c966c63110a52c70b6f9b6ed3e2f2ae",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2419",
+        "text_sha256": "761fdc9efe1fe9d0d6d4e0b5798f47852153e65cc778ad0d9d7882f707cf68cf",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:924",
+        "text_sha256": "3aa6b57ecf8b328244bd2208af7e7af619b56a4aea054fe3d177eb7b65d98446",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:929",
+        "text_sha256": "71fbb377119e346d6e91fb0a9be589932b6828bae1ee6263f70f25f6fe393b4d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:465",
+        "text_sha256": "a3b50b6a40af971c29a265bf8f0bfe66f0aaf42098bab60041a140ebcf6a261a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:470",
+        "text_sha256": "0692d501533c83c75d28cf49d59829223381843fa5e51abb0807d7cede96e344",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1673",
+        "text_sha256": "1f5e08240b62528a0eea5bd38284d273702622a1e24acecbda6380a40841a099",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1676",
+        "text_sha256": "fd7b05a0a8f14de1a645d9c9a6e92728db253645d038b3161ca23a14861a98a5",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2519",
+        "text_sha256": "15651d1ff73771e27e5db18eaae1be6b05e5d9aeba4cfdc67dd96711b3880cad",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2512",
+        "text_sha256": "f8862a36e9e563608c41b5b60c92947fe79b6edaf6ac68ad6ef944e2de859968",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1526",
+        "text_sha256": "c32989a7999a7ea0fbcc2d440e30643138354f699bf2d6f8655e7fd6b7cbefc3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1524",
+        "text_sha256": "4a9e98bc67160b6c2a6bf059fd0e0aa7bd5ae0b5f672532ecca340ba8f35e94e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1613",
+        "text_sha256": "acf83b56927c0370818de657ee5f1277b2d049ea91326e3d1b8099f88070fe66",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1624",
+        "text_sha256": "4d6395a8df73c066c9a57ee461947ecabdf8d3a6510a2aed0b5c17c2957bec1d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:216",
+        "text_sha256": "572bd74702cbf7d915920e28886cbcd2aa822333f3d3d610773f811ba5c07cfc",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:238",
+        "text_sha256": "5ab5ee7a6f07ef7da7bee7f854855a4345b2cf9140594a018bd201ababb14aca",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:679",
+        "text_sha256": "f25293e58145f6af32cfadc097dac0bc1199d344103c7476546a35c543b5ab2a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:645",
+        "text_sha256": "c5e9b2a9dca88130916001a684efb27e4b710360fc84a2c0a6b1634f9e7d0fd1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1852",
+        "text_sha256": "161bb75e9104dfa330d2dcb5855ff90a3bfa12cd29084cca3016c3cfe0ff5c0f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1851",
+        "text_sha256": "94e816308b2b7fb38e5ef899e982c0198a2c89c906d5efb00c154ca8befc28b4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:523",
+        "text_sha256": "b28984be6cef9b49f7e3a524b270ba69b15a56585a06b3513a0d45dd5e8905ed",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:529",
+        "text_sha256": "bfbf1df0cb53d9d33cc67ed35ea45f3bbe15fb17d6c0ff9b5ac092ee1803cd76",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2271",
+        "text_sha256": "a80eeb6e27e48a1707ed1a5a586b2c14427f11d8910ab46582b671fab12eed54",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2247",
+        "text_sha256": "2d4b4b247bf6e99ec9af2f1337a5f8251b915b1afcbf2e7a84f57dc1c288132f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1683",
+        "text_sha256": "3f8aebe7dc6eb70c6377321355561e4b7a2f27695ab571defaebd801f8470b22",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1707",
+        "text_sha256": "296084ece44cacb9adb635531779cf0da7e940ffdde5dc69341466f70e7ffd37",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2095",
+        "text_sha256": "bef4c20c382fd89a0284e75ece65326ee3a17805b3f58e86d39c9b3b34a0aa4d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2097",
+        "text_sha256": "1e9dcfc8be5fb3f33e0ef4131a8719ec53eb79ca2eda9c543c102c328fc425f3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:919",
+        "text_sha256": "04723f21b62b953716f4b3184e8848290acfa641e1cbabc00542e070b5b8097e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:884",
+        "text_sha256": "305753dc12cc04c6d4125985e011bb52b775a09d278cfbcbf0a18a8b5386542a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1909",
+        "text_sha256": "b9a21435a6e72e94c49e2785f10eeeba43357bbe9c314a04144263fae20e99ec",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1890",
+        "text_sha256": "51462fd15109c1832f1c62f3f9391743298a0e2da8209a00947709397c3f6de7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:613",
+        "text_sha256": "b86764d397a7d23a21c60ee5de010f28ceec7a59c23f05f12fdeec68651d02c1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:621",
+        "text_sha256": "0008e1389f266628c39e686fc3c649127cb898b433dd79e80d735d1b41d78650",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2815",
+        "text_sha256": "797455267676478a235a142a8b4f5d98b4f3b975a820e5492d91be029d3926e8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2833",
+        "text_sha256": "801d28235197459a45d6c4b4130d914e8e19f72e75564d45de3fda6a5dae3846",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2448",
+        "text_sha256": "5d14ca1a41a5c06bb62a06e6932ba27b7b8c987aa332fc6fa9cafaba4787203e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2467",
+        "text_sha256": "56b7b0442fb53f70e43b43dd58d0cd0b9134032ae4908364178e0b9387b4d20f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2655",
+        "text_sha256": "bb2cee0230f4b8d914d01767baff28ebf455e4cf5671fc7999603fff90d56999",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2646",
+        "text_sha256": "acfaf4280ef5f9ee4c3073c0cac69e04e2a4842fe6f4c152a8e5aafa7dcbed81",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:742",
+        "text_sha256": "4b04e1100c935ca3f8019d05a41ec360de9facdf00ac72207a68b2579b053e74",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:754",
+        "text_sha256": "7fb6d87a06fb54caa4cadbe5164407d8a8973552f006ce8541e823a3efd09271",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1037",
+        "text_sha256": "5a0ace97c32bca09b3b0794b6e5aca448bf096b55ae107ad99047783927b98ea",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1038",
+        "text_sha256": "15a938e2d580c61b7f01e3298510766dfff030adff2154c8d26b2f01e8cdef9e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1321",
+        "text_sha256": "80314fcae5c79df34362b0edaa1856a92fed652b2ccc4f68aead09687fa72d2d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1341",
+        "text_sha256": "75f4ff95885d6054ccc2f8267e62be9d65791ea38e3647ddd122e3397c30f68c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1999",
+        "text_sha256": "2614390997a10eb4d7cd35a64ed764254ac75f05b7dfd545849a8a75f7b51bef",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1988",
+        "text_sha256": "18383de02ef364eabcce06b7d7f9e82f0b3addce124833bb2fd4358f7ea1db8a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2232",
+        "text_sha256": "83fb68b5eb4d93702c397828d8b73cda260fbfa88a9c0d7dfdca87e854077219",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2238",
+        "text_sha256": "62beb9ad51c0d671528ed0c5957a4a0c55062311b3f75621ba3fcb4dfdb39b08",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2322",
+        "text_sha256": "37895016dedacb1db8da4ba1afa1fb28a0a94175af206ef0ac4844e50818f830",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2353",
+        "text_sha256": "bc49f10d54e915f2268f0ea536361ea0eabb4f253011c5db765d1a062fb9074f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:874",
+        "text_sha256": "40abd40b3fc2cbcc3ac969402fecb0778904017b87ab70ca2058356a5cb2a5cd",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:869",
+        "text_sha256": "a09e7d08aac82ecb00b3e6b01cbf37c39db522e744e5a907698e06de015d4c0d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2059",
+        "text_sha256": "aa92a28abe7b4654d52ca968f6530cf8098f103b88ef94b25af3a85b7301e124",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2077",
+        "text_sha256": "aecd30a6635a4867bc2aaad616bffc8533f6e42aa7f39e980830427619ec5120",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1234",
+        "text_sha256": "c7df1482accb0e78746a65565713f231b94a36059b0be0a5450216aa9cfdc0c0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1230",
+        "text_sha256": "f2e21f0f40b37e77e8c86cf986e30133351360cc6aa0645f51edc73d0039fb29",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:3003",
+        "text_sha256": "e731ee1e31eb095cbd07568066f5f3b473bb0245cdf7bfb936cd6e20442bdd26",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:3032",
+        "text_sha256": "995c79e2effceca4f1c1da9a3ad36c1008a19c6b99c4926c099646e829745247",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2029",
+        "text_sha256": "b89d8406b673dd75d3e87536a2b3c4e1677a53f02951cc9051808d71dc05102c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2030",
+        "text_sha256": "0cd101ae1f2a9b8b93344fbfe7bc92f2aac3754bfb2d35adc93f021416ec47c1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2386",
+        "text_sha256": "8adba75c4fe5121c388dfb746f46e3eb59378655415bfbc0cbe74728401898bf",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2379",
+        "text_sha256": "b5868be0201720eadfd5d09bd8b5c7382207fe5420a8f9bc3a2e42defbfc62fa",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2539",
+        "text_sha256": "e82e723a6dc51211f274d84aec88a3eebd1f7d6ce7fdd97098215e228dbe7801",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2546",
+        "text_sha256": "061b97b681c17ae0a8b9f263c4c8fcf1ebbdba2330b21ebd3921d21e627aad8b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1312",
+        "text_sha256": "3879b689e1e48633c18ed7c9c43a99ac0699964c3017b9ed3b04aa3c35647b13",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1306",
+        "text_sha256": "4a1c88eb5cd42fa8411b5fbea023f87b1514ceea9d5b7261ee316eaade89cf5d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1196",
+        "text_sha256": "0ae1db74d3b856e7a8115427cec561f7e9a4c956e703a98798c3cfb0b7d49cfd",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1165",
+        "text_sha256": "8dafcd85cc248660ef71b4dbb9a903796f7f85e1986c8e5f7de9be9922b998f6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:786",
+        "text_sha256": "342b3cc4f27656d57fcc0d90cabf939296ea68e60f1c0303b0cf45e9ab356e55",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:777",
+        "text_sha256": "d5a7188992b383b15dd948fa681667962d702c96d58bfa56ccb5860bf058f5e4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2580",
+        "text_sha256": "0682bafb8471e68b650ec8756e2bd95f6c9ccf5e4ac449c9237bca3fdb801a00",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2571",
+        "text_sha256": "6ff3f35b8b0802cf487159ca925f241285b61adc58fda95702116dc200c0b259",
+        "train_text_overlap": false
+      }
+    ],
+    "seed": "cognida-hf-label-v1-20261016",
+    "model": "deepseek-v4-flash",
+    "provider": "deepseek",
+    "model_call_limit": 154,
+    "parallel": 2,
+    "train_rows": 10003,
+    "official_test_rows": 3080,
+    "train_test_overlap_rows": 0,
+    "notes": [
+      "Official full held-out rule denominator is unchanged; exact-text overlap and unseen-text metrics are separate.",
+      "Classification model sample: min(2, official test class size) hash-ranked examples per declared class. NER: 64 hash-ranked unseen texts. No difficulty/length filtering. MASSIVE cooking_query has zero test rows, general_greet one: 117 selected, no train substitution or budget reallocation. This protocol correction preceded all model calls.",
+      "One model call per selected sample, concurrency two, 20 second production deadline, 4096 tokens, no retry or repair.",
+      "Gold labels never enter model requests; taxonomy names are public schema. Training-only literal rules do not enter model prompts.",
+      "NER exact coarse spans use the downloader's space-joined token reconstruction. Uncertain valid spans are scored; coverage is reported separately.",
+      "Manual gold review/publication is an oracle fixture, never automatic annotation quality. No billing estimates; missing cost remains null."
+    ]
+  }
+}

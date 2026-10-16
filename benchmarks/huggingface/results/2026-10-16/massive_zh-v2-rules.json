@@ -1,0 +1,2112 @@
+{
+  "original_artifact": "labels/massive_zh/v2/rules-report.json",
+  "original_sha256": "d6ad712985f14503e650cc448e93f1e5f9f523e5dda8f7b4f963f56cbf41273a",
+  "data": {
+    "protocol_sha256": "7bfcea7693291454faea551cec242eee98482fff4c0831a8805304f05cbfab88",
+    "mode": "rules",
+    "actual_model_calls": 0,
+    "full": {
+      "kind": "classification",
+      "samples": 2974,
+      "covered": 883,
+      "abstained": 2091,
+      "ambiguous": 53,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.29690652320107597,
+      "abstention_rate": 0.703093476798924,
+      "contract_error_rate": 0,
+      "accuracy": 0.19502353732347008,
+      "micro_precision": 0.6568516421291053,
+      "micro_recall": 0.19502353732347008,
+      "micro_f1": 0.3007518796992481,
+      "macro_precision": 0.8418029723899288,
+      "macro_recall": 0.2552300333296638,
+      "macro_f1": 0.35532494268430814,
+      "macro_f1_supported_only": 0.3613473993399744,
+      "labels_with_gold_support": 59,
+      "latency_mean_ms": 0.14129650470746455,
+      "latency_p50_ms": 0.121125,
+      "latency_p95_ms": 0.291,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "alarm_query",
+          "support": 34,
+          "tp": 5,
+          "fp": 0,
+          "fn": 29,
+          "precision": 1,
+          "recall": 0.14705882352941177,
+          "f1": 0.2564102564102564
+        },
+        {
+          "label": "alarm_remove",
+          "support": 21,
+          "tp": 1,
+          "fp": 3,
+          "fn": 20,
+          "precision": 0.25,
+          "recall": 0.047619047619047616,
+          "f1": 0.08
+        },
+        {
+          "label": "alarm_set",
+          "support": 41,
+          "tp": 16,
+          "fp": 0,
+          "fn": 25,
+          "precision": 1,
+          "recall": 0.3902439024390244,
+          "f1": 0.5614035087719298
+        },
+        {
+          "label": "audio_volume_down",
+          "support": 11,
+          "tp": 6,
+          "fp": 1,
+          "fn": 5,
+          "precision": 0.8571428571428571,
+          "recall": 0.5454545454545454,
+          "f1": 0.6666666666666666
+        },
+        {
+          "label": "audio_volume_mute",
+          "support": 32,
+          "tp": 12,
+          "fp": 1,
+          "fn": 20,
+          "precision": 0.9230769230769231,
+          "recall": 0.375,
+          "f1": 0.5333333333333333
+        },
+        {
+          "label": "audio_volume_other",
+          "support": 6,
+          "tp": 3,
+          "fp": 0,
+          "fn": 3,
+          "precision": 1,
+          "recall": 0.5,
+          "f1": 0.6666666666666666
+        },
+        {
+          "label": "audio_volume_up",
+          "support": 13,
+          "tp": 4,
+          "fp": 0,
+          "fn": 9,
+          "precision": 1,
+          "recall": 0.3076923076923077,
+          "f1": 0.47058823529411764
+        },
+        {
+          "label": "calendar_query",
+          "support": 126,
+          "tp": 3,
+          "fp": 1,
+          "fn": 123,
+          "precision": 0.75,
+          "recall": 0.023809523809523808,
+          "f1": 0.046153846153846156
+        },
+        {
+          "label": "calendar_remove",
+          "support": 67,
+          "tp": 12,
+          "fp": 0,
+          "fn": 55,
+          "precision": 1,
+          "recall": 0.1791044776119403,
+          "f1": 0.3037974683544304
+        },
+        {
+          "label": "calendar_set",
+          "support": 209,
+          "tp": 6,
+          "fp": 0,
+          "fn": 203,
+          "precision": 1,
+          "recall": 0.028708133971291867,
+          "f1": 0.05581395348837209
+        },
+        {
+          "label": "cooking_query",
+          "support": 0,
+          "tp": 0,
+          "fp": 255,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "cooking_recipe",
+          "support": 72,
+          "tp": 19,
+          "fp": 0,
+          "fn": 53,
+          "precision": 1,
+          "recall": 0.2638888888888889,
+          "f1": 0.4175824175824176
+        },
+        {
+          "label": "datetime_convert",
+          "support": 15,
+          "tp": 5,
+          "fp": 0,
+          "fn": 10,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "f1": 0.5
+        },
+        {
+          "label": "datetime_query",
+          "support": 88,
+          "tp": 18,
+          "fp": 2,
+          "fn": 70,
+          "precision": 0.9,
+          "recall": 0.20454545454545456,
+          "f1": 0.3333333333333333
+        },
+        {
+          "label": "email_addcontact",
+          "support": 12,
+          "tp": 1,
+          "fp": 0,
+          "fn": 11,
+          "precision": 1,
+          "recall": 0.08333333333333333,
+          "f1": 0.15384615384615385
+        },
+        {
+          "label": "email_query",
+          "support": 119,
+          "tp": 25,
+          "fp": 1,
+          "fn": 94,
+          "precision": 0.9615384615384616,
+          "recall": 0.21008403361344538,
+          "f1": 0.3448275862068966
+        },
+        {
+          "label": "email_querycontact",
+          "support": 26,
+          "tp": 6,
+          "fp": 1,
+          "fn": 20,
+          "precision": 0.8571428571428571,
+          "recall": 0.23076923076923078,
+          "f1": 0.36363636363636365
+        },
+        {
+          "label": "email_sendemail",
+          "support": 114,
+          "tp": 11,
+          "fp": 1,
+          "fn": 103,
+          "precision": 0.9166666666666666,
+          "recall": 0.09649122807017543,
+          "f1": 0.1746031746031746
+        },
+        {
+          "label": "general_greet",
+          "support": 1,
+          "tp": 0,
+          "fp": 9,
+          "fn": 1,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "general_joke",
+          "support": 19,
+          "tp": 14,
+          "fp": 0,
+          "fn": 5,
+          "precision": 1,
+          "recall": 0.7368421052631579,
+          "f1": 0.8484848484848485
+        },
+        {
+          "label": "general_quirky",
+          "support": 169,
+          "tp": 5,
+          "fp": 0,
+          "fn": 164,
+          "precision": 1,
+          "recall": 0.029585798816568046,
+          "f1": 0.05747126436781609
+        },
+        {
+          "label": "iot_cleaning",
+          "support": 26,
+          "tp": 17,
+          "fp": 0,
+          "fn": 9,
+          "precision": 1,
+          "recall": 0.6538461538461539,
+          "f1": 0.7906976744186046
+        },
+        {
+          "label": "iot_coffee",
+          "support": 36,
+          "tp": 21,
+          "fp": 2,
+          "fn": 15,
+          "precision": 0.9130434782608695,
+          "recall": 0.5833333333333334,
+          "f1": 0.711864406779661
+        },
+        {
+          "label": "iot_hue_lightchange",
+          "support": 36,
+          "tp": 11,
+          "fp": 0,
+          "fn": 25,
+          "precision": 1,
+          "recall": 0.3055555555555556,
+          "f1": 0.46808510638297873
+        },
+        {
+          "label": "iot_hue_lightdim",
+          "support": 21,
+          "tp": 9,
+          "fp": 0,
+          "fn": 12,
+          "precision": 1,
+          "recall": 0.42857142857142855,
+          "f1": 0.6
+        },
+        {
+          "label": "iot_hue_lightoff",
+          "support": 43,
+          "tp": 3,
+          "fp": 0,
+          "fn": 40,
+          "precision": 1,
+          "recall": 0.06976744186046512,
+          "f1": 0.13043478260869565
+        },
+        {
+          "label": "iot_hue_lighton",
+          "support": 3,
+          "tp": 0,
+          "fp": 1,
+          "fn": 3,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "iot_hue_lightup",
+          "support": 27,
+          "tp": 8,
+          "fp": 1,
+          "fn": 19,
+          "precision": 0.8888888888888888,
+          "recall": 0.2962962962962963,
+          "f1": 0.4444444444444444
+        },
+        {
+          "label": "iot_wemo_off",
+          "support": 18,
+          "tp": 5,
+          "fp": 0,
+          "fn": 13,
+          "precision": 1,
+          "recall": 0.2777777777777778,
+          "f1": 0.43478260869565216
+        },
+        {
+          "label": "iot_wemo_on",
+          "support": 10,
+          "tp": 4,
+          "fp": 1,
+          "fn": 6,
+          "precision": 0.8,
+          "recall": 0.4,
+          "f1": 0.5333333333333333
+        },
+        {
+          "label": "lists_createoradd",
+          "support": 39,
+          "tp": 4,
+          "fp": 1,
+          "fn": 35,
+          "precision": 0.8,
+          "recall": 0.10256410256410256,
+          "f1": 0.18181818181818182
+        },
+        {
+          "label": "lists_query",
+          "support": 51,
+          "tp": 3,
+          "fp": 0,
+          "fn": 48,
+          "precision": 1,
+          "recall": 0.058823529411764705,
+          "f1": 0.1111111111111111
+        },
+        {
+          "label": "lists_remove",
+          "support": 52,
+          "tp": 10,
+          "fp": 0,
+          "fn": 42,
+          "precision": 1,
+          "recall": 0.19230769230769232,
+          "f1": 0.3225806451612903
+        },
+        {
+          "label": "music_dislikeness",
+          "support": 4,
+          "tp": 1,
+          "fp": 6,
+          "fn": 3,
+          "precision": 0.14285714285714285,
+          "recall": 0.25,
+          "f1": 0.18181818181818182
+        },
+        {
+          "label": "music_likeness",
+          "support": 36,
+          "tp": 2,
+          "fp": 1,
+          "fn": 34,
+          "precision": 0.6666666666666666,
+          "recall": 0.05555555555555555,
+          "f1": 0.10256410256410256
+        },
+        {
+          "label": "music_query",
+          "support": 35,
+          "tp": 4,
+          "fp": 0,
+          "fn": 31,
+          "precision": 1,
+          "recall": 0.11428571428571428,
+          "f1": 0.20512820512820512
+        },
+        {
+          "label": "music_settings",
+          "support": 6,
+          "tp": 1,
+          "fp": 3,
+          "fn": 5,
+          "precision": 0.25,
+          "recall": 0.16666666666666666,
+          "f1": 0.2
+        },
+        {
+          "label": "news_query",
+          "support": 124,
+          "tp": 11,
+          "fp": 0,
+          "fn": 113,
+          "precision": 1,
+          "recall": 0.08870967741935484,
+          "f1": 0.16296296296296298
+        },
+        {
+          "label": "play_audiobook",
+          "support": 41,
+          "tp": 15,
+          "fp": 0,
+          "fn": 26,
+          "precision": 1,
+          "recall": 0.36585365853658536,
+          "f1": 0.5357142857142857
+        },
+        {
+          "label": "play_game",
+          "support": 35,
+          "tp": 6,
+          "fp": 0,
+          "fn": 29,
+          "precision": 1,
+          "recall": 0.17142857142857143,
+          "f1": 0.2926829268292683
+        },
+        {
+          "label": "play_music",
+          "support": 176,
+          "tp": 14,
+          "fp": 2,
+          "fn": 162,
+          "precision": 0.875,
+          "recall": 0.07954545454545454,
+          "f1": 0.14583333333333334
+        },
+        {
+          "label": "play_podcasts",
+          "support": 63,
+          "tp": 49,
+          "fp": 1,
+          "fn": 14,
+          "precision": 0.98,
+          "recall": 0.7777777777777778,
+          "f1": 0.8672566371681416
+        },
+        {
+          "label": "play_radio",
+          "support": 72,
+          "tp": 9,
+          "fp": 0,
+          "fn": 63,
+          "precision": 1,
+          "recall": 0.125,
+          "f1": 0.2222222222222222
+        },
+        {
+          "label": "qa_currency",
+          "support": 39,
+          "tp": 26,
+          "fp": 0,
+          "fn": 13,
+          "precision": 1,
+          "recall": 0.6666666666666666,
+          "f1": 0.8
+        },
+        {
+          "label": "qa_definition",
+          "support": 57,
+          "tp": 6,
+          "fp": 0,
+          "fn": 51,
+          "precision": 1,
+          "recall": 0.10526315789473684,
+          "f1": 0.19047619047619047
+        },
+        {
+          "label": "qa_factoid",
+          "support": 141,
+          "tp": 7,
+          "fp": 2,
+          "fn": 134,
+          "precision": 0.7777777777777778,
+          "recall": 0.04964539007092199,
+          "f1": 0.09333333333333334
+        },
+        {
+          "label": "qa_maths",
+          "support": 25,
+          "tp": 5,
+          "fp": 0,
+          "fn": 20,
+          "precision": 1,
+          "recall": 0.2,
+          "f1": 0.3333333333333333
+        },
+        {
+          "label": "qa_stock",
+          "support": 26,
+          "tp": 20,
+          "fp": 2,
+          "fn": 6,
+          "precision": 0.9090909090909091,
+          "recall": 0.7692307692307693,
+          "f1": 0.8333333333333334
+        },
+        {
+          "label": "recommendation_events",
+          "support": 43,
+          "tp": 5,
+          "fp": 2,
+          "fn": 38,
+          "precision": 0.7142857142857143,
+          "recall": 0.11627906976744186,
+          "f1": 0.2
+        },
+        {
+          "label": "recommendation_locations",
+          "support": 31,
+          "tp": 0,
+          "fp": 1,
+          "fn": 31,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "recommendation_movies",
+          "support": 20,
+          "tp": 4,
+          "fp": 0,
+          "fn": 16,
+          "precision": 1,
+          "recall": 0.2,
+          "f1": 0.3333333333333333
+        },
+        {
+          "label": "social_post",
+          "support": 81,
+          "tp": 38,
+          "fp": 0,
+          "fn": 43,
+          "precision": 1,
+          "recall": 0.4691358024691358,
+          "f1": 0.6386554621848739
+        },
+        {
+          "label": "social_query",
+          "support": 25,
+          "tp": 1,
+          "fp": 1,
+          "fn": 24,
+          "precision": 0.5,
+          "recall": 0.04,
+          "f1": 0.07407407407407407
+        },
+        {
+          "label": "takeaway_order",
+          "support": 22,
+          "tp": 5,
+          "fp": 0,
+          "fn": 17,
+          "precision": 1,
+          "recall": 0.22727272727272727,
+          "f1": 0.37037037037037035
+        },
+        {
+          "label": "takeaway_query",
+          "support": 35,
+          "tp": 7,
+          "fp": 1,
+          "fn": 28,
+          "precision": 0.875,
+          "recall": 0.2,
+          "f1": 0.32558139534883723
+        },
+        {
+          "label": "transport_query",
+          "support": 51,
+          "tp": 6,
+          "fp": 0,
+          "fn": 45,
+          "precision": 1,
+          "recall": 0.11764705882352941,
+          "f1": 0.21052631578947367
+        },
+        {
+          "label": "transport_taxi",
+          "support": 23,
+          "tp": 17,
+          "fp": 0,
+          "fn": 6,
+          "precision": 1,
+          "recall": 0.7391304347826086,
+          "f1": 0.85
+        },
+        {
+          "label": "transport_ticket",
+          "support": 35,
+          "tp": 13,
+          "fp": 0,
+          "fn": 22,
+          "precision": 1,
+          "recall": 0.37142857142857144,
+          "f1": 0.5416666666666666
+        },
+        {
+          "label": "transport_traffic",
+          "support": 15,
+          "tp": 8,
+          "fp": 0,
+          "fn": 7,
+          "precision": 1,
+          "recall": 0.5333333333333333,
+          "f1": 0.6956521739130435
+        },
+        {
+          "label": "weather_query",
+          "support": 156,
+          "tp": 33,
+          "fp": 0,
+          "fn": 123,
+          "precision": 1,
+          "recall": 0.21153846153846154,
+          "f1": 0.3492063492063492
+        }
+      ],
+      "retained_outcome_count": 2974,
+      "first_contract_failures": [],
+      "first_classification_errors": [
+        {
+          "id": "test:12",
+          "text_sha256": "f9ba576643860851170bd1115597a32647de5e28965503336f3ed7a0a6276b88",
+          "gold_label": "alarm_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:26",
+          "text_sha256": "9ba4cdb84798b6cb414718eae3978b071449044ff2d5034f36ca96f81b05eefc",
+          "gold_label": "music_likeness",
+          "predicted_labels": [
+            "music_dislikeness"
+          ]
+        },
+        {
+          "id": "test:51",
+          "text_sha256": "650cf55424cabcd7f6ebe1f354f4a9182266d5938b27ef55d7e1d753068b51d1",
+          "gold_label": "iot_hue_lighton",
+          "predicted_labels": [
+            "iot_hue_lightup"
+          ]
+        },
+        {
+          "id": "test:74",
+          "text_sha256": "43f0e17e5cf1a3e798dbc7d30b3ccb41abc9f844673ecb554fc0193969582371",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:84",
+          "text_sha256": "0c82dffb856ae3e627a281b424babafb87c56aaa54489b3a268a80939fa1a836",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:91",
+          "text_sha256": "fa70814b78a95fa840b171a5995a8995491edecae5b1cc3f41469b16ec1de6ab",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:94",
+          "text_sha256": "c76248453819bde854b9ac1694a7bc7f860d9a12f4fa1c11c2a664d015156313",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "qa_stock"
+          ]
+        },
+        {
+          "id": "test:98",
+          "text_sha256": "763fa9fc0496dff3de1d1bc6498f36dd594a3fa9be44933207fa1c03f2e521e7",
+          "gold_label": "general_quirky",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        }
+      ]
+    },
+    "unseen_text": {
+      "kind": "classification",
+      "samples": 2751,
+      "covered": 785,
+      "abstained": 1966,
+      "ambiguous": 51,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.28535078153398763,
+      "abstention_rate": 0.7146492184660124,
+      "contract_error_rate": 0,
+      "accuracy": 0.18247909850963287,
+      "micro_precision": 0.6394904458598726,
+      "micro_recall": 0.18247909850963287,
+      "micro_f1": 0.2839366515837104,
+      "macro_precision": 0.8374622491377811,
+      "macro_recall": 0.23410804494655568,
+      "macro_f1": 0.33397971000406346,
+      "macro_f1_supported_only": 0.3396403830549798,
+      "labels_with_gold_support": 59,
+      "latency_mean_ms": 0.1445387953471466,
+      "latency_p50_ms": 0.123875,
+      "latency_p95_ms": 0.292458,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "alarm_query",
+          "support": 31,
+          "tp": 5,
+          "fp": 0,
+          "fn": 26,
+          "precision": 1,
+          "recall": 0.16129032258064516,
+          "f1": 0.2777777777777778
+        },
+        {
+          "label": "alarm_remove",
+          "support": 18,
+          "tp": 0,
+          "fp": 2,
+          "fn": 18,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "alarm_set",
+          "support": 41,
+          "tp": 16,
+          "fp": 0,
+          "fn": 25,
+          "precision": 1,
+          "recall": 0.3902439024390244,
+          "f1": 0.5614035087719298
+        },
+        {
+          "label": "audio_volume_down",
+          "support": 8,
+          "tp": 3,
+          "fp": 0,
+          "fn": 5,
+          "precision": 1,
+          "recall": 0.375,
+          "f1": 0.5454545454545454
+        },
+        {
+          "label": "audio_volume_mute",
+          "support": 23,
+          "tp": 9,
+          "fp": 1,
+          "fn": 14,
+          "precision": 0.9,
+          "recall": 0.391304347826087,
+          "f1": 0.5454545454545454
+        },
+        {
+          "label": "audio_volume_other",
+          "support": 5,
+          "tp": 2,
+          "fp": 0,
+          "fn": 3,
+          "precision": 1,
+          "recall": 0.4,
+          "f1": 0.5714285714285714
+        },
+        {
+          "label": "audio_volume_up",
+          "support": 12,
+          "tp": 3,
+          "fp": 0,
+          "fn": 9,
+          "precision": 1,
+          "recall": 0.25,
+          "f1": 0.4
+        },
+        {
+          "label": "calendar_query",
+          "support": 122,
+          "tp": 3,
+          "fp": 1,
+          "fn": 119,
+          "precision": 0.75,
+          "recall": 0.02459016393442623,
+          "f1": 0.047619047619047616
+        },
+        {
+          "label": "calendar_remove",
+          "support": 64,
+          "tp": 11,
+          "fp": 0,
+          "fn": 53,
+          "precision": 1,
+          "recall": 0.171875,
+          "f1": 0.29333333333333333
+        },
+        {
+          "label": "calendar_set",
+          "support": 204,
+          "tp": 6,
+          "fp": 0,
+          "fn": 198,
+          "precision": 1,
+          "recall": 0.029411764705882353,
+          "f1": 0.05714285714285714
+        },
+        {
+          "label": "cooking_query",
+          "support": 0,
+          "tp": 0,
+          "fp": 241,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "cooking_recipe",
+          "support": 71,
+          "tp": 19,
+          "fp": 0,
+          "fn": 52,
+          "precision": 1,
+          "recall": 0.2676056338028169,
+          "f1": 0.4222222222222222
+        },
+        {
+          "label": "datetime_convert",
+          "support": 15,
+          "tp": 5,
+          "fp": 0,
+          "fn": 10,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "f1": 0.5
+        },
+        {
+          "label": "datetime_query",
+          "support": 73,
+          "tp": 12,
+          "fp": 2,
+          "fn": 61,
+          "precision": 0.8571428571428571,
+          "recall": 0.1643835616438356,
+          "f1": 0.27586206896551724
+        },
+        {
+          "label": "email_addcontact",
+          "support": 12,
+          "tp": 1,
+          "fp": 0,
+          "fn": 11,
+          "precision": 1,
+          "recall": 0.08333333333333333,
+          "f1": 0.15384615384615385
+        },
+        {
+          "label": "email_query",
+          "support": 110,
+          "tp": 23,
+          "fp": 1,
+          "fn": 87,
+          "precision": 0.9583333333333334,
+          "recall": 0.20909090909090908,
+          "f1": 0.34328358208955223
+        },
+        {
+          "label": "email_querycontact",
+          "support": 26,
+          "tp": 6,
+          "fp": 1,
+          "fn": 20,
+          "precision": 0.8571428571428571,
+          "recall": 0.23076923076923078,
+          "f1": 0.36363636363636365
+        },
+        {
+          "label": "email_sendemail",
+          "support": 108,
+          "tp": 10,
+          "fp": 1,
+          "fn": 98,
+          "precision": 0.9090909090909091,
+          "recall": 0.09259259259259259,
+          "f1": 0.16806722689075632
+        },
+        {
+          "label": "general_greet",
+          "support": 1,
+          "tp": 0,
+          "fp": 8,
+          "fn": 1,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "general_joke",
+          "support": 17,
+          "tp": 12,
+          "fp": 0,
+          "fn": 5,
+          "precision": 1,
+          "recall": 0.7058823529411765,
+          "f1": 0.8275862068965517
+        },
+        {
+          "label": "general_quirky",
+          "support": 164,
+          "tp": 5,
+          "fp": 0,
+          "fn": 159,
+          "precision": 1,
+          "recall": 0.03048780487804878,
+          "f1": 0.05917159763313609
+        },
+        {
+          "label": "iot_cleaning",
+          "support": 11,
+          "tp": 5,
+          "fp": 0,
+          "fn": 6,
+          "precision": 1,
+          "recall": 0.45454545454545453,
+          "f1": 0.625
+        },
+        {
+          "label": "iot_coffee",
+          "support": 32,
+          "tp": 18,
+          "fp": 2,
+          "fn": 14,
+          "precision": 0.9,
+          "recall": 0.5625,
+          "f1": 0.6923076923076923
+        },
+        {
+          "label": "iot_hue_lightchange",
+          "support": 34,
+          "tp": 11,
+          "fp": 0,
+          "fn": 23,
+          "precision": 1,
+          "recall": 0.3235294117647059,
+          "f1": 0.4888888888888889
+        },
+        {
+          "label": "iot_hue_lightdim",
+          "support": 14,
+          "tp": 3,
+          "fp": 0,
+          "fn": 11,
+          "precision": 1,
+          "recall": 0.21428571428571427,
+          "f1": 0.35294117647058826
+        },
+        {
+          "label": "iot_hue_lightoff",
+          "support": 30,
+          "tp": 3,
+          "fp": 0,
+          "fn": 27,
+          "precision": 1,
+          "recall": 0.1,
+          "f1": 0.18181818181818182
+        },
+        {
+          "label": "iot_hue_lighton",
+          "support": 3,
+          "tp": 0,
+          "fp": 1,
+          "fn": 3,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "iot_hue_lightup",
+          "support": 24,
+          "tp": 7,
+          "fp": 1,
+          "fn": 17,
+          "precision": 0.875,
+          "recall": 0.2916666666666667,
+          "f1": 0.4375
+        },
+        {
+          "label": "iot_wemo_off",
+          "support": 9,
+          "tp": 1,
+          "fp": 0,
+          "fn": 8,
+          "precision": 1,
+          "recall": 0.1111111111111111,
+          "f1": 0.2
+        },
+        {
+          "label": "iot_wemo_on",
+          "support": 8,
+          "tp": 2,
+          "fp": 1,
+          "fn": 6,
+          "precision": 0.6666666666666666,
+          "recall": 0.25,
+          "f1": 0.36363636363636365
+        },
+        {
+          "label": "lists_createoradd",
+          "support": 34,
+          "tp": 4,
+          "fp": 1,
+          "fn": 30,
+          "precision": 0.8,
+          "recall": 0.11764705882352941,
+          "f1": 0.20512820512820512
+        },
+        {
+          "label": "lists_query",
+          "support": 47,
+          "tp": 3,
+          "fp": 0,
+          "fn": 44,
+          "precision": 1,
+          "recall": 0.06382978723404255,
+          "f1": 0.12
+        },
+        {
+          "label": "lists_remove",
+          "support": 47,
+          "tp": 8,
+          "fp": 0,
+          "fn": 39,
+          "precision": 1,
+          "recall": 0.1702127659574468,
+          "f1": 0.2909090909090909
+        },
+        {
+          "label": "music_dislikeness",
+          "support": 4,
+          "tp": 1,
+          "fp": 3,
+          "fn": 3,
+          "precision": 0.25,
+          "recall": 0.25,
+          "f1": 0.25
+        },
+        {
+          "label": "music_likeness",
+          "support": 31,
+          "tp": 2,
+          "fp": 1,
+          "fn": 29,
+          "precision": 0.6666666666666666,
+          "recall": 0.06451612903225806,
+          "f1": 0.11764705882352941
+        },
+        {
+          "label": "music_query",
+          "support": 35,
+          "tp": 4,
+          "fp": 0,
+          "fn": 31,
+          "precision": 1,
+          "recall": 0.11428571428571428,
+          "f1": 0.20512820512820512
+        },
+        {
+          "label": "music_settings",
+          "support": 6,
+          "tp": 1,
+          "fp": 3,
+          "fn": 5,
+          "precision": 0.25,
+          "recall": 0.16666666666666666,
+          "f1": 0.2
+        },
+        {
+          "label": "news_query",
+          "support": 115,
+          "tp": 11,
+          "fp": 0,
+          "fn": 104,
+          "precision": 1,
+          "recall": 0.09565217391304348,
+          "f1": 0.1746031746031746
+        },
+        {
+          "label": "play_audiobook",
+          "support": 39,
+          "tp": 15,
+          "fp": 0,
+          "fn": 24,
+          "precision": 1,
+          "recall": 0.38461538461538464,
+          "f1": 0.5555555555555556
+        },
+        {
+          "label": "play_game",
+          "support": 30,
+          "tp": 4,
+          "fp": 0,
+          "fn": 26,
+          "precision": 1,
+          "recall": 0.13333333333333333,
+          "f1": 0.23529411764705882
+        },
+        {
+          "label": "play_music",
+          "support": 165,
+          "tp": 14,
+          "fp": 2,
+          "fn": 151,
+          "precision": 0.875,
+          "recall": 0.08484848484848485,
+          "f1": 0.15469613259668508
+        },
+        {
+          "label": "play_podcasts",
+          "support": 58,
+          "tp": 46,
+          "fp": 1,
+          "fn": 12,
+          "precision": 0.9787234042553191,
+          "recall": 0.7931034482758621,
+          "f1": 0.8761904761904762
+        },
+        {
+          "label": "play_radio",
+          "support": 66,
+          "tp": 9,
+          "fp": 0,
+          "fn": 57,
+          "precision": 1,
+          "recall": 0.13636363636363635,
+          "f1": 0.24
+        },
+        {
+          "label": "qa_currency",
+          "support": 35,
+          "tp": 24,
+          "fp": 0,
+          "fn": 11,
+          "precision": 1,
+          "recall": 0.6857142857142857,
+          "f1": 0.8135593220338984
+        },
+        {
+          "label": "qa_definition",
+          "support": 57,
+          "tp": 6,
+          "fp": 0,
+          "fn": 51,
+          "precision": 1,
+          "recall": 0.10526315789473684,
+          "f1": 0.19047619047619047
+        },
+        {
+          "label": "qa_factoid",
+          "support": 139,
+          "tp": 7,
+          "fp": 2,
+          "fn": 132,
+          "precision": 0.7777777777777778,
+          "recall": 0.050359712230215826,
+          "f1": 0.0945945945945946
+        },
+        {
+          "label": "qa_maths",
+          "support": 23,
+          "tp": 4,
+          "fp": 0,
+          "fn": 19,
+          "precision": 1,
+          "recall": 0.17391304347826086,
+          "f1": 0.2962962962962963
+        },
+        {
+          "label": "qa_stock",
+          "support": 25,
+          "tp": 19,
+          "fp": 2,
+          "fn": 6,
+          "precision": 0.9047619047619048,
+          "recall": 0.76,
+          "f1": 0.8260869565217391
+        },
+        {
+          "label": "recommendation_events",
+          "support": 43,
+          "tp": 5,
+          "fp": 2,
+          "fn": 38,
+          "precision": 0.7142857142857143,
+          "recall": 0.11627906976744186,
+          "f1": 0.2
+        },
+        {
+          "label": "recommendation_locations",
+          "support": 31,
+          "tp": 0,
+          "fp": 1,
+          "fn": 31,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "recommendation_movies",
+          "support": 20,
+          "tp": 4,
+          "fp": 0,
+          "fn": 16,
+          "precision": 1,
+          "recall": 0.2,
+          "f1": 0.3333333333333333
+        },
+        {
+          "label": "social_post",
+          "support": 78,
+          "tp": 35,
+          "fp": 0,
+          "fn": 43,
+          "precision": 1,
+          "recall": 0.44871794871794873,
+          "f1": 0.6194690265486725
+        },
+        {
+          "label": "social_query",
+          "support": 23,
+          "tp": 1,
+          "fp": 1,
+          "fn": 22,
+          "precision": 0.5,
+          "recall": 0.043478260869565216,
+          "f1": 0.08
+        },
+        {
+          "label": "takeaway_order",
+          "support": 22,
+          "tp": 5,
+          "fp": 0,
+          "fn": 17,
+          "precision": 1,
+          "recall": 0.22727272727272727,
+          "f1": 0.37037037037037035
+        },
+        {
+          "label": "takeaway_query",
+          "support": 32,
+          "tp": 6,
+          "fp": 1,
+          "fn": 26,
+          "precision": 0.8571428571428571,
+          "recall": 0.1875,
+          "f1": 0.3076923076923077
+        },
+        {
+          "label": "transport_query",
+          "support": 51,
+          "tp": 6,
+          "fp": 0,
+          "fn": 45,
+          "precision": 1,
+          "recall": 0.11764705882352941,
+          "f1": 0.21052631578947367
+        },
+        {
+          "label": "transport_taxi",
+          "support": 21,
+          "tp": 15,
+          "fp": 0,
+          "fn": 6,
+          "precision": 1,
+          "recall": 0.7142857142857143,
+          "f1": 0.8333333333333334
+        },
+        {
+          "label": "transport_ticket",
+          "support": 33,
+          "tp": 13,
+          "fp": 0,
+          "fn": 20,
+          "precision": 1,
+          "recall": 0.3939393939393939,
+          "f1": 0.5652173913043478
+        },
+        {
+          "label": "transport_traffic",
+          "support": 13,
+          "tp": 6,
+          "fp": 0,
+          "fn": 7,
+          "precision": 1,
+          "recall": 0.46153846153846156,
+          "f1": 0.631578947368421
+        },
+        {
+          "label": "weather_query",
+          "support": 138,
+          "tp": 23,
+          "fp": 0,
+          "fn": 115,
+          "precision": 1,
+          "recall": 0.16666666666666666,
+          "f1": 0.2857142857142857
+        }
+      ],
+      "retained_outcome_count": 2751,
+      "first_contract_failures": [],
+      "first_classification_errors": [
+        {
+          "id": "test:12",
+          "text_sha256": "f9ba576643860851170bd1115597a32647de5e28965503336f3ed7a0a6276b88",
+          "gold_label": "alarm_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:51",
+          "text_sha256": "650cf55424cabcd7f6ebe1f354f4a9182266d5938b27ef55d7e1d753068b51d1",
+          "gold_label": "iot_hue_lighton",
+          "predicted_labels": [
+            "iot_hue_lightup"
+          ]
+        },
+        {
+          "id": "test:74",
+          "text_sha256": "43f0e17e5cf1a3e798dbc7d30b3ccb41abc9f844673ecb554fc0193969582371",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:84",
+          "text_sha256": "0c82dffb856ae3e627a281b424babafb87c56aaa54489b3a268a80939fa1a836",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:94",
+          "text_sha256": "c76248453819bde854b9ac1694a7bc7f860d9a12f4fa1c11c2a664d015156313",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "qa_stock"
+          ]
+        },
+        {
+          "id": "test:98",
+          "text_sha256": "763fa9fc0496dff3de1d1bc6498f36dd594a3fa9be44933207fa1c03f2e521e7",
+          "gold_label": "general_quirky",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:117",
+          "text_sha256": "84e23e0be1c90cd28ce973c20b2fbcdf271df7ed38a645a9a63101ede5049ff8",
+          "gold_label": "audio_volume_up",
+          "predicted_labels": [
+            "audio_volume_mute"
+          ]
+        },
+        {
+          "id": "test:126",
+          "text_sha256": "259430c1ebc432a08c590d149686f577c5c01cd6fad68692faa15045014ab1e5",
+          "gold_label": "takeaway_order",
+          "predicted_labels": [
+            "iot_coffee"
+          ]
+        }
+      ]
+    },
+    "train_overlap": {
+      "kind": "classification",
+      "samples": 223,
+      "covered": 98,
+      "abstained": 125,
+      "ambiguous": 2,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.43946188340807174,
+      "abstention_rate": 0.5605381165919282,
+      "contract_error_rate": 0,
+      "accuracy": 0.34977578475336324,
+      "micro_precision": 0.7959183673469388,
+      "micro_recall": 0.34977578475336324,
+      "micro_f1": 0.48598130841121495,
+      "macro_precision": 0.4375,
+      "macro_recall": 0.28771164021164025,
+      "macro_f1": 0.32838152588152586,
+      "macro_f1_supported_only": 0.44779298983844434,
+      "labels_with_gold_support": 44,
+      "latency_mean_ms": 0.10129856053811659,
+      "latency_p50_ms": 0.088791,
+      "latency_p95_ms": 0.216625,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "alarm_query",
+          "support": 3,
+          "tp": 0,
+          "fp": 0,
+          "fn": 3,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "alarm_remove",
+          "support": 3,
+          "tp": 1,
+          "fp": 1,
+          "fn": 2,
+          "precision": 0.5,
+          "recall": 0.3333333333333333,
+          "f1": 0.4
+        },
+        {
+          "label": "alarm_set",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "audio_volume_down",
+          "support": 3,
+          "tp": 3,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0.75,
+          "recall": 1,
+          "f1": 0.8571428571428571
+        },
+        {
+          "label": "audio_volume_mute",
+          "support": 9,
+          "tp": 3,
+          "fp": 0,
+          "fn": 6,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "f1": 0.5
+        },
+        {
+          "label": "audio_volume_other",
+          "support": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "audio_volume_up",
+          "support": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "calendar_query",
+          "support": 4,
+          "tp": 0,
+          "fp": 0,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "calendar_remove",
+          "support": 3,
+          "tp": 1,
+          "fp": 0,
+          "fn": 2,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "f1": 0.5
+        },
+        {
+          "label": "calendar_set",
+          "support": 5,
+          "tp": 0,
+          "fp": 0,
+          "fn": 5,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "cooking_query",
+          "support": 0,
+          "tp": 0,
+          "fp": 14,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "cooking_recipe",
+          "support": 1,
+          "tp": 0,
+          "fp": 0,
+          "fn": 1,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "datetime_convert",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "datetime_query",
+          "support": 15,
+          "tp": 6,
+          "fp": 0,
+          "fn": 9,
+          "precision": 1,
+          "recall": 0.4,
+          "f1": 0.5714285714285714
+        },
+        {
+          "label": "email_addcontact",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "email_query",
+          "support": 9,
+          "tp": 2,
+          "fp": 0,
+          "fn": 7,
+          "precision": 1,
+          "recall": 0.2222222222222222,
+          "f1": 0.36363636363636365
+        },
+        {
+          "label": "email_querycontact",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "email_sendemail",
+          "support": 6,
+          "tp": 1,
+          "fp": 0,
+          "fn": 5,
+          "precision": 1,
+          "recall": 0.16666666666666666,
+          "f1": 0.2857142857142857
+        },
+        {
+          "label": "general_greet",
+          "support": 0,
+          "tp": 0,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "general_joke",
+          "support": 2,
+          "tp": 2,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "general_quirky",
+          "support": 5,
+          "tp": 0,
+          "fp": 0,
+          "fn": 5,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "iot_cleaning",
+          "support": 15,
+          "tp": 12,
+          "fp": 0,
+          "fn": 3,
+          "precision": 1,
+          "recall": 0.8,
+          "f1": 0.8888888888888888
+        },
+        {
+          "label": "iot_coffee",
+          "support": 4,
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "precision": 1,
+          "recall": 0.75,
+          "f1": 0.8571428571428571
+        },
+        {
+          "label": "iot_hue_lightchange",
+          "support": 2,
+          "tp": 0,
+          "fp": 0,
+          "fn": 2,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "iot_hue_lightdim",
+          "support": 7,
+          "tp": 6,
+          "fp": 0,
+          "fn": 1,
+          "precision": 1,
+          "recall": 0.8571428571428571,
+          "f1": 0.9230769230769231
+        },
+        {
+          "label": "iot_hue_lightoff",
+          "support": 13,
+          "tp": 0,
+          "fp": 0,
+          "fn": 13,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "iot_hue_lighton",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "iot_hue_lightup",
+          "support": 3,
+          "tp": 1,
+          "fp": 0,
+          "fn": 2,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "f1": 0.5
+        },
+        {
+          "label": "iot_wemo_off",
+          "support": 9,
+          "tp": 4,
+          "fp": 0,
+          "fn": 5,
+          "precision": 1,
+          "recall": 0.4444444444444444,
+          "f1": 0.6153846153846154
+        },
+        {
+          "label": "iot_wemo_on",
+          "support": 2,
+          "tp": 2,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "lists_createoradd",
+          "support": 5,
+          "tp": 0,
+          "fp": 0,
+          "fn": 5,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "lists_query",
+          "support": 4,
+          "tp": 0,
+          "fp": 0,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "lists_remove",
+          "support": 5,
+          "tp": 2,
+          "fp": 0,
+          "fn": 3,
+          "precision": 1,
+          "recall": 0.4,
+          "f1": 0.5714285714285714
+        },
+        {
+          "label": "music_dislikeness",
+          "support": 0,
+          "tp": 0,
+          "fp": 3,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "music_likeness",
+          "support": 5,
+          "tp": 0,
+          "fp": 0,
+          "fn": 5,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "music_query",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "music_settings",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "news_query",
+          "support": 9,
+          "tp": 0,
+          "fp": 0,
+          "fn": 9,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "play_audiobook",
+          "support": 2,
+          "tp": 0,
+          "fp": 0,
+          "fn": 2,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "play_game",
+          "support": 5,
+          "tp": 2,
+          "fp": 0,
+          "fn": 3,
+          "precision": 1,
+          "recall": 0.4,
+          "f1": 0.5714285714285714
+        },
+        {
+          "label": "play_music",
+          "support": 11,
+          "tp": 0,
+          "fp": 0,
+          "fn": 11,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "play_podcasts",
+          "support": 5,
+          "tp": 3,
+          "fp": 0,
+          "fn": 2,
+          "precision": 1,
+          "recall": 0.6,
+          "f1": 0.75
+        },
+        {
+          "label": "play_radio",
+          "support": 6,
+          "tp": 0,
+          "fp": 0,
+          "fn": 6,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "qa_currency",
+          "support": 4,
+          "tp": 2,
+          "fp": 0,
+          "fn": 2,
+          "precision": 1,
+          "recall": 0.5,
+          "f1": 0.6666666666666666
+        },
+        {
+          "label": "qa_definition",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "qa_factoid",
+          "support": 2,
+          "tp": 0,
+          "fp": 0,
+          "fn": 2,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "qa_maths",
+          "support": 2,
+          "tp": 1,
+          "fp": 0,
+          "fn": 1,
+          "precision": 1,
+          "recall": 0.5,
+          "f1": 0.6666666666666666
+        },
+        {
+          "label": "qa_stock",
+          "support": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "recommendation_events",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "recommendation_locations",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "recommendation_movies",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "social_post",
+          "support": 3,
+          "tp": 3,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "social_query",
+          "support": 2,
+          "tp": 0,
+          "fp": 0,
+          "fn": 2,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "takeaway_order",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "takeaway_query",
+          "support": 3,
+          "tp": 1,
+          "fp": 0,
+          "fn": 2,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "f1": 0.5
+        },
+        {
+          "label": "transport_query",
+          "support": 0,
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "transport_taxi",
+          "support": 2,
+          "tp": 2,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "transport_ticket",
+          "support": 2,
+          "tp": 0,
+          "fp": 0,
+          "fn": 2,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "transport_traffic",
+          "support": 2,
+          "tp": 2,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        {
+          "label": "weather_query",
+          "support": 18,
+          "tp": 10,
+          "fp": 0,
+          "fn": 8,
+          "precision": 1,
+          "recall": 0.5555555555555556,
+          "f1": 0.7142857142857143
+        }
+      ],
+      "retained_outcome_count": 223,
+      "first_contract_failures": [],
+      "first_classification_errors": [
+        {
+          "id": "test:26",
+          "text_sha256": "9ba4cdb84798b6cb414718eae3978b071449044ff2d5034f36ca96f81b05eefc",
+          "gold_label": "music_likeness",
+          "predicted_labels": [
+            "music_dislikeness"
+          ]
+        },
+        {
+          "id": "test:91",
+          "text_sha256": "fa70814b78a95fa840b171a5995a8995491edecae5b1cc3f41469b16ec1de6ab",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:115",
+          "text_sha256": "0ad9b4b78e9314bdbb174bb211b9d101f8196a99c3bab0ac29fd7105222b862f",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:369",
+          "text_sha256": "c4732a1be1d2d85c0cb21cc097185d9d9d122ad40883155b7939212cec135272",
+          "gold_label": "audio_volume_mute",
+          "predicted_labels": [
+            "audio_volume_down"
+          ]
+        },
+        {
+          "id": "test:388",
+          "text_sha256": "0ad9b4b78e9314bdbb174bb211b9d101f8196a99c3bab0ac29fd7105222b862f",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:508",
+          "text_sha256": "9ba4cdb84798b6cb414718eae3978b071449044ff2d5034f36ca96f81b05eefc",
+          "gold_label": "music_likeness",
+          "predicted_labels": [
+            "music_dislikeness"
+          ]
+        },
+        {
+          "id": "test:741",
+          "text_sha256": "336cf8ea09cd8a2a71c062c8cddc38aae5d4d3bd5c8173bafac7b2d381403285",
+          "gold_label": "news_query",
+          "predicted_labels": [
+            "cooking_query"
+          ]
+        },
+        {
+          "id": "test:809",
+          "text_sha256": "9ba4cdb84798b6cb414718eae3978b071449044ff2d5034f36ca96f81b05eefc",
+          "gold_label": "music_likeness",
+          "predicted_labels": [
+            "music_dislikeness"
+          ]
+        }
+      ]
+    }
+  }
+}

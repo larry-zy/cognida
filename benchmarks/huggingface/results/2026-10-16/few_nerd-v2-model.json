@@ -1,0 +1,324 @@
+{
+  "original_artifact": "labels/few_nerd/v2/model-report.json",
+  "original_sha256": "30ccde07d7eaa9067f06591f20f9fcfcb6816bb62d07d0a6474f00ba533dada6",
+  "data": {
+    "protocol_sha256": "0d4583df47149f1aadd289f93dd6998929b17b0b2331a49d6dff4bbf015d9559",
+    "mode": "model",
+    "actual_model_calls": 64,
+    "full": {
+      "kind": "named_entity",
+      "samples": 64,
+      "covered": 2,
+      "abstained": 62,
+      "ambiguous": 0,
+      "contract_errors": 56,
+      "execution_errors": 0,
+      "coverage": 0.03125,
+      "abstention_rate": 0.96875,
+      "contract_error_rate": 0.875,
+      "accuracy": null,
+      "micro_precision": 0.5,
+      "micro_recall": 0.00641025641025641,
+      "micro_f1": 0.012658227848101266,
+      "macro_precision": 0.125,
+      "macro_recall": 0.00625,
+      "macro_f1": 0.011904761904761904,
+      "macro_f1_supported_only": 0.011904761904761904,
+      "labels_with_gold_support": 8,
+      "latency_mean_ms": 1657.6647108906247,
+      "latency_p50_ms": 1587.635708,
+      "latency_p95_ms": 2480.804042,
+      "usage_observed_samples": 64,
+      "usage": {
+        "prompt_tokens": 39219,
+        "completion_tokens": 13556,
+        "total_tokens": 52775,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "art",
+          "support": 4,
+          "tp": 0,
+          "fp": 0,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "building",
+          "support": 8,
+          "tp": 0,
+          "fp": 0,
+          "fn": 8,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "event",
+          "support": 4,
+          "tp": 0,
+          "fp": 1,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "location",
+          "support": 52,
+          "tp": 0,
+          "fp": 0,
+          "fn": 52,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "organization",
+          "support": 27,
+          "tp": 0,
+          "fp": 0,
+          "fn": 27,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "other",
+          "support": 21,
+          "tp": 0,
+          "fp": 0,
+          "fn": 21,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "person",
+          "support": 20,
+          "tp": 0,
+          "fp": 0,
+          "fn": 20,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "product",
+          "support": 20,
+          "tp": 1,
+          "fp": 0,
+          "fn": 19,
+          "precision": 1,
+          "recall": 0.05,
+          "f1": 0.09523809523809523
+        }
+      ],
+      "retained_outcome_count": 64,
+      "first_contract_failures": [
+        {
+          "id": "test:15528",
+          "text_sha256": "f6c540e951fe9c45546b0aa8c6e98b9a9ba961cdf80d63d3f0d540db19ff1083",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:23122",
+          "text_sha256": "fe70b62d8f1379752315cd886105b0e37f8c2210e9e4237aac9f1b14b64b5bd2",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:25939",
+          "text_sha256": "a09d560d89b428f46eb667debe4af7fe7cc806869e5deeb9eb1ed88e16fa6cd4",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:6752",
+          "text_sha256": "52de4aaa8a67b08d3f8741ae69118e2e7b14a5df6fc88d69eef5dce61add8164",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:29812",
+          "text_sha256": "02ca5880291cbf33354a782c61bbdc27715573c89d6c1410ff266cbe1e756f29",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:19591",
+          "text_sha256": "c8ca00511bb9606af6b9a752d4cb12b69ed10158d390659f38dc26c7ec793370",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:16612",
+          "text_sha256": "fb1bd4e0ae94a8dd0b3ebfd67caf054c9aaa3876a3544dc0f10b561bdc4f4628",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:25199",
+          "text_sha256": "2b2a107e36bc1fb3dc8bc277a05c70c7835da795e6ce185e6d25360fac4ad95a",
+          "error_code": "contract_error"
+        }
+      ],
+      "first_classification_errors": []
+    },
+    "unseen_text": {
+      "kind": "named_entity",
+      "samples": 64,
+      "covered": 2,
+      "abstained": 62,
+      "ambiguous": 0,
+      "contract_errors": 56,
+      "execution_errors": 0,
+      "coverage": 0.03125,
+      "abstention_rate": 0.96875,
+      "contract_error_rate": 0.875,
+      "accuracy": null,
+      "micro_precision": 0.5,
+      "micro_recall": 0.00641025641025641,
+      "micro_f1": 0.012658227848101266,
+      "macro_precision": 0.125,
+      "macro_recall": 0.00625,
+      "macro_f1": 0.011904761904761904,
+      "macro_f1_supported_only": 0.011904761904761904,
+      "labels_with_gold_support": 8,
+      "latency_mean_ms": 1657.6647108906245,
+      "latency_p50_ms": 1587.635708,
+      "latency_p95_ms": 2480.804042,
+      "usage_observed_samples": 64,
+      "usage": {
+        "prompt_tokens": 39219,
+        "completion_tokens": 13556,
+        "total_tokens": 52775,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "art",
+          "support": 4,
+          "tp": 0,
+          "fp": 0,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "building",
+          "support": 8,
+          "tp": 0,
+          "fp": 0,
+          "fn": 8,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "event",
+          "support": 4,
+          "tp": 0,
+          "fp": 1,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "location",
+          "support": 52,
+          "tp": 0,
+          "fp": 0,
+          "fn": 52,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "organization",
+          "support": 27,
+          "tp": 0,
+          "fp": 0,
+          "fn": 27,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "other",
+          "support": 21,
+          "tp": 0,
+          "fp": 0,
+          "fn": 21,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "person",
+          "support": 20,
+          "tp": 0,
+          "fp": 0,
+          "fn": 20,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "product",
+          "support": 20,
+          "tp": 1,
+          "fp": 0,
+          "fn": 19,
+          "precision": 1,
+          "recall": 0.05,
+          "f1": 0.09523809523809523
+        }
+      ],
+      "retained_outcome_count": 64,
+      "first_contract_failures": [
+        {
+          "id": "test:15528",
+          "text_sha256": "f6c540e951fe9c45546b0aa8c6e98b9a9ba961cdf80d63d3f0d540db19ff1083",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:23122",
+          "text_sha256": "fe70b62d8f1379752315cd886105b0e37f8c2210e9e4237aac9f1b14b64b5bd2",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:25939",
+          "text_sha256": "a09d560d89b428f46eb667debe4af7fe7cc806869e5deeb9eb1ed88e16fa6cd4",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:6752",
+          "text_sha256": "52de4aaa8a67b08d3f8741ae69118e2e7b14a5df6fc88d69eef5dce61add8164",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:29812",
+          "text_sha256": "02ca5880291cbf33354a782c61bbdc27715573c89d6c1410ff266cbe1e756f29",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:19591",
+          "text_sha256": "c8ca00511bb9606af6b9a752d4cb12b69ed10158d390659f38dc26c7ec793370",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:16612",
+          "text_sha256": "fb1bd4e0ae94a8dd0b3ebfd67caf054c9aaa3876a3544dc0f10b561bdc4f4628",
+          "error_code": "contract_error"
+        },
+        {
+          "id": "test:25199",
+          "text_sha256": "2b2a107e36bc1fb3dc8bc277a05c70c7835da795e6ce185e6d25360fac4ad95a",
+          "error_code": "contract_error"
+        }
+      ],
+      "first_classification_errors": []
+    },
+    "train_overlap": null
+  }
+}

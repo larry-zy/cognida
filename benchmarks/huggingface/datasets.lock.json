@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "datasets": {
+    "banking77": {
+      "dataset_id": "mteb/banking77",
+      "revision": "18072d2685ea682290f7b8924d94c62acc19c0b2",
+      "license": "cc-by-4.0 (original PolyAI data); mirror card says mit",
+      "original_source": "https://huggingface.co/datasets/PolyAI/banking77",
+      "paths": [
+        "README.md",
+        "train.jsonl",
+        "test.jsonl"
+      ]
+    },
+    "massive_zh": {
+      "dataset_id": "mteb/amazon_massive_intent",
+      "revision": "940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+      "license": "cc-by-4.0 (original Amazon MASSIVE); mirror card says apache-2.0",
+      "original_source": "https://huggingface.co/datasets/AmazonScience/massive",
+      "paths": [
+        "README.md",
+        "train/zh-CN.json.gz",
+        "test/zh-CN.json.gz"
+      ]
+    },
+    "few_nerd": {
+      "dataset_id": "DFKI-SLT/few-nerd",
+      "revision": "205f3e9c9f3577ea2561d43f2f62dc249ab92d5b",
+      "license": "cc-by-sa-4.0",
+      "paths": [
+        "README.md",
+        "supervised/train-00000-of-00001.parquet",
+        "supervised/test-00000-of-00001.parquet"
+      ]
+    },
+    "wine_quality": {
+      "dataset_id": "codesignal/wine-quality",
+      "revision": "a90690dd91e947252ac664b495fb043ca545da23",
+      "license": "cc-by-4.0",
+      "paths": [
+        "README.md",
+        "winequality.names",
+        "winequality-red.csv",
+        "winequality-white.csv"
+      ]
+    }
+  },
+  "files": [
+    {
+      "dataset": "banking77",
+      "source_path": "README.md",
+      "url": "https://huggingface.co/datasets/mteb/banking77/resolve/18072d2685ea682290f7b8924d94c62acc19c0b2/README.md",
+      "bytes": 16578,
+      "sha256": "acd7824643a65ad5447e2119669639a4613aa252f1b985b49227bd3a744cab4c"
+    },
+    {
+      "dataset": "banking77",
+      "source_path": "train.jsonl",
+      "url": "https://huggingface.co/datasets/mteb/banking77/resolve/18072d2685ea682290f7b8924d94c62acc19c0b2/train.jsonl",
+      "bytes": 1245265,
+      "sha256": "d411780d8c0e18e166f5664c6cfe90dc9de399d722aa7cde282e31a771323ea7"
+    },
+    {
+      "dataset": "banking77",
+      "source_path": "test.jsonl",
+      "url": "https://huggingface.co/datasets/mteb/banking77/resolve/18072d2685ea682290f7b8924d94c62acc19c0b2/test.jsonl",
+      "bytes": 365101,
+      "sha256": "fb1b0043ded745b8767687084786e6dd0a5f0ce03243b6131992a1c7ae2c2595"
+    },
+    {
+      "dataset": "massive_zh",
+      "source_path": "README.md",
+      "url": "https://huggingface.co/datasets/mteb/amazon_massive_intent/resolve/940fd47a81eaa7f2cc7b129674d945d618ac38c2/README.md",
+      "bytes": 29476,
+      "sha256": "0a5a1662190ebef2041fda3b8bfe30c791bcfe6cfd01ae33a8b03cde6955a2fd"
+    },
+    {
+      "dataset": "massive_zh",
+      "source_path": "train/zh-CN.json.gz",
+      "url": "https://huggingface.co/datasets/mteb/amazon_massive_intent/resolve/940fd47a81eaa7f2cc7b129674d945d618ac38c2/train/zh-CN.json.gz",
+      "bytes": 210846,
+      "sha256": "8339f3f6c65fbdb6471642cf1854972aa6f084251e0151cbd3403ebe85a4a0dc"
+    },
+    {
+      "dataset": "massive_zh",
+      "source_path": "test/zh-CN.json.gz",
+      "url": "https://huggingface.co/datasets/mteb/amazon_massive_intent/resolve/940fd47a81eaa7f2cc7b129674d945d618ac38c2/test/zh-CN.json.gz",
+      "bytes": 59805,
+      "sha256": "57d7ae5ef5376eeb82a10f109a1111d95e88e4ae165febedc4ba5767ce755295"
+    },
+    {
+      "dataset": "few_nerd",
+      "source_path": "README.md",
+      "url": "https://huggingface.co/datasets/DFKI-SLT/few-nerd/resolve/205f3e9c9f3577ea2561d43f2f62dc249ab92d5b/README.md",
+      "bytes": 16507,
+      "sha256": "beab6f6b7887bc882b88ca7691f6e83316edde29d07fea5491a35a6ffb0cad74"
+    },
+    {
+      "dataset": "few_nerd",
+      "source_path": "supervised/train-00000-of-00001.parquet",
+      "url": "https://huggingface.co/datasets/DFKI-SLT/few-nerd/resolve/205f3e9c9f3577ea2561d43f2f62dc249ab92d5b/supervised/train-00000-of-00001.parquet",
+      "bytes": 16873779,
+      "sha256": "6ccb192b1accd3d1754db2244d18ddf64040357fb5b9076a338ec421a72d7d61"
+    },
+    {
+      "dataset": "few_nerd",
+      "source_path": "supervised/test-00000-of-00001.parquet",
+      "url": "https://huggingface.co/datasets/DFKI-SLT/few-nerd/resolve/205f3e9c9f3577ea2561d43f2f62dc249ab92d5b/supervised/test-00000-of-00001.parquet",
+      "bytes": 4823735,
+      "sha256": "b7ad746fcbeb68fcc235ba7142d7c3723ea2dc39930089e947284defecf300c6"
+    },
+    {
+      "dataset": "wine_quality",
+      "source_path": "README.md",
+      "url": "https://huggingface.co/datasets/codesignal/wine-quality/resolve/a90690dd91e947252ac664b495fb043ca545da23/README.md",
+      "bytes": 913,
+      "sha256": "35db2982df01aefee3be8c1ca1f160e49fb7d37e2097b4f827d3e2b48455d00a"
+    },
+    {
+      "dataset": "wine_quality",
+      "source_path": "winequality.names",
+      "url": "https://huggingface.co/datasets/codesignal/wine-quality/resolve/a90690dd91e947252ac664b495fb043ca545da23/winequality.names",
+      "bytes": 3234,
+      "sha256": "24820f7f89bf8f91cf549114ad538ee9dacc70ad370173912f44a929d93abe9a"
+    },
+    {
+      "dataset": "wine_quality",
+      "source_path": "winequality-red.csv",
+      "url": "https://huggingface.co/datasets/codesignal/wine-quality/resolve/a90690dd91e947252ac664b495fb043ca545da23/winequality-red.csv",
+      "bytes": 84200,
+      "sha256": "8f5623588cc693aebf976bba4742fbc37bd7dac28f4a77c52e2db71ae56b5f85"
+    },
+    {
+      "dataset": "wine_quality",
+      "source_path": "winequality-white.csv",
+      "url": "https://huggingface.co/datasets/codesignal/wine-quality/resolve/a90690dd91e947252ac664b495fb043ca545da23/winequality-white.csv",
+      "bytes": 264427,
+      "sha256": "8326cb4a472d06de426e0d5f791852f131fc0d7e90779c6d71644b3a05a5ede1"
+    }
+  ]
+}

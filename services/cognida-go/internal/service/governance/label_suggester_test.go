@@ -34,6 +34,7 @@ func TestLabelModelStrictEvidenceAndNoTools(t *testing.T) {
 	require.Equal(t, out, got)
 	require.Empty(t, client.request.Options.Tools)
 	require.Equal(t, 4096, client.request.Options.MaxTokens)
+	require.True(t, client.request.Options.BoundedJSONOutput)
 	for _, content := range []string{string(raw) + " {}", `{"decision_status":"uncertain","decision_status":"matched"}`, `{"decision_status":"matched","rationale":"ok","confidence":0.5}`, `{"annotation":{"labels":["finance"]},"decision_status":"matched","rationale":"ok","evidence_spans":[{"label_id":"finance","rule":"model_evidence","match":"发票","start":0,"end":2}]}`} {
 		client.response.Content = content
 		_, e = s.Suggest(context.Background(), in)

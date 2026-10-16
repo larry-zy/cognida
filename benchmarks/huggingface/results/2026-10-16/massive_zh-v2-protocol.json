@@ -1,0 +1,1532 @@
+{
+  "original_artifact": "labels/massive_zh/v2/protocol.json",
+  "original_sha256": "7bfcea7693291454faea551cec242eee98482fff4c0831a8805304f05cbfab88",
+  "data": {
+    "version": "hf_label_v2",
+    "created_at": "2026-10-16T07:36:47.857658Z",
+    "config": {
+      "dataset": "mteb/amazon_massive_intent",
+      "revision": "940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+      "language": "zh-CN",
+      "kind": "classification",
+      "train_file": "$RUN/data/massive_zh/train.jsonl",
+      "test_file": "$RUN/data/massive_zh/test.jsonl",
+      "train_sha256": "300f66b19b9e301643242550205b05f4f4676ec89a9ad3e79538e4aa6b8d3104",
+      "test_sha256": "3bab3af9affccf5f87304602613e9be9fbf81b9c535b86097157122b02ee2a50",
+      "labels": [
+        {
+          "id": "alarm_query",
+          "name": "alarm_query"
+        },
+        {
+          "id": "alarm_remove",
+          "name": "alarm_remove"
+        },
+        {
+          "id": "alarm_set",
+          "name": "alarm_set"
+        },
+        {
+          "id": "audio_volume_down",
+          "name": "audio_volume_down"
+        },
+        {
+          "id": "audio_volume_mute",
+          "name": "audio_volume_mute"
+        },
+        {
+          "id": "audio_volume_other",
+          "name": "audio_volume_other"
+        },
+        {
+          "id": "audio_volume_up",
+          "name": "audio_volume_up"
+        },
+        {
+          "id": "calendar_query",
+          "name": "calendar_query"
+        },
+        {
+          "id": "calendar_remove",
+          "name": "calendar_remove"
+        },
+        {
+          "id": "calendar_set",
+          "name": "calendar_set"
+        },
+        {
+          "id": "cooking_query",
+          "name": "cooking_query"
+        },
+        {
+          "id": "cooking_recipe",
+          "name": "cooking_recipe"
+        },
+        {
+          "id": "datetime_convert",
+          "name": "datetime_convert"
+        },
+        {
+          "id": "datetime_query",
+          "name": "datetime_query"
+        },
+        {
+          "id": "email_addcontact",
+          "name": "email_addcontact"
+        },
+        {
+          "id": "email_query",
+          "name": "email_query"
+        },
+        {
+          "id": "email_querycontact",
+          "name": "email_querycontact"
+        },
+        {
+          "id": "email_sendemail",
+          "name": "email_sendemail"
+        },
+        {
+          "id": "general_greet",
+          "name": "general_greet"
+        },
+        {
+          "id": "general_joke",
+          "name": "general_joke"
+        },
+        {
+          "id": "general_quirky",
+          "name": "general_quirky"
+        },
+        {
+          "id": "iot_cleaning",
+          "name": "iot_cleaning"
+        },
+        {
+          "id": "iot_coffee",
+          "name": "iot_coffee"
+        },
+        {
+          "id": "iot_hue_lightchange",
+          "name": "iot_hue_lightchange"
+        },
+        {
+          "id": "iot_hue_lightdim",
+          "name": "iot_hue_lightdim"
+        },
+        {
+          "id": "iot_hue_lightoff",
+          "name": "iot_hue_lightoff"
+        },
+        {
+          "id": "iot_hue_lighton",
+          "name": "iot_hue_lighton"
+        },
+        {
+          "id": "iot_hue_lightup",
+          "name": "iot_hue_lightup"
+        },
+        {
+          "id": "iot_wemo_off",
+          "name": "iot_wemo_off"
+        },
+        {
+          "id": "iot_wemo_on",
+          "name": "iot_wemo_on"
+        },
+        {
+          "id": "lists_createoradd",
+          "name": "lists_createoradd"
+        },
+        {
+          "id": "lists_query",
+          "name": "lists_query"
+        },
+        {
+          "id": "lists_remove",
+          "name": "lists_remove"
+        },
+        {
+          "id": "music_dislikeness",
+          "name": "music_dislikeness"
+        },
+        {
+          "id": "music_likeness",
+          "name": "music_likeness"
+        },
+        {
+          "id": "music_query",
+          "name": "music_query"
+        },
+        {
+          "id": "music_settings",
+          "name": "music_settings"
+        },
+        {
+          "id": "news_query",
+          "name": "news_query"
+        },
+        {
+          "id": "play_audiobook",
+          "name": "play_audiobook"
+        },
+        {
+          "id": "play_game",
+          "name": "play_game"
+        },
+        {
+          "id": "play_music",
+          "name": "play_music"
+        },
+        {
+          "id": "play_podcasts",
+          "name": "play_podcasts"
+        },
+        {
+          "id": "play_radio",
+          "name": "play_radio"
+        },
+        {
+          "id": "qa_currency",
+          "name": "qa_currency"
+        },
+        {
+          "id": "qa_definition",
+          "name": "qa_definition"
+        },
+        {
+          "id": "qa_factoid",
+          "name": "qa_factoid"
+        },
+        {
+          "id": "qa_maths",
+          "name": "qa_maths"
+        },
+        {
+          "id": "qa_stock",
+          "name": "qa_stock"
+        },
+        {
+          "id": "recommendation_events",
+          "name": "recommendation_events"
+        },
+        {
+          "id": "recommendation_locations",
+          "name": "recommendation_locations"
+        },
+        {
+          "id": "recommendation_movies",
+          "name": "recommendation_movies"
+        },
+        {
+          "id": "social_post",
+          "name": "social_post"
+        },
+        {
+          "id": "social_query",
+          "name": "social_query"
+        },
+        {
+          "id": "takeaway_order",
+          "name": "takeaway_order"
+        },
+        {
+          "id": "takeaway_query",
+          "name": "takeaway_query"
+        },
+        {
+          "id": "transport_query",
+          "name": "transport_query"
+        },
+        {
+          "id": "transport_taxi",
+          "name": "transport_taxi"
+        },
+        {
+          "id": "transport_ticket",
+          "name": "transport_ticket"
+        },
+        {
+          "id": "transport_traffic",
+          "name": "transport_traffic"
+        },
+        {
+          "id": "weather_query",
+          "name": "weather_query"
+        }
+      ]
+    },
+    "rules": [
+      {
+        "id": "alarm_query",
+        "name": "alarm_query",
+        "keywords": [
+          "设了",
+          "些闹",
+          "些闹钟",
+          "钟了吗",
+          "钟啊"
+        ]
+      },
+      {
+        "id": "alarm_remove",
+        "name": "alarm_remove",
+        "keywords": [
+          "除早",
+          "除早上",
+          "移除早",
+          "有的闹",
+          "移除明"
+        ]
+      },
+      {
+        "id": "alarm_set",
+        "name": "alarm_set",
+        "keywords": [
+          "定个",
+          "设个明",
+          "定个闹",
+          "后的闹",
+          "点叫我"
+        ]
+      },
+      {
+        "id": "audio_volume_down",
+        "name": "audio_volume_down",
+        "keywords": [
+          "低音",
+          "低音量",
+          "调低音",
+          "低音箱",
+          "降低音"
+        ]
+      },
+      {
+        "id": "audio_volume_mute",
+        "name": "audio_volume_mute",
+        "keywords": [
+          "静音",
+          "为静",
+          "为静音",
+          "直到",
+          "静音模"
+        ]
+      },
+      {
+        "id": "audio_volume_other",
+        "name": "audio_volume_other",
+        "keywords": [
+          "变音",
+          "改变音",
+          "变音量",
+          "我音量",
+          "量设"
+        ]
+      },
+      {
+        "id": "audio_volume_up",
+        "name": "audio_volume_up",
+        "keywords": [
+          "调高音",
+          "高音",
+          "提高音",
+          "高音量",
+          "大声"
+        ]
+      },
+      {
+        "id": "calendar_query",
+        "name": "calendar_query",
+        "keywords": [
+          "历上有",
+          "约是",
+          "预约是",
+          "约是什",
+          "安排是"
+        ]
+      },
+      {
+        "id": "calendar_remove",
+        "name": "calendar_remove",
+        "keywords": [
+          "从日",
+          "从日历",
+          "历中删",
+          "除日",
+          "除日历"
+        ]
+      },
+      {
+        "id": "calendar_set",
+        "name": "calendar_set",
+        "keywords": [
+          "加到日",
+          "醒我周",
+          "上添",
+          "上添加",
+          "能提醒"
+        ]
+      },
+      {
+        "id": "cooking_query",
+        "name": "cooking_query",
+        "keywords": [
+          "什么"
+        ]
+      },
+      {
+        "id": "cooking_recipe",
+        "name": "cooking_recipe",
+        "keywords": [
+          "的食谱",
+          "烹饪",
+          "何做",
+          "如何做",
+          "烤鸡"
+        ]
+      },
+      {
+        "id": "datetime_convert",
+        "name": "datetime_convert",
+        "keywords": [
+          "时差",
+          "差是",
+          "的时差",
+          "差是多",
+          "时差是"
+        ]
+      },
+      {
+        "id": "datetime_query",
+        "name": "datetime_query",
+        "keywords": [
+          "现在几",
+          "几点了",
+          "在几点",
+          "日期是",
+          "在几"
+        ]
+      },
+      {
+        "id": "email_addcontact",
+        "name": "email_addcontact",
+        "keywords": [
+          "aho",
+          "hoo",
+          "yah",
+          "邮件添",
+          "el"
+        ]
+      },
+      {
+        "id": "email_query",
+        "name": "email_query",
+        "keywords": [
+          "件了",
+          "邮件了",
+          "件了吗",
+          "件箱",
+          "任何来"
+        ]
+      },
+      {
+        "id": "email_querycontact",
+        "name": "email_querycontact",
+        "keywords": [
+          "电话号",
+          "话号",
+          "话号码",
+          "码是多",
+          "址是什"
+        ]
+      },
+      {
+        "id": "email_sendemail",
+        "name": "email_sendemail",
+        "keywords": [
+          "发一封",
+          "件告",
+          "邮件告",
+          "件告诉",
+          "给小美"
+        ]
+      },
+      {
+        "id": "general_greet",
+        "name": "general_greet",
+        "keywords": [
+          "你好吗",
+          "上好",
+          "早上好",
+          "你好",
+          "好吗"
+        ]
+      },
+      {
+        "id": "general_joke",
+        "name": "general_joke",
+        "keywords": [
+          "的笑",
+          "的笑话",
+          "笑话",
+          "笑的",
+          "笑的笑"
+        ]
+      },
+      {
+        "id": "general_quirky",
+        "name": "general_quirky",
+        "keywords": [
+          "人类",
+          "嘿我",
+          "希望它",
+          "我的机",
+          "望它"
+        ]
+      },
+      {
+        "id": "iot_cleaning",
+        "name": "iot_cleaning",
+        "keywords": [
+          "吸尘",
+          "动扫",
+          "动扫地",
+          "启动扫",
+          "吸尘器"
+        ]
+      },
+      {
+        "id": "iot_coffee",
+        "name": "iot_coffee",
+        "keywords": [
+          "杯咖",
+          "杯咖啡",
+          "一杯咖",
+          "一杯",
+          "咖啡机"
+        ]
+      },
+      {
+        "id": "iot_hue_lightchange",
+        "name": "iot_hue_lightchange",
+        "keywords": [
+          "成蓝",
+          "成蓝色",
+          "蓝色",
+          "绿色",
+          "色改"
+        ]
+      },
+      {
+        "id": "iot_hue_lightdim",
+        "name": "iot_hue_lightdim",
+        "keywords": [
+          "调暗",
+          "灯调暗",
+          "暗灯",
+          "调暗灯",
+          "暗灯光"
+        ]
+      },
+      {
+        "id": "iot_hue_lightoff",
+        "name": "iot_hue_lightoff",
+        "keywords": [
+          "关掉厨",
+          "掉厨",
+          "掉厨房",
+          "关掉卧",
+          "掉卧"
+        ]
+      },
+      {
+        "id": "iot_hue_lighton",
+        "name": "iot_hue_lighton",
+        "keywords": [
+          "很黑",
+          "里很黑",
+          "看不",
+          "看不见",
+          "请开灯"
+        ]
+      },
+      {
+        "id": "iot_hue_lightup",
+        "name": "iot_hue_lightup",
+        "keywords": [
+          "点亮",
+          "亮灯",
+          "加灯",
+          "加灯光",
+          "增加灯"
+        ]
+      },
+      {
+        "id": "iot_wemo_off",
+        "name": "iot_wemo_off",
+        "keywords": [
+          "关闭小",
+          "闭小",
+          "闭小米",
+          "关闭智",
+          "闭智"
+        ]
+      },
+      {
+        "id": "iot_wemo_on",
+        "name": "iot_wemo_on",
+        "keywords": [
+          "启智",
+          "启智能",
+          "开启智",
+          "启小",
+          "启小米"
+        ]
+      },
+      {
+        "id": "lists_createoradd",
+        "name": "lists_createoradd",
+        "keywords": [
+          "新清",
+          "新清单",
+          "到清",
+          "到清单",
+          "个新清"
+        ]
+      },
+      {
+        "id": "lists_query",
+        "name": "lists_query",
+        "keywords": [
+          "单上有",
+          "么清",
+          "么清单",
+          "什么清",
+          "些清"
+        ]
+      },
+      {
+        "id": "lists_remove",
+        "name": "lists_remove",
+        "keywords": [
+          "单删",
+          "单删除",
+          "清单删",
+          "除清",
+          "除清单"
+        ]
+      },
+      {
+        "id": "music_dislikeness",
+        "name": "music_dislikeness",
+        "keywords": [
+          "厌这",
+          "厌这首",
+          "讨厌这",
+          "欢这首",
+          "不想再"
+        ]
+      },
+      {
+        "id": "music_likeness",
+        "name": "music_likeness",
+        "keywords": [
+          "将这首",
+          "是我最",
+          "歌保",
+          "歌保存",
+          "保存我"
+        ]
+      },
+      {
+        "id": "music_query",
+        "name": "music_query",
+        "keywords": [
+          "谁唱",
+          "听什",
+          "听什么",
+          "歌是",
+          "谁唱的"
+        ]
+      },
+      {
+        "id": "music_settings",
+        "name": "music_settings",
+        "keywords": [
+          "复这首",
+          "上一首",
+          "两首",
+          "两首歌",
+          "器中"
+        ]
+      },
+      {
+        "id": "news_query",
+        "name": "news_query",
+        "keywords": [
+          "头条",
+          "头条新",
+          "条新闻",
+          "的头条",
+          "中国新"
+        ]
+      },
+      {
+        "id": "play_audiobook",
+        "name": "play_audiobook",
+        "keywords": [
+          "有声",
+          "声读",
+          "声读物",
+          "有声读",
+          "读物"
+        ]
+      },
+      {
+        "id": "play_game",
+        "name": "play_game",
+        "keywords": [
+          "个游",
+          "个游戏",
+          "和我玩",
+          "王者",
+          "王者荣"
+        ]
+      },
+      {
+        "id": "play_music",
+        "name": "play_music",
+        "keywords": [
+          "放周",
+          "放周杰",
+          "播放周",
+          "放一首",
+          "流行歌"
+        ]
+      },
+      {
+        "id": "play_podcasts",
+        "name": "play_podcasts",
+        "keywords": [
+          "播客",
+          "的播客",
+          "下一集",
+          "一集",
+          "个播客"
+        ]
+      },
+      {
+        "id": "play_radio",
+        "name": "play_radio",
+        "keywords": [
+          "乐之",
+          "乐之声",
+          "音乐之",
+          "调频",
+          "开广"
+        ]
+      },
+      {
+        "id": "qa_currency",
+        "name": "qa_currency",
+        "keywords": [
+          "的汇",
+          "的汇率",
+          "欧元",
+          "元的汇",
+          "汇率"
+        ]
+      },
+      {
+        "id": "qa_definition",
+        "name": "qa_definition",
+        "keywords": [
+          "定义是",
+          "个词",
+          "这个词",
+          "的定",
+          "的定义"
+        ]
+      },
+      {
+        "id": "qa_factoid",
+        "name": "qa_factoid",
+        "keywords": [
+          "几岁",
+          "的山",
+          "高的山",
+          "候出生",
+          "首都"
+        ]
+      },
+      {
+        "id": "qa_maths",
+        "name": "qa_maths",
+        "keywords": [
+          "二等",
+          "二等于",
+          "平方根",
+          "方根",
+          "方根是"
+        ]
+      },
+      {
+        "id": "qa_stock",
+        "name": "qa_stock",
+        "keywords": [
+          "的股",
+          "股票",
+          "股价",
+          "的股价",
+          "的股票"
+        ]
+      },
+      {
+        "id": "recommendation_events",
+        "name": "recommendation_events",
+        "keywords": [
+          "展会",
+          "举办的",
+          "的展会",
+          "办的活",
+          "在举"
+        ]
+      },
+      {
+        "id": "recommendation_locations",
+        "name": "recommendation_locations",
+        "keywords": [
+          "是哪家",
+          "餐馆是",
+          "的餐厅",
+          "近的餐",
+          "近的商"
+        ]
+      },
+      {
+        "id": "recommendation_movies",
+        "name": "recommendation_movies",
+        "keywords": [
+          "上映",
+          "上映的",
+          "映的",
+          "在上映",
+          "影上"
+        ]
+      },
+      {
+        "id": "social_post",
+        "name": "social_post",
+        "keywords": [
+          "投诉",
+          "发微",
+          "发微博",
+          "客服",
+          "用微"
+        ]
+      },
+      {
+        "id": "social_query",
+        "name": "social_query",
+        "keywords": [
+          "么热",
+          "什么热",
+          "热搜",
+          "么热搜",
+          "体上有"
+        ]
+      },
+      {
+        "id": "takeaway_order",
+        "name": "takeaway_order",
+        "keywords": [
+          "点一些",
+          "点一个",
+          "从必胜",
+          "帮我点",
+          "想点一"
+        ]
+      },
+      {
+        "id": "takeaway_query",
+        "name": "takeaway_query",
+        "keywords": [
+          "外送吗",
+          "送吗",
+          "有外",
+          "做外",
+          "厅有外"
+        ]
+      },
+      {
+        "id": "transport_query",
+        "name": "transport_query",
+        "keywords": [
+          "车什",
+          "车什么",
+          "火车什",
+          "车时",
+          "车时间"
+        ]
+      },
+      {
+        "id": "transport_taxi",
+        "name": "transport_taxi",
+        "keywords": [
+          "出租",
+          "出租车",
+          "租车",
+          "叫辆",
+          "辆出"
+        ]
+      },
+      {
+        "id": "transport_ticket",
+        "name": "transport_ticket",
+        "keywords": [
+          "订一张",
+          "订张",
+          "孟买",
+          "我订张",
+          "从孟"
+        ]
+      },
+      {
+        "id": "transport_traffic",
+        "name": "transport_traffic",
+        "keywords": [
+          "的交通",
+          "交通状",
+          "通状",
+          "通状况",
+          "交通情"
+        ]
+      },
+      {
+        "id": "weather_query",
+        "name": "weather_query",
+        "keywords": [
+          "样啊",
+          "下雨",
+          "么样啊",
+          "雨吗",
+          "下雨吗"
+        ]
+      }
+    ],
+    "rules_sha256": "52fe70c113617cb5525319b190507490be871350545253478fe08515944f8bd7",
+    "prompt_sha256": "f8db719eaa66c513d8d1fa3d3f1c81f6444fc3256b9f0ab52c790e9138bca920",
+    "code_sha256": {
+      "annotation.go": "22f10abc72e16415df48f029e37236484da90b9d2eb1f5564838a26711cc5c6f",
+      "label_benchmark.go": "efe3f82f1c34bfe1f10df3016bad53ea86317d38563d0854e36fc2425ce98825",
+      "label_benchmark_protocol.go": "1827008d06621571cd1e71e5c364fbe6f2ca787d4bd8378845e0230b1dab40f7",
+      "label_benchmark_runner_integration_test.go": "da26a78cf4776152fbb7f1d30058a977e7682da5ea1b402d3ec6f67741bb88ab",
+      "label_rules.go": "20ea36189c6613847e7224c3bbbbdcadb01e5a0a51e1f6bab81d2ad4347bc023",
+      "label_suggester.go": "8665276a6ffaf54faddda0db1c6be7070c2c362bda11c40fca8bf059158598fa",
+      "label_suggestions.go": "69afc061edee04ac09722aea58efd4c24ac3c06220610e5157335a506ab65a35"
+    },
+    "model_selection": [
+      {
+        "id": "test:216",
+        "text_sha256": "7aa7096c7497894d00d0daeca5469fedc0a18d840e4da1b41091c4907d647337",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:664",
+        "text_sha256": "20a3d6a676216a80e2bd0653b7d3a53170674b6c28430f129c5dc6708e883b3f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:11",
+        "text_sha256": "8b880f5d154f31c321d34128198d0f906891dde91309bbd4fa96fbb016afe8f3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:848",
+        "text_sha256": "944acfb39d39f2ea11be1f9e4d5339280cd985bf6a8d638fd845315015f542c7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:754",
+        "text_sha256": "3e79e6551ee4ea7a0eae8dbeeb892056fa88a92ec974359b62f496318275a05e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:884",
+        "text_sha256": "bf17f384a9254463ca2cae5a6d0e8f56af5c3c3e81bceaa0d68c3e896489ab25",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:589",
+        "text_sha256": "2a8c0b64048b96a476243106d8921e807467eee18aaa3014f9633bff95cea267",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:651",
+        "text_sha256": "8fcf00e3947764e88b506cf5d8454040f62516c12e36f1b98ae169a289fa051c",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:470",
+        "text_sha256": "7db2e189ecb010659eee6465bfc85b439c131650bdbf9b7e5b38405453581f16",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:652",
+        "text_sha256": "c39600260e20412054480e12f817d1cbf1525bcd02303368ca22a04100685bef",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:184",
+        "text_sha256": "5765aeb1528b2e7a2c383779f9b920692292cb3393b7fac5ba9dcbeb8e5f448f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:713",
+        "text_sha256": "5579a80c1bb0eca2e4d72c80ad2c4752a0c24527e6c35694c64fabd23b1d0cb1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:612",
+        "text_sha256": "45f6f2797a4ed961e1cabe112e36935fa0b8dcb659b9c6f660c4262734d8413d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:830",
+        "text_sha256": "acdfc38abb61743d8a5f2d0774badec7e3fb556345d46f5b382854a1b724c6e5",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1582",
+        "text_sha256": "5fbfa648243c18e40ace543d2ca97a89a8439a07f5934187ede5abad4b8a12b0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1312",
+        "text_sha256": "ef83bb74a47365227935a9a39ddf5faecb7ce49dd3f26f5c9184f89c62d4b807",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1488",
+        "text_sha256": "9e61925f3217564a817f5a337b82f4b9ff900f34f8816a6fa146e6e85d45fff3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1372",
+        "text_sha256": "ccc4bf54557bdad1430d2c3cd19c51b21e23947e3e12613b22be758d8a58e2b4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1397",
+        "text_sha256": "f17cbe00483adbd2001ddb922930054394f7841c9dc6f486150e0aca76656973",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1321",
+        "text_sha256": "93ae007f8240cd228c9f812ea2f643846c58eccd6f9749a7506ba7cf3cd843c3",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1737",
+        "text_sha256": "896859a2663b5c7f106c16934bca72b090c2d637a9b8be7dfe3ab7eb2d8ad551",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1726",
+        "text_sha256": "273d3c47ec79b6ba6fa6bd65fec3fb6edd16570f0c9fdfaa3ad688741ccb8866",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:958",
+        "text_sha256": "45e5f1c9451754f1d65fe3fcc947fbc16a685d30a901e86e2424e713f214311e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:700",
+        "text_sha256": "f80f2e448a547fb7db3ffcbe67032948e5cb3279656a7bcccabbe08794f426f0",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:874",
+        "text_sha256": "e200d5b41f9bd67fb9df9f11d46b5276da67da399c92c9d3afb95c776cfa5d8d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:808",
+        "text_sha256": "b169dfa2ad3b4801bcc18a40df3d041427d5b3fca631bd9d98a269435b8e3c40",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2703",
+        "text_sha256": "40361c30720327aab88b73e6b540f491039fac72f240a2ff22146843caf78811",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2945",
+        "text_sha256": "001355c5402a978f9154cd294aadea245ca2580999948b539f763bf1398fe3b8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2798",
+        "text_sha256": "41719a2055376e2f7cd973e3390253c4c870f8c01671780f6d35d1c782390432",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2813",
+        "text_sha256": "227ae3e1878ebab7aa9379c75c588904a63f421a551fffd8d3486d1ccd748089",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2907",
+        "text_sha256": "b4ddd551e071dd88720f7237ca202dc85a6a69236555cc887b116ee532f734e6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2797",
+        "text_sha256": "d368ef6992dd8e66a5ecfa381fa2cb525ec1d44c7291c65cd114b9ce88287e5a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2846",
+        "text_sha256": "a6d877e5399393db968e4ec3e437fbb451c6512288217fcadd428b6eb1506ece",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2706",
+        "text_sha256": "2fea520843d6a26bc42f5781e9c83128fc680806d9c90b5a5fa29d8337c24a4e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:8",
+        "text_sha256": "edae1434c87ff20a3b9c8d84df4db52c74415852f2624de963edd1bdcdf932a8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:229",
+        "text_sha256": "5f35bad8a963eb11a7ab4eee77622c63aa9020c80a9dae7beca2b265822604c9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:459",
+        "text_sha256": "ab6fbe06dcbbc239bbec4cc4b1ecbfd7ada9c1607023c47ca577591a82c5be1b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1155",
+        "text_sha256": "d4e4ede34bb885e114cb7b2dab002462e44e6bb75d0b028e29c930abda77af52",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1165",
+        "text_sha256": "aa18b6dcd893d426bab738da1343f4a9b81b2f9f472d2b9349172569ff97a9e6",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:495",
+        "text_sha256": "af13d0dbd142de7ada39534fa5065ac79aa22bae1e49482e292345edd55828e7",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:413",
+        "text_sha256": "af13d0dbd142de7ada39534fa5065ac79aa22bae1e49482e292345edd55828e7",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:1042",
+        "text_sha256": "720ec669f15b87b1ac631c4b59db9d8f655a4ebdc0e1a595a4f3d9ad51faf5de",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:869",
+        "text_sha256": "e5b900f730520d388e75c811de04b87aaad79c40553c16ee45627a50a900dc77",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:736",
+        "text_sha256": "d0c312edb9ff2afd471907d6b599c50e38464d9b1a20ad3891044f2704d8e7b1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:631",
+        "text_sha256": "228c28a309440478ec4f7d5498a82752109b997828269eddab0feb982f0d9b7a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1037",
+        "text_sha256": "414ec80345d512693c4b7ef6c021fcd45ede6780d5d448f9b033545da9df2d10",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:387",
+        "text_sha256": "4ed8987bf073bded6e5ff5f2442f889e1b8db97baa9db30f2a5811e3dd572484",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:679",
+        "text_sha256": "f88a18746e9e2954c74fc3fb7f99d86c5fe32294739a448565ce6b4a1278cf8c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:385",
+        "text_sha256": "3e5b0fb7c9c53cef58c124de8b59d870c48a7b0d9fe896e6cdd0a9d01152185c",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:596",
+        "text_sha256": "ebcf984f144494494fed254ef2cfe1e3eb42fabdba670befb1bbc2cb28bb3353",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:3",
+        "text_sha256": "fef3cbdc50295b145e271d0988d4e6e5c59bfc1a0d8b2eac0f3cb0c906356aa4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:613",
+        "text_sha256": "789fb7a01470233adc24c438be5c5781eee35fb21426d7eed66bb666d4174ddd",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:343",
+        "text_sha256": "3b579010a041e11ddc21d2cffb35c72362d920eb97a7ed22308d239f6bf64072",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:645",
+        "text_sha256": "9476e893b47e114664012ae1cb69890b03fe83503e6262c08e12d1604f908ac9",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:452",
+        "text_sha256": "01e4024d440743421311159a3b12d42d251a7d6d0e1e5b7ef9f95d3ffe624710",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:801",
+        "text_sha256": "20df41c7323f9f23690a09986282fd559906d63bd8ae22d77321fde89b237ad1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:75",
+        "text_sha256": "12ced196509559a33b50287c27b5962278d08f5f922b09489ecf8bcf1a3f5033",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1852",
+        "text_sha256": "78beb25d0a09636fccbd7c24c9dbf389ad97960d4e2b178c0fc529f30a09a87f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1890",
+        "text_sha256": "bde37ca44e44b9853b549e00b3385c4a158d7a91dbd4cce917e56c4b7b2f2d26",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1909",
+        "text_sha256": "89839a1951c48ee87046fcafb0f90e45fed3668aebba0346e5ee982da36f346a",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1999",
+        "text_sha256": "615bd0b3bf6f653372a24554682676bda569d81b56e14d2d5b21489e90b00f00",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1929",
+        "text_sha256": "5c41d3b2c10adae862769c026868be0c54ed71fd9530c7d06ff999ba1e9e7802",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1851",
+        "text_sha256": "d753e80ebe55ff8ee030b580a3554f6f7298350211e8241a8e27845b1e9c219e",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:340",
+        "text_sha256": "1d46a590b1f7bebf6388c31ea2719fd4208a41203121ffb3384d72ce7b390dc2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:522",
+        "text_sha256": "46bd5180d03fe69ac53247b106c5d1b877425ad08661ebf5f056653d5b56c427",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:523",
+        "text_sha256": "c9eb65c85d0d7fb5c2d7694c59f50d87ef4a48ea2fea4f9d49353c37946d63be",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:321",
+        "text_sha256": "c27498460c3c227a2917c164f0b89fff42ba6dc85a767cd64c3d8c75d9893831",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:623",
+        "text_sha256": "7894f7fb86d9e8c2c3b9df192ac12f11ba239268868d4b0d92789cd549e8fd7d",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:398",
+        "text_sha256": "9e5a247909c44fb72deb8dad0f53f9f10510d8540267280701a2e410691301b8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1018",
+        "text_sha256": "1e3d9b1d3790eb072759c4e4d8995139cff5cc589a7b76f74e922f1630eed04c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:290",
+        "text_sha256": "eac2487bef2fbec2a9f69c8a13fc97a4436a1af3a948ccf568c8e2e89fcbf122",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:35",
+        "text_sha256": "1f1af0ccb10a8759c664602c43fa95ca4c628a6829b063fc1effa8522074a2d8",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:90",
+        "text_sha256": "db1263f315f2d8af2efdaff282501f7b143bf2d43d7446820a841ea880c4eb8c",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1683",
+        "text_sha256": "77fd6be8946e13f822917c947c9c9b291b4bccb00398414803d576335bf5294f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1707",
+        "text_sha256": "0f0b68f12b27b054c2cf44fda670babb49788f30c49719db3cdc9e0b10b80799",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1795",
+        "text_sha256": "4b8318988321361cda60d414c4159c7962d462aa79e8262c45f16ecb17b527ab",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1797",
+        "text_sha256": "358395079057bb961de610b4d28d2b3841d7efb481b3d261f239edd9290209f1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:982",
+        "text_sha256": "3d1a1d603e24595c1b33dd22425a51eeb2b2b2c18c07cb3b617310f34c155990",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:249",
+        "text_sha256": "554eb0206f20298137654e459ff8c50a6d22e07233f0b8717190e443112c5d0b",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1988",
+        "text_sha256": "a48f972d4ab45a955735810f8e1c5b393a6b202c7a21c960ca363152fc45aa85",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1992",
+        "text_sha256": "f127346f4448d2bc52f7444ddac4b72f7e49336794e198e02833110c6704c8da",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1652",
+        "text_sha256": "c38f4500bdef97295cfb36535df4ebf48e645acd555be3fd49c489fe452a377f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:1613",
+        "text_sha256": "b011a494f48d04aca944908fae67729340fd636ea3e600b858cd79723bfdebcb",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2448",
+        "text_sha256": "21ec8a3540a619af9b26f8ca1072e9f746a19061349112e10124b186432d200f",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:2580",
+        "text_sha256": "89f7aa7faf7ede9ef33ca4757c3447849bda2954f91e85eb5066d0614fb8ac73",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2247",
+        "text_sha256": "65844fbcd8da419f4345303299147457468cd7eb65f0560c2b2387a5ba1e45b7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2577",
+        "text_sha256": "67a4559ec3bf72f3e94905d981006d91fd42b3f5ddc6b5ba940ec3d37fc522c5",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2322",
+        "text_sha256": "1da070f38b0f31234c3cf55e630e5dbb11a47f75c4efcbc8b3c994fddb8821b7",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2405",
+        "text_sha256": "bd9e49d755cf10927d301fd5997d48b9115016b8be0d8734e23314a5237f5493",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2271",
+        "text_sha256": "4fbabb3300836a19405ab11b2cba8d0752ff30355f95fa37f56588c739bcc27f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2273",
+        "text_sha256": "d8cb74d630344475478cc6c80a11726b4b6f967fc9578faea85ca50d85f854a9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2443",
+        "text_sha256": "ad12c017b772d9131fa4e53a4ac25ac5806b228d66ad17fb19c3eb40b88c3a48",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:501",
+        "text_sha256": "daa35a1716a7e1eb55ec27b083be73fddb320bbb55ea4489ed26770071c920d1",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2029",
+        "text_sha256": "ea578511392ac743f8500c5de3dd26b61fa3173c254bb35baf60a6747fab22f2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2030",
+        "text_sha256": "8a85e45a53eb6c4fa0adb4527fe59c9446820dddacca0111602503f4ae7d6be4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2046",
+        "text_sha256": "a388c43ddb38f121135c4a9f3e2db409157f207b32c1f0799d1ee8599617dd49",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2101",
+        "text_sha256": "11ae70d0a093db33d790670214899abcf1d76428c83dc9a095be52f9ec8d6592",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2075",
+        "text_sha256": "eabb5611481bc20eb4f33825f9d01b8a696feb3ce6067a05e6000f35d04024c2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2055",
+        "text_sha256": "6ae060581e8d958511eaaca363ab7af74d456e24b3cc9dec01b9e2d1b9e6fb28",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2655",
+        "text_sha256": "6e24675fba9aa88bc3efa507cba66de3dfdf53e8bc2e11f7efe612d5896a1ceb",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2696",
+        "text_sha256": "7bfae72f23c7bd3f3552baed5e79972f3a49f75c17909879bf6e742ed45a1e1f",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2630",
+        "text_sha256": "5d23654b47f1b179a249b31bbd9ace29c9c90fb1fba8273264650a9c138cd836",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2626",
+        "text_sha256": "2f65d53a669861751572d95b2a02ecd80d022c8f57941099d17f99622f0a7bed",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:516",
+        "text_sha256": "bc722b3a3e22188431d2465b464deaa3d9d03e02da8aa2730f5313f08cb91c41",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:395",
+        "text_sha256": "a458916ad93e2dea26494d03d563754a2f71e26a3e7adbae99ad9d9bebeb3f68",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:777",
+        "text_sha256": "e913b2090503950e3d17dd72117b3bb0b3ec4b597b7555cd842e3eaea6cdb9ba",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:965",
+        "text_sha256": "734f0cff332b5593034321be1cd4cd51dcc125a52d9361d616810de3f40df1b4",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2129",
+        "text_sha256": "802f65d8874bf8c516d95eebc2ffd5b718ff32e606791bbbf03d37449824d537",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2162",
+        "text_sha256": "7affa4f12eda383aef6409d9dbf432326e3c6e04d2212e0d00a8fa2162145421",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2121",
+        "text_sha256": "a3f6a08dda75218cc6acb03c4f700e00f8b20469bb989593f97a872b46b9ab17",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2176",
+        "text_sha256": "e8388e972991b709c66397d40f0241122c6419d99062d377a1bf416c3405b373",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2153",
+        "text_sha256": "15ff32fc12835ece7d78d3d70f75c160b8cb4f1ef233b37d29cb91f770294811",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2198",
+        "text_sha256": "aad9cd13c8d9ad8950b546be2349c0343246dc3cc1246ec3d50969465c0ac109",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2163",
+        "text_sha256": "f391cf86eb25b67407b695dadbb1a3fdd14a9ae89c95b7a745a596db59ea67e9",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:2136",
+        "text_sha256": "a070d501079ca5d97b36da7b889d19360cd87d2c6c02ba73df1c21f03e53b5d2",
+        "train_text_overlap": false
+      },
+      {
+        "id": "test:742",
+        "text_sha256": "a031c8fb1ba1842ceb1c81955e3feebe72e2d6c1f32de667b4b2c14ab9b63c3b",
+        "train_text_overlap": true
+      },
+      {
+        "id": "test:924",
+        "text_sha256": "abd0bb027e859bc76fab2086be46300204dfa8f48703744c98225606aa0fc3fa",
+        "train_text_overlap": false
+      }
+    ],
+    "seed": "cognida-hf-label-v1-20261016",
+    "model": "deepseek-v4-flash",
+    "provider": "deepseek",
+    "model_call_limit": 117,
+    "parallel": 2,
+    "train_rows": 11514,
+    "official_test_rows": 2974,
+    "train_test_overlap_rows": 223,
+    "notes": [
+      "Official full held-out rule denominator is unchanged; exact-text overlap and unseen-text metrics are separate.",
+      "Classification model sample: min(2, official test class size) hash-ranked examples per declared class. NER: 64 hash-ranked unseen texts. No difficulty/length filtering. MASSIVE cooking_query has zero test rows, general_greet one: 117 selected, no train substitution or budget reallocation. This protocol correction preceded all model calls.",
+      "One model call per selected sample, concurrency two, 20 second production deadline, 4096 tokens, no retry or repair.",
+      "Gold labels never enter model requests; taxonomy names are public schema. Training-only literal rules do not enter model prompts.",
+      "NER exact coarse spans use the downloader's space-joined token reconstruction. Uncertain valid spans are scored; coverage is reported separately.",
+      "Manual gold review/publication is an oracle fixture, never automatic annotation quality. No billing estimates; missing cost remains null."
+    ]
+  }
+}

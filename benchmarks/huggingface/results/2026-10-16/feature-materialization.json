@@ -1,0 +1,115 @@
+{
+  "original_artifact": "features/final/feature-benchmark.json",
+  "original_sha256": "fd20f15c34661dc54f7edb11a40b601ff96d9b4bd7cd9ce245a3c8c4907b3c06",
+  "data": {
+    "dataset": {
+      "dataset_id": "codesignal/wine-quality",
+      "revision": "a90690dd91e947252ac664b495fb043ca545da23",
+      "license": "cc-by-4.0",
+      "files": [
+        {
+          "split": "red",
+          "path": "$RUN/data/wine_quality/raw/winequality-red.csv",
+          "sha256": "8f5623588cc693aebf976bba4742fbc37bd7dac28f4a77c52e2db71ae56b5f85",
+          "format": "csv",
+          "delimiter": ";",
+          "rows": 1599
+        },
+        {
+          "split": "white",
+          "path": "$RUN/data/wine_quality/raw/winequality-white.csv",
+          "sha256": "8326cb4a472d06de426e0d5f791852f131fc0d7e90779c6d71644b3a05a5ede1",
+          "format": "csv",
+          "delimiter": ";",
+          "rows": 4898
+        }
+      ]
+    },
+    "limits": {
+      "cells": 100000,
+      "direct_materialize_rows": 1000,
+      "partition_rows": 1000,
+      "query_entity_feature_pairs": 1000,
+      "snapshot_rows": 10000
+    },
+    "oracle": "independent rational arithmetic; all persisted numeric values checked via value_exact",
+    "passed": true,
+    "production_sla": false,
+    "protocol": "wine-feature-oracle-v1",
+    "stages": [
+      {
+        "computed_rows": 1000,
+        "displayed_rows": 100,
+        "elapsed_ms": 21.915,
+        "name": "preview"
+      },
+      {
+        "as_of_no_future_leak": true,
+        "elapsed_ms": 842.338,
+        "exact_values_checked": 1000,
+        "idempotent_receipt": true,
+        "name": "synchronous_materialization_and_http_query",
+        "receipt_id": "8a5f5391-95db-5fcd-8a3a-43e504a50724",
+        "rows": 1000
+      },
+      {
+        "elapsed_ms": 1329.55,
+        "exact_values_checked": 5000,
+        "job_id": "b20c1e42-3431-451c-94f5-dcbc763c7c5c",
+        "name": "full",
+        "partitions": 5,
+        "rows": 5000
+      },
+      {
+        "exact_values_checked": 6497,
+        "execution_ms": 1070.088,
+        "http_query_all_ms": 9221.517,
+        "job_id": "9601299d-f0a1-4eb1-beb5-e8d7080d2c3b",
+        "name": "incremental",
+        "new_rows": 1497,
+        "partitions": 7,
+        "snapshot_rows": 6497
+      },
+      {
+        "before_during_after_history_verified": true,
+        "elapsed_ms": 653.714,
+        "job_id": "7b6a97cc-24d3-4e92-b991-13720d960df5",
+        "name": "backfill_and_withdraw",
+        "rows": 32,
+        "synthetic_correction": true,
+        "watermark_preserved": true
+      },
+      {
+        "10001_rejected": true,
+        "elapsed_ms": 3874.543,
+        "exact_values_checked": 10000,
+        "job_id": "de6581c0-573e-4eaa-aef4-5c151e730f3c",
+        "name": "10k_boundary",
+        "original_distinct_rows": 6497,
+        "partitions": 10,
+        "preview_rejected": true,
+        "projected_columns": [
+          "fixed_acidity",
+          "volatile_acidity",
+          "density",
+          "alcohol",
+          "benchmark_row_id",
+          "benchmark_entity",
+          "benchmark_event_time"
+        ],
+        "rows": 10000,
+        "synthetic_replication": true
+      },
+      {
+        "committed_receipt_preserved": true,
+        "derived_output_read_denied": true,
+        "fixture_authorizer": true,
+        "job_read_http": 403,
+        "materialize_http": 403,
+        "name": "source_authorization_revoked",
+        "value_query_http": 403
+      }
+    ],
+    "synthetic_metadata": "benchmark_row_id, benchmark_entity and minute event timestamps are test harness fields, not natural wine entities/events"
+  }
+}

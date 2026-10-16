@@ -1,0 +1,87 @@
+{
+  "original_artifact": "labels/train-diagnostic-v2/offline-analysis.json",
+  "original_sha256": "c8a27188688c8384809eab937dfe781d476260f2794339dada4a246c056e5ded",
+  "data": {
+    "kind": "v2_wire_offline_analysis_not_quality_or_new_calls",
+    "actual_new_calls": 0,
+    "valid_contract": 11,
+    "rejected": 1,
+    "note": "Initial diagnostic code checked legacy raw offsets. Omitted offsets in v2 are intentionally grounded by production; production error_code is authoritative. No raw text or label choice is included here.",
+    "records": [
+      {
+        "index": 0,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 1,
+        "production_error_code": "contract_error",
+        "omitted_evidence_positions": 1,
+        "issues": [
+          "omitted_offset_literal_absent_or_ambiguous"
+        ]
+      },
+      {
+        "index": 2,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 3,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 4,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 5,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 6,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 7,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 8,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 9,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 10,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      },
+      {
+        "index": 11,
+        "production_error_code": "",
+        "omitted_evidence_positions": 1,
+        "issues": []
+      }
+    ]
+  }
+}

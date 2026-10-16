@@ -1,0 +1,68 @@
+{
+  "original_artifact": "features/final/feature-window-benchmark.json",
+  "original_sha256": "da8d1e0ff6011ece132135258d5479130d285f6482e68a95b84f6aceef3d2a15",
+  "data": {
+    "boundary": "(t-600 seconds,t]",
+    "dataset": {
+      "dataset_id": "codesignal/wine-quality",
+      "revision": "a90690dd91e947252ac664b495fb043ca545da23",
+      "license": "cc-by-4.0",
+      "files": [
+        {
+          "split": "red",
+          "path": "$RUN/data/wine_quality/raw/winequality-red.csv",
+          "sha256": "8f5623588cc693aebf976bba4742fbc37bd7dac28f4a77c52e2db71ae56b5f85",
+          "format": "csv",
+          "delimiter": ";",
+          "rows": 1599
+        },
+        {
+          "split": "white",
+          "path": "$RUN/data/wine_quality/raw/winequality-white.csv",
+          "sha256": "8326cb4a472d06de426e0d5f791852f131fc0d7e90779c6d71644b3a05a5ede1",
+          "format": "csv",
+          "delimiter": ";",
+          "rows": 4898
+        }
+      ]
+    },
+    "passed": true,
+    "production_sla": false,
+    "protocol": "wine-window-oracle-v1",
+    "results": [
+      {
+        "aggregate": "sum",
+        "elapsed_ms": 207.654,
+        "exact_values_checked": 239,
+        "receipt_id": "8aa1ccde-2654-542d-a04a-d7703d8d03a7"
+      },
+      {
+        "aggregate": "mean",
+        "elapsed_ms": 156.095,
+        "exact_values_checked": 239,
+        "receipt_id": "8018c080-819a-5dd5-87e8-5644e17d9363"
+      },
+      {
+        "aggregate": "min",
+        "elapsed_ms": 136.275,
+        "exact_values_checked": 239,
+        "receipt_id": "3de7a178-5b95-5785-b0d8-e2931dd076ca"
+      },
+      {
+        "aggregate": "max",
+        "elapsed_ms": 138.015,
+        "exact_values_checked": 239,
+        "receipt_id": "4f0a7bee-8440-52d4-8c82-76896a673c80"
+      },
+      {
+        "aggregate": "count",
+        "elapsed_ms": 126.572,
+        "exact_values_checked": 239,
+        "receipt_id": "07532651-6ab9-5029-a6dc-baa8ac5d3857"
+      }
+    ],
+    "rows": 240,
+    "synthetic_metadata": true,
+    "window_seconds": 600
+  }
+}

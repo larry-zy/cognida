@@ -1,0 +1,357 @@
+{
+  "original_artifact": "labels/few_nerd/v2/rules-report.json",
+  "original_sha256": "aff49ce0c1c6d49955b76e855e2c168cb51d953f06c574914a3164dfa5d34868",
+  "data": {
+    "protocol_sha256": "0d4583df47149f1aadd289f93dd6998929b17b0b2331a49d6dff4bbf015d9559",
+    "mode": "rules",
+    "actual_model_calls": 0,
+    "full": {
+      "kind": "named_entity",
+      "samples": 37648,
+      "covered": 10257,
+      "abstained": 27391,
+      "ambiguous": 0,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.2724447513812155,
+      "abstention_rate": 0.7275552486187845,
+      "contract_error_rate": 0,
+      "accuracy": null,
+      "micro_precision": 0.36384070082416,
+      "micro_recall": 0.06518865781375849,
+      "micro_f1": 0.11056719763908471,
+      "macro_precision": 0.30926536677005795,
+      "macro_recall": 0.047782450029809756,
+      "macro_f1": 0.0804703825304203,
+      "macro_f1_supported_only": 0.0804703825304203,
+      "labels_with_gold_support": 8,
+      "latency_mean_ms": 0.6165661649755623,
+      "latency_p50_ms": 0.517958,
+      "latency_p95_ms": 1.356666,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "art",
+          "support": 4064,
+          "tp": 48,
+          "fp": 243,
+          "fn": 4016,
+          "precision": 0.16494845360824742,
+          "recall": 0.011811023622047244,
+          "f1": 0.022043628013777267
+        },
+        {
+          "label": "building",
+          "support": 5007,
+          "tp": 108,
+          "fp": 154,
+          "fn": 4899,
+          "precision": 0.4122137404580153,
+          "recall": 0.02156980227681246,
+          "f1": 0.04099449610931866
+        },
+        {
+          "label": "event",
+          "support": 4104,
+          "tp": 238,
+          "fp": 348,
+          "fn": 3866,
+          "precision": 0.4061433447098976,
+          "recall": 0.05799220272904483,
+          "f1": 0.10149253731343283
+        },
+        {
+          "label": "location",
+          "support": 27235,
+          "tp": 4011,
+          "fp": 2996,
+          "fn": 23224,
+          "precision": 0.5724275724275725,
+          "recall": 0.14727372865797686,
+          "f1": 0.2342736989661819
+        },
+        {
+          "label": "organization",
+          "support": 19078,
+          "tp": 656,
+          "fp": 1360,
+          "fn": 18422,
+          "precision": 0.3253968253968254,
+          "recall": 0.03438515567669567,
+          "f1": 0.06219778135962833
+        },
+        {
+          "label": "other",
+          "support": 9558,
+          "tp": 612,
+          "fp": 1521,
+          "fn": 8946,
+          "precision": 0.2869198312236287,
+          "recall": 0.064030131826742,
+          "f1": 0.10469591993841416
+        },
+        {
+          "label": "person",
+          "support": 21565,
+          "tp": 504,
+          "fp": 3836,
+          "fn": 21061,
+          "precision": 0.11612903225806452,
+          "recall": 0.023371203338743336,
+          "f1": 0.038911407064273304
+        },
+        {
+          "label": "product",
+          "support": 6231,
+          "tp": 136,
+          "fp": 580,
+          "fn": 6095,
+          "precision": 0.18994413407821228,
+          "recall": 0.021826352110415663,
+          "f1": 0.03915359147833597
+        }
+      ],
+      "retained_outcome_count": 37648,
+      "first_contract_failures": [],
+      "first_classification_errors": []
+    },
+    "unseen_text": {
+      "kind": "named_entity",
+      "samples": 34049,
+      "covered": 9217,
+      "abstained": 24832,
+      "ambiguous": 0,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.27069811154512613,
+      "abstention_rate": 0.7293018884548739,
+      "contract_error_rate": 0,
+      "accuracy": null,
+      "micro_precision": 0.3657679529772553,
+      "micro_recall": 0.06521392445436734,
+      "micro_f1": 0.11069218870843,
+      "macro_precision": 0.3032094817595369,
+      "macro_recall": 0.046755930799445886,
+      "macro_f1": 0.0788155132326414,
+      "macro_f1_supported_only": 0.0788155132326414,
+      "labels_with_gold_support": 8,
+      "latency_mean_ms": 0.6186023514640632,
+      "latency_p50_ms": 0.518958,
+      "latency_p95_ms": 1.359833,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "art",
+          "support": 3424,
+          "tp": 34,
+          "fp": 216,
+          "fn": 3390,
+          "precision": 0.136,
+          "recall": 0.009929906542056074,
+          "f1": 0.018508437670114317
+        },
+        {
+          "label": "building",
+          "support": 4721,
+          "tp": 98,
+          "fp": 145,
+          "fn": 4623,
+          "precision": 0.40329218106995884,
+          "recall": 0.020758313916543106,
+          "f1": 0.0394842868654311
+        },
+        {
+          "label": "event",
+          "support": 3765,
+          "tp": 214,
+          "fp": 317,
+          "fn": 3551,
+          "precision": 0.4030131826741996,
+          "recall": 0.056839309428950865,
+          "f1": 0.09962756052141528
+        },
+        {
+          "label": "location",
+          "support": 25264,
+          "tp": 3671,
+          "fp": 2756,
+          "fn": 21593,
+          "precision": 0.5711840672164307,
+          "recall": 0.14530557314756176,
+          "f1": 0.2316746079328516
+        },
+        {
+          "label": "organization",
+          "support": 17506,
+          "tp": 578,
+          "fp": 1243,
+          "fn": 16928,
+          "precision": 0.3174080175727622,
+          "recall": 0.03301725122815035,
+          "f1": 0.059812697262896466
+        },
+        {
+          "label": "other",
+          "support": 9204,
+          "tp": 585,
+          "fp": 1412,
+          "fn": 8619,
+          "precision": 0.2929394091136705,
+          "recall": 0.0635593220338983,
+          "f1": 0.10445495937862691
+        },
+        {
+          "label": "person",
+          "support": 17910,
+          "tp": 417,
+          "fp": 3290,
+          "fn": 17493,
+          "precision": 0.11248988400323712,
+          "recall": 0.023283082077051927,
+          "f1": 0.03858074663459314
+        },
+        {
+          "label": "product",
+          "support": 5994,
+          "tp": 128,
+          "fp": 548,
+          "fn": 5866,
+          "precision": 0.1893491124260355,
+          "recall": 0.02135468802135469,
+          "f1": 0.038380809595202396
+        }
+      ],
+      "retained_outcome_count": 34049,
+      "first_contract_failures": [],
+      "first_classification_errors": []
+    },
+    "train_overlap": {
+      "kind": "named_entity",
+      "samples": 3599,
+      "covered": 1040,
+      "abstained": 2559,
+      "ambiguous": 0,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.2889691580994721,
+      "abstention_rate": 0.7110308419005279,
+      "contract_error_rate": 0,
+      "accuracy": null,
+      "micro_precision": 0.34608593290170686,
+      "micro_recall": 0.06494367130550033,
+      "micro_f1": 0.10936482841997582,
+      "macro_precision": 0.353289988385217,
+      "macro_recall": 0.06044819430282466,
+      "macro_f1": 0.09898859024071528,
+      "macro_f1_supported_only": 0.09898859024071528,
+      "labels_with_gold_support": 8,
+      "latency_mean_ms": 0.5973024490136143,
+      "latency_p50_ms": 0.50775,
+      "latency_p95_ms": 1.333333,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "art",
+          "support": 640,
+          "tp": 14,
+          "fp": 27,
+          "fn": 626,
+          "precision": 0.34146341463414637,
+          "recall": 0.021875,
+          "f1": 0.041116005873715125
+        },
+        {
+          "label": "building",
+          "support": 286,
+          "tp": 10,
+          "fp": 9,
+          "fn": 276,
+          "precision": 0.5263157894736842,
+          "recall": 0.03496503496503497,
+          "f1": 0.06557377049180328
+        },
+        {
+          "label": "event",
+          "support": 339,
+          "tp": 24,
+          "fp": 31,
+          "fn": 315,
+          "precision": 0.43636363636363634,
+          "recall": 0.07079646017699115,
+          "f1": 0.1218274111675127
+        },
+        {
+          "label": "location",
+          "support": 1971,
+          "tp": 340,
+          "fp": 240,
+          "fn": 1631,
+          "precision": 0.5862068965517241,
+          "recall": 0.17250126839167934,
+          "f1": 0.26656213249705996
+        },
+        {
+          "label": "organization",
+          "support": 1572,
+          "tp": 78,
+          "fp": 117,
+          "fn": 1494,
+          "precision": 0.4,
+          "recall": 0.04961832061068702,
+          "f1": 0.08828522920203735
+        },
+        {
+          "label": "other",
+          "support": 354,
+          "tp": 27,
+          "fp": 109,
+          "fn": 327,
+          "precision": 0.19852941176470587,
+          "recall": 0.07627118644067797,
+          "f1": 0.11020408163265306
+        },
+        {
+          "label": "person",
+          "support": 3655,
+          "tp": 87,
+          "fp": 546,
+          "fn": 3568,
+          "precision": 0.13744075829383887,
+          "recall": 0.023803009575923392,
+          "f1": 0.04057835820895522
+        },
+        {
+          "label": "product",
+          "support": 237,
+          "tp": 8,
+          "fp": 32,
+          "fn": 229,
+          "precision": 0.2,
+          "recall": 0.03375527426160337,
+          "f1": 0.05776173285198556
+        }
+      ],
+      "retained_outcome_count": 3599,
+      "first_contract_failures": [],
+      "first_classification_errors": []
+    }
+  }
+}

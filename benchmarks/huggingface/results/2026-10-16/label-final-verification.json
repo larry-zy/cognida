@@ -1,0 +1,100 @@
+{
+  "original_artifact": "labels/final-verification.json",
+  "original_sha256": "cad62896ace4a58ac95e98b690bc83d25539f4b3150bc8677cc074a2e7e63bbb",
+  "data": {
+    "kind": "postrun_readonly_verification",
+    "no_additional_model_calls": true,
+    "datasets": {
+      "banking77": {
+        "same_selection_and_rules": true,
+        "v3_code_fingerprints_match": true,
+        "runs": {
+          "v2": {
+            "journal_rows": 154,
+            "unique_ids": 154,
+            "actual_model_calls": 154,
+            "journal_sha256": "390a37c8b5f6e12af5700d776ef75bd88e1b4589cc0aebcd71225b076f652009",
+            "protocol_sha256": "8cbcb66df5b95ffca4341e5f3c1a88ef9f33991880d21d97124798fcd9f8de30"
+          },
+          "v3": {
+            "journal_rows": 154,
+            "unique_ids": 154,
+            "actual_model_calls": 154,
+            "journal_sha256": "1840f8d9b8d6a788cad948a5cf99a6289d2460fa73f722558eb7e3a3bc5471fe",
+            "protocol_sha256": "5add8fdfd79317eb2c7640f57cb65e8a566b03eaaf5693e849df05dcaffba37f"
+          }
+        },
+        "paired_rules_sha256": "c74687d5899c13316e50db02dab69c571180c7640dbd06961a41febbc31f3d57"
+      },
+      "massive_zh": {
+        "same_selection_and_rules": true,
+        "v3_code_fingerprints_match": true,
+        "runs": {
+          "v2": {
+            "journal_rows": 117,
+            "unique_ids": 117,
+            "actual_model_calls": 117,
+            "journal_sha256": "dbf6befdfe62d5b5345cf5eec0ec97dabf8e007acab4de88bcb770cd6cc1dcdf",
+            "protocol_sha256": "7bfcea7693291454faea551cec242eee98482fff4c0831a8805304f05cbfab88"
+          },
+          "v3": {
+            "journal_rows": 117,
+            "unique_ids": 117,
+            "actual_model_calls": 117,
+            "journal_sha256": "ab9f2a35ef9d52f69c2d17265bb22e8320a5776be0f4fb60f6e5a905ccea9ca3",
+            "protocol_sha256": "975c36a9dd665ac5d0e17a5b5e73551dd94806eff3cce38016d221b7e5a6bd66"
+          }
+        },
+        "paired_rules_sha256": "ac8e470b3e41808e643b4559770ec1e27efb836f9673f8f6f63ea2d87cdde0ea"
+      },
+      "few_nerd": {
+        "same_selection_and_rules": true,
+        "v3_code_fingerprints_match": true,
+        "runs": {
+          "v2": {
+            "journal_rows": 64,
+            "unique_ids": 64,
+            "actual_model_calls": 64,
+            "journal_sha256": "0dbf50248a3c3363195bbc1241a8b1c431a56174d0589751dfc9fe859dfa149b",
+            "protocol_sha256": "0d4583df47149f1aadd289f93dd6998929b17b0b2331a49d6dff4bbf015d9559"
+          },
+          "v3": {
+            "journal_rows": 64,
+            "unique_ids": 64,
+            "actual_model_calls": 64,
+            "journal_sha256": "1ec9147ad2f03319243d5826f444c932861c6f7fbb7c53010d1b13865ce8f609",
+            "protocol_sha256": "b73afa1be8800e7d846df6a4c61c1d5390148e89bdd93c95877858471cb8f907"
+          }
+        },
+        "paired_rules_sha256": "4d67d95ed32f16141ab864ca7359499604e0cb89dcfd77c5f85a760440745854"
+      }
+    },
+    "logs": {
+      "governance-core-final.log": {
+        "sha256": "987df29437eb0966218443e8bfc9d647492233a7e1075cc46382c59339b32be5",
+        "final_line": "ok  \tcognida/internal/service/governance\t2.246s"
+      },
+      "literal-http-final.log": {
+        "sha256": "f8d1d76e8cda82533e781d75e0eef75995c62f36df73aebab9ca0804a9780420",
+        "final_line": "ok  \tcognida/internal/service/governance\t2.668s"
+      },
+      "literal-offline-replay-final.log": {
+        "sha256": "57d7eaef7ae12eb624b89d35e5d6916acc76314e265ed6805b6cfc62de909a61",
+        "final_line": "ok  \tcognida/internal/service/governance\t1.849s"
+      }
+    },
+    "actual_model_calls_including_training_diagnostics": 694,
+    "observed_usage": {
+      "prompt_tokens": 965049,
+      "completion_tokens": 69201,
+      "total_tokens": 1034250,
+      "cost_usd": null
+    },
+    "resource_status": {
+      "all_model_and_fixture_test_processes_exited": true,
+      "fixture_cleanup_completed_by_test_cleanup": true,
+      "remaining_owned_persistent_services": 0,
+      "database_released_to_parent": true
+    }
+  }
+}

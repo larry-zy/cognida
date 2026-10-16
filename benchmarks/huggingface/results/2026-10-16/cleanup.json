@@ -1,0 +1,35 @@
+{
+  "original_artifact": "cleanup.json",
+  "original_sha256": "bfeacdf01f08449c99510b8f97c0fb38d565ab673b4bb5093a4296378f285a8f",
+  "data": {
+    "task": "hf-quality-20261016",
+    "completed_at": "2026-10-16T08:05:41.378614+00:00",
+    "removed_containers": [
+      "cognida-hf-mysql",
+      "cognida-hf-redis"
+    ],
+    "removed_volume_count": 2,
+    "original_containers_checked": 19,
+    "original_container_states_unchanged": false,
+    "owned_ports_closed": [
+      62501,
+      62502,
+      62510
+    ],
+    "temporary_credentials_absent": true,
+    "python_cleanup_sha256": "314f61bc7b92d1717c27ff84f3bf9e38cbcbe1d2167dc47800275726f9af3148",
+    "retained": "Pinned public datasets, private local diagnostic responses and sanitized evidence; no running task services or credentials.",
+    "unchanged_original_containers": 17,
+    "non_owned_inventory_changes": [
+      {
+        "id": "45ae07da65db",
+        "change": "no longer present"
+      },
+      {
+        "id": "ff45716a25af",
+        "change": "no longer present"
+      }
+    ],
+    "cleanup_scope": "Removal commands targeted only the two IDs with the verified cognida.task label. Non-owned inventory differences were recorded and not changed by this cleanup."
+  }
+}

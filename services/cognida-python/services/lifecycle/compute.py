@@ -179,10 +179,20 @@ def clean(request: CleanRequest) -> dict:
         config = {"columns": selected, "subset": selected} if selected is not None else {}
         cleaner = cls()
         if name == "dedup":
+            # Pandas considers True, 1 and 1.0 equal in object columns. Lifecycle
+            # inputs have an exact JSON scalar contract (also used by diagnosis):
+            # compare typed encodings, then project original untouched values.
+            identity = frame[selected or list(frame.columns)].apply(
+                lambda values: values.map(
+                    lambda value: json.dumps(json_safe(value), ensure_ascii=False, sort_keys=True)
+                )
+            )
             # Reversing twice lets the existing keep-first engine preserve the last occurrence.
-            data = frame.iloc[::-1] if request.options.keep == "last" else frame
+            data = identity.iloc[::-1] if request.options.keep == "last" else identity
             result = cleaner.clean(data, config)
-            frame = result.cleaned_data
+            if result.cleaned_data is None:
+                raise RuntimeError("cleaner did not produce transformed data")
+            frame = frame.loc[result.cleaned_data.index]
             if request.options.keep == "last":
                 frame = frame.iloc[::-1]
         elif selected and name in {"trim", "normalize_ws", "text_cleaner"}:

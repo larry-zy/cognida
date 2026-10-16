@@ -1,0 +1,110 @@
+{
+  "original_artifact": "labels/train-diagnostic-v1/offline-analysis.json",
+  "original_sha256": "ae035a4fb84919d952729136050412c1141c84c995685903bd6effe29ccfd1fc",
+  "data": {
+    "kind": "offline_contract_analysis_not_quality_or_new_calls",
+    "actual_new_calls": 0,
+    "issues_can_overlap": true,
+    "counts": {
+      "explicit_offset_literal_mismatch": 3,
+      "classification_forbidden_tagging_branch": 7,
+      "explicit_offset_bounds": 3
+    },
+    "records": [
+      {
+        "index": 0,
+        "issues": [
+          "classification_forbidden_tagging_branch",
+          "explicit_offset_literal_mismatch"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 1,
+        "issues": [
+          "explicit_offset_literal_mismatch"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 2,
+        "issues": [
+          "classification_forbidden_tagging_branch",
+          "explicit_offset_literal_mismatch"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 3,
+        "issues": [
+          "classification_forbidden_tagging_branch",
+          "explicit_offset_bounds"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 4,
+        "issues": [
+          "classification_forbidden_tagging_branch",
+          "explicit_offset_bounds"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 5,
+        "issues": [
+          "classification_forbidden_tagging_branch",
+          "explicit_offset_bounds"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 6,
+        "issues": [
+          "classification_forbidden_tagging_branch"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 7,
+        "issues": [],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": false
+      },
+      {
+        "index": 8,
+        "issues": [],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": false
+      },
+      {
+        "index": 9,
+        "issues": [],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": false
+      },
+      {
+        "index": 10,
+        "issues": [
+          "classification_forbidden_tagging_branch"
+        ],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": true
+      },
+      {
+        "index": 11,
+        "issues": [],
+        "all_existing_matches_exact_and_unique": true,
+        "original_error_still_rejected_by_v2": false
+      }
+    ],
+    "conclusion": "Six English outputs declare wrong explicit Unicode offsets; seven outputs mix nonempty tagging branches into classification. Existing invalid outputs remain rejected by the new decoder; no retrospective metric change."
+  }
+}

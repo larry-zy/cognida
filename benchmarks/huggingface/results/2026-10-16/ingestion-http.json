@@ -1,0 +1,90 @@
+{
+  "original_artifact": "evidence/ingestion/http.json",
+  "original_sha256": "142f5916569138db51a402ea952f91631d86a5accb63dc1c02e7f7c4d2091f90",
+  "data": {
+    "authorization": "injected test principal; production login/RBAC not evaluated",
+    "public_data": [
+      {
+        "clean_gate": {
+          "status": "passed",
+          "reason": "quality threshold met",
+          "evidence_refs": [
+            {
+              "asset_id": "40a14625-8600-5ec7-a058-1e7fb6a82fd3",
+              "version": 3
+            }
+          ],
+          "score": 100,
+          "threshold": 70
+        },
+        "cross_tenant_hidden": true,
+        "dataset": "banking77",
+        "duration_ms": 140,
+        "idempotency": true,
+        "input_rows": 256,
+        "output_rows": 256,
+        "quality_gate": {
+          "status": "passed",
+          "reason": "quality threshold met",
+          "evidence_refs": [
+            {
+              "asset_id": "968279ac-e6cf-5206-b3bc-6a6c251679e0",
+              "version": 2
+            }
+          ],
+          "score": 100,
+          "threshold": 70
+        },
+        "revision": "18072d2685ea682290f7b8924d94c62acc19c0b2",
+        "sampling": "first_256_official_test_rows",
+        "source_immutable": true,
+        "source_sha256": "3115a96029a147cf87e72161840cd76bab0a589e87843cac44eba2cbfcebe220"
+      },
+      {
+        "clean_gate": {
+          "status": "passed",
+          "reason": "quality threshold met",
+          "evidence_refs": [
+            {
+              "asset_id": "e06790a8-5fb7-5df9-a9cd-b025d4934495",
+              "version": 3
+            }
+          ],
+          "score": 100,
+          "threshold": 70
+        },
+        "cross_tenant_hidden": true,
+        "dataset": "massive_zh",
+        "duration_ms": 92,
+        "idempotency": true,
+        "input_rows": 256,
+        "output_rows": 256,
+        "quality_gate": {
+          "status": "passed",
+          "reason": "quality threshold met",
+          "evidence_refs": [
+            {
+              "asset_id": "b4dc795d-d620-5b2c-8e03-44101da520a4",
+              "version": 2
+            }
+          ],
+          "score": 100,
+          "threshold": 70
+        },
+        "revision": "940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+        "sampling": "first_256_official_test_rows",
+        "source_immutable": true,
+        "source_sha256": "3bab3af9affccf5f87304602613e9be9fbf81b9c535b86097157122b02ee2a50"
+      }
+    ],
+    "scalar_control": {
+      "decimal_contract": "string plus column_types",
+      "output_rows": 8,
+      "rows": 8,
+      "type_fidelity": true
+    },
+    "schema_version": 1,
+    "scope": "ingestion, quality, cleaning; no publication/search claims",
+    "transport": "Go TCP HTTP -> MySQL + namespaced Redis jobs -> authenticated Python HTTP -> immutable objects"
+  }
+}

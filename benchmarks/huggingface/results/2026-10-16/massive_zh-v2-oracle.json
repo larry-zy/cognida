@@ -1,0 +1,20 @@
+{
+  "original_artifact": "labels/massive_zh/v2/oracle-publication.json",
+  "original_sha256": "c49af3322a594a5b772edcf31d9cc3bfc1ebf644917946089f63a5fb37bc3cca",
+  "data": {
+    "dataset": "mteb/amazon_massive_intent",
+    "idempotent_replay": true,
+    "immutable_after_annotation_edit": true,
+    "kind": "oracle_fixture_not_automatic_quality",
+    "manifest_sha256": "0a44e99d8e97a3aad0e1a9e614ae97e7b4dfa1cbd6d9f1a7c5b7b28841ff037e",
+    "other_owner_rejected": true,
+    "profile": "classification",
+    "reviewed_published": true,
+    "revision": "940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+    "revoked_source_rejected": true,
+    "samples": 3,
+    "service_rule_parity": true,
+    "transport": "real TCP HTTP, real MySQL and local object store; fixture identity, unused rejecting queue",
+    "unreviewed_rejected": true
+  }
+}

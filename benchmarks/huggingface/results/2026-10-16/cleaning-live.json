@@ -1,0 +1,1467 @@
+{
+  "original_artifact": "evidence/cleaning/live-http.json",
+  "original_sha256": "43dcb5692e2fc1d8a0c50b3aca4f0fee07677390e2ad475ed2f154e679eb11be",
+  "data": {
+    "schema_version": 1,
+    "benchmark": "hf-cleaning-fidelity-v1",
+    "transport": "live-local-http",
+    "limitations": [
+      "HF original rows are not ground truth for naturally dirty data.",
+      "Duplicate/padding/empty-row defects and precision guards are artificial.",
+      "source_id protects distinct original records, including naturally repeated text.",
+      "Intake checks pinned local file integrity; this does not test Go collection, storage or approval.",
+      "Each HTTP request is bounded; no cross-batch deduplication is claimed."
+    ],
+    "sources": [
+      {
+        "source": {
+          "dataset_id": "mteb/banking77",
+          "revision": "18072d2685ea682290f7b8924d94c62acc19c0b2",
+          "split": "train",
+          "format": "jsonl",
+          "license": "cc-by-4.0 (original PolyAI data); mirror card says mit",
+          "file_sha256": "d469ab408a9844bf9fa3b7c7b02e3c4ff02930a762a8fc06f3fc4372e612fc90",
+          "original_records_sha256": "b602664a618f81326cedc14800b27f1c9a7e347ccb24981d8789c0a78a0821e0",
+          "original_rows": 10003,
+          "text_field": "text",
+          "downloaded_file_sha256": "d411780d8c0e18e166f5664c6cfe90dc9de399d722aa7cde282e31a771323ea7",
+          "downloaded_records_sha256": "3d6daa5a5a4537da247ae19743c954967adce3ad2d43dacd0552c36338dfaa62",
+          "exact_original_text_match": true,
+          "original_fields_protected_in": "hf_record_json._hf_original"
+        },
+        "measurement": {
+          "original_rows": 10003,
+          "original_records_sha256": "82aa76fc513a99430daf2f0c0a75a1981b2a4509ecc05af9afa768cf564e8ad1",
+          "natural_repeated_text_rows": 0,
+          "original_blank_text_rows": 0,
+          "original_non_ascii_text_rows": 52,
+          "http_requests": 42,
+          "measured_http_seconds": 7.302011749707162,
+          "batch_size": 2000,
+          "batches": [
+            {
+              "source_offset": 0,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.1642429158091545,
+              "baseline_sha256": "bdf37309a6c3526d6fdfd186d9ef341706bfab867a19107d3c6383b14de3202c",
+              "perturbation_eligible_rows": 1997,
+              "original_edge_whitespace_rows": 3,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2551,
+                  "expected_rows": 1997,
+                  "actual_rows": 1997,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "c7522a4e5e8491413c089d123106a2343041230d112acb5fc44392fe9939ff5d",
+                  "input_sha256": "2de324c738b11723be43dbea8797b0d5afbf632458114d6aa314fecfa512fb08",
+                  "expected_sha256": "1127117926764ffa744092ae3ec8558a1ca06766dea5a3aa6c56f9bfdd669902",
+                  "actual_sha256": "1127117926764ffa744092ae3ec8558a1ca06766dea5a3aa6c56f9bfdd669902",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.19166624918580055,
+                    "clean": 0.24956958275288343,
+                    "repeat": 0.1928311251103878
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2551,
+                  "expected_rows": 1997,
+                  "actual_rows": 1997,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "2a683c7d81a4083c25b5e2bbe51a2254bc5927649db02064e375b293da0e1b17",
+                  "input_sha256": "2de324c738b11723be43dbea8797b0d5afbf632458114d6aa314fecfa512fb08",
+                  "expected_sha256": "1127117926764ffa744092ae3ec8558a1ca06766dea5a3aa6c56f9bfdd669902",
+                  "actual_sha256": "1127117926764ffa744092ae3ec8558a1ca06766dea5a3aa6c56f9bfdd669902",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.22037649992853403,
+                    "clean": 0.22021466679871082,
+                    "repeat": 0.19168329238891602
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 2000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.15957724954932928,
+              "baseline_sha256": "0e1b2e248071cf6c9c68e922c4cef75ee3b4edeaedfa4811596a1d1ae7761f1f",
+              "perturbation_eligible_rows": 1999,
+              "original_edge_whitespace_rows": 1,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2553,
+                  "expected_rows": 1999,
+                  "actual_rows": 1999,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "b16a3c7d4e0d444196955620776f1d3ff6a4f55e56d2c9af44fa459cb7ac42d4",
+                  "input_sha256": "934016cfb316dc9d3b87532d0296d29dd4a4357c4f5506eb3c0ac9e3cf2eec42",
+                  "expected_sha256": "8dc52fdc98d080c6119bf79c6a7a5548946cd250713450bdaa554d4809937f86",
+                  "actual_sha256": "8dc52fdc98d080c6119bf79c6a7a5548946cd250713450bdaa554d4809937f86",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.22675508353859186,
+                    "clean": 0.22545962501317263,
+                    "repeat": 0.2285159584134817
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2553,
+                  "expected_rows": 1999,
+                  "actual_rows": 1999,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "0242553d83b59fe48bb15f6391d3dd218dbbea1aa654305d91b45ae8a1f698cf",
+                  "input_sha256": "934016cfb316dc9d3b87532d0296d29dd4a4357c4f5506eb3c0ac9e3cf2eec42",
+                  "expected_sha256": "8dc52fdc98d080c6119bf79c6a7a5548946cd250713450bdaa554d4809937f86",
+                  "actual_sha256": "8dc52fdc98d080c6119bf79c6a7a5548946cd250713450bdaa554d4809937f86",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1998992497101426,
+                    "clean": 0.22929379250854254,
+                    "repeat": 0.22424083296209574
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 4000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.1535534579306841,
+              "baseline_sha256": "8ee2ccb5ada0c231f7b42ddbd58d1b8892be778b164f8032e45701f355ef0030",
+              "perturbation_eligible_rows": 1997,
+              "original_edge_whitespace_rows": 3,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2551,
+                  "expected_rows": 1997,
+                  "actual_rows": 1997,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "4e250cfcdc8dfbcd4e2eb2fa216dfe4991f0a2a27c211524145b3ceda0060177",
+                  "input_sha256": "bfa63f574eb22d8655bb1b8f02938aaa36b71a34376b7abd258700a9d0f3bfd5",
+                  "expected_sha256": "210e0db2149df335a48fa02b5aed39f472d7a2ff47e57dfab2c7f4fbecfaf6fb",
+                  "actual_sha256": "210e0db2149df335a48fa02b5aed39f472d7a2ff47e57dfab2c7f4fbecfaf6fb",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1978380000218749,
+                    "clean": 0.246971582993865,
+                    "repeat": 0.19506020843982697
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2551,
+                  "expected_rows": 1997,
+                  "actual_rows": 1997,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "fc384157862ca08a76e49f3b87aeef3e5cfe403c4d3df36c49937763e2dd4966",
+                  "input_sha256": "bfa63f574eb22d8655bb1b8f02938aaa36b71a34376b7abd258700a9d0f3bfd5",
+                  "expected_sha256": "210e0db2149df335a48fa02b5aed39f472d7a2ff47e57dfab2c7f4fbecfaf6fb",
+                  "actual_sha256": "210e0db2149df335a48fa02b5aed39f472d7a2ff47e57dfab2c7f4fbecfaf6fb",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.2005524169653654,
+                    "clean": 0.24845054186880589,
+                    "repeat": 0.1934294579550624
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 6000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.1582585833966732,
+              "baseline_sha256": "504c72a37e733134eb19a7f8e37f900ae2ada195bdc7ffdf0c2b2e7ba6a98a0a",
+              "perturbation_eligible_rows": 1998,
+              "original_edge_whitespace_rows": 2,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2552,
+                  "expected_rows": 1998,
+                  "actual_rows": 1998,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "d0cb2f2ec2d04283cef365952e45f0c512edc62c504616bbc57629780812feae",
+                  "input_sha256": "029166e6a8bed5efe3d98a9ad48a421c13944d0a6384c084f237e7e6226366a8",
+                  "expected_sha256": "380a2ccc42eef095e49ac272e3e44562960330e890b35a84e990fd0ce1cdd0e7",
+                  "actual_sha256": "380a2ccc42eef095e49ac272e3e44562960330e890b35a84e990fd0ce1cdd0e7",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.227034917101264,
+                    "clean": 0.22513687517493963,
+                    "repeat": 0.19771775044500828
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2552,
+                  "expected_rows": 1998,
+                  "actual_rows": 1998,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "5af491eef6f2adb661f663e4833002ac84108c604881995160e674e5712565b9",
+                  "input_sha256": "029166e6a8bed5efe3d98a9ad48a421c13944d0a6384c084f237e7e6226366a8",
+                  "expected_sha256": "380a2ccc42eef095e49ac272e3e44562960330e890b35a84e990fd0ce1cdd0e7",
+                  "actual_sha256": "380a2ccc42eef095e49ac272e3e44562960330e890b35a84e990fd0ce1cdd0e7",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.21901824977248907,
+                    "clean": 0.22533445805311203,
+                    "repeat": 0.22292466647922993
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 8000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.15715462528169155,
+              "baseline_sha256": "78161c3e62a81519752386342d804ea7d42edc1036de9b7dfc3ad4f3ad2c9069",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "1537a52492725763e14c0efe2293f946d2a64efac6ef0051d8ec171dfe469b9f",
+                  "input_sha256": "0880c47e054cb98b7ecd13a13b9bed9531d9c2de7d5b3c47d61bf73a645774a6",
+                  "expected_sha256": "78161c3e62a81519752386342d804ea7d42edc1036de9b7dfc3ad4f3ad2c9069",
+                  "actual_sha256": "78161c3e62a81519752386342d804ea7d42edc1036de9b7dfc3ad4f3ad2c9069",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.21314720902591944,
+                    "clean": 0.24748899973928928,
+                    "repeat": 0.19016395788639784
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "3477162815e7197b72aabb181d441cd33a6aa173138eb70d1a2a5d1d4305c2d9",
+                  "input_sha256": "0880c47e054cb98b7ecd13a13b9bed9531d9c2de7d5b3c47d61bf73a645774a6",
+                  "expected_sha256": "78161c3e62a81519752386342d804ea7d42edc1036de9b7dfc3ad4f3ad2c9069",
+                  "actual_sha256": "78161c3e62a81519752386342d804ea7d42edc1036de9b7dfc3ad4f3ad2c9069",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.19327200017869473,
+                    "clean": 0.24816754180938005,
+                    "repeat": 0.1927524171769619
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 10000,
+              "original_rows": 3,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.0037067504599690437,
+              "baseline_sha256": "d56fb4835f6c89c778f4b83753673bdada189b80c1adee3b741900d0bf8ceb19",
+              "perturbation_eligible_rows": 3,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 5,
+                  "expected_rows": 3,
+                  "actual_rows": 3,
+                  "artificial_duplicate_rows": 1,
+                  "artificial_empty_rows": 1,
+                  "artificial_padded_rows": 2,
+                  "oracle_sha256": "3e8d2a2e025e53dedcabe1a37b4c9cc66f8fdac61b6fd62550643b93936334f9",
+                  "input_sha256": "d1aa81d5c12991358c84f00a25ad75eca64489bdcb5ae9603f69c895e6b94cd8",
+                  "expected_sha256": "d56fb4835f6c89c778f4b83753673bdada189b80c1adee3b741900d0bf8ceb19",
+                  "actual_sha256": "d56fb4835f6c89c778f4b83753673bdada189b80c1adee3b741900d0bf8ceb19",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.003059624694287777,
+                    "clean": 0.0037987912073731422,
+                    "repeat": 0.00307554192841053
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 5,
+                  "expected_rows": 3,
+                  "actual_rows": 3,
+                  "artificial_duplicate_rows": 1,
+                  "artificial_empty_rows": 1,
+                  "artificial_padded_rows": 2,
+                  "oracle_sha256": "d409ba5f93774d609f0e8e74f639cfbb202ac8622388dcf43f393f19d81fc1f7",
+                  "input_sha256": "d1aa81d5c12991358c84f00a25ad75eca64489bdcb5ae9603f69c895e6b94cd8",
+                  "expected_sha256": "d56fb4835f6c89c778f4b83753673bdada189b80c1adee3b741900d0bf8ceb19",
+                  "actual_sha256": "d56fb4835f6c89c778f4b83753673bdada189b80c1adee3b741900d0bf8ceb19",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.00303687434643507,
+                    "clean": 0.004259916953742504,
+                    "repeat": 0.003320208750665188
+                  }
+                }
+              ]
+            }
+          ],
+          "error_totals": {
+            "false_deletions": 0,
+            "missed_deletions": 0,
+            "field_preservation_errors": 0,
+            "exact_value_or_type_errors": 0,
+            "unexpected_rows": 0,
+            "lineage_errors": 0,
+            "schema_errors": 0,
+            "output_mismatch": 0,
+            "trim_lineage_errors": 0,
+            "idempotency_errors": 0
+          },
+          "passed": true
+        }
+      },
+      {
+        "source": {
+          "dataset_id": "mteb/banking77",
+          "revision": "18072d2685ea682290f7b8924d94c62acc19c0b2",
+          "split": "test",
+          "format": "jsonl",
+          "license": "cc-by-4.0 (original PolyAI data); mirror card says mit",
+          "file_sha256": "3115a96029a147cf87e72161840cd76bab0a589e87843cac44eba2cbfcebe220",
+          "original_records_sha256": "a7daace3ac0c39c9d5a7c41beac8bfcced4c56efc503739064fea9fefcf4e821",
+          "original_rows": 3080,
+          "text_field": "text",
+          "downloaded_file_sha256": "fb1b0043ded745b8767687084786e6dd0a5f0ce03243b6131992a1c7ae2c2595",
+          "downloaded_records_sha256": "78f787f34e74acfc8c48162947da0d25c873d59716a5690122b3b96bd1b94de2",
+          "exact_original_text_match": true,
+          "original_fields_protected_in": "hf_record_json._hf_original"
+        },
+        "measurement": {
+          "original_rows": 3080,
+          "original_records_sha256": "f4f81d2553bab969e5e89d63924e4a5273607080757cfc6e40d15b432ade854e",
+          "natural_repeated_text_rows": 0,
+          "original_blank_text_rows": 0,
+          "original_non_ascii_text_rows": 9,
+          "http_requests": 14,
+          "measured_http_seconds": 2.182965500280261,
+          "batch_size": 2000,
+          "batches": [
+            {
+              "source_offset": 0,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.15342695824801922,
+              "baseline_sha256": "f6ee02eafd879030f3ca3880c54cfb9f7c2da795d19a7e593e3e8d869e5cd245",
+              "perturbation_eligible_rows": 1997,
+              "original_edge_whitespace_rows": 3,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2551,
+                  "expected_rows": 1997,
+                  "actual_rows": 1997,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "0ddee4fc9c239b5581cc840a760ea11d16c76621dafda59448af66ca898b9397",
+                  "input_sha256": "26218e8f85ca15964545da60ece3004a3759ec14c763e9ba2c4f575d585e1be6",
+                  "expected_sha256": "03f82464307425587f91dcea71e6a38809f0487920ebfe62b1d9df665252c279",
+                  "actual_sha256": "03f82464307425587f91dcea71e6a38809f0487920ebfe62b1d9df665252c279",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.194538333453238,
+                    "clean": 0.2413475001230836,
+                    "repeat": 0.19083779212087393
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2551,
+                  "expected_rows": 1997,
+                  "actual_rows": 1997,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 800,
+                  "oracle_sha256": "e2d29f9dfc851c6fda14aed8b060490d65572492d7b112df44c24ea3947e2faa",
+                  "input_sha256": "26218e8f85ca15964545da60ece3004a3759ec14c763e9ba2c4f575d585e1be6",
+                  "expected_sha256": "03f82464307425587f91dcea71e6a38809f0487920ebfe62b1d9df665252c279",
+                  "actual_sha256": "03f82464307425587f91dcea71e6a38809f0487920ebfe62b1d9df665252c279",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.21700645796954632,
+                    "clean": 0.22180475015193224,
+                    "repeat": 0.19232525024563074
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 2000,
+              "original_rows": 1080,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.08529787510633469,
+              "baseline_sha256": "dee44264a7791dd6d92a4854d5c129f94c60e664ade791a1ea9f1a9c7143d961",
+              "perturbation_eligible_rows": 1080,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 1380,
+                  "expected_rows": 1080,
+                  "actual_rows": 1080,
+                  "artificial_duplicate_rows": 216,
+                  "artificial_empty_rows": 84,
+                  "artificial_padded_rows": 432,
+                  "oracle_sha256": "bb6b637e72c69fb30bafd16de837626f6214f0cfba1c3fcf6c2ec6912ab97ce9",
+                  "input_sha256": "82c0b0da1650378bee5cd92c90f1aa47a15f99f239ea1b16b9d58ffdda789cdf",
+                  "expected_sha256": "dee44264a7791dd6d92a4854d5c129f94c60e664ade791a1ea9f1a9c7143d961",
+                  "actual_sha256": "dee44264a7791dd6d92a4854d5c129f94c60e664ade791a1ea9f1a9c7143d961",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.10537458304315805,
+                    "clean": 0.1460394151508808,
+                    "repeat": 0.10661166720092297
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 1380,
+                  "expected_rows": 1080,
+                  "actual_rows": 1080,
+                  "artificial_duplicate_rows": 216,
+                  "artificial_empty_rows": 84,
+                  "artificial_padded_rows": 432,
+                  "oracle_sha256": "efd4335d500a636520b37d84baa62402bd3244d0466383d2e78fc1c1d21ea864",
+                  "input_sha256": "82c0b0da1650378bee5cd92c90f1aa47a15f99f239ea1b16b9d58ffdda789cdf",
+                  "expected_sha256": "dee44264a7791dd6d92a4854d5c129f94c60e664ade791a1ea9f1a9c7143d961",
+                  "actual_sha256": "dee44264a7791dd6d92a4854d5c129f94c60e664ade791a1ea9f1a9c7143d961",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.10473020933568478,
+                    "clean": 0.12024349998682737,
+                    "repeat": 0.10338120814412832
+                  }
+                }
+              ]
+            }
+          ],
+          "error_totals": {
+            "false_deletions": 0,
+            "missed_deletions": 0,
+            "field_preservation_errors": 0,
+            "exact_value_or_type_errors": 0,
+            "unexpected_rows": 0,
+            "lineage_errors": 0,
+            "schema_errors": 0,
+            "output_mismatch": 0,
+            "trim_lineage_errors": 0,
+            "idempotency_errors": 0
+          },
+          "passed": true
+        }
+      },
+      {
+        "source": {
+          "dataset_id": "mteb/amazon_massive_intent",
+          "revision": "940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+          "split": "train",
+          "format": "jsonl",
+          "license": "cc-by-4.0 (original Amazon MASSIVE); mirror card says apache-2.0",
+          "file_sha256": "300f66b19b9e301643242550205b05f4f4676ec89a9ad3e79538e4aa6b8d3104",
+          "original_records_sha256": "2a0eb5fb1743344fed95d2231e18a5b6e9f646dd209b6a60c425715b9f69ff01",
+          "original_rows": 11514,
+          "text_field": "text",
+          "downloaded_file_sha256": "8339f3f6c65fbdb6471642cf1854972aa6f084251e0151cbd3403ebe85a4a0dc",
+          "downloaded_records_sha256": "0aa58f5c0e1bb7be2891f9c273d91b0a5355b05b3e17f0f8f0bca3372a789d92",
+          "exact_original_text_match": true,
+          "original_fields_protected_in": "hf_record_json._hf_original"
+        },
+        "measurement": {
+          "original_rows": 11514,
+          "original_records_sha256": "f3a8f7e0195bbddb797949a8dab4e64344a7e408c5b9e00acf0d0da1d119b4fe",
+          "natural_repeated_text_rows": 492,
+          "original_blank_text_rows": 0,
+          "original_non_ascii_text_rows": 11512,
+          "http_requests": 42,
+          "measured_http_seconds": 7.4044779082760215,
+          "batch_size": 2000,
+          "batches": [
+            {
+              "source_offset": 0,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.16019966546446085,
+              "baseline_sha256": "58543ddbfff5e59f189100e17739ce253688d8c60815f36b4bdbcad1af7f7727",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "6b3486cccac55356ae0d31bb71495f8a3b592f9d5176c118bbb605ffb232c363",
+                  "input_sha256": "0366343552648fc64606fa4c4488509a6cec67d7e8e6f1534e280487c72589af",
+                  "expected_sha256": "58543ddbfff5e59f189100e17739ce253688d8c60815f36b4bdbcad1af7f7727",
+                  "actual_sha256": "58543ddbfff5e59f189100e17739ce253688d8c60815f36b4bdbcad1af7f7727",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1718821246176958,
+                    "clean": 0.1965698329731822,
+                    "repeat": 0.2045429591089487
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "66c73eb557f79e8dcd3108777871406deee73298174f9464bfa85e794d8fb3b9",
+                  "input_sha256": "0366343552648fc64606fa4c4488509a6cec67d7e8e6f1534e280487c72589af",
+                  "expected_sha256": "58543ddbfff5e59f189100e17739ce253688d8c60815f36b4bdbcad1af7f7727",
+                  "actual_sha256": "58543ddbfff5e59f189100e17739ce253688d8c60815f36b4bdbcad1af7f7727",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1710947910323739,
+                    "clean": 0.2204119162634015,
+                    "repeat": 0.17106820736080408
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 2000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.1353813325986266,
+              "baseline_sha256": "325cc33508cf6c3b408070d1033fbc8c82016c63a785a10722028b872f949d8a",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "91ae7405b68d9c84feedecd280c43389701344f1dc802bae7306d0ea4f64b06a",
+                  "input_sha256": "199e99bf776527c58325283879b80d50248b2ca30c1f5593d696f64dc03db50c",
+                  "expected_sha256": "325cc33508cf6c3b408070d1033fbc8c82016c63a785a10722028b872f949d8a",
+                  "actual_sha256": "325cc33508cf6c3b408070d1033fbc8c82016c63a785a10722028b872f949d8a",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.16934587433934212,
+                    "clean": 0.2224249579012394,
+                    "repeat": 0.17257504258304834
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "8f706b204b3d7ed332c64fb1a9a264b149f14801beb1c5a2310c4ba230a04a4f",
+                  "input_sha256": "199e99bf776527c58325283879b80d50248b2ca30c1f5593d696f64dc03db50c",
+                  "expected_sha256": "325cc33508cf6c3b408070d1033fbc8c82016c63a785a10722028b872f949d8a",
+                  "actual_sha256": "325cc33508cf6c3b408070d1033fbc8c82016c63a785a10722028b872f949d8a",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.19696458242833614,
+                    "clean": 0.19937191624194384,
+                    "repeat": 0.17395412549376488
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 4000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.1352528752759099,
+              "baseline_sha256": "a5f3fcc5fe96505ea1de999d0e4d2f301c9b1c38d70d1d5fc919e744a0be9c0a",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "c1a1409a22f9f8b34b22f1d7e2340ca307186966badae790cfdf9a2ee55f43cf",
+                  "input_sha256": "496ec4ac27040b9326c540a9664438b45fb4a8e411d28e1d95207594b256cb99",
+                  "expected_sha256": "a5f3fcc5fe96505ea1de999d0e4d2f301c9b1c38d70d1d5fc919e744a0be9c0a",
+                  "actual_sha256": "a5f3fcc5fe96505ea1de999d0e4d2f301c9b1c38d70d1d5fc919e744a0be9c0a",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1962384581565857,
+                    "clean": 0.19793866761028767,
+                    "repeat": 0.19651254080235958
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "2617544468491a792b7df22967bb86ddb4f61f389460ecf98dc39778553f0c43",
+                  "input_sha256": "496ec4ac27040b9326c540a9664438b45fb4a8e411d28e1d95207594b256cb99",
+                  "expected_sha256": "a5f3fcc5fe96505ea1de999d0e4d2f301c9b1c38d70d1d5fc919e744a0be9c0a",
+                  "actual_sha256": "a5f3fcc5fe96505ea1de999d0e4d2f301c9b1c38d70d1d5fc919e744a0be9c0a",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.17259283270686865,
+                    "clean": 0.2002648338675499,
+                    "repeat": 0.19286191649734974
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 6000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.13510237447917461,
+              "baseline_sha256": "3614257e2e56e8e3ebab35ab5da20dc88a41ea022c51befa5d17937dfb9638bb",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "c9d1ae8d809b6dda86aefc86c306b08a6b268a50bcceb66a9e28057364a57705",
+                  "input_sha256": "41eaf723ed10d698bd5e9e50848f61d9639759fed8324f2c5126ccdabb6d9445",
+                  "expected_sha256": "3614257e2e56e8e3ebab35ab5da20dc88a41ea022c51befa5d17937dfb9638bb",
+                  "actual_sha256": "3614257e2e56e8e3ebab35ab5da20dc88a41ea022c51befa5d17937dfb9638bb",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.17235891614109278,
+                    "clean": 0.1972756665199995,
+                    "repeat": 0.1932052494958043
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "3c37d9832a1afba856872819a44a79c1de78635e21f09ad75c6bdabc865e0f37",
+                  "input_sha256": "41eaf723ed10d698bd5e9e50848f61d9639759fed8324f2c5126ccdabb6d9445",
+                  "expected_sha256": "3614257e2e56e8e3ebab35ab5da20dc88a41ea022c51befa5d17937dfb9638bb",
+                  "actual_sha256": "3614257e2e56e8e3ebab35ab5da20dc88a41ea022c51befa5d17937dfb9638bb",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1736373333260417,
+                    "clean": 0.22107562515884638,
+                    "repeat": 0.17035266663879156
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 8000,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.1339097497984767,
+              "baseline_sha256": "16837736954128b3e1e94e9aa657d135ec3c228b4b19b89a7d0879c53ac1fdbf",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "22bcecbb1feceed996ae2e7159939e362286974be5ca8105a38047295cca53bc",
+                  "input_sha256": "7827957ce6282dea833260feb99e24e287946c46e3d635321819f0d3deb0c9f0",
+                  "expected_sha256": "16837736954128b3e1e94e9aa657d135ec3c228b4b19b89a7d0879c53ac1fdbf",
+                  "actual_sha256": "16837736954128b3e1e94e9aa657d135ec3c228b4b19b89a7d0879c53ac1fdbf",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.20624450035393238,
+                    "clean": 0.19667204096913338,
+                    "repeat": 0.17345220781862736
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "b1b8193c661814a3dc6f58707ee93b2af3a6187d67f72af07d68fd931aebcf31",
+                  "input_sha256": "7827957ce6282dea833260feb99e24e287946c46e3d635321819f0d3deb0c9f0",
+                  "expected_sha256": "16837736954128b3e1e94e9aa657d135ec3c228b4b19b89a7d0879c53ac1fdbf",
+                  "actual_sha256": "16837736954128b3e1e94e9aa657d135ec3c228b4b19b89a7d0879c53ac1fdbf",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.17406512517482042,
+                    "clean": 0.22148220799863338,
+                    "repeat": 0.17284133285284042
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 10000,
+              "original_rows": 1514,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.10448625031858683,
+              "baseline_sha256": "3db8fc784e48660eac5f364bd9b30b4b279b82a6b8d0e8119a8ad34c12682222",
+              "perturbation_eligible_rows": 1514,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 1934,
+                  "expected_rows": 1514,
+                  "actual_rows": 1514,
+                  "artificial_duplicate_rows": 303,
+                  "artificial_empty_rows": 117,
+                  "artificial_padded_rows": 606,
+                  "oracle_sha256": "b2cfb361623718fbb0ff18b18860f51705923648913f6d9d7a82f487bb716e75",
+                  "input_sha256": "7e043786ff7e4593f4c05136a31740d374d1ca580d87d2e0b3a2858e692b2c69",
+                  "expected_sha256": "3db8fc784e48660eac5f364bd9b30b4b279b82a6b8d0e8119a8ad34c12682222",
+                  "actual_sha256": "3db8fc784e48660eac5f364bd9b30b4b279b82a6b8d0e8119a8ad34c12682222",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1570129171013832,
+                    "clean": 0.15264408383518457,
+                    "repeat": 0.1325183343142271
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 1934,
+                  "expected_rows": 1514,
+                  "actual_rows": 1514,
+                  "artificial_duplicate_rows": 303,
+                  "artificial_empty_rows": 117,
+                  "artificial_padded_rows": 606,
+                  "oracle_sha256": "bac5248d4ded2e3ef10d40eac08f9b7d47cd6ab11a66aceaf345898efa9349db",
+                  "input_sha256": "7e043786ff7e4593f4c05136a31740d374d1ca580d87d2e0b3a2858e692b2c69",
+                  "expected_sha256": "3db8fc784e48660eac5f364bd9b30b4b279b82a6b8d0e8119a8ad34c12682222",
+                  "actual_sha256": "3db8fc784e48660eac5f364bd9b30b4b279b82a6b8d0e8119a8ad34c12682222",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1347717074677348,
+                    "clean": 0.1904887491837144,
+                    "repeat": 0.13343141600489616
+                  }
+                }
+              ]
+            }
+          ],
+          "error_totals": {
+            "false_deletions": 0,
+            "missed_deletions": 0,
+            "field_preservation_errors": 0,
+            "exact_value_or_type_errors": 0,
+            "unexpected_rows": 0,
+            "lineage_errors": 0,
+            "schema_errors": 0,
+            "output_mismatch": 0,
+            "trim_lineage_errors": 0,
+            "idempotency_errors": 0
+          },
+          "passed": true
+        }
+      },
+      {
+        "source": {
+          "dataset_id": "mteb/amazon_massive_intent",
+          "revision": "940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+          "split": "test",
+          "format": "jsonl",
+          "license": "cc-by-4.0 (original Amazon MASSIVE); mirror card says apache-2.0",
+          "file_sha256": "3bab3af9affccf5f87304602613e9be9fbf81b9c535b86097157122b02ee2a50",
+          "original_records_sha256": "8f424972d3fb9e9b14987adc9e5bbefa2112ae0773e9ebffcc5e6c9677dae02c",
+          "original_rows": 2974,
+          "text_field": "text",
+          "downloaded_file_sha256": "57d7ae5ef5376eeb82a10f109a1111d95e88e4ae165febedc4ba5767ce755295",
+          "downloaded_records_sha256": "3c4e6ba1cfd21d2d1444a892d730dc2c38c988b31761000037cc93289ce85f7d",
+          "exact_original_text_match": true,
+          "original_fields_protected_in": "hf_record_json._hf_original"
+        },
+        "measurement": {
+          "original_rows": 2974,
+          "original_records_sha256": "c5f97cde966f428cb88378e20981fbe2c29d1cdfd2f366c6e949b1dd1bd6dc9e",
+          "natural_repeated_text_rows": 53,
+          "original_blank_text_rows": 0,
+          "original_non_ascii_text_rows": 2973,
+          "http_requests": 14,
+          "measured_http_seconds": 1.8963325843214989,
+          "batch_size": 2000,
+          "batches": [
+            {
+              "source_offset": 0,
+              "original_rows": 2000,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.13234599959105253,
+              "baseline_sha256": "2e6a3a0cf4ed7d38a858510aef7d196b12c5b727cd74f00823fb68ad1ab21646",
+              "perturbation_eligible_rows": 2000,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "41f3ce7f1ec57ab6536a7ca051a51d4a79f1117e84c8efdb9e499da3abf53d70",
+                  "input_sha256": "a5483f929dcc15cf25be3a6fe3120862f537f4628b628c8706e9e740b993b755",
+                  "expected_sha256": "2e6a3a0cf4ed7d38a858510aef7d196b12c5b727cd74f00823fb68ad1ab21646",
+                  "actual_sha256": "2e6a3a0cf4ed7d38a858510aef7d196b12c5b727cd74f00823fb68ad1ab21646",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.1916374582797289,
+                    "clean": 0.19244716595858335,
+                    "repeat": 0.17115545738488436
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 2554,
+                  "expected_rows": 2000,
+                  "actual_rows": 2000,
+                  "artificial_duplicate_rows": 400,
+                  "artificial_empty_rows": 154,
+                  "artificial_padded_rows": 801,
+                  "oracle_sha256": "9ce2e7222a4976ea11620e4ba1923514999880ce26699bf8aca853e3940cb1c2",
+                  "input_sha256": "a5483f929dcc15cf25be3a6fe3120862f537f4628b628c8706e9e740b993b755",
+                  "expected_sha256": "2e6a3a0cf4ed7d38a858510aef7d196b12c5b727cd74f00823fb68ad1ab21646",
+                  "actual_sha256": "2e6a3a0cf4ed7d38a858510aef7d196b12c5b727cd74f00823fb68ad1ab21646",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.19430525042116642,
+                    "clean": 0.1978115839883685,
+                    "repeat": 0.1734439581632614
+                  }
+                }
+              ]
+            },
+            {
+              "source_offset": 2000,
+              "original_rows": 974,
+              "baseline_metrics": {
+                "false_deletions": 0,
+                "missed_deletions": 0,
+                "field_preservation_errors": 0,
+                "exact_value_or_type_errors": 0,
+                "unexpected_rows": 0,
+                "lineage_errors": 0,
+                "schema_errors": 0,
+                "output_mismatch": 0
+              },
+              "baseline_seconds": 0.068037417717278,
+              "baseline_sha256": "ce74bd1bf1c5f1e6b639f853f375a995ee5adce62ead312ba9ff9d9ecf36d0a7",
+              "perturbation_eligible_rows": 974,
+              "original_edge_whitespace_rows": 0,
+              "cases": [
+                {
+                  "keep": "first",
+                  "input_rows": 1244,
+                  "expected_rows": 974,
+                  "actual_rows": 974,
+                  "artificial_duplicate_rows": 195,
+                  "artificial_empty_rows": 75,
+                  "artificial_padded_rows": 390,
+                  "oracle_sha256": "02ff8440ebb74edc379a68641b7a4873d41c3463cad93ca16ca861aff2d844e8",
+                  "input_sha256": "a552276996a9f9c30ffd67d015867f437e2d2404974129429750792f0806f459",
+                  "expected_sha256": "ce74bd1bf1c5f1e6b639f853f375a995ee5adce62ead312ba9ff9d9ecf36d0a7",
+                  "actual_sha256": "ce74bd1bf1c5f1e6b639f853f375a995ee5adce62ead312ba9ff9d9ecf36d0a7",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.11095029208809137,
+                    "clean": 0.09969612490385771,
+                    "repeat": 0.08821858372539282
+                  }
+                },
+                {
+                  "keep": "last",
+                  "input_rows": 1244,
+                  "expected_rows": 974,
+                  "actual_rows": 974,
+                  "artificial_duplicate_rows": 195,
+                  "artificial_empty_rows": 75,
+                  "artificial_padded_rows": 390,
+                  "oracle_sha256": "fb5a1e5a5a1a432a42a2691f5bf31b1b59eba887201a8cb2a8393baf32097feb",
+                  "input_sha256": "a552276996a9f9c30ffd67d015867f437e2d2404974129429750792f0806f459",
+                  "expected_sha256": "ce74bd1bf1c5f1e6b639f853f375a995ee5adce62ead312ba9ff9d9ecf36d0a7",
+                  "actual_sha256": "ce74bd1bf1c5f1e6b639f853f375a995ee5adce62ead312ba9ff9d9ecf36d0a7",
+                  "metrics": {
+                    "false_deletions": 0,
+                    "missed_deletions": 0,
+                    "field_preservation_errors": 0,
+                    "exact_value_or_type_errors": 0,
+                    "unexpected_rows": 0,
+                    "lineage_errors": 0,
+                    "schema_errors": 0,
+                    "output_mismatch": 0,
+                    "trim_lineage_errors": 0,
+                    "idempotency_errors": 0
+                  },
+                  "seconds": {
+                    "trim": 0.08756004180759192,
+                    "clean": 0.10123770777136087,
+                    "repeat": 0.0874855425208807
+                  }
+                }
+              ]
+            }
+          ],
+          "error_totals": {
+            "false_deletions": 0,
+            "missed_deletions": 0,
+            "field_preservation_errors": 0,
+            "exact_value_or_type_errors": 0,
+            "unexpected_rows": 0,
+            "lineage_errors": 0,
+            "schema_errors": 0,
+            "output_mismatch": 0,
+            "trim_lineage_errors": 0,
+            "idempotency_errors": 0
+          },
+          "passed": true
+        }
+      }
+    ],
+    "passed": true
+  }
+}

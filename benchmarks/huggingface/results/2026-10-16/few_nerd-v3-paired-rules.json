@@ -1,0 +1,126 @@
+{
+  "original_artifact": "labels/few_nerd/v3/paired-rules-report.json",
+  "original_sha256": "4d67d95ed32f16141ab864ca7359499604e0cb89dcfd77c5f85a760440745854",
+  "data": {
+    "actual_new_model_calls": 0,
+    "kind": "offline_rescore_of_original_rule_outputs",
+    "report": {
+      "kind": "named_entity",
+      "samples": 64,
+      "covered": 24,
+      "abstained": 40,
+      "ambiguous": 0,
+      "contract_errors": 0,
+      "execution_errors": 0,
+      "coverage": 0.375,
+      "abstention_rate": 0.625,
+      "contract_error_rate": 0,
+      "accuracy": null,
+      "micro_precision": 0.38461538461538464,
+      "micro_recall": 0.09615384615384616,
+      "micro_f1": 0.15384615384615385,
+      "macro_precision": 0.26875,
+      "macro_recall": 0.046581196581196575,
+      "macro_f1": 0.07353670634920635,
+      "macro_f1_supported_only": 0.07353670634920635,
+      "labels_with_gold_support": 8,
+      "latency_mean_ms": 0.5877147968749998,
+      "latency_p50_ms": 0.464,
+      "latency_p95_ms": 1.24275,
+      "usage_observed_samples": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": null
+      },
+      "per_label": [
+        {
+          "label": "art",
+          "support": 4,
+          "tp": 0,
+          "fp": 0,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "building",
+          "support": 8,
+          "tp": 0,
+          "fp": 0,
+          "fn": 8,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "event",
+          "support": 4,
+          "tp": 0,
+          "fp": 0,
+          "fn": 4,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "location",
+          "support": 52,
+          "tp": 11,
+          "fp": 9,
+          "fn": 41,
+          "precision": 0.55,
+          "recall": 0.21153846153846154,
+          "f1": 0.3055555555555556
+        },
+        {
+          "label": "organization",
+          "support": 27,
+          "tp": 3,
+          "fp": 2,
+          "fn": 24,
+          "precision": 0.6,
+          "recall": 0.1111111111111111,
+          "f1": 0.1875
+        },
+        {
+          "label": "other",
+          "support": 21,
+          "tp": 0,
+          "fp": 3,
+          "fn": 21,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "person",
+          "support": 20,
+          "tp": 0,
+          "fp": 10,
+          "fn": 20,
+          "precision": 0,
+          "recall": 0,
+          "f1": 0
+        },
+        {
+          "label": "product",
+          "support": 20,
+          "tp": 1,
+          "fp": 0,
+          "fn": 19,
+          "precision": 1,
+          "recall": 0.05,
+          "f1": 0.09523809523809523
+        }
+      ],
+      "retained_outcome_count": 64,
+      "first_contract_failures": [],
+      "first_classification_errors": []
+    },
+    "rule_report_sha256": "aff49ce0c1c6d49955b76e855e2c168cb51d953f06c574914a3164dfa5d34868",
+    "selected_ids_identical_to_model": true
+  }
+}
