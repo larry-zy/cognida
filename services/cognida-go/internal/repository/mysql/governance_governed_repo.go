@@ -37,7 +37,7 @@ func (r *governanceRepository) SubmitGoverned(ctx context.Context, p l.Principal
 	if err = in.Validate(); err != nil {
 		return
 	}
-	if !cancel && in.Profile != d.FeatureProfile && in.StandardVersionID == "" {
+	if !cancel && in.Profile != d.FeatureProfile && in.Profile != d.SFTProfile && in.StandardVersionID == "" {
 		return nil, d.ErrInvalid
 	}
 	id := governanceGovernedID(p, in.OperationKey)
@@ -49,13 +49,30 @@ func (r *governanceRepository) SubmitGoverned(ctx context.Context, p l.Principal
 	if in.Profile == d.FeatureProfile {
 		kind = "feature_execution"
 	}
+	if in.Profile == d.SFTProfile {
+		kind = d.SFTDatasetKind
+	}
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
+		if in.Profile == d.SFTProfile {
+			var e error
+			now, e = (&governanceRepository{tx}).GovernedNow(ctx)
+			if e != nil {
+				return e
+			}
+		}
 		status := "queued"
 		if cancel {
 			status = "cancelled"
 		}
 		state := d.GovernedExecution{Invocation: in, DomainID: domainID, DomainKind: kind, OutputRefs: []l.RefID{}}
+		if in.Profile == d.SFTProfile {
+			deadline := now.Add(time.Duration(in.TimeoutSeconds) * time.Second)
+			if in.Deadline.Before(deadline) {
+				deadline = in.Deadline
+			}
+			state.ExecutionDeadline = &deadline
+		}
 		raw, _ := json.Marshal(state)
 		row := governanceRow{ID: id, TenantID: p.TenantID, UserID: p.UserID, Kind: d.GovernedKind, Status: status, IdempotencyKey: id, Version: 1, Payload: raw, CreatedAt: now, UpdatedAt: now}
 		inserted := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
@@ -70,7 +87,9 @@ func (r *governanceRepository) SubmitGoverned(ctx context.Context, p l.Principal
 		if json.Unmarshal(stored.Payload, &existing) != nil || !d.SameGoverned(existing.Invocation, in) {
 			return d.ErrConflict
 		}
-		if inserted.RowsAffected == 1 {
+		// SFT has no placeholder dataset. A valid, exact candidate is inserted
+		// atomically with the completed operation by its bounded worker.
+		if inserted.RowsAffected == 1 && in.Profile != d.SFTProfile {
 			var task any
 			if kind == "tagging_task" {
 				task = d.TaggingTask{Name: "Governed tagging candidates", StandardVersionID: in.StandardVersionID, SourceRefID: in.InputRef.String(), Config: d.TaggingConfig{EnableTags: true, EnableClassification: true, LabelSchema: in.Schema()}, Status: "governed_queued"}
@@ -143,3 +162,9 @@ func (r *governanceRepository) UpdateGoverned(ctx context.Context, p l.Principal
 }
 
 var _ d.GovernedRepository = (*governanceRepository)(nil)
+
+func (r *governanceRepository) GovernedNow(ctx context.Context) (time.Time, error) {
+	var micros int64
+	err := r.db.WithContext(ctx).Raw("SELECT CAST(UNIX_TIMESTAMP(NOW(6))*1000000 AS SIGNED)").Scan(&micros).Error
+	return time.UnixMicro(micros).UTC(), err
+}

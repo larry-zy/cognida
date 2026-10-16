@@ -13,11 +13,12 @@ import (
 )
 
 type huggingFaceRow struct {
-	ID                                string
-	TenantID, UserID                  int64
-	OperationKey, RequestHash, Status string
-	DeadlineUS                        int64
-	Body                              json.RawMessage
+	ID                                    string
+	TenantID, UserID                      int64
+	OperationKey, RequestHash, Status     string
+	DeadlineUS                            int64
+	Body                                  json.RawMessage
+	GovernedKey, GovernedHash, ClaimToken *string
 }
 
 func (huggingFaceRow) TableName() string { return "huggingface_imports" }
@@ -38,6 +39,9 @@ func hfReceipt(row huggingFaceRow) (*d.Import, error) {
 	out.TenantID = row.TenantID
 	out.UserID = row.UserID
 	out.Status = row.Status
+	if row.ClaimToken != nil {
+		out.ClaimToken = *row.ClaimToken
+	}
 	return &out, nil
 }
 func (r *HuggingFaceRepository) Reserve(ctx context.Context, p l.Principal, key, hash string, request d.Request) (*d.Import, bool, error) {
@@ -66,7 +70,7 @@ func (r *HuggingFaceRepository) Reserve(ctx context.Context, p l.Principal, key,
 		if e = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("tenant_id=? AND user_id=? AND operation_key=?", p.TenantID, p.UserID, key).First(&stored).Error; e != nil {
 			return e
 		}
-		if stored.RequestHash != hash {
+		if stored.RequestHash != hash || stored.GovernedKey != nil {
 			return d.ErrConflict
 		}
 		result, e = hfReceipt(stored)
@@ -78,9 +82,15 @@ func (r *HuggingFaceRepository) Reserve(ctx context.Context, p l.Principal, key,
 	return result, created, err
 }
 func expireHF(tx *gorm.DB, row *huggingFaceRow, value *d.Import, now time.Time) error {
-	if row.Status == "running" && row.DeadlineUS <= now.UnixMicro() {
+	if (row.Status == "running" || row.Status == "queued" || row.Status == "cancel_requested") && row.DeadlineUS <= now.UnixMicro() {
 		value.Status = "failed"
 		value.ErrorCode = "deadline_exceeded"
+		if row.GovernedKey != nil {
+			value.Status = "timed_out"
+			if row.Status == "cancel_requested" {
+				value.Status, value.ErrorCode = "cancelled", "cancelled"
+			}
+		}
 		value.OutputRefs = []l.RefID{}
 		value.UpdatedAt = now
 		body, e := json.Marshal(value)
@@ -130,6 +140,9 @@ func (r *HuggingFaceRepository) Finish(ctx context.Context, p l.Principal, id st
 		}
 		if e != nil {
 			return e
+		}
+		if row.GovernedKey != nil {
+			return d.ErrConflict
 		}
 		result, e = hfReceipt(row)
 		if e != nil {

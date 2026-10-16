@@ -13,7 +13,7 @@ func (h *GovernanceHandler) RegisterKnowledgeLabelRoutes(api *gin.RouterGroup) {
 			governanceErr(c, d.ErrInvalid)
 			return
 		}
-		target, err := h.service.KnowledgeLabelTarget(c.Request.Context(), gp(c), c.Param("id"), version)
+		target, err := h.service.KnowledgeLabelPublicationTarget(c.Request.Context(), gp(c), c.Param("id"), version, c.Query("publication_ref_id"))
 		if err != nil {
 			governanceErr(c, err)
 			return

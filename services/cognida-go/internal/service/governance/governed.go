@@ -90,7 +90,7 @@ func (s *Service) SubmitGoverned(ctx context.Context, p l.Principal, in d.Govern
 	if e != nil {
 		return nil, e
 	}
-	if !cancel && in.Profile != d.FeatureProfile && (record.Status == "queued" || record.Status == "running") {
+	if !cancel && in.Profile != d.FeatureProfile && in.Profile != d.SFTProfile && (record.Status == "queued" || record.Status == "running") {
 		record, e = s.bindGovernedStandard(ctx, p, record, in)
 		if e != nil {
 			return nil, e
@@ -117,6 +117,9 @@ func (s *Service) runGoverned(ctx context.Context, record *d.Record) error {
 		return nil
 	}
 	in := state.Invocation
+	if in.Profile == d.SFTProfile {
+		return s.runGovernedSFT(ctx, record, state)
+	}
 	if in.Profile == d.FeatureProfile {
 		return s.runGovernedFeature(ctx, record, state)
 	}
@@ -327,6 +330,9 @@ func (s *Service) governedCandidate(ctx context.Context, state d.GovernedExecuti
 	return out, nil
 }
 func (s *Service) validateGovernedInvocationSource(ctx context.Context, p l.Principal, in d.GovernedInvocation) error {
+	if in.Profile == d.SFTProfile {
+		return s.ValidateGovernedSFT(ctx, p, *in.SFT, in.InputRef)
+	}
 	if in.Profile == d.FeatureProfile {
 		if err := s.ValidateGovernedFeature(ctx, p, in.FeatureID, in.FeatureVersion, in.InputRef); err != nil {
 			return err
@@ -378,6 +384,12 @@ func (s *Service) ValidateGovernedOrigin(ctx context.Context, p l.Principal, ref
 		return l.ErrForbidden
 	}
 	task, e := s.Repo.Get(ctx, p.TenantID, state.DomainKind, state.DomainID)
+	if state.Invocation.Profile == d.SFTProfile {
+		if e != nil || task.UserID != p.UserID || task.Kind != d.SFTDatasetKind || task.ParentID != record.ID {
+			return l.ErrForbidden
+		}
+		return s.authorizeSFT(ctx, p, task)
+	}
 	if e != nil || task.UserID != p.UserID || task.ParentID != record.ID || task.Status != "ready" {
 		return l.ErrForbidden
 	}

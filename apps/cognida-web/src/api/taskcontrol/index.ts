@@ -13,6 +13,8 @@ export interface TaskBudget {
 }
 export interface PlanInput { asset?: RefID; from_node?: string; kind: string }
 export interface NodeParameters {
+  huggingface?: { request: import('@/api/scenario/huggingface').HFRequest }
+  sft?: Omit<import('@/api/scenario/sft').SFTInput, 'source_ref_id'>
   sandbox?: {profile_id:string;profile_version:number;image_sha256:string;code:{name:string;ref:RefID;sha256:string;size_bytes:number};inputs:{name:string;ref:RefID;sha256:string;size_bytes:number}[];resources:import('@/api/sandbox').Limits}
   warehouse?: {model_id:string;version:number;mode:string;fact_source_ref?:string;event_from?:string;event_to?:string}
   collection?: { url: string; max_response_bytes: number }
@@ -88,7 +90,7 @@ export interface Proposal {
   task_version: number
   decision: { kind: 'clarify' | 'proposal' | 'unsupported'; explanation: string; questions?: Clarification[]; plan?: PlanSpec }
   validation?: PlanValidation
-  budget_adjustments?: { field: 'max_attempts' | 'max_calls' | 'max_cost_micros' | 'timeout_seconds'; before: number; after: number; reason: 'node_retry_reservations' }[]
+  budget_adjustments?: { node_id?: string; field: 'max_attempts' | 'max_calls' | 'max_cost_micros' | 'timeout_seconds' | 'max_calls_per_attempt'; before: number; after: number; reason: 'node_retry_reservations' | 'trusted_execution_minimum' }[]
   execution_enabled: false
   planning_calls: number
   saved: false

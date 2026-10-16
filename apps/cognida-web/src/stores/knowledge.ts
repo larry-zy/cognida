@@ -32,7 +32,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   // Cache entries and outstanding responses belong to one authenticated identity.
   // Flush synchronously so the next view cannot read the preceding tenant's data.
-  watch(() => [auth.user?.id, auth.currentTenant?.id, auth.isAuthenticated], reset, { flush: 'sync' })
+  // Watch primitive sources separately: refreshing a profile/tenant object for
+  // the same identity must not discard an in-flight knowledge-base response.
+  watch([() => auth.user?.id, () => auth.currentTenant?.id, () => auth.isAuthenticated], reset, { flush: 'sync' })
 
   // 后端列表可能走分页信封 {items,total}，也可能直接返回数组，统一归一。
   function normalize(data: unknown): KnowledgeBase[] {

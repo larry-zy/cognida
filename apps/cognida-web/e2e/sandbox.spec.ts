@@ -46,7 +46,7 @@ test.describe('controlled development Sandbox', () => {
     try {
       const source=await createInput(page,{id:'sandbox-task-code',source:'text',text:"import json, os\nassert os.getuid() != 0\njson.dump({'kind':'table','columns':['code','amount'],'rows':[['00123','9007199254740993.123456789']]},open('/output/result.json','w'))"},`sandbox-task-${Date.now()}`)
       await page.goto('/tasks')
-      await page.getByText('使用领域专家：特征工程、知识打标与样本标注',{exact:true}).click()
+      await page.getByText('使用领域专家：数据采集、准备、SFT 与治理',{exact:true}).click()
       await page.getByLabel(/^领域能力/).selectOption('sandbox.execute')
       for(let pageIndex=0;pageIndex<100;pageIndex++) {
         if(await page.getByLabel('Sandbox代码资产',{exact:true}).locator(`option[value="${source.asset_id}:${source.version}"]`).count()) break

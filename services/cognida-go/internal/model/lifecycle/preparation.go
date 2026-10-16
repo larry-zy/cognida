@@ -8,14 +8,15 @@ import (
 // Preparation is assigned only by the standardization executor after cleaning.
 // It binds the immutable text that downstream annotations use for their offsets.
 type Preparation struct {
-	Version           int                `json:"version"`
-	SourceRefID       string             `json:"source_ref_id"`
-	SourceDigest      string             `json:"source_digest"`
-	OutputDigest      string             `json:"output_digest"`
-	SchemaDigest      string             `json:"schema_digest"`
-	Rows              int                `json:"rows"`
-	Fields            []PreparationField `json:"fields"`
-	NormalizeNewlines bool               `json:"normalize_newlines"`
+	Version           int                        `json:"version"`
+	SourceRefID       string                     `json:"source_ref_id"`
+	SourceDigest      string                     `json:"source_digest"`
+	OutputDigest      string                     `json:"output_digest"`
+	SchemaDigest      string                     `json:"schema_digest"`
+	Rows              int                        `json:"rows"`
+	Fields            []PreparationField         `json:"fields"`
+	NormalizeNewlines bool                       `json:"normalize_newlines"`
+	TextProjection    *PreparationTextProjection `json:"text_projection,omitempty"`
 }
 
 type PreparationField struct {
@@ -26,8 +27,17 @@ type PreparationField struct {
 }
 
 type PreparationOptions struct {
-	Fields            []PreparationField `json:"fields,omitempty"`
-	NormalizeNewlines bool               `json:"normalize_newlines,omitempty"`
+	Fields            []PreparationField         `json:"fields,omitempty"`
+	NormalizeNewlines bool                       `json:"normalize_newlines,omitempty"`
+	TextProjection    *PreparationTextProjection `json:"text_projection,omitempty"`
+}
+
+// PreparationTextProjection selects source documents from a JSON array column.
+// It is an explicit data mapping, not a query language or generated summary.
+type PreparationTextProjection struct {
+	Column    string `json:"column"`
+	TextField string `json:"text_field"`
+	IDColumn  string `json:"id_column,omitempty"`
 }
 
 // IsPreparedAsset checks a server-resolved asset, never caller-supplied metadata.

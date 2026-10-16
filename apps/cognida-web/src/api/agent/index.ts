@@ -26,13 +26,10 @@ export function listAgents() {
   return http.get<ListAgentsResult>('/agents')
 }
 
-// 获取 API 基础 URL
-const getApiBaseURL = () => {
-  if (import.meta.env.DEV && import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL
-  }
-  return '/api/v1'
-}
+// Match the shared HTTP client: development uses the configured Vite proxy;
+// production uses the same origin. A legacy .env URL must not send authenticated
+// Agent requests to a different backend from the page's assets and tenant.
+const getApiBaseURL = () => '/api/v1'
 
 /**
  * Agent 流式聊天请求

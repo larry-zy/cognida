@@ -21,7 +21,7 @@ func (s *Service) ApplyKnowledgeLabels(ctx context.Context, p l.Principal, in d.
 	if e := s.authorize(ctx, p, "admin"); e != nil {
 		return nil, e
 	}
-	record, task, result, target, e := s.knowledgeLabelTarget(ctx, p, in.ResultID, in.ExpectedVersion)
+	record, task, result, target, e := s.knowledgeLabelTarget(ctx, p, in.ResultID, in.ExpectedVersion, in.PublicationRefID)
 	if e != nil {
 		return nil, e
 	}
@@ -49,15 +49,26 @@ func (s *Service) ApplyKnowledgeLabels(ctx context.Context, p l.Principal, in d.
 	}
 	sort.Strings(normalized)
 	scheme, _ := json.Marshal(task.Config)
-	return s.knowledgeLabels.ApplyApproved(ctx, p, d.PreparedKnowledgeLabels{ApplyKnowledgeLabels: in, SourceRefID: task.SourceRefID, Content: result.Content, SchemeDigest: d.LabelContentDigest(string(scheme)), ReviewDigest: d.LabelContentDigest(string(record.Payload)), IdempotencyKey: key, Labels: normalized})
+	return s.knowledgeLabels.ApplyApproved(ctx, p, d.PreparedKnowledgeLabels{ApplyKnowledgeLabels: in, SourceRefID: task.SourceRefID, Content: result.Content, SchemeDigest: d.LabelContentDigest(string(scheme)), ReviewDigest: d.LabelContentDigest(string(record.Payload)), IdempotencyKey: key, Labels: normalized, PublicationContentDigest: target.PublicationContentDigest, PublicationChunkDigest: target.PublicationChunkDigest})
 }
 
 func (s *Service) KnowledgeLabelTarget(ctx context.Context, p l.Principal, resultID string, expected int) (*d.KnowledgeLabelTarget, error) {
-	_, _, _, target, err := s.knowledgeLabelTarget(ctx, p, resultID, expected)
+	_, _, _, target, err := s.knowledgeLabelTarget(ctx, p, resultID, expected, "")
 	return target, err
 }
 
-func (s *Service) knowledgeLabelTarget(ctx context.Context, p l.Principal, resultID string, expected int) (*d.Record, d.TaggingTask, d.TaggingResult, *d.KnowledgeLabelTarget, error) {
+// KnowledgeLabelPublicationTarget resolves only an explicitly selected published
+// asset. An empty publication keeps the original knowledge-ancestor contract.
+func (s *Service) KnowledgeLabelPublicationTarget(ctx context.Context, p l.Principal, resultID string, expected int, publication string) (*d.KnowledgeLabelTarget, error) {
+	_, _, _, target, err := s.knowledgeLabelTarget(ctx, p, resultID, expected, publication)
+	return target, err
+}
+
+type knowledgePublicationResolver interface {
+	ResolveKnowledgePublication(context.Context, l.Principal, l.RefID, l.RefID, string) (l.KnowledgePublication, error)
+}
+
+func (s *Service) knowledgeLabelTarget(ctx context.Context, p l.Principal, resultID string, expected int, publication string) (*d.Record, d.TaggingTask, d.TaggingResult, *d.KnowledgeLabelTarget, error) {
 	var task d.TaggingTask
 	var result d.TaggingResult
 	fail := func(err error) (*d.Record, d.TaggingTask, d.TaggingResult, *d.KnowledgeLabelTarget, error) {
@@ -80,11 +91,28 @@ func (s *Service) knowledgeLabelTarget(ctx context.Context, p l.Principal, resul
 	if json.Unmarshal(taskRecord.Payload, &task) != nil {
 		return fail(d.ErrInvalid)
 	}
-	knowledgeID, err := s.knowledgeLabelSource(ctx, p, task.SourceRefID, result.Content)
+	var knowledgeID string
+	var publicationProof l.KnowledgePublication
+	if publication == "" {
+		knowledgeID, err = s.knowledgeLabelSource(ctx, p, task.SourceRefID, result.Content)
+	} else {
+		publishedRef, parseErr := l.ParseRefID(publication)
+		sourceRef, sourceErr := l.ParseRefID(task.SourceRefID)
+		if parseErr != nil || sourceErr != nil {
+			return fail(d.ErrInvalid)
+		}
+		resolver, ok := s.Assets.(knowledgePublicationResolver)
+		if !ok {
+			return fail(d.ErrForbidden)
+		}
+		publicationProof, err = resolver.ResolveKnowledgePublication(ctx, p, publishedRef, sourceRef, result.Content)
+		err = recordSourceError(err)
+		knowledgeID = publicationProof.KnowledgeID
+	}
 	if err != nil {
 		return fail(err)
 	}
-	target := &d.KnowledgeLabelTarget{ResultID: resultID, ReviewVersion: expected, KnowledgeID: knowledgeID, SourceRefID: task.SourceRefID, ContentDigest: d.LabelContentDigest(result.Content)}
+	target := &d.KnowledgeLabelTarget{ResultID: resultID, ReviewVersion: expected, KnowledgeID: knowledgeID, SourceRefID: task.SourceRefID, ContentDigest: d.LabelContentDigest(result.Content), PublicationRefID: publication, PublicationContentDigest: publicationProof.ContentDigest, PublicationChunkDigest: publicationProof.ChunkDigest}
 	return record, task, result, target, nil
 }
 

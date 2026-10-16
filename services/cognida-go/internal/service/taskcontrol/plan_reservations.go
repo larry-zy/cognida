@@ -1,5 +1,18 @@
 package taskcontrol
 
+// executionMinimumCalls uses only trusted capability metadata. It is shared by
+// strict plan validation and unsaved Supervisor candidate compilation.
+func executionMinimumCalls(support ExecutionSupport, inputCount int) (int, bool) {
+	if support.BaseCalls < 1 || support.BaseCalls > 128 || support.CallsPerInput < 0 || support.CallsPerInput > 128 || inputCount < 0 || inputCount > 16 {
+		return 0, false
+	}
+	minimum := support.BaseCalls + support.CallsPerInput*inputCount
+	if minimum > 128 {
+		return 0, false
+	}
+	return minimum, true
+}
+
 // Both validation and Supervisor compilation reserve every allowed attempt,
 // including retries. Bounds are checked before multiplication; with at most
 // 32 nodes the maxima are 160 attempts, 20,480 calls, 160e9 cost micros and

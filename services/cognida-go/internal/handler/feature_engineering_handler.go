@@ -77,5 +77,11 @@ func (h *GovernanceHandler) getGovernedExecution(c *gin.Context) {
 			visible = append(visible, ref)
 		}
 	}
-	OK(c, gin.H{"id": row.ID, "status": row.Status, "domain_id": state.DomainID, "domain_kind": state.DomainKind, "feature_id": state.Invocation.FeatureID, "feature_version": state.Invocation.FeatureVersion, "output_refs": visible})
+	domainID := state.DomainID
+	if state.Invocation.Profile == d.SFTProfile && row.Status != "completed" {
+		// The stable candidate identity is internal until the dataset and its
+		// completed receipt commit together; queued jobs have no dataset yet.
+		domainID = ""
+	}
+	OK(c, gin.H{"id": row.ID, "status": row.Status, "domain_id": domainID, "domain_kind": state.DomainKind, "feature_id": state.Invocation.FeatureID, "feature_version": state.Invocation.FeatureVersion, "output_refs": visible})
 }

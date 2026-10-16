@@ -17,8 +17,14 @@
           </option>
         </select></label
       >
+      <template v-if="capability?.parameter_kind === 'huggingface'">
+        <HFTaskFields ref="hfFields" />
+        <label class="wb-checkbox"><input v-model="hfChain" type="checkbox" />同时组合清洗、准备与 SFT 候选</label>
+        <SFTTaskFields v-if="hfChain" ref="sftFields" />
+        <p class="wb-muted">组合流程是可选项。已有准备数据可以直接选择 SFT 能力，无需重新采集。</p>
+      </template>
       <SandboxTaskFields
-        v-if="capability?.parameter_kind === 'sandbox'"
+        v-else-if="capability?.parameter_kind === 'sandbox'"
         ref="sandboxFields"
         :assets="eligibleAssets"
       />
@@ -194,6 +200,8 @@
             </option>
           </select></label
         >
+        <SFTTaskFields v-if="capability.parameter_kind === 'sft'" ref="sftFields" />
+        <p v-if="capability.parameter_kind === 'sft'" class="wb-muted">仅使用已有准备数据。<RouterLink to="/data-preparation">准备已有数据</RouterLink> · <RouterLink to="/sft-datasets">独立 SFT 工作台</RouterLink></p>
         <StandardVersionSelect v-if="capability.parameter_kind === 'governance'" v-model="standardVersionID" :task-types="standardTypes" :disabled="busy || loading" @selected="publishedStandard=$event" />
         <p v-if="capability.parameter_kind === 'governance'" class="wb-muted">仅可选择完成标准化的准备数据。<RouterLink to="/data-preparation">准备已有数据</RouterLink> · <RouterLink to="/label-standards">管理标准</RouterLink>。此计划冻结标准版本，规则候选仍需人工审核。</p>
         <template v-if="capability.parameter_kind === 'evaluation'"
@@ -262,6 +270,10 @@ import type { StandardVersion, StandardTaskType } from '@/api/governance/standar
 import { assetLabel, capabilityLabel } from "./labels";
 import type { WarehouseModel } from "@/api/warehouse";
 import SandboxTaskFields from "./SandboxTaskFields.vue";
+import HFTaskFields from './HFTaskFields.vue'
+import SFTTaskFields from './SFTTaskFields.vue'
+import { hfSFTPlan, scenarioGoal } from './scenarioPlan'
+const hfFields=ref<InstanceType<typeof HFTaskFields>>(),sftFields=ref<InstanceType<typeof SFTTaskFields>>(),hfChain=ref(false)
 const sandboxFields = ref<InstanceType<typeof SandboxTaskFields>>();
 const props = defineProps<{
   capabilities: Capability[];
@@ -317,7 +329,7 @@ const eligibleAssets = computed(() =>
     (asset) =>
       asset.status === "available" &&
       (capability.value?.input_kinds || []).includes(asset.kind) &&
-      (capability.value?.parameter_kind !== 'governance' || (asset.kind === 'cleaned_asset' && asset.provenance?.preparation?.version === 1)),
+      (!['governance','sft'].includes(capability.value?.parameter_kind || '') || (asset.kind === 'cleaned_asset' && asset.provenance?.preparation?.version === 1)),
   ),
 );
 async function loadFeatures(more = false) {
@@ -371,6 +383,7 @@ watch(warehouseID, () => {
   warehouseVersion.value = warehouseModel.value?.version || 1;
 });
 watch(selected, () => {
+  hfChain.value=false;
   standardVersionID.value="";publishedStandard.value=undefined;
   featureEmbedding.value = false;
   error.value = "";
@@ -401,7 +414,23 @@ async function preview() {
   const current = ++generation;
   let requiredCalls: number | undefined;
   let warehouseAssets: AssetRef[] | undefined;
-  if (cap.parameter_kind === "sandbox") {
+  if (cap.parameter_kind === 'huggingface') {
+    loading.value=true
+    try {
+      const sft=hfChain.value?sftFields.value?.parameters():undefined
+      if(hfChain.value&&!sft)throw new Error('请填写 SFT 候选设置。')
+      const prepared=await hfFields.value?.prepare()
+      if(current!==generation||!prepared)return
+      parameters={huggingface:{request:prepared.request}}
+      if(sft){
+        if(Object.values(sft.columns).some(column=>!prepared.columns.includes(column)))throw new Error('SFT 映射列必须来自本次 HF 明确选择的字段。')
+        const plan=hfSFTPlan(props.capabilities,parameters.huggingface!,sft)
+        emit('preview',{goal:scenarioGoal(`技术数据准备：${prepared.request.repo_id} → 清洗 → 标准化 → SFT 待审核候选 ${sft.name}`,{...parameters,sft},true),input_refs:[],budget:plan.budget},plan)
+        return
+      }
+    } catch(e){if(current===generation)error.value=e instanceof Error?e.message:'HF 固定来源核对失败';return}
+    finally{if(current===generation)loading.value=false}
+  } else if (cap.parameter_kind === "sandbox") {
     loading.value = true;
     try {
       const prepared = await sandboxFields.value?.prepare();
@@ -627,7 +656,10 @@ async function preview() {
       return;
     }
     if (cap.parameter_kind === 'governance' && (!publishedStandard.value || publishedStandard.value.id!==standardVersionID.value || !standardTypes.value.includes(publishedStandard.value.task_type))) { error.value='请选择与能力匹配的已发布标准版本。';return; }
-    if (cap.parameter_kind === "evaluation") {
+    if (cap.parameter_kind === 'sft') {
+      try {const sft=sftFields.value?.parameters();if(!sft)throw new Error('请填写 SFT 候选设置。');parameters={sft}}
+      catch(e){error.value=e instanceof Error?e.message:'SFT 设置无效';return}
+    } else if (cap.parameter_kind === "evaluation") {
       const columns = [
         questionColumn.value.trim(),
         referenceColumn.value.trim(),
@@ -670,7 +702,7 @@ async function preview() {
   if (
     current !== generation ||
     (!asset &&
-      !["collection", "research", "warehouse", "sandbox"].includes(
+      !["collection", "research", "warehouse", "sandbox", "huggingface"].includes(
         cap.parameter_kind || "",
       ))
   )
@@ -718,10 +750,15 @@ async function preview() {
       },
     ],
   };
+  let goal = `${capabilityLabel(cap.id)}：${parameters.huggingface?.request.repo_id || parameters.sft?.name || (cap.parameter_kind === "feature" ? feature.value?.name : cap.parameter_kind === "warehouse" ? warehouseModel.value?.definition.name : asset?.name || researchQuery.value.trim() || url.value.trim()) || "固定资产版本"}`
+  if (parameters.huggingface || parameters.sft) {
+    try { goal = scenarioGoal(goal, parameters) }
+    catch (cause) { error.value = cause instanceof Error ? cause.message : '固定参数无效'; return }
+  }
   emit(
     "preview",
     {
-      goal: `${capabilityLabel(cap.id)}：${(cap.parameter_kind === "feature" ? feature.value?.name : cap.parameter_kind === "warehouse" ? warehouseModel.value?.definition.name : asset?.name || researchQuery.value.trim() || url.value.trim()) || "固定资产版本"}`,
+      goal,
       input_refs: refs,
       budget,
     },

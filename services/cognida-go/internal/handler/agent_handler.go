@@ -1017,7 +1017,9 @@ func (h *AgentHandler) persistStreamResult(ctx context.Context, sessionID string
 		steps["ui_surfaces"] = result.UISurfaces
 	}
 	return h.persistenceService.SaveAssistantMessage(ctx, &agentuc.SaveAssistantMessageRequest{
-		MessageID: "msg-" + uuid.NewString(), SessionID: sessionID, Content: result.Content,
+		// The migrated messages.id is VARCHAR(36). Keep the full UUID entropy
+		// without a prefix that would make every streamed assistant insert fail.
+		MessageID: uuid.NewString(), SessionID: sessionID, Content: result.Content,
 		ToolCalls: result.ToolCalls, AgentSteps: steps,
 	})
 }

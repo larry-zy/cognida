@@ -18,23 +18,33 @@ const QAProfile = "governance-qa-columns-v1"
 const FeatureProfile = "governance-feature-engineering-v1"
 
 type GovernedInvocation struct {
-	StandardVersionID string     `json:"standard_version_id,omitempty"`
-	OperationKey      string     `json:"operation_key"`
-	PayloadHash       string     `json:"payload_hash"`
-	Profile           string     `json:"profile"`
-	InputRef          l.RefID    `json:"input_ref"`
-	Labels            []string   `json:"labels,omitempty"`
-	LabelSchema       []Label    `json:"label_schema,omitempty"`
-	QAMapping         *QAMapping `json:"qa_mapping,omitempty"`
-	FeatureID         string     `json:"feature_id,omitempty"`
-	FeatureVersion    int        `json:"feature_version,omitempty"`
-	Deadline          time.Time  `json:"deadline"`
-	TimeoutSeconds    int        `json:"timeout_seconds"`
-	CallsReserved     int        `json:"calls_reserved"`
+	SFT               *SFTBuildParameters `json:"sft,omitempty"`
+	StandardVersionID string              `json:"standard_version_id,omitempty"`
+	OperationKey      string              `json:"operation_key"`
+	PayloadHash       string              `json:"payload_hash"`
+	Profile           string              `json:"profile"`
+	InputRef          l.RefID             `json:"input_ref"`
+	Labels            []string            `json:"labels,omitempty"`
+	LabelSchema       []Label             `json:"label_schema,omitempty"`
+	QAMapping         *QAMapping          `json:"qa_mapping,omitempty"`
+	FeatureID         string              `json:"feature_id,omitempty"`
+	FeatureVersion    int                 `json:"feature_version,omitempty"`
+	Deadline          time.Time           `json:"deadline"`
+	TimeoutSeconds    int                 `json:"timeout_seconds"`
+	CallsReserved     int                 `json:"calls_reserved"`
 }
 
 func (in GovernedInvocation) Validate() error {
 	if len(in.OperationKey) != 64 || len(in.PayloadHash) != 64 || strings.Trim(in.OperationKey+in.PayloadHash, "0123456789abcdef") != "" || in.InputRef.Validate() != nil || in.Deadline.IsZero() || in.TimeoutSeconds < 1 {
+		return ErrInvalid
+	}
+	if in.Profile == SFTProfile {
+		if in.SFT == nil || in.SFT.Validate() != nil || in.TimeoutSeconds > 120 || in.CallsReserved != 3 || in.StandardVersionID != "" || in.FeatureID != "" || in.FeatureVersion != 0 || len(in.Labels)+len(in.LabelSchema) > 0 || in.QAMapping != nil {
+			return ErrInvalid
+		}
+		return nil
+	}
+	if in.SFT != nil {
 		return ErrInvalid
 	}
 	if in.Profile == FeatureProfile {
@@ -125,14 +135,15 @@ func (in GovernedInvocation) AnnotationType() string {
 }
 
 type GovernedExecution struct {
-	StandardSnapshot *LabelStandardInput `json:"standard_snapshot,omitempty"`
-	StandardDigest   string              `json:"standard_digest,omitempty"`
-	Invocation       GovernedInvocation  `json:"invocation"`
-	DomainID         string              `json:"domain_id"`
-	DomainKind       string              `json:"domain_kind"`
-	OutputRefs       []l.RefID           `json:"output_refs"`
-	Error            string              `json:"error,omitempty"`
-	FeatureJobID     string              `json:"feature_job_id,omitempty"`
+	ExecutionDeadline *time.Time          `json:"execution_deadline,omitempty"`
+	StandardSnapshot  *LabelStandardInput `json:"standard_snapshot,omitempty"`
+	StandardDigest    string              `json:"standard_digest,omitempty"`
+	Invocation        GovernedInvocation  `json:"invocation"`
+	DomainID          string              `json:"domain_id"`
+	DomainKind        string              `json:"domain_kind"`
+	OutputRefs        []l.RefID           `json:"output_refs"`
+	Error             string              `json:"error,omitempty"`
+	FeatureJobID      string              `json:"feature_job_id,omitempty"`
 }
 
 func SameGoverned(a, b GovernedInvocation) bool {

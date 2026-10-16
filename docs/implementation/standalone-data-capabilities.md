@@ -20,7 +20,22 @@
 
 工具注册到默认 Agent 和 Data Agent 的 `data_capabilities` 分组。`data_stage_run` 可以申请发布阶段，但发布执行仍停在已有人工审批门禁。工具集合没有标准发布、标签审核、SFT 审核或审批工具。
 
-HF 和 SFT **尚未登记为 Supervisor 持久 DAG adapter**。它们的独立服务回执不等同于父任务的 ChildHandle。现有治理特征与数仓 adapter 可以消费授权的已解析上游产物；动态绑定在分发时检查真实来源和模式，不能凭模型猜测资产 ID，也不能变更已固定定义。
+HF 和 SFT 已登记为 Supervisor 持久 DAG adapter：`huggingface.import` 无需已有资产，固定请求产生 raw_asset；`governance.sft` 消费一个真实 prepared cleaned_asset，产生指向待审核草案的 Result manifest。父任务 ChildHandle、领域操作键、回执和资产分别持久保存。现有治理特征与数仓 adapter 可以消费授权的已解析上游产物；动态绑定在分发时检查真实来源和模式，不能凭模型猜测资产 ID，也不能变更已固定定义。
+
+## Supervisor 持久编排与独立使用
+
+`/tasks` 支持独立 HF 节点、已有 prepared 来源的独立 SFT 节点，以及 `HF → data-cleaning → data-preparation → SFT` 四节点组合。页面先展示候选，真实模型生成候选、保存计划和启动执行是不同动作；输入为空只有在当前身份可用的采集能力已接好执行器时才能进入规划。来源仓库、固定 SHA、文件、映射、标准版本均为显式参数，模型不能自行编造 ID。
+
+| 能力 | 入参和输出 | 执行预算与恢复 |
+| --- | --- | --- |
+| `huggingface.import` | `parameters.huggingface.request` 使用原 HF Request；无输入资产，输出 `raw_asset` | 1 次尝试、预留 11 次调用、最多 120 秒、模型成本 0；稳定操作键和队列恢复，未知下载不自动重发，取消后的晚到提交被拒绝 |
+| `governance.sft` | `parameters.sft={name,standard_version_id,format,columns}`；一个 prepared `cleaned_asset`，输出候选 manifest `result` | 1 次尝试、预留 3 次调用、最多 120 秒、模型成本 0；候选与完成回执原子提交，恢复或重复投递不生成重复草案 |
+
+SFT 子节点链接首先指向持久执行记录；只有完成后才展示真实数据集 ID，排队期间不创建假草案。任务和子节点刷新恢复读取持久事实，不因刷新重跑导入或构建。审核、发布及 JSONL 导出继续使用独立页面/API，父任务成功不等于人工审核通过。
+
+Supervisor 候选的调用预算由控制器按受信注册表复核：每次尝试至少预留基础操作调用加全部输入解析调用，并按尝试次数汇总。模型漏算时，候选明确展示各节点及总额的调整；超出原任务预算则拒绝，不自动扩权或重试模型。直接保存计划仍严格校验，既不静默补数，也不允许超出能力的执行时限。
+
+知识分支可以先对 prepared 正文打标、人工审核，再执行原有发布审批。标签应用时明确选择 `publication_ref_id`，服务只接受该来源真实派生的成功发布回执，复核审批、权限、原文和入库分块摘要。分块造成的换行与重叠不会被误认为原文变化；后续修改任何有效分块会使旧标签失效。迁移前没有入库摘要的文档不能凭当前分块补造历史证明；原知识来源的标签应用路径仍保持原有精确正文规则。
 
 ## HF 静态文件合同
 
@@ -56,13 +71,13 @@ HF 和 SFT **尚未登记为 Supervisor 持久 DAG adapter**。它们的独立�
 
 该分支只导入明确选择的列；监督答案可由用户显式选择，nested messages/tools 必须显式编码为 JSON 字符串。标量数字保留精度，Parquet 大整数不转为 float，CSV 的 `00123` 保持文本；预览以 `number_encoding=exact_string` 避免浏览器舍入，导入资产保留实际数值类型。
 
-`POST /huggingface/imports` 必须附 `Idempotency-Key`。键绑定 tenant/user 与完整请求摘要；同键不同载荷冲突，并发同键只发起一次导入。状态为 `running/succeeded/failed`，客户端遇未知结果应按同键核对或读取已知 ID。进程中断不自动重新下载；截止后转失败，终态重放不产生新资产。当前没有独立后台 worker、取消 API 或断点续传。若需要新的尝试，用户必须明确发起新操作。
+`POST /huggingface/imports` 必须附 `Idempotency-Key`。键绑定 tenant/user 与完整请求摘要；同键不同载荷冲突，并发同键只发起一次导入。状态为 `running/succeeded/failed`，客户端遇未知结果应按同键核对或读取已知 ID。进程中断不自动重新下载；截止后转失败，终态重放不产生新资产。此独立同步入口不提供取消 API 或断点续传。Supervisor 使用单独的持久 worker/取消栅栏：未认领作业可恢复，已认领的未知执行不会擅自重新下载；取消后晚到的结果不能提交资产。若需要新的尝试，用户必须明确发起新操作。
 
 读取回执和派生产物会重查当前授权、所有者、受管凭据是否启用以及回执绑定。它不会每次访问远端仓库重新验证站外权限，也不声称能实时侦测 HF 仓库删除或远端 token 撤销；下载时真实上游拒绝仍返回失败。
 
 ## 清洗、prepared 资产与标准的关系
 
-在 `/data-preparation` 选择已有资产：原始资产先调用独立清洗能力；已有 cleaned_asset 可以直接格式化。格式化只做显式字段白名单/重命名、必填和类型检查，以及可选的 CRLF/CR→LF 规范化。它不猜测字符串数字、不填补缺失答案、不静默删除行；失败不会生成可用 prepared 标记。
+在 `/data-preparation` 选择已有资产：原始资产先调用独立清洗能力；已有 cleaned_asset 可以直接格式化。格式化支持显式字段白名单/重命名、必填和类型检查，以及可选的 CRLF/CR→LF 规范化。也可选择 `text_projection={column,text_field,id_column}`，将一个 JSON 文档数组列中的明确正文成员整理为知识文本，保留原行身份与文档序号；它与字段映射互斥，任一文档缺正文或格式非法整批拒绝，不读取未选中的问答列。它不猜测字符串数字、不填补缺失答案、不静默删除行；失败不会生成可用 prepared 标记。
 
 prepared 是服务器生成的资产来源证明，包含固定输入、输出与字段规则摘要。新建 annotation/tagging/SFT 任务必须同时绑定 prepared 来源和已发布的标准版本；仅手工填一个 `prepared=true` 无效。正文在这之后改变会产生新版本，旧标注区间不能直接套用。
 
@@ -89,10 +104,10 @@ SFT 支持 1–1000 行、每行 2–100 个消息、最多 30 个工具定义�
 | HF 真实文件预览 | `TestHuggingFacePublicBoundedPreviewDiagnostic`：固定 BANKING77 Parquet 294377 字节，经生产出口与认证 Python decoder 取 3 行，sampled/truncated 为 true，排除 label/label_text，6.658 秒通过，无持久化导入 | 不能算全库导入、全量 split 解码或业务采集完成 |
 | HF 真实页面导入 | `ui-e2e-final-three` 中 HF case 17.0 秒通过：同一固定 commit/文件真实预览和导入，9993 行中取前 3 行，raw asset→清洗→prepared→固定标准→3 条 pending 标注，输出不含 label/label_text | 不能声称私有 HF 鉴权、全量数据集导入、自动审核或标签准确率已验收 |
 | 标准/SFT | governance/model 核心 race；`label_standard_sft_integration_test.go` 的真实 MySQL/HTTP 发布、审核、拒绝未准备来源及 split 泄漏；既有标签建议和固定版本回归通过 | 新标准已经达到具体业务准确率或 SFT 已经训练 |
-| 页面与工具 | 10 个不同场景分批通过：特征、四类标注、五节点 DAG、反馈、真实模型 QA、两种 SFT、知识标签、独立分类和 HF。最后三场 3 passed / 29.4 秒；中间七场 4 通过/3 失败及定向复验均保留 | 不合并为一次无失败的完整批次，不把规则候选当模型质量；HF/SFT 不因此成为持久 DAG adapter |
+| 页面与工具 | 10 个不同场景分批通过：特征、四类标注、五节点 DAG、反馈、真实模型 QA、两种 SFT、知识标签、独立分类和 HF。最后三场 3 passed / 29.4 秒；中间七场 4 通过/3 失败及定向复验均保留 | 不合并为一次无失败的完整批次，不把规则候选当模型质量；该历史批次未覆盖 HF/SFT 持久 DAG adapter |
 | 全量与动态消费 | Go 全 internal race（含 HF 出口与知识应用增量）104 个测试包通过、42 个包无测试；Python 717 通过/3 跳过。warehouse 真实 Result 的 99.25 输入经受控 feature 得到 100.25，保留实际源与定义 anchor 父链；动态 embedding 使用实际行数预算的数据库回归通过 | embedding 预算 fixture 不代表外部固定 revision 的真实模型物化已验收；Python 默认沙箱初跑的 24 个监听权限错误仍保留 |
 
-HF 回归命令在专用测试库完成 migration 37 后执行。数据库连接由本机受保护环境文件注入 `COGNIDA_DOMAIN_TEST_DSN`，库名须以 `cognida_review_` 开头；不在生产库运行 fixture。Go 集成依赖 Python 项目已安装依赖的 `.venv/bin/python`，上游 HTTP fixture 与子进程均由测试关闭。
+本轮新增 HF 持久执行迁移 38 与知识入库摘要迁移 39；回归在专用测试库完成全部版本化迁移后执行。数据库连接由本机受保护环境文件注入 `COGNIDA_DOMAIN_TEST_DSN`，库名须以 `cognida_review_` 开头；不在生产库运行 fixture。Go 集成依赖 Python 项目已安装依赖的 `.venv/bin/python`，上游 HTTP fixture 与子进程均由测试关闭。
 
 ```bash
 cd services/cognida-go

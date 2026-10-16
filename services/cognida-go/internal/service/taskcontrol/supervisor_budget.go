@@ -1,19 +1,21 @@
 package taskcontrol
 
 // BudgetAdjustment is a controller-produced arithmetic explanation. It never
-// grants new task authority or changes a node's operation, retries or limits.
+// grants new task authority or changes a node's operation, sources or retries.
 type BudgetAdjustment struct {
+	NodeID string `json:"node_id,omitempty"`
 	Field  string `json:"field"`
 	Before int64  `json:"before"`
 	After  int64  `json:"after"`
 	Reason string `json:"reason"`
 }
 
-// compileSupervisorBudget only fills underestimated aggregate reservations in
-// an otherwise bounded candidate. The caller must still run full capability,
+// compileSupervisorBudget fills minimum execution calls from the authorized
+// capability registry, then underestimated aggregate reservations in an otherwise
+// bounded candidate. The caller must still run full capability,
 // source, permission and DAG validation before exposing the compiled plan.
 // Direct AppendPlan requests never use this normalization.
-func compileSupervisorBudget(plan PlanSpec, ceiling Budget) (PlanSpec, []BudgetAdjustment, error) {
+func compileSupervisorBudget(plan PlanSpec, ceiling Budget, capabilities ...Capability) (PlanSpec, []BudgetAdjustment, error) {
 	if !plannerPlanShape(plan) || !validBudget(ceiling) {
 		return PlanSpec{}, nil, ErrPlannerOutput
 	}
@@ -23,13 +25,33 @@ func compileSupervisorBudget(plan PlanSpec, ceiling Budget) (PlanSpec, []BudgetA
 	if !withinBudget(plan.Budget, ceiling) {
 		return exceeded()
 	}
+	// Copy node values before adjusting only MaxCallsPerAttempt. Inputs, options
+	// and all other referenced data remain read-only, preserving the raw proposal.
+	compiled := plan
+	compiled.Nodes = append([]Node(nil), plan.Nodes...)
+	var adjustments []BudgetAdjustment
+	for i, node := range compiled.Nodes {
+		for _, capability := range capabilities {
+			if capability.ID != node.Capability || capability.Version != node.CapabilityVersion || capability.Execution == nil {
+				continue
+			}
+			minimum, ok := executionMinimumCalls(*capability.Execution, len(node.Inputs))
+			if !ok {
+				return PlanSpec{}, nil, ErrPlannerOutput
+			}
+			if node.MaxCallsPerAttempt < minimum {
+				compiled.Nodes[i].MaxCallsPerAttempt = minimum
+				adjustments = append(adjustments, BudgetAdjustment{NodeID: node.ID, Field: "max_calls_per_attempt", Before: int64(node.MaxCallsPerAttempt), After: int64(minimum), Reason: "trusted_execution_minimum"})
+			}
+			break
+		}
+	}
 	var reserved nodeReservations
-	for _, node := range plan.Nodes {
+	for _, node := range compiled.Nodes {
 		if !reserved.add(node) {
 			return PlanSpec{}, nil, ErrPlannerOutput
 		}
 	}
-	var adjustments []BudgetAdjustment
 	raise := func(field string, before, minimum int64) int64 {
 		if minimum > before {
 			adjustments = append(adjustments, BudgetAdjustment{Field: field, Before: before, After: minimum, Reason: "node_retry_reservations"})
@@ -37,8 +59,6 @@ func compileSupervisorBudget(plan PlanSpec, ceiling Budget) (PlanSpec, []BudgetA
 		}
 		return before
 	}
-	// PlanSpec and Budget are values. Nodes and their backing data are only read.
-	compiled := plan
 	compiled.Budget.MaxAttempts = int(raise("max_attempts", int64(plan.Budget.MaxAttempts), int64(reserved.attempts)))
 	compiled.Budget.MaxCalls = int(raise("max_calls", int64(plan.Budget.MaxCalls), int64(reserved.calls)))
 	compiled.Budget.MaxCostMicros = raise("max_cost_micros", plan.Budget.MaxCostMicros, reserved.costMicros)

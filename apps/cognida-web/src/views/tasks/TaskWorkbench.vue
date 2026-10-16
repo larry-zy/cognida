@@ -21,7 +21,7 @@
         <div class="wb-stack task-main">
           <p v-if="detailLoading" class="wb-panel wb-muted" role="status">正在读取任务与已保存计划…</p>
           <div v-if="detailError" class="wb-panel"><p class="wb-error" role="alert">{{ detailError }}</p><button @click="openTask(detailID)">重试任务详情</button></div>
-          <details v-if="!current && !detailLoading && !detailError" class="wb-panel domain-presets"><summary>使用领域专家：特征工程、知识打标与样本标注</summary><DomainTaskForm :key="`${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`" :capabilities="capabilities" :assets="assets" :busy="busy" @preview="previewDomain" /></details>
+          <details v-if="!current && !detailLoading && !detailError" class="wb-panel domain-presets"><summary>使用领域专家：数据采集、准备、SFT 与治理</summary><DomainTaskForm :key="`${auth.authEpoch}:${auth.user?.id}:${auth.currentTenant?.id}`" :capabilities="capabilities" :assets="assets" :busy="busy" @preview="previewDomain" /></details>
           <form v-if="!current && !detailLoading && !detailError" class="wb-panel wb-stack" aria-label="新建规划任务" @submit.prevent="beginPlanning">
             <div class="section-intro"><span class="step-number">01</span><div><h2>目标与输入</h2><p class="wb-muted small">描述需要的产物与判断标准。输入固定到具体版本，稍后由后端复查访问权限。</p></div></div>
             <fieldset :disabled="busy" class="draft-fields">
@@ -43,7 +43,7 @@
           <template v-if="current && !detailLoading">
             <section class="wb-panel" aria-labelledby="task-detail-title">
               <div class="panel-heading"><h2 id="task-detail-title">任务详情</h2><span class="wb-badge">{{ statusLabel(current.status) }}</span></div>
-              <h3 class="task-goal">{{ current.goal }}</h3><p v-if="current.reason" class="task-reason">{{ current.reason }}</p>
+              <h3 class="task-goal">{{ current.goal.split("\n")[0] }}</h3><details v-if="current.goal.includes('\n')"><summary>完整目标与固定参数</summary><pre class="task-goal-detail">{{ current.goal }}</pre></details><p v-if="current.reason" class="task-reason">{{ current.reason }}</p>
               <p class="wb-muted small">任务版本 {{ current.version }} · {{ current.current_plan_version ? `已保存计划 v${current.current_plan_version}` : '尚无已保存计划' }} · {{ formatTime(current.updated_at) }}</p>
               <ul class="task-input-refs" aria-label="任务固定输入"><li v-for="input in current.input_refs" :key="refKey(input)"><router-link :to="{ path: '/analysis', query: { asset: refKey(input) } }">{{ inputName(input) }} · v{{ input.version }} ↗</router-link></li></ul>
               <details><summary>任务标识与初始预算</summary><p class="wb-muted small">{{ current.id }}</p><dl class="budget-details"><div v-for="field in budgetFields" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ current.budget[field.key] }}</dd></div></dl></details>
@@ -61,9 +61,9 @@
               <template v-if="proposal.decision.kind === 'proposal' && proposal.decision.plan">
                 <section v-if="proposal.budget_adjustments?.length" class="budget-adjustments" aria-label="候选预算补齐说明">
                   <h3>已补齐节点与重试预留</h3>
-                  <p>控制器按节点及重试次数补齐了候选计划的汇总预留，仍在已授权任务预算内。下方预览已包含这些调整，请核对后保存。</p>
-                  <ul><li v-for="adjustment in proposal.budget_adjustments" :key="adjustment.field">{{ adjustmentLabels[adjustment.field].label }}：{{ adjustment.before }} → {{ adjustment.after }} {{ adjustmentLabels[adjustment.field].unit }}</li></ul>
-                  <p>初始任务预算与节点配置未变；尚未保存或启动任务。</p>
+                  <p>控制器按受信能力的最低调用要求、输入数量与重试次数补齐了以下预留，仍在已授权任务预算内。下方预览已包含这些调整，请核对后保存。</p>
+                  <ul><li v-for="(adjustment,index) in proposal.budget_adjustments" :key="`${adjustment.node_id || 'plan'}:${adjustment.field}:${index}`"><template v-if="adjustment.node_id">{{ adjustmentNodeLabel(adjustment.node_id) }} · </template>{{ adjustmentLabels[adjustment.field]?.label || adjustment.field }}：{{ adjustment.before }} → {{ adjustment.after }} {{ adjustmentLabels[adjustment.field]?.unit || '' }}<span v-if="adjustment.reason==='trusted_execution_minimum'">（基础调用 + 每项输入解析预留）</span></li></ul>
+                  <p>初始任务预算、节点业务参数与尝试次数未变；尚未保存或启动任务。</p>
                 </section>
                 <TaskPlanPreview :plan="proposal.decision.plan" :validation="proposal.validation" :capabilities="capabilities" />
                 <p class="wb-muted small">候选仅在本页预览。保存会追加不可变计划版本，刷新页面前未保存的候选会丢失。</p><p v-if="proposal.task_version !== current.version" class="wb-error" role="alert">任务版本已变化，此候选已过期，不能保存。请核对当前任务后重新生成。</p>
@@ -98,7 +98,7 @@ import TaskPlanPreview from './TaskPlanPreview.vue'
 import TaskExecutionPanel from './TaskExecutionPanel.vue'
 import TaskReplanPanel from './TaskReplanPanel.vue'
 import { useTaskRuntime } from './useTaskRuntime'
-import { assetLabel, statusLabel } from './labels'
+import { assetLabel, capabilityLabel, statusLabel } from './labels'
 import '@/components/workbench/workbench.css'
 
 const auth = useAuthStore(), route = useRoute(), router = useRouter()
@@ -109,7 +109,9 @@ const budget = reactive(defaultBudget())
 const adjustmentLabels = {
   max_attempts: { label: '总尝试次数', unit: '次' }, max_calls: { label: '总调用次数', unit: '次' },
   max_cost_micros: { label: '成本额度', unit: '微成本单位（百万分之一计价单位）' }, timeout_seconds: { label: '总时限', unit: '秒' },
+  max_calls_per_attempt: { label: '每次调用次数', unit: '次' },
 }
+function adjustmentNodeLabel(id:string){const node=proposal.value?.decision.plan?.nodes.find(item=>item.id===id);return node?`${capabilityLabel(node.capability)}（${id}）`:`节点 ${id}`}
 const budgetFields: { key: keyof TaskBudget; label: string; min: number; max: number }[] = [
   { key: 'max_nodes', label: '最多节点数', min: 1, max: 32 }, { key: 'max_concurrency', label: '最多并发数', min: 1, max: 8 },
   { key: 'max_attempts', label: '总尝试次数', min: 1, max: 160 }, { key: 'max_calls', label: '总调用次数', min: 1, max: 4096 },
@@ -326,6 +328,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; controllers.forEach(item => it
 </script>
 
 <style scoped>
+.task-goal-detail { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 12px; line-height: 1.7; }
 .budget-adjustments { padding: 16px; margin-bottom: 20px; border-left: 3px solid var(--primary); background: var(--bg-tertiary); font-size: 13px; line-height: 1.8; }.budget-adjustments h3 { margin: 0; }.budget-adjustments p { margin: 8px 0; }.budget-adjustments ul { padding-left: 20px; }
 .task-workbench { max-width: 1440px; }.task-workbench h1 { font-size: 30px; }.planning-boundary { display: flex; align-items: center; gap: 10px; padding: 14px 18px; margin-bottom: 24px; background: var(--primary-dim); border-left: 3px solid var(--primary); }.planning-boundary p { margin: 0; font-size: 12px; line-height: 1.7; }
 .task-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; }.task-main { min-width: 0; }.task-history { align-self: start; }.panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }.panel-heading h2 { margin: 0; }.panel-heading .wb-kicker { display: block; margin-bottom: 8px; }.small { font-size: 12px; line-height: 1.7; }.task-list { list-style: none; padding: 0; margin: 16px 0; }.task-list li + li { margin-top: 8px; }.task-list button { width: 100%; text-align: left; padding: 12px; }.task-list button.selected { border-color: var(--primary); background: var(--primary-dim); }.task-list strong { display: block; line-height: 1.6; overflow-wrap: anywhere; font-size: 13px; }.task-list span,.task-list time { display: block; color: var(--text-muted); margin-top: 7px; font-size: 11px; }

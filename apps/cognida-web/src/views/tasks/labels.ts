@@ -1,10 +1,11 @@
 const capabilities: Record<string, string> = {
+  'huggingface.import': 'HF 固定数据导入', 'governance.sft': 'SFT 待审核数据集',
   'collection.snapshot': '网页候选采集', 'evaluation.offline-text-v1': '已有答案离线评分', 'research.deep-research': '证据研究',
   'sandbox.execute': 'Sandbox 受控开发', 'warehouse.transform': '数仓受管转换', 'governance.feature-engineering': '特征工程', 'governance.tagging': '知识标签候选',
   'governance.classification': '分类预标注', 'governance.named_entity': '实体预标注',
   'governance.qa': '问答样本标注',
   'lifecycle.data-access': '数据接入', 'lifecycle.data-quality': '质量检查',
-  'lifecycle.data-cleaning': '数据清洗', 'lifecycle.data-enrichment': '数据增强',
+  'lifecycle.data-cleaning': '数据清洗', 'lifecycle.data-preparation': '数据标准化准备', 'lifecycle.data-enrichment': '数据增强',
   'lifecycle.data-asset': '资产发布', 'lifecycle.data-analysis': '数据分析',
   'lifecycle.data-evaluation': '结果评估',
 }

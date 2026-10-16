@@ -90,6 +90,9 @@ func (s *Service) Exhausted(ctx context.Context, j job.Job, cause error) error {
 		if json.Unmarshal(record.Payload, &state) != nil {
 			return d.ErrInvalid
 		}
+		if state.Invocation.Profile == d.SFTProfile {
+			return s.failGovernedSFT(ctx, record, "candidate_generation_failed")
+		}
 		if state.Invocation.Profile == d.FeatureProfile {
 			if jobs, err := s.featureJobs(); err == nil {
 				j, err := jobs.FindFeatureJobByKey(ctx, scope.TenantID, scope.UserID, "governed-job:"+record.ID)

@@ -37,6 +37,11 @@ func preparationOptions(options map[string]any) (d.PreparationOptions, error) {
 	if decoder.Decode(&out) != nil || len(out.Fields) > 200 {
 		return out, d.ErrInvalid
 	}
+	if projection := out.TextProjection; projection != nil {
+		if len(out.Fields) != 0 || !projectionField(projection.Column) || !projectionField(projection.TextField) || (projection.IDColumn != "" && (!projectionField(projection.IDColumn) || projection.IDColumn == projection.Column)) {
+			return out, fmt.Errorf("%w: text projection requires explicit columns and cannot combine with field mapping", d.ErrInvalid)
+		}
+	}
 	seen, names := map[string]bool{}, map[string]bool{}
 	for _, f := range out.Fields {
 		if strings.TrimSpace(f.Source) == "" || f.Name != strings.TrimSpace(f.Name) || f.Name == "" || utf8.RuneCountInString(f.Name) > 200 || seen[f.Source] || names[f.Name] {
@@ -70,11 +75,14 @@ func StandardizeInput(input d.Input, opts d.PreparationOptions) (d.Input, error)
 		return text
 	}
 	if input.Kind == "text" {
-		if len(opts.Fields) != 0 {
+		if len(opts.Fields) != 0 || opts.TextProjection != nil {
 			return d.Input{}, fmt.Errorf("%w: field mapping requires a table", d.ErrInvalid)
 		}
 		out := d.Input{Kind: "text", Text: normalize(input.Text)}
 		return out, out.Validate()
+	}
+	if opts.TextProjection != nil {
+		return projectKnowledgeText(input, *opts.TextProjection, normalize)
 	}
 	indices := map[string]int{}
 	for i, name := range input.Columns {
@@ -171,7 +179,7 @@ func (s *Service) prepare(ctx context.Context, request d.StageRequest) (d.Output
 	if out.Kind == "text" {
 		rows = 1
 	}
-	proof := &d.Preparation{Version: 1, SourceRefID: source.RefID.String(), SourceDigest: source.Provenance.Digest, OutputDigest: preparationDigest(out), SchemaDigest: preparationDigest([]any{out.Kind, out.Columns, out.ColumnTypes, opts}), Rows: rows, Fields: opts.Fields, NormalizeNewlines: opts.NormalizeNewlines}
+	proof := &d.Preparation{Version: 1, SourceRefID: source.RefID.String(), SourceDigest: source.Provenance.Digest, OutputDigest: preparationDigest(out), SchemaDigest: preparationDigest([]any{out.Kind, out.Columns, out.ColumnTypes, opts}), Rows: rows, Fields: opts.Fields, NormalizeNewlines: opts.NormalizeNewlines, TextProjection: opts.TextProjection}
 	if _, _, err = s.Resolve(ctx, request.Principal.TenantID, request.Principal.UserID, source.RefID); err != nil {
 		return d.Output{}, err
 	}

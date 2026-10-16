@@ -11,15 +11,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { lifecycleApi, isPreparedAsset, type AssetRef } from '@/api/lifecycle'
 import { useScenarioSession } from './useScenarioSession'
-const props=defineProps<{modelValue:string;preparedOnly?:boolean;cleanedOnly?:boolean;disabled?:boolean;label?:string}>()
+const props=defineProps<{modelValue:string;preparedOnly?:boolean;cleanedOnly?:boolean;publishedOnly?:boolean;disabled?:boolean;label?:string}>()
 const emit=defineEmits<{'update:modelValue':[value:string];selected:[value:AssetRef|undefined]}>()
 const assets=ref<AssetRef[]>([]),cursor=ref(''),selected=ref<AssetRef>(), requestedID=ref('')
 const session=useScenarioSession(()=>{assets.value=[];cursor.value='';selected.value=undefined;requestedID.value='';emit('update:modelValue','');emit('selected',undefined);void initialize()}),{busy:loading,error}=session
 const key=(a:AssetRef)=>`${a.asset_id}:${a.version}`
-const allowed=(a:AssetRef)=>a.status==='available'&&(!props.preparedOnly||isPreparedAsset(a))&&(!props.cleanedOnly||a.kind==='cleaned_asset')
+const allowed=(a:AssetRef)=>a.status==='available'&&(!props.preparedOnly||isPreparedAsset(a))&&(!props.cleanedOnly||a.kind==='cleaned_asset')&&(!props.publishedOnly||a.kind==='published_asset')
 const eligible=computed(()=>assets.value.filter(allowed))
-async function load(append=false){await session.run(async current=>{const old=append?cursor.value:'';const r=await lifecycleApi.assets(props.preparedOnly||props.cleanedOnly?'cleaned_asset':'',old);if(!current())return;assets.value=Array.from(new Map([...(append?assets.value:[]),...(r.data?.items||[])].map(a=>[key(a),a])).values());const next=r.data?.next_cursor||'';if(old&&next===old)throw new Error('资产分页游标未推进，请重新读取');cursor.value=next})}
-async function select(id:string){requestedID.value=id;session.invalidate();selected.value=undefined;emit('selected',undefined);emit('update:modelValue',id);if(!id)return;await session.run(async current=>{const at=id.lastIndexOf(':'),version=Number(id.slice(at+1));if(at<1||!Number.isSafeInteger(version)||version<1)throw new Error('资产引用格式无效');const r=await lifecycleApi.asset(id.slice(0,at),version);if(!current())return;if(!r.data||!allowed(r.data.ref))throw new Error(props.preparedOnly?'请选择已经完成标准化的清洗资产':'请选择当前可用的清洗产物或数据资产');assets.value=Array.from(new Map([...assets.value,r.data.ref].map(a=>[key(a),a])).values());selected.value=r.data.ref;emit('selected',r.data.ref)})}
+async function load(append=false){await session.run(async current=>{const old=append?cursor.value:'';const r=await lifecycleApi.assets(props.publishedOnly?'published_asset':props.preparedOnly||props.cleanedOnly?'cleaned_asset':'',old);if(!current())return;assets.value=Array.from(new Map([...(append?assets.value:[]),...(r.data?.items||[])].map(a=>[key(a),a])).values());const next=r.data?.next_cursor||'';if(old&&next===old)throw new Error('资产分页游标未推进，请重新读取');cursor.value=next})}
+async function select(id:string){requestedID.value=id;session.invalidate();selected.value=undefined;emit('selected',undefined);emit('update:modelValue',id);if(!id)return;await session.run(async current=>{const at=id.lastIndexOf(':'),version=Number(id.slice(at+1));if(at<1||!Number.isSafeInteger(version)||version<1)throw new Error('资产引用格式无效');const r=await lifecycleApi.asset(id.slice(0,at),version);if(!current())return;if(!r.data||!allowed(r.data.ref))throw new Error(props.preparedOnly?'请选择已经完成标准化的清洗资产':props.publishedOnly?'请选择当前可用的已发布资产':'请选择当前可用的清洗产物或数据资产');assets.value=Array.from(new Map([...assets.value,r.data.ref].map(a=>[key(a),a])).values());selected.value=r.data.ref;emit('selected',r.data.ref)})}
 async function initialize(){session.invalidate();const current=session.capture(),id=props.modelValue;await load();if(current()&&id===props.modelValue&&id)await select(id)}
 watch(()=>props.modelValue,id=>{if(id!==requestedID.value)void select(id)})
 onMounted(initialize)

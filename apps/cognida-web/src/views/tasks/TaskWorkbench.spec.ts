@@ -125,6 +125,30 @@ describe('Supervisor task planning', () => {
     expect(wrapper.findComponent({ name: 'TaskPlanPreview' }).props('plan')).toEqual(compiled)
     wrapper.unmount()
   })
+  it('identifies each node minimum reservation and saves only the displayed compiled plan without changing task limits', async () => {
+    const compiled:PlanSpec={...plan,nodes:plan.nodes.map(node=>({...node,max_calls_per_attempt:node.id==='clean'?4:3}))}
+    api.propose.mockResolvedValue({data:{...proposal(),decision:{...proposal().decision,plan:compiled},budget_adjustments:[
+      {node_id:'clean',field:'max_calls_per_attempt',before:2,after:4,reason:'trusted_execution_minimum'},
+      {node_id:'publish',field:'max_calls_per_attempt',before:1,after:3,reason:'trusted_execution_minimum'},
+    ]}})
+    const wrapper=await setup();await begin(wrapper)
+    const note=wrapper.get('[aria-label="候选预算补齐说明"]')
+    expect(note.findAll('li')).toHaveLength(2)
+    expect(note.text()).toContain('（clean） · 每次调用次数：2 → 4 次')
+    expect(note.text()).toContain('（publish） · 每次调用次数：1 → 3 次')
+    expect(note.text()).toContain('基础调用 + 每项输入解析预留')
+    expect(note.text()).toContain('初始任务预算、节点业务参数与尝试次数未变')
+    expect(wrapper.findComponent({name:'TaskPlanPreview'}).props('plan')).toEqual(compiled)
+    expect(api.create.mock.calls[0][0].budget).toEqual(budget)
+    expect(compiled.nodes.map(({max_calls_per_attempt:_,...node})=>node)).toEqual(plan.nodes.map(({max_calls_per_attempt:_,...node})=>node))
+    expect(api.appendPlan).not.toHaveBeenCalled();expect(api.start).not.toHaveBeenCalled()
+    route.query={task_id:'task-1'};await flushPromises()
+    api.get.mockResolvedValue({data:task('task-1',2,1)});api.summary.mockResolvedValue({data:summary('task-1',2,1)})
+    api.plan.mockResolvedValue({data:{...saved(),snapshot:compiled}})
+    await button(wrapper,'保存计划').trigger('click');await flushPromises()
+    expect(api.appendPlan).toHaveBeenCalledWith('task-1',1,compiled,expect.any(AbortSignal))
+    expect(api.start).not.toHaveBeenCalled();wrapper.unmount()
+  })
   it('keeps question text and prior answers across clarification rounds with repeated question IDs', async () => {
     const first = { ...proposal(), decision: { kind: 'clarify', explanation: '<img src=x onerror=alert(1)>', questions: [{ id: 'q1', question: '要保留原始行吗？', options: ['是', '否'] }] } }
     const second = { ...proposal(), decision: { kind: 'clarify', explanation: '继续确认', questions: [{ id: 'q1', question: '报告要包含什么？' }] } }

@@ -63,7 +63,11 @@ func integrationService(t *testing.T) (*Service, *gorm.DB, *job.RedisQueue, d.Pr
 		}
 		require.NoError(t, sql.Close())
 	})
-	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379", Password: os.Getenv("REDIS_PASSWORD")})
+	redisAddress := os.Getenv("REDIS_ADDR")
+	if redisAddress == "" {
+		redisAddress = "127.0.0.1:6379"
+	}
+	client := redis.NewClient(&redis.Options{Addr: redisAddress, Password: os.Getenv("REDIS_PASSWORD")})
 	require.NoError(t, client.Ping(context.Background()).Err())
 	prefix := "cognida:lifecycle-test:" + uuid.NewString()
 	t.Cleanup(func() {

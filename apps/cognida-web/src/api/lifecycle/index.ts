@@ -105,8 +105,9 @@ export interface Page<T> {
   has_more: boolean;
 }
 export interface PreparationField { source: string; name: string; type: 'any' | 'text' | 'number' | 'boolean' | 'json'; required: boolean }
-export interface PreparationProof { version: number; source_ref_id: string; source_digest: string; output_digest: string; schema_digest: string; rows: number; fields: PreparationField[]; normalize_newlines: boolean }
-export interface PreparationInput { version: number; fields?: PreparationField[]; normalize_newlines?: boolean }
+export interface TextProjection { column: string; text_field: string; id_column: string }
+export interface PreparationProof { version: number; source_ref_id: string; source_digest: string; output_digest: string; schema_digest: string; rows: number; fields: PreparationField[]; normalize_newlines: boolean; text_projection?: TextProjection }
+export interface PreparationInput { version: number; fields?: PreparationField[]; normalize_newlines?: boolean; text_projection?: TextProjection }
 export const isPreparedAsset = (ref?: AssetRef) => ref?.kind === 'cleaned_asset' && ref.provenance?.preparation?.version === 1;
 export const lifecycleApi = {
   prepare: (id: string, input: PreparationInput) => withIdempotency(`/lifecycle/assets/${id}/prepare`, input, key => http.post<Invocation>(`/lifecycle/assets/${encodeURIComponent(id)}/prepare`, input, { headers: { 'Idempotency-Key': key } })),

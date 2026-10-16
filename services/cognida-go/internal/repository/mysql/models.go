@@ -85,26 +85,27 @@ func (m *KnowledgeBaseModel) FromDomain(entity *domain_knowledge.KnowledgeBase) 
 
 // KnowledgeModel 知识条目数据库模型
 type KnowledgeModel struct {
-	ID              string     `gorm:"primaryKey;type:varchar(36)"`
-	TenantID        int64      `gorm:"not null;index:idx_tenant_kb,priority:1"`
-	TagID           *int64     `gorm:"default:NULL"`
-	KnowledgeBaseID string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id;index:idx_kb_filehash,priority:1"`
-	UserID          int64      `gorm:"not null;index:idx_user_id"`
-	Type            string     `gorm:"type:varchar(50);not null"`
-	Title           string     `gorm:"type:varchar(255);not null"`
-	Description     string     `gorm:"type:text"`
-	Source          string     `gorm:"type:varchar(128);not null"`
-	ParseStatus     string     `gorm:"type:varchar(50);default:'unprocessed';index:idx_status"`
-	ErrorMessage    string     `gorm:"type:text"`
-	EnableStatus    string     `gorm:"type:varchar(50);default:'enabled';index:idx_status"`
-	FilePath        string     `gorm:"type:text"`
-	FileHash        string     `gorm:"type:varchar(64);index:idx_kb_filehash,priority:2"`
-	StorageSize     int64      `gorm:"default:0"`
-	CreatedAt       time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
-	DeletedAt       *time.Time `gorm:"index"`
-	ProcessedAt     *time.Time
-	ChunkCount      *int `gorm:"default:NULL"`
+	ID                  string     `gorm:"primaryKey;type:varchar(36)"`
+	TenantID            int64      `gorm:"not null;index:idx_tenant_kb,priority:1"`
+	TagID               *int64     `gorm:"default:NULL"`
+	KnowledgeBaseID     string     `gorm:"not null;type:varchar(36);index:idx_tenant_kb,priority:2;index:idx_knowledge_base_id;index:idx_kb_filehash,priority:1"`
+	UserID              int64      `gorm:"not null;index:idx_user_id"`
+	Type                string     `gorm:"type:varchar(50);not null"`
+	Title               string     `gorm:"type:varchar(255);not null"`
+	Description         string     `gorm:"type:text"`
+	Source              string     `gorm:"type:varchar(128);not null"`
+	ParseStatus         string     `gorm:"type:varchar(50);default:'unprocessed';index:idx_status"`
+	ErrorMessage        string     `gorm:"type:text"`
+	EnableStatus        string     `gorm:"type:varchar(50);default:'enabled';index:idx_status"`
+	FilePath            string     `gorm:"type:text"`
+	FileHash            string     `gorm:"type:varchar(64);index:idx_kb_filehash,priority:2"`
+	IngestedChunkDigest string     `gorm:"type:varchar(64);not null;default:''"`
+	StorageSize         int64      `gorm:"default:0"`
+	CreatedAt           time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt           time.Time  `gorm:"autoUpdateTime"`
+	DeletedAt           *time.Time `gorm:"index"`
+	ProcessedAt         *time.Time
+	ChunkCount          *int `gorm:"default:NULL"`
 }
 
 // TableName 指定表名
@@ -115,26 +116,27 @@ func (KnowledgeModel) TableName() string {
 // ToDomain 转换为领域实体
 func (m *KnowledgeModel) ToDomain() *domain_knowledge.Knowledge {
 	return &domain_knowledge.Knowledge{
-		ID:              m.ID,
-		TenantID:        m.TenantID,
-		TagID:           m.TagID,
-		KnowledgeBaseID: m.KnowledgeBaseID,
-		UserID:          m.UserID,
-		Type:            m.Type,
-		Title:           m.Title,
-		Description:     m.Description,
-		Source:          m.Source,
-		ParseStatus:     m.ParseStatus,
-		ErrorMessage:    m.ErrorMessage,
-		EnableStatus:    m.EnableStatus,
-		FilePath:        m.FilePath,
-		FileHash:        m.FileHash,
-		StorageSize:     m.StorageSize,
-		CreatedAt:       m.CreatedAt,
-		UpdatedAt:       m.UpdatedAt,
-		DeletedAt:       m.DeletedAt,
-		ProcessedAt:     m.ProcessedAt,
-		ChunkCount:      m.ChunkCount,
+		ID:                  m.ID,
+		TenantID:            m.TenantID,
+		TagID:               m.TagID,
+		KnowledgeBaseID:     m.KnowledgeBaseID,
+		UserID:              m.UserID,
+		Type:                m.Type,
+		Title:               m.Title,
+		Description:         m.Description,
+		Source:              m.Source,
+		ParseStatus:         m.ParseStatus,
+		ErrorMessage:        m.ErrorMessage,
+		EnableStatus:        m.EnableStatus,
+		FilePath:            m.FilePath,
+		FileHash:            m.FileHash,
+		IngestedChunkDigest: m.IngestedChunkDigest,
+		StorageSize:         m.StorageSize,
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
+		DeletedAt:           m.DeletedAt,
+		ProcessedAt:         m.ProcessedAt,
+		ChunkCount:          m.ChunkCount,
 	}
 }
 
@@ -154,6 +156,7 @@ func (m *KnowledgeModel) FromDomain(entity *domain_knowledge.Knowledge) *Knowled
 	m.EnableStatus = entity.EnableStatus
 	m.FilePath = entity.FilePath
 	m.FileHash = entity.FileHash
+	m.IngestedChunkDigest = entity.IngestedChunkDigest
 	m.StorageSize = entity.StorageSize
 	m.CreatedAt = entity.CreatedAt
 	m.UpdatedAt = entity.UpdatedAt
@@ -179,6 +182,7 @@ func (m *KnowledgeModel) FromDomainForCreate(entity *domain_knowledge.Knowledge)
 	m.EnableStatus = entity.EnableStatus
 	m.FilePath = entity.FilePath
 	m.FileHash = entity.FileHash
+	m.IngestedChunkDigest = entity.IngestedChunkDigest
 	m.StorageSize = entity.StorageSize
 	// 只复制非零时间戳
 	if !entity.CreatedAt.IsZero() {

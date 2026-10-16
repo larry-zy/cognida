@@ -71,6 +71,10 @@ describe('governed task execution controls', () => {
     await wrapper.get('a[href="/experts?invocation_id=real-invocation"]').trigger('click'); await flushPromises()
     expect(router.currentRoute.value.query.invocation_id).toBe('real-invocation'); expect(api.propose).not.toHaveBeenCalled()
   })
+  it('links HF and SFT receipts to authoritative read-only domain pages',async()=>{
+    state=task('completed',4);stateSummary=summary();stateSummary.nodes=[{node_id:'hf',capability:'huggingface.import',status:'succeeded',attempt:1,output_refs:[],domain_kind:'huggingface_import',domain_id:'actual-import'},{node_id:'sft',capability:'governance.sft',status:'succeeded',attempt:1,output_refs:[],domain_kind:'sft_execution',domain_id:'actual-wrapper'}]
+    const {wrapper}=await setup();expect(wrapper.find('a[href="/hf-datasets?import_id=actual-import"]').exists()).toBe(true);expect(wrapper.find('a[href="/sft-datasets?execution_id=actual-wrapper"]').exists()).toBe(true);expect(api.start).not.toHaveBeenCalled();expect(api.propose).not.toHaveBeenCalled()
+  })
   it('keeps cancellation pending until the backend reports a real terminal status', async () => {
     state = task('running', 3); stateSummary = summary()
     const { wrapper } = await setup()

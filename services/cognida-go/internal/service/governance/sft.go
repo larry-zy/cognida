@@ -208,26 +208,10 @@ func (s *Service) CreateSFTDataset(ctx context.Context, p l.Principal, in d.SFTI
 	if !validFeatureKey(key) {
 		return nil, d.ErrInvalid
 	}
-	standard, e := s.GetLabelStandardVersion(ctx, p, in.StandardVersionID)
+	_, value, e := s.buildSFTDataset(ctx, p, in)
 	if e != nil {
 		return nil, e
 	}
-	if standard.TaskType != "qa" {
-		return nil, d.ErrInvalid
-	}
-	ref, input, e := s.preparedInput(ctx, p, in.SourceRefID)
-	if e != nil {
-		return nil, e
-	}
-	rows, counts, e := buildSFTRows(in, input)
-	if e != nil {
-		return nil, e
-	}
-	// Store the immutable row snapshot as a JSON string. MySQL JSON objects
-	// reorder raw schema keys and can round schema numeric bounds; neither may
-	// change the content that was validated and approved by the user.
-	exactRows := string(mustLabelJSON(rows))
-	value := d.SFTDataset{SFTInput: in, SourceDigest: ref.Provenance.Digest, StandardDigest: standard.ContentDigest, RowsExact: exactRows, RowCount: len(rows), SplitCounts: counts, ContentDigest: d.LabelContentDigest(exactRows)}
 	r, e := s.create(ctx, p, d.SFTDatasetKind, "", "draft", key, value, nil)
 	if e != nil {
 		return nil, e
@@ -240,6 +224,33 @@ func (s *Service) CreateSFTDataset(ctx context.Context, p l.Principal, in d.SFTI
 		return nil, d.ErrConflict
 	}
 	return r, nil
+}
+
+// Build outside the commit transaction. Both independent and governed creation
+// use the same schema, exact-value, prepared-input and fixed-standard checks.
+func (s *Service) buildSFTDataset(ctx context.Context, p l.Principal, in d.SFTInput) (l.DataAssetRef, d.SFTDataset, error) {
+	var empty d.SFTDataset
+	standard, e := s.GetLabelStandardVersion(ctx, p, in.StandardVersionID)
+	if e != nil {
+		return l.DataAssetRef{}, empty, e
+	}
+	if standard.TaskType != "qa" {
+		return l.DataAssetRef{}, empty, d.ErrInvalid
+	}
+	ref, input, e := s.preparedInput(ctx, p, in.SourceRefID)
+	if e != nil {
+		return ref, empty, e
+	}
+	rows, counts, e := buildSFTRows(in, input)
+	if e != nil {
+		return ref, empty, e
+	}
+	// Store the immutable row snapshot as a JSON string. MySQL JSON objects
+	// reorder raw schema keys and can round schema numeric bounds; neither may
+	// change the content that was validated and approved by the user.
+	exactRows := string(mustLabelJSON(rows))
+	value := d.SFTDataset{SFTInput: in, SourceDigest: ref.Provenance.Digest, StandardDigest: standard.ContentDigest, RowsExact: exactRows, RowCount: len(rows), SplitCounts: counts, ContentDigest: d.LabelContentDigest(exactRows)}
+	return ref, value, nil
 }
 func (s *Service) authorizeSFT(ctx context.Context, p l.Principal, r *d.Record) error {
 	if r.UserID != p.UserID {

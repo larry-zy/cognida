@@ -14,12 +14,12 @@
 | --- | --- |
 | 统一任务控制 | `/tasks`：Supervisor 澄清目标、生成候选、人工保存和启动；类型化能力注册、DAG 分发、预算预留、持久租约、取消、SSE、重启核对和运行中重规划。在途子任务保留原计划回执，新计划仅修改未预留节点。 |
 | 数据接入 | 手工文本/表格、Web、知识文档、采集候选、数据库表、SQL 结果和评测结果；认证 GET JSON API 支持受管凭据引用、分页、限额、快照和检查点。新采集及重跑只产生候选。 |
-| Hugging Face 接入 | `/hf-datasets`：独立搜索、数据卡与固定 commit 文件检查、有界预览和静态文件导入；只选择明确列，支持精确数值和显式 JSON 编码的 messages/tools。输出原始版本资产，不执行数据集脚本、不自动启动后续任务。 |
+| Hugging Face 接入 | `/hf-datasets`：独立搜索、数据卡与固定 commit 文件检查、有界预览和静态文件导入；只选择明确列，支持精确数值和显式 JSON 编码的 messages/tools。输出原始版本资产，也可通过 `huggingface.import` 作为 Supervisor DAG 的零输入来源节点；独立导入不自动启动后续任务。 |
 | 文档解析 | TXT、Markdown、HTML、CSV、PDF 文本层、DOCX、XLSX、PPTX；支持 DOCX 表格、XLSX 多工作表与 PPTX 表格。旧二进制 Office 文件须转换；无正文 PDF 明确失败，不将未配置 OCR 算作成功。 |
 | 质量与清洗 | `/quality`、`/pipelines`：诊断、预置算子、方案预览、分页差异、移除原因、内容摘要复查；原始资产保持不可变。 |
 | 数据准备与标注标准 | `/data-preparation`：对已有清洗资产执行字段映射、类型/必填校验和显式换行规范化，形成可核验的 prepared 版本；`/label-standards`：定义标签、适用/排除规则、例子和数量约束，人工发布不可变标准。 |
 | 知识标签与样本标注 | `/labeling`：新建任务绑定 prepared 资产与已发布标准，规则和结构化模型建议保持待审，依据位置以固定文本为准；人工修改受保护，审核后的知识标签应用到真实检索。分类、实体、关系及问答样本可审核、导出并发布。 |
-| SFT 数据集构建 | `/sft-datasets`：从已有 prepared QA 列或 messages/tools 构建候选，检查回合结构、重复提示和 split/group 泄漏；人工审核后发布固定版本并导出 JSONL。不生成缺失答案、不启动模型训练。 |
+| SFT 数据集构建 | `/sft-datasets`：从已有 prepared QA 列或 messages/tools 构建候选，检查回合结构、重复提示和 split/group 泄漏；人工审核后发布固定版本并导出 JSONL；`governance.sft` 可消费上游 prepared 资产，持久任务完成只代表草案构建成功。不生成缺失答案、不启动模型训练。 |
 | 固定数据集与评测 | `/datasets`、`/evaluation`：样本、指南、审核修订、来源、划分及内容摘要固定为不可变版本；来源分组/时间划分、精确和近重复检查；QA/RAG/Agent/SQL profile 校验，评测固定数据集和目标配置。 |
 | 特征工程 | `/features`：字段、受限表达式、窗口聚合、版本化 embedding；全量/增量物化、回填、撤回、精确数值和事件时间/可用时间查询。特征 embedding 需要可信的固定模型 revision，本轮未配置该 revision，真实模型物化尚未验收。 |
 | 漂移监控 | `/drift`：真实基线、数值/类别/缺失率/schema 比较、审批、定时监控、通知和治理任务；展示距离与样本量，距离不是 p 值。默认绑定选定快照；真实上游持续刷新需单独配置与验收。 |
@@ -39,7 +39,9 @@
 
 随后新增 [Hugging Face 真实数据效果基准](benchmarks/huggingface/REPORT-2026-10-16.md)：27,571 条中英文清洗保真、43,702 条官方 test 规则标注、335 条冻结模型样本、6,497 行特征与可控漂移。发现并修复混合 JSON 类型误去重，并根据独立训练样本诊断改进模型输出合同；修复前后模型成绩分别保留。该轮使用真实服务/API、存储与模型，**没有重新运行浏览器 E2E**，也未把公开数据成绩当成生产批准。
 
-本次新增 HF 连接器、数据准备、标准和 SFT 的[独立能力与验收矩阵](docs/implementation/standalone-data-capabilities.md)。页面、REST API 和 Agent 工具调用相同授权服务，已有资产可直接进入所需能力，流程仅负责组合。HF/SFT 尚未登记为 Supervisor 持久 DAG adapter；人工审核/发布不向模型开放。`label_suggest` 按固定标准生成单项待审候选，SFT 只构建、审核和导出，不训练。本轮 **10 个不同的受影响页面场景分批验收通过**，包括真实公开 HF 固定文件的 3 行有界导入→清洗→准备→标准→待审标注，以及 QA/messages SFT 审核导出；这不代表完整数据集导入或标注质量达标。Go 全 internal race、真实 MySQL/HTTP 回归通过，Python 717 通过/3 跳过。HF 可显式配置专用受信出口，默认仍直连，保留公网地址、TLS 和凭据边界。批次、历史失败和证据见[本轮独立能力验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-STANDALONE-DATA.md)，与此前 37/37 分开计数。
+此前新增 HF 连接器、数据准备、标准和 SFT 的[独立能力与验收矩阵](docs/implementation/standalone-data-capabilities.md)。页面、REST API 和 Agent 工具调用相同授权服务，已有资产可直接进入所需能力，流程仅负责组合。该批验收时 HF/SFT 仅提供独立入口；现在已接入持久任务编排，人工审核/发布仍不向模型开放。`label_suggest` 按固定标准生成单项待审候选，SFT 只构建、审核和导出，不训练。该批 **10 个不同的受影响页面场景分批验收通过**，包括真实公开 HF 固定文件的 3 行有界导入→清洗→准备→标准→待审标注，以及 QA/messages SFT 审核导出；这不代表完整数据集导入或标注质量达标。Go 全 internal race、真实 MySQL/HTTP 回归通过，Python 717 通过/3 跳过。HF 可显式配置专用受信出口，默认仍直连，保留公网地址、TLS 和凭据边界。批次、历史失败和证据见[独立能力历史验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-STANDALONE-DATA.md)，与此前 37/37 分开计数。
+
+HF/SFT 现已接入 Supervisor 持久编排：可组合零输入 HF 导入、清洗、prepared 标准化与 SFT 草案构建，也保留每项独立页面、API 和 Agent 工具。补齐了资料列到知识正文的显式投影，以及审核标签到真实知识发布的来源/摘要关联。部署此版本需执行正式迁移 **38、39**；知识摘要不对旧文档自动回填。技术支持验收使用 NVIDIA TechQA 固定文件的前两条可答记录，已完成真实模型规划到 SFT 审核发布、知识打标入库和 Agent 检索回答，并核对回答及工具回执持久保存。含实际服务重启恢复、独立能力、并发/取消与原始负例，本轮 **14 个不同 E2E 用例分批通过**；历史失败和修复记录保留，这不是全量数据质量或生产准确率批准。详细流程与边界见[Supervisor HF/SFT 场景验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-SUPERVISOR-HF-SFT.md)。
 
 - [综合验收与质量边界](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-COMPLETE-LOOP.md)
 - [独立数据能力、HF 接入与 SFT 边界](docs/implementation/standalone-data-capabilities.md)
@@ -59,7 +61,7 @@ flowchart TB
   UI[Vue 工作台 / REST / SSE] --> Supervisor[Supervisor：目标澄清、候选计划、事实汇总]
   Supervisor --> Review[人工审阅与显式启动]
   Review --> Runtime[持久任务控制器：DAG、预算、租约、恢复、取消、重规划]
-  Runtime --> Domains[采集 / 质检 / 清洗 / 标注 / 特征 / 数仓 / 研究 / 评测]
+  Runtime --> Domains[HF与其他采集 / 清洗准备 / 标注与SFT / 特征 / 数仓 / 研究 / 评测]
   Domains --> Candidate[不可变候选与固定评测]
   Candidate --> Approval[人工审批与发布门禁]
   Approval --> Consume[知识检索 / 数据集 / 特征 / 分析报告]

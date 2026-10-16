@@ -1,17 +1,29 @@
 package taskcontrol
 
 import g "cognida/internal/model/governance"
+import hf "cognida/internal/model/huggingface"
 import sb "cognida/internal/model/sandbox"
 
 // NodeParameters is a closed union persisted in the plan and dispatch digest.
 type NodeParameters struct {
-	Sandbox    *SandboxParameters    `json:"sandbox,omitempty"`
-	Governance *GovernanceParameters `json:"governance,omitempty"`
-	Feature    *FeatureParameters    `json:"feature,omitempty"`
-	Collection *CollectionParameters `json:"collection,omitempty"`
-	Evaluation *EvaluationParameters `json:"evaluation,omitempty"`
-	Research   *ResearchParameters   `json:"research,omitempty"`
-	Warehouse  *WarehouseParameters  `json:"warehouse,omitempty"`
+	Sandbox     *SandboxParameters    `json:"sandbox,omitempty"`
+	Governance  *GovernanceParameters `json:"governance,omitempty"`
+	Feature     *FeatureParameters    `json:"feature,omitempty"`
+	Collection  *CollectionParameters `json:"collection,omitempty"`
+	Evaluation  *EvaluationParameters `json:"evaluation,omitempty"`
+	Research    *ResearchParameters   `json:"research,omitempty"`
+	Warehouse   *WarehouseParameters  `json:"warehouse,omitempty"`
+	HuggingFace *HFImportParameters   `json:"huggingface,omitempty"`
+	SFT         *SFTParameters        `json:"sft,omitempty"`
+}
+type HFImportParameters struct {
+	Request hf.Request `json:"request"`
+}
+type SFTParameters struct {
+	Name              string       `json:"name"`
+	StandardVersionID string       `json:"standard_version_id"`
+	Format            string       `json:"format"`
+	Columns           g.SFTColumns `json:"columns"`
 }
 type SandboxParameters struct {
 	ProfileID      string            `json:"profile_id"`
@@ -68,6 +80,7 @@ func parameterKind(p *NodeParameters) (string, bool) {
 		{"governance", p.Governance != nil}, {"feature", p.Feature != nil},
 		{"collection", p.Collection != nil}, {"evaluation", p.Evaluation != nil}, {"research", p.Research != nil},
 		{"warehouse", p.Warehouse != nil}, {"sandbox", p.Sandbox != nil},
+		{"huggingface", p.HuggingFace != nil}, {"sft", p.SFT != nil},
 	} {
 		if v.present {
 			kind = v.kind

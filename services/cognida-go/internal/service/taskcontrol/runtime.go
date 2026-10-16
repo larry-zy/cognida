@@ -751,7 +751,7 @@ func (r *Runtime) finalize(ctx context.Context, p d.Scope, task *d.Task, childre
 		}
 		for _, ref := range outputs {
 			if !seen[ref.String()] {
-				if e := adapter.ValidateInputs(ctx, p, []l.RefID{ref}); e == nil {
+				if e := authorizeExecutionOutputs(ctx, p, adapter, []l.RefID{ref}); e == nil {
 					if _, e := r.tasks.validator.resolve(ctx, p, ref); e != nil {
 						continue
 					}

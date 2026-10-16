@@ -3,6 +3,8 @@ package knowledge
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,14 +98,21 @@ func (s *documentProcessorService) processDocument(
 	if err != nil {
 		return nil, fmt.Errorf("knowledge base not found: %w", err)
 	}
+	contentHash := req.contentHash
+	previousContentHash := ""
+	if len(req.Content) > 0 {
+		digest := sha256.Sum256(req.Content)
+		contentHash = hex.EncodeToString(digest[:])
+	}
 	if req.DocumentID != "" {
 		existing, err := s.knowledgeRepo.FindByID(ctx, req.DocumentID)
 		if err != nil {
 			return nil, err
 		}
-		if existing == nil || existing.TenantID != tenantID || existing.KnowledgeBaseID != req.KnowledgeBaseID {
+		if existing == nil || existing.TenantID != tenantID || existing.UserID != userID || existing.KnowledgeBaseID != req.KnowledgeBaseID {
 			return nil, domain_knowledge.ErrKnowledgeNotFound
 		}
+		previousContentHash = existing.FileHash
 	}
 
 	// 3. 获取知识库设置（检查是否启用图谱）
@@ -136,6 +145,13 @@ func (s *documentProcessorService) processDocument(
 	var knowledgeID string
 	if req.DocumentID != "" {
 		knowledgeID = req.DocumentID
+		if starter, ok := s.knowledgeRepo.(domain_knowledge.KnowledgeReingestionStarter); ok {
+			if err := starter.BeginReingestion(ctx, domain_knowledge.IngestionStart{TenantID: tenantID, UserID: userID, KnowledgeID: knowledgeID, KnowledgeBaseID: req.KnowledgeBaseID, PreviousContentDigest: previousContentHash, ContentDigest: contentHash}); err != nil {
+				return nil, err
+			}
+		} else if _, ok := s.knowledgeRepo.(domain_knowledge.KnowledgeIngestionFinalizer); ok {
+			return nil, fmt.Errorf("reingestion evidence invalidation unavailable")
+		}
 		// 重处理已有文档：先清除旧分块及其向量/图谱投影，否则后续 CreateBatch 直接追加
 		// 新分块，旧数据残留 → 分块翻倍、检索重复命中（KB-8）。任一存储清理失败即中止，
 		// 不产生"新旧混叠"。
@@ -158,7 +174,7 @@ func (s *documentProcessorService) processDocument(
 
 		// 设置额外属性
 		knowledge.Source = s.getSource(req)
-		knowledge.FileHash = req.contentHash
+		knowledge.FileHash = contentHash
 		knowledge.FilePath = req.FilePath
 		knowledge.ParseStatus = domain_knowledge.ParseStatusProcessing
 		// 新入库文档默认启用，可被检索命中；停用是显式管理动作（见 SetKnowledgeEnabled）。
@@ -186,6 +202,7 @@ func (s *documentProcessorService) processDocument(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chunk entities: %w", err)
 	}
+	ingestedChunkDigest := domain_knowledge.IngestionChunkDigest(chunkEntities)
 
 	if err := s.chunkRepo.CreateBatch(ctx, chunkEntities); err != nil {
 		return nil, fmt.Errorf("failed to save chunks: %w", err)
@@ -255,10 +272,28 @@ func (s *documentProcessorService) processDocument(
 		log.Printf("[DocumentProcessor] Graph extraction warning: %v", graphErr)
 	}
 
-	// 更新分块数量
 	chunkCount := len(chunkEntities)
-	if err := s.knowledgeRepo.UpdateChunkCount(ctx, knowledgeID, chunkCount); err != nil {
-		return nil, fmt.Errorf("persist document chunk count: %w", err)
+	trustedDigest := ""
+	if finalizer, ok := s.knowledgeRepo.(domain_knowledge.KnowledgeIngestionFinalizer); ok {
+		expectedFileHash := contentHash
+		if req.DocumentID != "" && contentHash == "" {
+			expectedFileHash = previousContentHash
+		}
+		if err := finalizer.FinalizeIngestion(ctx, domain_knowledge.IngestionCompletion{TenantID: tenantID, UserID: userID, KnowledgeID: knowledgeID, KnowledgeBaseID: kb.ID, ContentDigest: contentHash, ExpectedFileHash: expectedFileHash, ChunkDigest: ingestedChunkDigest, ChunkCount: chunkCount, ParseStatus: finalStatus, ErrorMessage: statusErrMsg}); err != nil {
+			return nil, fmt.Errorf("persist document ingestion evidence: %w", err)
+		}
+		if finalStatus == domain_knowledge.ParseStatusCompleted && contentHash != "" {
+			trustedDigest = ingestedChunkDigest
+		}
+	} else {
+		// Legacy ports can still process a document, but cannot issue a trusted
+		// publication proof without atomic ingestion-time persistence.
+		if err := s.knowledgeRepo.UpdateChunkCount(ctx, knowledgeID, chunkCount); err != nil {
+			return nil, fmt.Errorf("persist document chunk count: %w", err)
+		}
+		if err := s.knowledgeRepo.UpdateParseStatus(ctx, knowledgeID, finalStatus, statusErrMsg); err != nil {
+			return nil, fmt.Errorf("persist document parse status: %w", err)
+		}
 	}
 
 	// 更新知识库统计
@@ -270,17 +305,14 @@ func (s *documentProcessorService) processDocument(
 		}
 	}
 
-	// 更新解析状态
-	if err := s.knowledgeRepo.UpdateParseStatus(ctx, knowledgeID, finalStatus, statusErrMsg); err != nil {
-		return nil, fmt.Errorf("persist document parse status: %w", err)
-	}
-
 	processTime := time.Since(startTime).Milliseconds()
 
 	log.Printf("[DocumentProcessor] Document processing completed: DocumentID=%s, Chunks=%d, Time=%dms",
 		knowledgeID, chunkCount, processTime)
 
 	return &ProcessDocumentResponse{
+		ContentDigest:  contentHash,
+		ChunkDigest:    trustedDigest,
 		DocumentID:     knowledgeID,
 		KnowledgeID:    knowledgeID,
 		ChunkCount:     chunkCount,

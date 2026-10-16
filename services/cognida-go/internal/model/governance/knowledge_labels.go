@@ -25,25 +25,30 @@ type KnowledgeLabelApplication struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 type ApplyKnowledgeLabels struct {
-	ResultID        string `json:"result_id"`
-	ExpectedVersion int    `json:"expected_version"`
-	KnowledgeID     string `json:"knowledge_id"`
+	ResultID         string `json:"result_id"`
+	ExpectedVersion  int    `json:"expected_version"`
+	KnowledgeID      string `json:"knowledge_id"`
+	PublicationRefID string `json:"publication_ref_id,omitempty"`
 }
 
 // KnowledgeLabelTarget is a read-only resolution of the current approved
 // revision. Applying labels repeats the same authorization and content checks.
 type KnowledgeLabelTarget struct {
-	ResultID      string `json:"result_id"`
-	ReviewVersion int    `json:"review_version"`
-	KnowledgeID   string `json:"knowledge_id"`
-	SourceRefID   string `json:"source_ref_id"`
-	ContentDigest string `json:"content_digest"`
+	PublicationContentDigest string `json:"-"`
+	PublicationChunkDigest   string `json:"-"`
+	ResultID                 string `json:"result_id"`
+	ReviewVersion            int    `json:"review_version"`
+	KnowledgeID              string `json:"knowledge_id"`
+	SourceRefID              string `json:"source_ref_id"`
+	ContentDigest            string `json:"content_digest"`
+	PublicationRefID         string `json:"publication_ref_id,omitempty"`
 }
 
 // PreparedKnowledgeLabels is constructed only after source authorization.
 type PreparedKnowledgeLabels struct {
 	ApplyKnowledgeLabels
 	SourceRefID, Content, SchemeDigest, ReviewDigest, IdempotencyKey string
+	PublicationContentDigest, PublicationChunkDigest                 string
 	Labels                                                           []string
 }
 type KnowledgeLabelRepository interface {

@@ -77,6 +77,7 @@ COGNIDA_E2E_COLLECTION_TASK_ID=YOUR_REAL_COLLECTION_TASK_ID npm run test:e2e -- 
 | `COGNIDA_E2E_SANDBOX` | 实际Docker固定镜像、显式授权的受控开发profile |
 | `COGNIDA_E2E_REPLAN` | 真实Sandbox运行中的重规划，需同上Sandbox和任务控制器 |
 | `COGNIDA_E2E_SCENARIO` | 独立标准库、已有数据准备、SFT 审核导出，以及固定 HF 样本；真实 Python 计算和 HF 公网访问，不调用生成模型 |
+| `COGNIDA_E2E_SUPPORT_SUPERVISOR` | 固定 TechQA 技术支持样本的真实 Supervisor → HF → 清洗 → 准备 → SFT；资料投影、人工审核发布、Milvus 与 Agent 回答，额外覆盖原始空资料负例 |
 
 同时开启表中开关及下文Supervisor/任务执行开关后，可执行`npm run test:e2e -- --workers=1`。上游SQL结果有TTL，八来源fixture应在运行前重新通过真实查询生成；不要延长或伪造过期句柄。六引擎端到端通过`cmd/seed-lifecycle-sources -warehouse`生成真实语义查询结果，再将生成的scenario交给`lifecycle.spec.ts`。
 
@@ -97,6 +98,20 @@ COGNIDA_E2E_SCENARIO=1 npm run test:e2e -- e2e/scenario-workflows.spec.ts --work
 ```
 
 HF 用例固定 `mteb/banking77` 的 `18072d2685ea682290f7b8924d94c62acc19c0b2`，读取 `default/train` 的 `data/train-00000-of-00001.parquet`，明确投影 `text`，断言 `label` 与 `label_text` 未进入导入资产。这是 3 行有界样本，不是全量采集或标签质量基准；必须配置受认证的 HF 解码服务并具备真实公网 DNS/HTTPS 连接。网络/解码失败会保留真实错误且使该场景失败，不使用其他下载路径、自动重试或响应替换。已有模型建议与知识发布场景仍另需原模型、Embedding、Milvus 依赖。
+
+### 技术支持任务与独立知识分支
+
+`support-supervisor.spec.ts` 固定 `nvidia/TechQA-RAG-Eval` 提交 `0b5bbc84b7f07d6d09d063130e90b716d8d4a32a`，实际 `train.json` 为 4,019,332 字节、910 条记录（数据卡声明 908，保留差异）。公开来源与 SHA-256、前两条问答及资料摘要见 `fixtures/techqa-support.json`。场景只选择前两条用于功能验收，不推断全量数据质量、模型准确率或训练效果。
+
+```sh
+COGNIDA_E2E_SUPPORT_SUPERVISOR=1 npm run test:e2e -- e2e/support-supervisor.spec.ts --workers=1
+```
+
+主场景从任务页面明确映射来源列，先只读预览，再真实调用 Supervisor 生成四节点计划；验证返回计划后显式保存、启动。实际 HF 导入、清洗、标准化与 SFT 草稿均有独立领域回执，刷新不能重执行。SFT 的既有参考答案是用户明确选择的监督输入，人工审核、发布后逐值核对 JSONL；不把参考答案当模型预测。知识分支仅通过产品的资料列投影读取原 `contexts`，精确核对正文没有追加问答列，再打标、审核、审批发布并绑定真实发布产物应用标签。检索必须返回实际 `milvus_vector` 来源，排除词法回退，Agent 引用仅来自成功检索工具回执。
+
+第二场景用真实 API 准备固定文件前三条及清洗产物，再通过数据准备页面投影。原第三条 `TRAIN_Q002` 的答案是 `"-"`、`is_impossible=true`、`contexts=[]`；保留这些原值，只断言空资料使整次投影失败且零产物。通用 SFT 不会根据任意符号猜测答案语义，空白答案拒绝另由明确标为合成的后端负例验证。两例均保留实际响应与截图，使用正常 API 清理本场景创建的知识库；不自动重试模型或替换失败来源。
+
+主场景保存 `support-restore-manifest.json`，记录任务、4 个子任务、HF/SFT 领域 ID、固定版本与摘要。操作人员实际重启隔离 Go 服务后，可设置 `COGNIDA_E2E_RESTORE_TASK_FILE` 为该文件的绝对路径，单独执行 `npm run test:e2e -- e2e/support-restore.spec.ts`。该补充场景正常登录后仅查询与刷新，核对原任务/子任务/领域回执及 SFT 已发布版本不变，断言页面没有领域写请求；不会重新导入、规划或调用模型。须另外记录真实重启事实，不能把普通页面刷新称为服务重启恢复。
 
 ### Supervisor 规划验收
 

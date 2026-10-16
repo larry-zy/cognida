@@ -62,3 +62,21 @@ type ExecutionAdapter interface {
 	Inspect(context.Context, ExecutionCommand, ExecutionHandle) (*DomainObservation, error)
 	Cancel(context.Context, ExecutionCommand, ExecutionHandle) (*DomainObservation, error)
 }
+
+// ExecutionOutputAuthorizer separates result visibility from dispatch input
+// cardinality. Source adapters accept no inputs but still produce readable data.
+type ExecutionOutputAuthorizer interface {
+	ValidateOutputs(context.Context, d.Scope, []l.RefID) error
+}
+
+func authorizeExecutionOutputs(ctx context.Context, p d.Scope, adapter ExecutionAdapter, refs []l.RefID) error {
+	if adapter == nil {
+		return d.ErrForbidden
+	}
+	if output, ok := adapter.(ExecutionOutputAuthorizer); ok {
+		return output.ValidateOutputs(ctx, p, refs)
+	}
+	// Existing adapters use the same authorized provenance traversal for inputs
+	// and outputs. Preserve that boundary until they declare a separate contract.
+	return adapter.ValidateInputs(ctx, p, refs)
+}

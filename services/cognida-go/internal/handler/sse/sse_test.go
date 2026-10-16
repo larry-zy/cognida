@@ -10,8 +10,8 @@ func TestSetSSEHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
 	SetSSEHeaders(w)
 
-	if contentType := w.Header().Get("Content-Type"); contentType != "text/event-stream" {
-		t.Errorf("Content-Type = %q, want %q", contentType, "text/event-stream")
+	if contentType := w.Header().Get("Content-Type"); contentType != "text/event-stream; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want %q", contentType, "text/event-stream; charset=utf-8")
 	}
 
 	if cacheControl := w.Header().Get("Cache-Control"); cacheControl != "no-cache" {

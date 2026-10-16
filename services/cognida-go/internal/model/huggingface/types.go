@@ -176,18 +176,21 @@ type Preview struct {
 	PreviewRows    int               `json:"preview_rows"`
 }
 type Import struct {
-	ID          string    `json:"id"`
-	TenantID    int64     `json:"-"`
-	UserID      int64     `json:"-"`
-	Request     Request   `json:"request"`
-	RequestHash string    `json:"request_hash"`
-	Status      string    `json:"status"`
-	Manifest    *Manifest `json:"manifest,omitempty"`
-	OutputRefs  []l.RefID `json:"output_refs"`
-	ErrorCode   string    `json:"error_code,omitempty"`
-	Deadline    time.Time `json:"deadline"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string              `json:"id"`
+	TenantID    int64               `json:"-"`
+	UserID      int64               `json:"-"`
+	Request     Request             `json:"request"`
+	RequestHash string              `json:"request_hash"`
+	Status      string              `json:"status"`
+	Manifest    *Manifest           `json:"manifest,omitempty"`
+	OutputRefs  []l.RefID           `json:"output_refs"`
+	ErrorCode   string              `json:"error_code,omitempty"`
+	Deadline    time.Time           `json:"deadline"`
+	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
+	Governed    *GovernedInvocation `json:"governed,omitempty"`
+	StartedAt   *time.Time          `json:"started_at,omitempty"`
+	ClaimToken  string              `json:"-"`
 }
 type Repository interface {
 	Reserve(context.Context, l.Principal, string, string, Request) (*Import, bool, error)

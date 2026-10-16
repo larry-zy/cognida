@@ -286,7 +286,11 @@ func featurePublication(processor knowledge.DocumentProcessorService, catalogSer
 			if result == nil || result.ParseStatus != "completed" || result.KnowledgeID == "" {
 				return nil, fmt.Errorf("knowledge publication incomplete")
 			}
-			return map[string]any{"publication_status": "published", "knowledge_id": result.KnowledgeID, "knowledge_base_id": kb}, nil
+			inputDigest := sha256.Sum256([]byte(input.Text))
+			if result.ContentDigest != hex.EncodeToString(inputDigest[:]) || len(result.ChunkDigest) != 64 {
+				return nil, fmt.Errorf("knowledge publication has no verified ingestion snapshot")
+			}
+			return map[string]any{"publication_status": "published", "knowledge_id": result.KnowledgeID, "knowledge_base_id": kb, "content_digest": result.ContentDigest, "chunk_digest": result.ChunkDigest}, nil
 		}
 		result := map[string]any{"publication_status": "published", "storage": "versioned_object_store", "source_ref": ref.AssetRefID}
 		if id, ok := options["catalog_asset_id"].(string); ok && id != "" {

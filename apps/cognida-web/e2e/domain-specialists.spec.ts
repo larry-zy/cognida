@@ -69,7 +69,7 @@ test.describe('real feature engineering and labeling specialists', () => {
       await action(page, `/features/${feature.id}/versions`, () => page.getByRole('button', { name: '创建新版本', exact: true }).click())
       await page.screenshot({ path: info.outputPath('feature-definition.png'), fullPage: true })
       await page.goto('/tasks')
-      await page.getByText('使用领域专家：特征工程、知识打标与样本标注', { exact: true }).click()
+      await page.getByText('使用领域专家：数据采集、准备、SFT 与治理', { exact: true }).click()
       await page.getByLabel(/^领域能力/).selectOption('governance.feature-engineering')
       await page.getByLabel(/^专家特征定义/).selectOption(feature.id)
       await page.getByLabel('专家特征版本', { exact: true }).fill('2')

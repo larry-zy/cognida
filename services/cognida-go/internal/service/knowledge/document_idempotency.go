@@ -59,11 +59,11 @@ func (s *documentProcessorService) ProcessDocument(ctx context.Context, tenantID
 			if existing.DeletedAt != nil || !existing.IsEnabled() {
 				return domain.ErrKnowledgeNotFound
 			}
-			if existing.TenantID != tenantID || existing.KnowledgeBaseID != req.KnowledgeBaseID || existing.FileHash != contentHash {
+			if existing.TenantID != tenantID || existing.UserID != userID || existing.KnowledgeBaseID != req.KnowledgeBaseID || existing.FileHash != contentHash {
 				return fmt.Errorf("ingestion idempotency key conflicts with existing content")
 			}
 			if existing.ParseStatus == domain.ParseStatusCompleted {
-				result = &ProcessDocumentResponse{DocumentID: id, KnowledgeID: id, ParseStatus: existing.ParseStatus, StorageSize: existing.StorageSize}
+				result = &ProcessDocumentResponse{DocumentID: id, KnowledgeID: id, ParseStatus: existing.ParseStatus, StorageSize: existing.StorageSize, ContentDigest: existing.FileHash, ChunkDigest: existing.IngestedChunkDigest}
 				if existing.ChunkCount != nil {
 					result.ChunkCount = *existing.ChunkCount
 				}

@@ -41,8 +41,10 @@ import (
 	"cognida/internal/service/strategy"
 	tasksvc "cognida/internal/service/taskcontrol"
 	"cognida/internal/service/taskcontrol/governanceadapter"
+	"cognida/internal/service/taskcontrol/huggingfaceadapter"
 	"cognida/internal/service/taskcontrol/lifecycleadapter"
 	"cognida/internal/service/taskcontrol/sandboxadapter"
+	"cognida/internal/service/taskcontrol/sftadapter"
 	"cognida/internal/service/taskcontrol/warehouseadapter"
 	"cognida/internal/service/warehouse"
 	"context"
@@ -63,6 +65,7 @@ import (
 type FeatureServices struct {
 	HuggingFace             *hf.Service
 	HuggingFaceHandler      *handler.HuggingFaceHandler
+	HuggingFaceWorker       *hf.Worker
 	LabelStandardHandler    *handler.LabelStandardHandler
 	SFTHandler              *handler.SFTHandler
 	Feedback                *feedback.Service
@@ -288,6 +291,19 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	f.GovernanceWorker = governance.NewWorker(f.Governance)
 	adapters := map[string]tasksvc.ExecutionAdapter{}
 	capabilities := tasksvc.LifecycleCapabilities(lifecycle.Contracts())
+	hfAdapter, err := huggingfaceadapter.New(f.HuggingFace)
+	if err != nil {
+		return nil, err
+	}
+	adapters[hfAdapter.Capability().ID] = hfAdapter
+	capabilities = append(capabilities, hfAdapter.Capability())
+	f.HuggingFaceWorker = hf.NewWorker(f.HuggingFace)
+	sftAdapter, err := sftadapter.New(f.Governance, life)
+	if err != nil {
+		return nil, err
+	}
+	adapters[sftAdapter.Capability().ID] = sftAdapter
+	capabilities = append(capabilities, sftAdapter.Capability())
 	warehouseAdapter, err := warehouseadapter.New(f.Warehouse)
 	if err != nil {
 		return nil, err
@@ -409,6 +425,10 @@ func (f *FeatureServices) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 	f.done = make(chan struct{})
+	if f.HuggingFaceWorker != nil {
+		f.workers.Add(1)
+		go func() { defer f.workers.Done(); f.HuggingFaceWorker.Run(ctx) }()
+	}
 	if f.FeedbackWorker != nil {
 		f.workers.Add(1)
 		go func() { defer f.workers.Done(); f.FeedbackWorker.Run(ctx) }()

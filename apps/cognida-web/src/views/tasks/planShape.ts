@@ -19,6 +19,15 @@ export function isRenderablePlan(value: unknown): value is PlanSpec {
       (input.asset === undefined || (record(input.asset) && typeof input.asset.asset_id === 'string' && integer(input.asset.version))))) return false
     if (node.parameters === undefined) return true
     if (!record(node.parameters) || !Object.values(node.parameters).every(record)) return false
+    const hf=node.parameters.huggingface
+    if(hf!==undefined){
+      if(!record(hf)||!record(hf.request))return false
+      const request=hf.request
+      if(!['repo_id','revision','config','split'].every(key=>typeof request[key]==='string')||!strings(request.files)||!integer(request.max_rows)||!integer(request.max_bytes)||!record(request.field_mapping))return false
+      if(request.field_mapping.columns!==undefined&&(!Array.isArray(request.field_mapping.columns)||!request.field_mapping.columns.every(column=>record(column)&&typeof column.source==='string'&&typeof column.target==='string')))return false
+    }
+    const sft=node.parameters.sft
+    if(sft!==undefined&&(!record(sft)||typeof sft.name!=='string'||typeof sft.standard_version_id!=='string'||typeof sft.format!=='string'||!record(sft.columns)||!Object.values(sft.columns).every(value=>typeof value==='string')))return false
     const governance = node.parameters.governance
     if (!governance) return true
     if (!record(governance)) return false

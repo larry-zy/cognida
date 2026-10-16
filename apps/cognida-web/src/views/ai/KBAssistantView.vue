@@ -239,38 +239,7 @@
                 />
                 <!-- 回答气泡 -->
                 <div class="bubble bubble--ai" v-html="renderMarkdown(message.content)"></div>
-                <!-- 引用来源（来自 ragContext，真实检索来源） -->
-                <div v-if="message.ragContext && message.ragContext.contexts_with_score && message.ragContext.contexts_with_score.length > 0" class="sources">
-                  <div class="sources__title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/>
-                      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
-                    </svg>
-                    REFERENCES · {{ message.ragContext.contexts_with_score.length }}
-                  </div>
-                  <div
-                    v-for="(src, idx) in message.ragContext.contexts_with_score"
-                    :key="idx"
-                    class="src"
-                  >
-                    <div class="src__icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <path d="M14 2v6h6"/>
-                      </svg>
-                    </div>
-                    <div class="src__body">
-                      <div class="src__name">{{ src.source || `片段 ${idx + 1}` }}</div>
-                      <div class="src__snip">{{ src.content?.slice(0, 80) }}…</div>
-                    </div>
-                    <div class="src__side">
-                      <div class="src__bar">
-                        <i :style="{ width: Math.round(src.score * 100) + '%' }"></i>
-                      </div>
-                      <span class="src__pct">.{{ Math.round(src.score * 100) }}</span>
-                    </div>
-                  </div>
-                </div>
+                <KnowledgeSourceCards :steps="message.steps" :legacy="message.ragContext" />
                 <!-- 推荐追问（预制，仅最后一条回答显示） -->
                 <div
                   v-if="message.id === lastAssistantId && !isStreaming"
@@ -383,6 +352,8 @@ import { agentApi } from '@/api/agent'
 import type { Message, AgentStep, KnowledgeBase, RAGContext } from '@/types'
 import { formatTime } from '@/utils'
 import toast from '@/utils/toast'
+import KnowledgeSourceCards from './KnowledgeSourceCards.vue'
+import {knowledgeSources} from './knowledgeSources'
 import AgentTimeline from '@/components/agent/AgentTimeline.vue'
 import { useMarkdown } from '@/composables/useMarkdown'
 import { useAgentChat, parseAgentSteps } from '@/composables/useAgentChat'
@@ -508,8 +479,8 @@ const indexHealthCap = computed(() => {
 // ===== 回答元信息：时间 + 引用统计 =====
 function formatAnswerMeta(m: KBMessage): string {
   const t = formatTime(m.created_at)
-  const n = m.ragContext?.contexts_with_score?.length ?? 0
-  return n > 0 ? `${t} · 引用 ${n} 篇文档 · 已按相关度重排` : t
+  const n = knowledgeSources(m.steps,m.ragContext).length
+  return n > 0 ? `${t} · 检索来源 ${n} 个片段` : t
 }
 
 // ===== 消息状态 =====
@@ -544,7 +515,8 @@ const {
     created_at: typeof msg.created_at === 'number'
       ? new Date((msg.created_at as unknown as number) * 1000).toISOString()
       : msg.created_at,
-    steps: parseAgentSteps(msg.agent_steps)
+    steps: parseAgentSteps(msg.agent_steps),
+    ragContext: (msg as Message & {rag_context?:RAGContext;ragContext?:RAGContext}).rag_context || (msg as KBMessage).ragContext
   } as KBMessage),
   searchTitleFallback: '新对话',
   deleteConfirmMessage: '确定要删除这个对话记录吗？',

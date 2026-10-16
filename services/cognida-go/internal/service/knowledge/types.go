@@ -301,6 +301,8 @@ type ProcessDocumentRequest struct {
 
 // ProcessDocumentResponse 文档处理响应
 type ProcessDocumentResponse struct {
+	ContentDigest  string   `json:"content_digest,omitempty"`
+	ChunkDigest    string   `json:"chunk_digest,omitempty"`
 	DocumentID     string   `json:"document_id"`
 	KnowledgeID    string   `json:"knowledge_id"`
 	Status         string   `json:"status"`

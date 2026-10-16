@@ -25,7 +25,7 @@ const splits=computed(()=>dataset.value?.configs.find(c=>c.name===config.value)?
 const files=computed(()=>{const paths=splits.value.find(s=>s.name===split.value)?.files||[];return (dataset.value?.files||[]).filter(f=>paths.includes(f.path))})
 const mappingFields:EditorField[]=[{key:'source',label:'源字段'},{key:'target',label:'目标字段'},{key:'encoding',label:'编码',options:[{value:'',label:'保留标量'},{value:'json',label:'JSON 字符串'}]}]
 const request=computed<HFRequest>(()=>({repo_id:dataset.value?.repo_id||'',revision:dataset.value?.revision||'',config:config.value,split:split.value,files:[...selectedFiles.value],field_mapping:mappingMode.value==='text'?{text_field:textField.value.trim(),...(idField.value.trim()?{id_field:idField.value.trim()}:{})}:{columns:columnMapping.value.map(c=>({source:String(c.source||'').trim(),target:String(c.target||'').trim(),...(c.encoding==='json'?{encoding:'json' as const}:{})}))},max_rows:maxRows.value,max_bytes:maxBytes.value,...(credential.value?{credential_id:credential.value}:{})}))
-const requestKey=computed(()=>JSON.stringify(request.value)),state=(s:string)=>({running:'导入中',succeeded:'已导入',failed:'导入失败'}[s]||s)
+const requestKey=computed(()=>JSON.stringify(request.value)),state=(s:string)=>({queued:'已排队',running:'导入中',cancel_requested:'已申请取消',cancelled:'已取消',timed_out:'已超时',succeeded:'已导入',failed:'导入失败'}[s]||s)
 function resetDataset(){dataset.value=undefined;config.value='';split.value='';selectedFiles.value=[];previewed.value=undefined;previewKey.value='';textField.value='';idField.value='';columnMapping.value=[]}
 watch(credential,()=>{results.value=[];next.value=''})
 watch(query,()=>{results.value=[];next.value=''})

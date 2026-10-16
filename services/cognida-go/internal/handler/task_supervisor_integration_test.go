@@ -58,7 +58,7 @@ type supervisorHTTPFixture struct {
 	kinds   map[l.RefID]l.Kind
 }
 
-func newSupervisorHTTPFixture(t *testing.T) *supervisorHTTPFixture {
+func newSupervisorHTTPFixture(t *testing.T, execution ...svc.ExecutionSupport) *supervisorHTTPFixture {
 	t.Helper()
 	dsn := os.Getenv("COGNIDA_TASKCONTROL_TEST_DSN")
 	require.NotEmpty(t, dsn, "set COGNIDA_TASKCONTROL_TEST_DSN to an isolated, migrated review database")
@@ -86,7 +86,11 @@ func newSupervisorHTTPFixture(t *testing.T) *supervisorHTTPFixture {
 		}
 	})
 	f.plan = svc.PlanSpec{SchemaVersion: 1, Budget: f.budget, Nodes: []svc.Node{{ID: "clean", Capability: "lifecycle.clean", CapabilityVersion: 1, Inputs: []svc.InputBinding{{Asset: &f.ref, Kind: l.RawAsset}}, OutputKinds: []l.Kind{l.CleanedAsset}, Tools: []string{"clean"}, Permissions: []string{"read"}, MaxAttempts: 1, MaxCallsPerAttempt: 1, MaxCostMicrosPerAttempt: 10, TimeoutSeconds: 10}}}
-	validator, err := svc.NewValidator([]svc.Capability{{ID: "lifecycle.clean", Version: 1, Domain: "lifecycle", InputKinds: []l.Kind{l.RawAsset}, OutputKinds: []l.Kind{l.CleanedAsset}, Tools: []string{"clean"}, Permissions: []string{"read"}}}, func(_ context.Context, scope d.Scope, permission string) error {
+	capability := svc.Capability{ID: "lifecycle.clean", Version: 1, Domain: "lifecycle", InputKinds: []l.Kind{l.RawAsset}, OutputKinds: []l.Kind{l.CleanedAsset}, Tools: []string{"clean"}, Permissions: []string{"read"}}
+	if len(execution) > 0 {
+		capability.Execution = &execution[0]
+	}
+	validator, err := svc.NewValidator([]svc.Capability{capability}, func(_ context.Context, scope d.Scope, permission string) error {
 		if scope.Validate() != nil || permission != "read" {
 			return d.ErrForbidden
 		}

@@ -105,6 +105,32 @@ func (s *Supervisor) sources(ctx context.Context, p d.Scope, refs []l.RefID) ([]
 	return items, nil
 }
 
+func (s *Supervisor) authorizedCapabilities(ctx context.Context, p d.Scope) []Capability {
+	caps := []Capability{}
+	for _, capability := range s.tasks.validator.Capabilities() {
+		allowed := true
+		for _, permission := range capability.Permissions {
+			if s.tasks.validator.authorize(ctx, p, permission) != nil {
+				allowed = false
+				break
+			}
+		}
+		if allowed {
+			caps = append(caps, capability)
+		}
+	}
+	return caps
+}
+
+func supportsAcquisition(capabilities []Capability) bool {
+	for _, capability := range capabilities {
+		if capability.AllowEmptyInputs && capability.Execution != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Assess asks for required planning inputs without spending a model call.
 // Ready means enough input for proposing, not approval or permission to execute.
 func (s *Supervisor) Assess(ctx context.Context, p d.Scope, in AssessmentInput) (*Assessment, error) {
@@ -119,7 +145,7 @@ func (s *Supervisor) Assess(ctx context.Context, p d.Scope, in AssessmentInput) 
 	if in.Goal == "" {
 		result.Questions = append(result.Questions, SupervisorQuestion{ID: "goal", Question: "希望对这些数据完成什么工作，最终需要什么产物？"})
 	}
-	if len(in.InputRefs) == 0 {
+	if len(in.InputRefs) == 0 && !supportsAcquisition(s.authorizedCapabilities(ctx, p)) {
 		result.Questions = append(result.Questions, SupervisorQuestion{ID: "inputs", Question: "请选择本次任务的输入资产版本。"})
 	}
 	if _, e := s.sources(ctx, p, in.InputRefs); e != nil {
@@ -170,7 +196,7 @@ func (s *Supervisor) Propose(ctx context.Context, p d.Scope, id string, in Propo
 		return nil, d.ErrConflict
 	}
 	refs, e := decodeStored[[]l.RefID](task.InputRefs)
-	if e != nil || len(refs) == 0 {
+	if e != nil {
 		return nil, d.ErrInvalid
 	}
 	budget, e := decodeStored[Budget](task.Budget)
@@ -182,21 +208,12 @@ func (s *Supervisor) Propose(ctx context.Context, p d.Scope, id string, in Propo
 		return nil, e
 	}
 	// Avoid advertising capabilities that the current principal cannot use.
-	caps := []Capability{}
-	for _, capability := range s.tasks.validator.Capabilities() {
-		allowed := true
-		for _, permission := range capability.Permissions {
-			if s.tasks.validator.authorize(ctx, p, permission) != nil {
-				allowed = false
-				break
-			}
-		}
-		if allowed {
-			caps = append(caps, capability)
-		}
-	}
+	caps := s.authorizedCapabilities(ctx, p)
 	if len(caps) == 0 {
 		return nil, d.ErrForbidden
+	}
+	if len(refs) == 0 && !supportsAcquisition(caps) {
+		return nil, d.ErrInvalid
 	}
 	decision, e := s.planner.Propose(ctx, PlanningInput{Goal: task.Goal, Sources: sources, Budget: budget, Capabilities: caps, Answers: in.Answers})
 	if e != nil {
@@ -252,7 +269,7 @@ func (s *Supervisor) Propose(ctx context.Context, p d.Scope, id string, in Propo
 				return nil, d.ErrForbidden
 			}
 		}
-		compiled, adjustments, compileErr := compileSupervisorBudget(*decision.Plan, budget)
+		compiled, adjustments, compileErr := compileSupervisorBudget(*decision.Plan, budget, caps...)
 		if compileErr != nil {
 			return nil, compileErr
 		}

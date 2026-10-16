@@ -111,6 +111,14 @@ func publicError(e error) error {
 		}
 	}
 	switch {
+	case errors.Is(e, l.ErrForbidden), errors.Is(e, l.ErrExpired):
+		return d.ErrForbidden
+	case errors.Is(e, l.ErrNotFound):
+		return d.ErrNotFound
+	case errors.Is(e, l.ErrInvalid):
+		return d.ErrInvalid
+	case errors.Is(e, l.ErrConflict):
+		return d.ErrConflict
 	case errors.Is(e, fetcher.ErrAuthentication):
 		return d.ErrForbidden
 	case errors.Is(e, fetcher.ErrNotFound):

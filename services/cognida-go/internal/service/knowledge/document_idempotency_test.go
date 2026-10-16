@@ -41,7 +41,8 @@ func TestDocumentIngestionReplayReturnsPreviouslyCommittedDocument(t *testing.T)
 	id := uuid.NewSHA1(uuid.NameSpaceURL, idHash[:]).String()
 	bodyHash := sha256.Sum256([]byte("already ingested"))
 	count := 3
-	repo := &replayKnowledgeRepo{doc: &domain.Knowledge{ID: id, TenantID: 1, KnowledgeBaseID: "kb", FileHash: hex.EncodeToString(bodyHash[:]), ParseStatus: domain.ParseStatusCompleted, EnableStatus: domain.EnableStatusEnabled, ChunkCount: &count}}
+	repo := &replayKnowledgeRepo{doc: &domain.Knowledge{ID: id, TenantID: 1, UserID: 2, KnowledgeBaseID: "kb", FileHash: hex.EncodeToString(bodyHash[:]), ParseStatus: domain.ParseStatusCompleted, EnableStatus: domain.EnableStatusEnabled, ChunkCount: &count}}
+	repo.doc.IngestedChunkDigest = "historical-digest-not-recomputed"
 	kbRepo := newTenantFakeKBRepo()
 	kbRepo.kbs["kb"] = &domain.KnowledgeBase{ID: "kb", TenantID: 1, Status: 1}
 	svc := &documentProcessorService{kbRepo: kbRepo, knowledgeRepo: repo}
@@ -54,9 +55,20 @@ func TestDocumentIngestionReplayReturnsPreviouslyCommittedDocument(t *testing.T)
 		if result.KnowledgeID != id || result.ChunkCount != 3 {
 			t.Fatalf("unexpected replay: %+v", result)
 		}
+		if result.ContentDigest != repo.doc.FileHash || result.ChunkDigest != repo.doc.IngestedChunkDigest {
+			t.Fatal("replay must return only persisted ingestion evidence without reading current chunks")
+		}
 	}
 	if repo.lockCalls != 2 {
 		t.Fatal("replays must be serialized")
+	}
+	if _, err := svc.ProcessDocument(ctx, 1, 3, req); err == nil {
+		t.Fatal("another user's key must not return an ingestion proof")
+	}
+	repo.doc.IngestedChunkDigest = ""
+	legacy, err := svc.ProcessDocument(ctx, 1, 2, req)
+	if err != nil || legacy.ChunkDigest != "" {
+		t.Fatal("legacy replay must not backfill evidence from current chunks")
 	}
 	repo.doc.EnableStatus = domain.EnableStatusDisabled
 	if result, err := svc.ProcessDocument(ctx, 1, 2, req); !errors.Is(err, domain.ErrKnowledgeNotFound) || result != nil {

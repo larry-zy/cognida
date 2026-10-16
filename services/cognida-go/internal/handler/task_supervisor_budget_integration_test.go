@@ -110,3 +110,45 @@ func TestTaskSupervisorMySQLHTTPBudgetCompilation(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskSupervisorMySQLHTTPExecutionMinimum(t *testing.T) {
+	for _, exceeds := range []bool{false, true} {
+		t.Run(map[bool]string{false: "visible node adjustment saved exactly", true: "input reservations exceed task ceiling"}[exceeds], func(t *testing.T) {
+			f := newSupervisorHTTPFixture(t, svc.ExecutionSupport{Profile: "test-clean-v1", BaseCalls: 2, CallsPerInput: 1, MaxTimeoutSeconds: 30})
+			task := f.draft()
+			path := "/" + task.ID
+			original := f.clonePlan()
+			if exceeds {
+				original.Nodes[0].MaxAttempts = 2
+			}
+			f.planner = func(context.Context, svc.PlanningInput) (svc.PlannerDecision, error) {
+				return svc.PlannerDecision{Kind: "proposal", Explanation: "合成漏计输入调用的候选。", Plan: &original}, nil
+			}
+			before := f.counts()
+			response := f.request(http.MethodPost, path+"/supervisor/propose", svc.ProposeInput{ExpectedVersion: task.Version}, "")
+			require.Equal(t, before, f.counts(), "proposal compilation must never save or dispatch")
+			require.Equal(t, int64(1), f.calls.Load())
+			if exceeds {
+				require.Equal(t, http.StatusBadRequest, response.Code)
+				require.Contains(t, response.Body.String(), "task_budget_exceeded")
+				return
+			}
+			proposal := supervisorDecode[svc.SupervisorProposal](t, response, http.StatusOK)
+			require.Equal(t, 1, original.Nodes[0].MaxCallsPerAttempt)
+			require.Equal(t, 3, proposal.Decision.Plan.Nodes[0].MaxCallsPerAttempt)
+			require.Equal(t, []svc.BudgetAdjustment{{NodeID: "clean", Field: "max_calls_per_attempt", Before: 1, After: 3, Reason: "trusted_execution_minimum"}}, proposal.BudgetAdjustments)
+			invalid := f.request(http.MethodPost, path+"/plans", svc.AppendPlanInput{ExpectedVersion: task.Version, Plan: original}, "")
+			require.Equal(t, http.StatusBadRequest, invalid.Code)
+			require.Contains(t, invalid.Body.String(), "execution_call_budget")
+			require.Equal(t, before, f.counts())
+			saved := supervisorDecode[svc.PlanResult](t, f.request(http.MethodPost, path+"/plans", svc.AppendPlanInput{ExpectedVersion: task.Version, Plan: *proposal.Decision.Plan}, ""), http.StatusCreated)
+			persisted, err := f.repo.GetPlan(context.Background(), f.owner, task.ID, saved.Plan.Version)
+			require.NoError(t, err)
+			raw, err := json.Marshal(proposal.Decision.Plan)
+			require.NoError(t, err)
+			require.JSONEq(t, string(raw), string(persisted.Snapshot))
+			require.Zero(t, f.counts()["task_control_children"])
+			require.Zero(t, f.counts()["task_control_outbox"])
+		})
+	}
+}

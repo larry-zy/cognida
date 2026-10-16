@@ -1,0 +1,37 @@
+{
+  "dataset_id": "nvidia/TechQA-RAG-Eval",
+  "revision": "0b5bbc84b7f07d6d09d063130e90b716d8d4a32a",
+  "license": "Apache-2.0",
+  "source_url": "https://huggingface.co/datasets/nvidia/TechQA-RAG-Eval",
+  "file": "train.json",
+  "file_sha256": "69d97231509482ed6bd5ec1c4bc0607acb82a88d11169eb8383592d0ca8b93c7",
+  "file_bytes": 4019332,
+  "actual_rows": 910,
+  "card_rows": 908,
+  "rows": [
+    {
+      "id": "TRAIN_Q000",
+      "question": "User environment variables no longer getting picked up after upgrade to 4.1.1.1 or 4.1.1.2?\n\n\n\nHave you found that after upgrade to Streams 4.1.1.1 or 4.1.1.2, that environment variables set in your .bashrc are no longer being set? For example ODBCINI is not set for the database toolkit and you get\n\n     An SQL operation failed. The SQL state is 08003, the SQL code\n     is 0 and the SQL message is [unixODBC][Driver\n     Manager]Connnection does not exist.\n",
+      "answer": "To work around the issue, set environment variables that are needed by the application directly in the instance with:  * \n   \n * streamtool setproperty\n * -d <domain> -i <instance>\n   --application-ev <VARIABLE NAME>=<VARIABLE VALUE>",
+      "contexts_text_sha256": [
+        "164aa2791b9fb8902555fe7cc2e038f2e304f8a234e8dc7f9c6fc3d352af17f0"
+      ]
+    },
+    {
+      "id": "TRAIN_Q001",
+      "question": "Netcool/Impact (all versions): How is the Exit() action function expected to work with User Defined Functions?\n\nNetcool/Impact (all versions)\n\nUsing the Exit() action function within a User Defined Function in a Policy will not exit the Policy process.",
+      "answer": "This is because the Exit() parser function in IPL is designed to exit the immediate scope. To carry the action outside of the User Defined Function to the Policy level one would have to set a variable that is then tested immediately after the User Defined Function call",
+      "contexts_text_sha256": [
+        "8e27b5d0303696b7e61b123960246738f94fc9b2430665bedde5513c458a4653"
+      ]
+    }
+  ],
+  "negative_row": {
+    "index": 2,
+    "id": "TRAIN_Q002",
+    "answer_is_blank": false,
+    "answer": "-",
+    "is_impossible": true,
+    "contexts_count": 0
+  }
+}

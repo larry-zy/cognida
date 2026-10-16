@@ -51,7 +51,7 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 	for _, child := range children {
 		kind := ""
 		if child.DomainID != "" {
-			if child.Domain == "collection" || child.Domain == "evaluation" || child.Domain == "research" || child.Domain == "warehouse" || child.Domain == "sandbox" {
+			if child.Domain == "collection" || child.Domain == "evaluation" || child.Domain == "research" || child.Domain == "warehouse" || child.Domain == "sandbox" || child.Domain == "huggingface" {
 				kind = runtimeDomainKind(child.Domain)
 			}
 			if child.Domain == "lifecycle" {
@@ -78,6 +78,9 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 				if kinds[child.NodeID] == "governance.feature-engineering" {
 					kind = "feature_execution"
 				}
+				if kinds[child.NodeID] == "governance.sft" {
+					kind = "sft_execution"
+				}
 			}
 		}
 		summary.Children = append(summary.Children, SupervisorChildSummary{ID: child.ID, NodeID: child.NodeID, PlanVersion: child.PlanVersion, Attempt: child.Attempt, Domain: child.Domain, DomainID: child.DomainID, DomainKind: kind, DispatchStatus: child.Status, DomainStatus: child.DomainStatus, ReceiptPresent: len(child.Receipt) > 0 && string(child.Receipt) != "null"})
@@ -100,7 +103,7 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 					item.Status = child.DomainStatus
 				}
 				if child.DomainID != "" {
-					if child.Domain == "collection" || child.Domain == "evaluation" || child.Domain == "research" || child.Domain == "warehouse" || child.Domain == "sandbox" {
+					if child.Domain == "collection" || child.Domain == "evaluation" || child.Domain == "research" || child.Domain == "warehouse" || child.Domain == "sandbox" || child.Domain == "huggingface" {
 						item.DomainKind = runtimeDomainKind(child.Domain)
 					}
 					if child.Domain == "lifecycle" {
@@ -112,6 +115,9 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 					if node.Capability == "governance.feature-engineering" {
 						item.DomainKind = "feature_execution"
 					}
+					if node.Capability == "governance.sft" {
+						item.DomainKind = "sft_execution"
+					}
 				}
 				if len(child.OutputRefs) > 0 {
 					refs, err := decodeStored[[]l.RefID](child.OutputRefs)
@@ -120,7 +126,7 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 					}
 					for _, ref := range refs {
 						adapter := r.adapters[node.Capability]
-						if adapter != nil && adapter.ValidateInputs(ctx, p, []l.RefID{ref}) == nil {
+						if authorizeExecutionOutputs(ctx, p, adapter, []l.RefID{ref}) == nil {
 							if _, err := r.tasks.validator.resolve(ctx, p, ref); err != nil {
 								continue
 							}
@@ -160,6 +166,9 @@ func (r *Runtime) DecorateSummary(ctx context.Context, p d.Scope, summary *Super
 }
 
 func runtimeDomainKind(domain string) string {
+	if domain == "huggingface" {
+		return "huggingface_import"
+	}
 	if domain == "warehouse" || domain == "sandbox" {
 		return domain + "_run"
 	}

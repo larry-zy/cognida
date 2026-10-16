@@ -141,7 +141,9 @@ func (r *knowledgeRepository) FindByTenantID(ctx context.Context, tenantID int64
 func (r *knowledgeRepository) Update(ctx context.Context, knowledge *domain_knowledge.Knowledge) error {
 	var model KnowledgeModel
 	model.FromDomain(knowledge)
-	return r.db.WithContext(ctx).Save(&model).Error
+	// Only FinalizeIngestion may change the ingestion-time evidence. A stale
+	// metadata edit must not erase or replace that historical receipt.
+	return r.db.WithContext(ctx).Omit("ingested_chunk_digest").Save(&model).Error
 }
 
 // UpdateParseStatus 更新解析状态

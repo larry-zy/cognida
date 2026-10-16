@@ -11,6 +11,7 @@ import (
 	"cognida/internal/model/conversation"
 	agentuc "cognida/internal/service/agent"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type streamMessageRepo struct {
@@ -22,6 +23,12 @@ type streamMessageRepo struct {
 }
 
 func (r *streamMessageRepo) Create(ctx context.Context, m *conversation.Message) error {
+	if len(m.ID) != 36 {
+		r.t.Fatalf("stream message ID does not fit the migrated UUID column: %d bytes", len(m.ID))
+	}
+	if _, err := uuid.Parse(m.ID); err != nil {
+		r.t.Fatal("stream message ID must retain a complete UUID")
+	}
 	if ctx.Err() != nil {
 		r.t.Fatal("persistence inherited canceled request")
 	}

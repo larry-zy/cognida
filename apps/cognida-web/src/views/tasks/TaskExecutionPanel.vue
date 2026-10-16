@@ -285,6 +285,10 @@ const props = defineProps<{
 defineEmits<{ start: []; cancel: []; refresh: [] }>();
 function domainLink(item: { domain_kind?: string; domain_id?: string }) {
   if (!item.domain_id) return undefined;
+  if (item.domain_kind === "huggingface_import")
+    return { path: "/hf-datasets", query: { import_id: item.domain_id } };
+  if (item.domain_kind === "sft_execution")
+    return { path: "/sft-datasets", query: { execution_id: item.domain_id } };
   if (item.domain_kind === "sandbox_run")
     return { path: "/sandbox", query: { run_id: item.domain_id } };
   if (item.domain_kind === "warehouse_run")

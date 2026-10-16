@@ -121,26 +121,27 @@ func (kb *KnowledgeBase) RemoveChunks(count int, size int64) {
 // Knowledge knowledge entry entity
 // Corresponds to knowledges table
 type Knowledge struct {
-	ID              string
-	TenantID        int64
-	TagID           *int64
-	KnowledgeBaseID string
-	UserID          int64
-	Type            string
-	Title           string
-	Description     string
-	Source          string
-	ParseStatus     string
-	ErrorMessage    string
-	EnableStatus    string
-	FilePath        string
-	FileHash        string
-	StorageSize     int64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       *time.Time
-	ProcessedAt     *time.Time
-	ChunkCount      *int
+	ID                  string
+	TenantID            int64
+	TagID               *int64
+	KnowledgeBaseID     string
+	UserID              int64
+	Type                string
+	Title               string
+	Description         string
+	Source              string
+	ParseStatus         string
+	ErrorMessage        string
+	EnableStatus        string
+	FilePath            string
+	FileHash            string
+	IngestedChunkDigest string
+	StorageSize         int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           *time.Time
+	ProcessedAt         *time.Time
+	ChunkCount          *int
 }
 
 // ========================================

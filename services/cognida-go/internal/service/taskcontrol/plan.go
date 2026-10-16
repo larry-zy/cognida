@@ -123,7 +123,7 @@ func NewValidator(capabilities []Capability, authorize Authorizer, resolve Resol
 			return nil, d.ErrConflict
 		}
 		switch c.ParameterKind {
-		case "", "governance", "feature", "collection", "evaluation", "research", "warehouse", "sandbox":
+		case "", "governance", "feature", "collection", "evaluation", "research", "warehouse", "sandbox", "huggingface", "sft":
 		default:
 			return nil, d.ErrInvalid
 		}
@@ -150,6 +150,10 @@ func NewValidator(capabilities []Capability, authorize Authorizer, resolve Resol
 		c.Permissions = append([]string(nil), c.Permissions...)
 		c.RequiredAnyInputKinds = append([]l.Kind(nil), c.RequiredAnyInputKinds...)
 		c.FirstInputPassthroughKinds = append([]l.Kind(nil), c.FirstInputPassthroughKinds...)
+		if c.Execution != nil {
+			support := *c.Execution
+			c.Execution = &support
+		}
 		v.capabilities[c.ID] = c
 	}
 	return v, nil
@@ -260,6 +264,15 @@ func (v *Validator) Validate(ctx context.Context, p d.Scope, plan PlanSpec) (*Va
 		}
 		if !reserved.add(n) {
 			add(n.ID, "budget", "invalid_node_budget", "node attempts, calls, cost or timeout exceed allowed limits")
+		}
+		if c.Execution != nil {
+			minimum, valid := executionMinimumCalls(*c.Execution, len(n.Inputs))
+			if !valid || n.MaxCallsPerAttempt < minimum {
+				add(n.ID, "max_calls_per_attempt", "execution_call_budget", "reserve the trusted execution base calls plus calls for every input")
+			}
+			if c.Execution.MaxTimeoutSeconds < 1 || n.TimeoutSeconds > c.Execution.MaxTimeoutSeconds {
+				add(n.ID, "timeout_seconds", "execution_timeout_limit", "node timeout exceeds the trusted execution profile limit")
+			}
 		}
 	}
 	result.ReservedAttempts = reserved.attempts

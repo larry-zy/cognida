@@ -65,4 +65,29 @@ describe('knowledge cache identity isolation', () => {
     await oldLoad
     expect(store.knowledgeBases.map(kb => kb.id)).toEqual(['latest'])
   })
+
+  it('keeps a same-identity profile refresh from discarding the in-flight list', async () => {
+    const auth = useAuthStore()
+    auth.token = 'token'
+    auth.user = { id: 10, username: 'owner' } as NonNullable<typeof auth.user>
+    auth.currentTenant = { id: 1, name: 'A', created_at: '', updated_at: '' }
+    const store = useKnowledgeStore()
+    const response = deferred<{ data: { items: { id: string }[] } }>()
+    getList.mockReturnValueOnce(response.promise)
+    const pending = store.loadKnowledgeBases()
+    auth.user = { ...auth.user, username: 'refreshed owner' }
+    auth.currentTenant = { ...auth.currentTenant, name: 'refreshed tenant' }
+    expect(store.loading).toBe(true)
+    const duplicate = store.loadKnowledgeBases()
+    expect(getList).toHaveBeenCalledTimes(1)
+    response.resolve({ data: { items: [{ id: 'current-knowledge-base' }] } })
+    await Promise.all([pending, duplicate])
+    expect(store.knowledgeBases.map(kb => kb.id)).toEqual(['current-knowledge-base'])
+    expect(store.loading).toBe(false)
+    auth.user = { ...auth.user }
+    auth.currentTenant = { ...auth.currentTenant }
+    await store.loadKnowledgeBases()
+    expect(store.knowledgeBases.map(kb => kb.id)).toEqual(['current-knowledge-base'])
+    expect(getList).toHaveBeenCalledTimes(1)
+  })
 })

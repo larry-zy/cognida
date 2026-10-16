@@ -73,8 +73,23 @@ func (r *knowledgeLabelRepository) ApplyApproved(ctx context.Context, p l.Princi
 			return e
 		}
 		contentDigest := d.LabelContentDigest(content)
-		if content == "" || contentDigest != d.LabelContentDigest(in.Content) {
+		if content == "" {
 			return d.ErrConflict
+		}
+		if in.PublicationRefID == "" {
+			if in.PublicationContentDigest != "" || in.PublicationChunkDigest != "" || contentDigest != d.LabelContentDigest(in.Content) {
+				return d.ErrConflict
+			}
+		} else {
+			// Publication evidence is constructed by the authorized lifecycle
+			// resolver, never accepted from HTTP fields. Bind reviewed source
+			// bytes to the ingestion snapshot and verify all current chunks still
+			// match it, including parser boundaries and intentional overlap.
+			if doc.ParseStatus != "completed" || len(in.PublicationContentDigest) != 64 || len(in.PublicationChunkDigest) != 64 ||
+				in.PublicationContentDigest != d.LabelContentDigest(in.Content) || doc.FileHash != in.PublicationContentDigest ||
+				doc.IngestedChunkDigest != in.PublicationChunkDigest || contentDigest != in.PublicationChunkDigest {
+				return d.ErrConflict
+			}
 		}
 		var prior knowledgeLabelReceipt
 		e = tx.Where("tenant_id=? AND user_id=? AND idempotency_key=?", p.TenantID, p.UserID, in.IdempotencyKey).First(&prior).Error
