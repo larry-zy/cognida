@@ -32,6 +32,8 @@
 
 最终综合 E2E **37/37 通过**，用时 8.2 分钟，零失败、零跳过、零整例重试。执行清单 **81/83 项完成验收**；余下两项是实际 BigQuery 项目和固定 revision 特征 embedding 的外部验收，相关实现已具备。本轮测试服务与专用数据已清理，原有服务保留。
 
+2026-10-16 用户确认暂无上述外部环境或受管配置引用，这两项保留为未实测，不计入通过项；其余实现与验收已完成。Hive 已通过本地真实实例验收。
+
 - [综合验收与质量边界](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-COMPLETE-LOOP.md)
 - [文件与人工质量基线](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-EVIDENCE-MATRIX.md)
 - [数仓支持、认证、限额和实际版本](docs/implementation/query-adapters.md)
