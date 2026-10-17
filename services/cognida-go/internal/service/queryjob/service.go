@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -35,16 +36,7 @@ func New(repo d.Repository, provider ds.QueryProvider, authorize Authorizer, cip
 	return &Service{repo, provider, authorize, cipher}, nil
 }
 func sourceVersion(s *ds.DataSource) string {
-	return d.Digest(struct {
-		ID                           string
-		Tenant                       int64
-		Type                         ds.Type
-		Host                         string
-		Port                         int
-		Database, Username, Password string
-		Extra                        []byte
-		Updated                      time.Time
-	}{s.ID, s.TenantID, s.Type, s.Host, s.Port, s.DatabaseName, s.Username, s.PasswordEncrypted, s.Extra, s.UpdatedAt})
+	return ds.QueryConnectionVersion(s)
 }
 func (s *Service) source(ctx context.Context, p l.Principal, id string) (*ds.DataSource, error) {
 	if p.Validate() != nil {
@@ -61,7 +53,7 @@ func (s *Service) authorized(ctx context.Context, p l.Principal, r *d.Record) er
 	if e != nil {
 		return e
 	}
-	if sourceVersion(v) != r.Job.SourceVersion {
+	if !ds.MatchesQueryConnectionVersion(v, r.Job.SourceVersion) {
 		return d.ErrForbidden
 	}
 	return nil
@@ -88,6 +80,11 @@ func (s *Service) Create(ctx context.Context, p l.Principal, in d.Input, key str
 		return nil, d.ErrInvalid
 	}
 	r, e := s.repo.Create(ctx, p, in, v.Type, sourceVersion(v), key)
+	if errors.Is(e, d.ErrConflict) {
+		// Replay a pre-v2 receipt only if its complete legacy request/configuration
+		// hash still matches. This retries a local idempotency lookup, never SQL.
+		r, e = s.repo.Create(ctx, p, in, v.Type, ds.LegacyQueryConnectionVersion(v), key)
+	}
 	if e != nil {
 		return nil, e
 	}

@@ -12,7 +12,7 @@ type Repository interface {
 	Create(ctx context.Context, log *AuditLog) error
 
 	// FindByID 根据ID查找
-	FindByID(ctx context.Context, id int64) (*AuditLog, error)
+	FindByID(ctx context.Context, tenantID, id int64) (*AuditLog, error)
 
 	// Query 查询日志列表（offset 分页，返回总数）
 	Query(ctx context.Context, q *Query) ([]*AuditLog, int64, error)

@@ -60,7 +60,7 @@ func (a *hiveAsyncAdapter) open(id string) (*hiveEnvelope, error) {
 		return nil, fmt.Errorf("Hive handle invalid")
 	}
 	var h hiveEnvelope
-	if json.Unmarshal([]byte(raw), &h) != nil || h.Handles == nil || h.Handles.Session == nil || h.Tenant != a.source.TenantID || h.Source != a.source.ID || h.Version != a.source.UpdatedAt.UTC().Format(time.RFC3339Nano) || h.MaxRows < 1 || h.MaxRows > 10000 || h.MaxBytes < 1 || h.MaxBytes > 8<<20 {
+	if json.Unmarshal([]byte(raw), &h) != nil || h.Handles == nil || h.Handles.Session == nil || h.Tenant != a.source.TenantID || h.Source != a.source.ID || (h.Version != m.QueryConnectionVersion(a.source) && h.Version != a.source.UpdatedAt.UTC().Format(time.RFC3339Nano)) || h.MaxRows < 1 || h.MaxRows > 10000 || h.MaxBytes < 1 || h.MaxBytes > 8<<20 {
 		return nil, fmt.Errorf("Hive handle binding invalid")
 	}
 	return &h, nil
@@ -77,7 +77,7 @@ func (a *hiveAsyncAdapter) Prepare(ctx context.Context, req m.QueryRequest) (str
 		return "", e
 	}
 	query := fmt.Sprintf("SELECT * FROM (%s) AS cognida_bounded LIMIT %d", trimQuery(req.SQL), req.MaxRows+1)
-	h := &hiveEnvelope{Tenant: a.source.TenantID, Source: a.source.ID, Version: a.source.UpdatedAt.UTC().Format(time.RFC3339Nano), Digest: hiveRequestDigest(req), Query: query, MaxRows: req.MaxRows, MaxBytes: req.MaxBytes, Deadline: time.Now().Add(req.Timeout), Handles: handles}
+	h := &hiveEnvelope{Tenant: a.source.TenantID, Source: a.source.ID, Version: m.QueryConnectionVersion(a.source), Digest: hiveRequestDigest(req), Query: query, MaxRows: req.MaxRows, MaxBytes: req.MaxBytes, Deadline: time.Now().Add(req.Timeout), Handles: handles}
 	id, e := a.seal(h)
 	if e != nil {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)

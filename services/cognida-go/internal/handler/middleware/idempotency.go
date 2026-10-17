@@ -3,7 +3,11 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -12,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -32,7 +37,7 @@ import (
 //     命中 processing（并发在途）→ 返回 409 让客户端稍后重试。
 //   - 5xx 不缓存：删除占位放行后续重试（服务端错误应可重试成功）。
 //   - 首选 Redis（多实例共享），未配置时降级为进程内 TTL 表（单实例仍有防护）；
-//     Redis 运行期报错 fail-open（放行 + 记日志），中间件自身故障不升级为全站不可用。
+//     Redis 运行期报错拒绝请求，不能把去重不可用视为允许重复写。
 //   - 跳过 /stream 路径：SSE 长流不宜整体缓冲进内存。
 
 const (
@@ -41,9 +46,11 @@ const (
 	idemStateDon = "done"
 )
 
-// idemRecord 幂等记录：占位期仅 State，完成后含响应快照。
+// idemRecord binds the request digest and claim owner in both states.
 type idemRecord struct {
 	State       string `json:"state"`
+	Digest      string `json:"digest"`
+	Owner       string `json:"owner"`
 	Status      int    `json:"status,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Body        []byte `json:"body,omitempty"` // json 将 []byte 编为 base64
@@ -97,16 +104,21 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 			return
 		}
 
-		full := m.compositeKey(c, key)
-		first, existing, err := m.begin(c.Request.Context(), full)
+		digest, err := idempotencyDigest(c.Request)
 		if err != nil {
-			// 中间件自身故障不阻断业务：fail-open + 记日志。
-			log.Printf("[Idempotency] 后端故障，本次放行(fail-open): key=%s err=%v", full, err)
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"code": 413, "message": "无法读取有界幂等请求正文"})
+			return
+		}
+		claim := idemRecord{State: idemStateNew, Digest: digest, Owner: uuid.NewString()}
+		full := m.compositeKey(c, key)
+		first, existing, err := m.begin(c.Request.Context(), full, claim)
+		if err != nil {
+			log.Printf("[Idempotency] 后端不可用，请求未执行")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"code": 503, "message": "幂等状态不可用，请稍后重试"})
 			return
 		}
 		if !first {
-			m.serveExisting(c, existing)
+			m.serveExisting(c, existing, digest)
 			return
 		}
 
@@ -118,11 +130,13 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 		status := c.Writer.Status()
 		if status >= 500 {
 			// 服务端错误不缓存，删占位以放行后续重试。
-			m.release(context.Background(), full)
+			m.release(context.Background(), full, claim.Owner)
 			return
 		}
 		rec := idemRecord{
 			State:       idemStateDon,
+			Digest:      digest,
+			Owner:       claim.Owner,
 			Status:      status,
 			ContentType: c.Writer.Header().Get("Content-Type"),
 			Body:        bcw.buf.Bytes(),
@@ -131,10 +145,10 @@ func (m *Idempotency) Apply() gin.HandlerFunc {
 	}
 }
 
-// These domains bind replay keys to persisted content and reauthorize sources
+// These domains own replay semantics or require current resource authorization
 // inside their services. HTTP response caching would bypass those checks.
 func ownsDurableIdempotency(path string) bool {
-	for _, root := range []string{"huggingface", "label-standards", "sft-datasets", "agent/config", "memories", "governed-tasks", "lifecycle", "features", "feature-values", "feature-jobs", "drift", "annotation-tasks", "tagging-tasks", "tagging-results", "research/runs", "evaluation/dataset-versions", "collection-tasks", "sandbox", "warehouse", "api-credentials", "api-sources", "api-ingestion-runs", "strategies", "operations", "query-jobs", "feedback-cases", "feedback-publications", "quality/evaluate/datasource"} {
+	for _, root := range []string{"messages", "datasources", "huggingface", "label-standards", "sft-datasets", "agent/config", "memories", "governed-tasks", "lifecycle", "features", "feature-values", "feature-jobs", "drift", "annotation-tasks", "tagging-tasks", "tagging-results", "research/runs", "evaluation/dataset-versions", "collection-tasks", "sandbox", "warehouse", "api-credentials", "api-sources", "api-ingestion-runs", "strategies", "operations", "query-jobs", "feedback-cases", "feedback-publications", "quality/evaluate/datasource"} {
 		prefix := "/api/v1/" + root
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true
@@ -144,7 +158,11 @@ func ownsDurableIdempotency(path string) bool {
 }
 
 // serveExisting 处理命中既有记录：done 回放、processing 返回 409。
-func (m *Idempotency) serveExisting(c *gin.Context, rec *idemRecord) {
+func (m *Idempotency) serveExisting(c *gin.Context, rec *idemRecord, digest string) {
+	if rec != nil && rec.Digest != digest {
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"code": 409, "message": "同一 Idempotency-Key 已绑定不同请求"})
+		return
+	}
 	if rec == nil || rec.State == idemStateNew {
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 			"code":       http.StatusConflict,
@@ -167,50 +185,83 @@ func (m *Idempotency) serveExisting(c *gin.Context, rec *idemRecord) {
 func (m *Idempotency) compositeKey(c *gin.Context, key string) string {
 	tenant := c.GetInt64("tenant_id")
 	user := c.GetInt64("user_id")
-	return "idem:" +
-		int64Str(tenant) + ":" +
-		int64Str(user) + ":" +
-		c.Request.Method + ":" +
-		c.FullPath() + ":" +
-		key
+	identity, _ := json.Marshal([]string{int64Str(tenant), int64Str(user), c.Request.Method, c.Request.URL.EscapedPath(), key})
+	sum := sha256.Sum256(identity)
+	return "idem:v2:" + hex.EncodeToString(sum[:])
 }
 
-// begin 尝试占位。first=true 表示本请求为首个（需执行业务）；否则 existing 为既有记录。
-func (m *Idempotency) begin(ctx context.Context, key string) (first bool, existing *idemRecord, err error) {
+// idempotencyDigest binds raw request bytes plus query and content semantics.
+// Body is restored for the handler. Different JSON formatting is intentionally
+// a different request; no field can disappear during JSON normalization.
+func idempotencyDigest(r *http.Request) (string, error) {
+	const maxBody = 128 << 20
+	var body []byte
+	var err error
+	if r.Body != nil {
+		body, err = io.ReadAll(io.LimitReader(r.Body, maxBody+1))
+		r.Body.Close()
+		if err != nil {
+			return "", err
+		}
+		if len(body) > maxBody {
+			return "", fmt.Errorf("request body limit")
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	header, _ := json.Marshal([]string{r.URL.RawQuery, r.Header.Get("Content-Type"), r.Header.Get("Content-Encoding")})
+	h := sha256.New()
+	h.Write(header)
+	h.Write([]byte{0})
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+var idemBeginScript = redis.NewScript(`
+local previous = redis.call('GET', KEYS[1])
+if previous then return previous end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+return ''
+`)
+var idemCompleteScript = redis.NewScript(`
+local previous = redis.call('GET', KEYS[1])
+if not previous then return 0 end
+local record = cjson.decode(previous)
+if record.owner ~= ARGV[1] or record.state ~= 'processing' then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+return 1
+`)
+var idemReleaseScript = redis.NewScript(`
+local previous = redis.call('GET', KEYS[1])
+if not previous then return 0 end
+local record = cjson.decode(previous)
+if record.owner ~= ARGV[1] or record.state ~= 'processing' then return 0 end
+return redis.call('DEL', KEYS[1])
+`)
+
+func (m *Idempotency) begin(ctx context.Context, key string, claim idemRecord) (bool, *idemRecord, error) {
 	if m.redis == nil {
-		f, ex := m.local.begin(key)
+		f, ex := m.local.begin(key, claim)
 		return f, ex, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
-
-	placeholder, _ := json.Marshal(idemRecord{State: idemStateNew})
-	// SET key placeholder NX EX：占位成功返回 OK，键已存在则返回 redis.Nil（非错误）。
-	// 用 SetArgs 替代已弃用的 SetNX（SA1019）。
-	err = m.redis.SetArgs(ctx, key, placeholder, redis.SetArgs{Mode: "NX", TTL: m.lockTTL}).Err()
-	if err == nil {
-		return true, nil, nil
-	}
-	if err != redis.Nil {
-		return false, nil, err
-	}
-	// 已存在：读取既有记录。
-	val, err := m.redis.Get(ctx, key).Bytes()
-	if err == redis.Nil {
-		// 占位刚被删（如首个请求 5xx 释放）：视为可执行，fail-open 放行。
-		return true, nil, nil
-	}
+	raw, _ := json.Marshal(claim)
+	val, err := idemBeginScript.Run(ctx, m.redis, []string{key}, string(raw), m.lockTTL.Milliseconds()).Text()
 	if err != nil {
 		return false, nil, err
 	}
+	if val == "" {
+		return true, nil, nil
+	}
 	var rec idemRecord
-	if e := json.Unmarshal(val, &rec); e != nil {
-		return false, nil, e
+	if err = json.Unmarshal([]byte(val), &rec); err != nil {
+		return false, nil, err
+	}
+	if rec.Owner == "" || rec.Digest == "" || (rec.State != idemStateNew && rec.State != idemStateDon) {
+		return false, nil, fmt.Errorf("invalid idempotency record")
 	}
 	return false, &rec, nil
 }
-
-// complete 覆盖为完成记录（含响应快照）。
 func (m *Idempotency) complete(ctx context.Context, key string, rec idemRecord) {
 	if m.redis == nil {
 		m.local.complete(key, rec, m.doneTTL)
@@ -218,21 +269,21 @@ func (m *Idempotency) complete(ctx context.Context, key string, rec idemRecord) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
-	b, _ := json.Marshal(rec)
-	if err := m.redis.Set(ctx, key, b, m.doneTTL).Err(); err != nil {
-		log.Printf("[Idempotency] 写完成记录失败: key=%s err=%v", key, err)
+	raw, _ := json.Marshal(rec)
+	if err := idemCompleteScript.Run(ctx, m.redis, []string{key}, rec.Owner, string(raw), m.doneTTL.Milliseconds()).Err(); err != nil {
+		log.Printf("[Idempotency] 完成回执未确认")
 	}
 }
-
-// release 删除占位（5xx 时放行后续重试）。
-func (m *Idempotency) release(ctx context.Context, key string) {
+func (m *Idempotency) release(ctx context.Context, key, owner string) {
 	if m.redis == nil {
-		m.local.release(key)
+		m.local.release(key, owner)
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
-	m.redis.Del(ctx, key)
+	if err := idemReleaseScript.Run(ctx, m.redis, []string{key}, owner).Err(); err != nil {
+		log.Printf("[Idempotency] 释放占位未确认")
+	}
 }
 
 // ========================================
@@ -264,27 +315,37 @@ type localIdemEntry struct {
 }
 
 type localIdemStore struct {
-	mu      sync.Mutex
-	m       map[string]*localIdemEntry
-	lockTTL time.Duration
+	mu        sync.Mutex
+	m         map[string]*localIdemEntry
+	lockTTL   time.Duration
+	nextSweep time.Time
 }
 
 func newLocalIdemStore(lockTTL time.Duration) *localIdemStore {
 	s := &localIdemStore{m: make(map[string]*localIdemEntry), lockTTL: lockTTL}
-	go s.janitor()
+	// Expired entries are pruned during requests; no unowned background goroutine.
 	return s
 }
 
 // begin 进程内占位：first=true 表示新占位成功。
-func (s *localIdemStore) begin(key string) (bool, *idemRecord) {
+func (s *localIdemStore) begin(key string, claim idemRecord) (bool, *idemRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now()
+	if !now.Before(s.nextSweep) {
+		for k, e := range s.m {
+			if !now.Before(e.exp) {
+				delete(s.m, k)
+			}
+		}
+		s.nextSweep = now.Add(10 * time.Minute)
+	}
 	if e := s.m[key]; e != nil && time.Now().Before(e.exp) {
 		r := e.rec
 		return false, &r
 	}
 	s.m[key] = &localIdemEntry{
-		rec: idemRecord{State: idemStateNew},
+		rec: claim,
 		exp: time.Now().Add(s.lockTTL),
 	}
 	return true, nil
@@ -292,29 +353,18 @@ func (s *localIdemStore) begin(key string) (bool, *idemRecord) {
 
 func (s *localIdemStore) complete(key string, rec idemRecord, ttl time.Duration) {
 	s.mu.Lock()
-	s.m[key] = &localIdemEntry{rec: rec, exp: time.Now().Add(ttl)}
-	s.mu.Unlock()
-}
-
-func (s *localIdemStore) release(key string) {
-	s.mu.Lock()
-	delete(s.m, key)
-	s.mu.Unlock()
-}
-
-func (s *localIdemStore) janitor() {
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		s.mu.Lock()
-		for k, e := range s.m {
-			if now.After(e.exp) {
-				delete(s.m, k)
-			}
-		}
-		s.mu.Unlock()
+	if old := s.m[key]; old != nil && time.Now().Before(old.exp) && old.rec.Owner == rec.Owner && old.rec.State == idemStateNew {
+		s.m[key] = &localIdemEntry{rec: rec, exp: time.Now().Add(ttl)}
 	}
+	s.mu.Unlock()
+}
+
+func (s *localIdemStore) release(key, owner string) {
+	s.mu.Lock()
+	if old := s.m[key]; old != nil && old.rec.Owner == owner && old.rec.State == idemStateNew {
+		delete(s.m, key)
+	}
+	s.mu.Unlock()
 }
 
 // ========================================

@@ -414,11 +414,11 @@ func (r *chunkRepository) CreateBatch(ctx context.Context, chunks []*domain_know
 func (r *chunkRepository) FindByID(ctx context.Context, id string) (*domain_knowledge.Chunk, error) {
 	var model ChunkModel
 	err := r.db.WithContext(ctx).
-		Where("id = ?", id).
+		Where("id = ? AND deleted_at IS NULL", id).
 		First(&model).Error
 
 	if err == gorm.ErrRecordNotFound {
-		return nil, fmt.Errorf("分块不存在")
+		return nil, domain_knowledge.ErrChunkNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("查询分块失败: %w", err)

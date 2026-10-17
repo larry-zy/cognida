@@ -315,24 +315,6 @@ func (m *MultiHopRetrieverImpl) parseReasoningResponse(
 	return decision.Query, decision.Answer, *decision.Continue && hopIndex < maxHops, nil
 }
 
-// buildFallbackAnswer 构建降级答案
-func (m *MultiHopRetrieverImpl) buildFallbackAnswer(hops []*domainrag.HopResult) string {
-	if len(hops) == 0 {
-		return "抱歉，未能找到相关信息。"
-	}
-
-	var builder strings.Builder
-	builder.WriteString("基于检索结果，以下是相关信息：\n\n")
-
-	for _, hop := range hops {
-		if hop.IntermediateResult != "" {
-			builder.WriteString(fmt.Sprintf("- %s\n", hop.IntermediateResult))
-		}
-	}
-
-	return builder.String()
-}
-
 // ========================================
 // 检索优化服务 (整合所有优化策略)
 // ========================================

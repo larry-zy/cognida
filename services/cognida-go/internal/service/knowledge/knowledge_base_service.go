@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"time"
 
 	"cognida/internal/infrastructure/id"
@@ -51,6 +53,7 @@ type knowledgeBaseService struct {
 	vectorRepo       domain_knowledge.VectorRepository
 	graphRepo        domain_knowledge.GraphRepository
 	idGenerator      id.IDGenerator
+	chunkIndexer     domain_knowledge.ChunkIndexer
 	cacheInvalidator KBCacheInvalidator // 可选：RAG 硬缓存按库失效；nil 时跳过
 }
 
@@ -63,8 +66,14 @@ func NewKnowledgeBaseService(
 	statsQuerier domain_knowledge.KnowledgeStatsQuerier,
 	vectorRepo domain_knowledge.VectorRepository,
 	graphRepo domain_knowledge.GraphRepository,
+	indexer ...domain_knowledge.ChunkIndexer,
 ) KnowledgeBaseService {
+	var chunkIndexer domain_knowledge.ChunkIndexer
+	if len(indexer) > 0 {
+		chunkIndexer = indexer[0]
+	}
 	return &knowledgeBaseService{
+		chunkIndexer:  chunkIndexer,
 		kbRepo:        kbRepo,
 		kbSettingRepo: kbSettingRepo,
 		knowledgeRepo: knowledgeRepo,
@@ -454,10 +463,7 @@ func (s *knowledgeBaseService) deleteKnowledgeProjection(ctx context.Context, kb
 	// collection 名由 kbID 前导数字派生（与写入侧 fmt.Sscanf 一致），KB ID 形如
 	// "20260704...bfa0e3" 含十六进制字母，不能用 strconv.ParseInt（会整体失败）。
 	if s.vectorRepo != nil {
-		var kbIDInt int64
-		if kbID != "" {
-			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
-		}
+		kbIDInt := vectorCollectionKey(kbID)
 		if err := retryTransientDelete(ctx, func() error {
 			return deleteVectorProjectionByKnowledgeID(ctx, s.vectorRepo, kbIDInt, knowledgeID)
 		}); err != nil {
@@ -708,53 +714,98 @@ func (s *knowledgeBaseService) GetChunkDetail(ctx context.Context, kbID string, 
 	}
 
 	// 验证是否属于指定的知识库
-	if chunk.KnowledgeBaseID != kbID {
+	if chunk == nil || chunk.KnowledgeBaseID != kbID || chunk.TenantID != tenantID || chunk.DeletedAt != nil {
 		return nil, domain_knowledge.ErrChunkNotFound
 	}
 
 	return chunk, nil
 }
 
-// UpdateChunk 更新分块（tenantID 强制归属校验）
-func (s *knowledgeBaseService) UpdateChunk(
-	ctx context.Context,
-	kbID string,
-	tenantID int64,
-	chunkID string,
-	content *string,
-) (*domain_knowledge.Chunk, error) {
-	chunk, err := s.GetChunkDetail(ctx, kbID, tenantID, chunkID)
-	if err != nil {
-		return nil, err
+// UpdateChunk commits source text, then rebuilds projections. A failed projection
+// returns an error; retrying the same edit repairs it. Read guards reject stale
+// index rows even if the process dies between stores.
+func (s *knowledgeBaseService) UpdateChunk(ctx context.Context, kbID string, tenantID int64, chunkID string, content *string) (*domain_knowledge.Chunk, error) {
+	if content != nil && (strings.TrimSpace(*content) == "" || len(*content) > 65535) {
+		return nil, domain_knowledge.ErrInvalidContent
 	}
-
-	if content != nil {
-		chunk.Content = *content
+	if s.chunkIndexer == nil {
+		return nil, fmt.Errorf("chunk indexer is unavailable")
 	}
-
-	now := time.Now()
-	chunk.UpdatedAt = now
-
-	if err := s.chunkRepo.Update(ctx, chunk); err != nil {
-		return nil, err
-	}
-
-	return chunk, nil
+	var result *domain_knowledge.Chunk
+	err := s.mutateChunk(ctx, kbID, tenantID, chunkID, func(chunk *domain_knowledge.Chunk, mutations domain_knowledge.ChunkMutationRepository) error {
+		if content != nil {
+			chunk.Content = *content
+		}
+		chunk.TokenCount = nil
+		chunk.UpdatedAt = time.Now().UTC()
+		if err := mutations.EditChunk(ctx, chunk); err != nil {
+			return err
+		}
+		s.invalidateKBCache(ctx, tenantID, kbID)
+		if err := s.chunkIndexer.IndexChunk(ctx, chunk); err != nil {
+			return fmt.Errorf("source saved; chunk indexing failed, retry this edit: %w", err)
+		}
+		result = chunk
+		return nil
+	})
+	return result, err
 }
 
-// DeleteChunk 删除分块（tenantID 强制归属校验）
 func (s *knowledgeBaseService) DeleteChunk(ctx context.Context, kbID string, tenantID int64, chunkID string) error {
-	// 先验证分块是否存在且属于指定知识库（含租户归属校验）
-	_, err := s.GetChunkDetail(ctx, kbID, tenantID, chunkID)
+	return s.mutateChunk(ctx, kbID, tenantID, chunkID, func(chunk *domain_knowledge.Chunk, mutations domain_knowledge.ChunkMutationRepository) error {
+		if err := mutations.RemoveChunk(ctx, chunk); err != nil {
+			return err
+		}
+		s.invalidateKBCache(ctx, tenantID, kbID)
+		return nil
+	})
+}
+
+func (s *knowledgeBaseService) mutateChunk(ctx context.Context, kbID string, tenantID int64, chunkID string, apply func(*domain_knowledge.Chunk, domain_knowledge.ChunkMutationRepository) error) error {
+	chunk, err := s.GetChunkDetail(ctx, kbID, tenantID, chunkID)
 	if err != nil {
 		return err
 	}
-
-	if err := s.chunkRepo.Delete(ctx, chunkID); err != nil {
-		return err
+	locker, ok := s.knowledgeRepo.(DocumentIngestionLocker)
+	mutations, supportsMutations := s.chunkRepo.(domain_knowledge.ChunkMutationRepository)
+	if !ok || !supportsMutations || s.vectorRepo == nil {
+		return fmt.Errorf("chunk mutation dependencies unavailable")
 	}
-	s.invalidateKBCache(ctx, tenantID, kbID) // 分块删除 → 清该库硬缓存
-	return nil
+	return locker.WithDocumentLock(ctx, chunk.KnowledgeID, func() error {
+		current, err := s.GetChunkDetail(ctx, kbID, tenantID, chunkID)
+		if err != nil {
+			return err
+		}
+		doc, err := s.knowledgeRepo.FindByID(ctx, current.KnowledgeID)
+		if err != nil {
+			return err
+		}
+		if doc == nil || doc.DeletedAt != nil || doc.TenantID != tenantID || doc.KnowledgeBaseID != kbID {
+			return domain_knowledge.ErrKnowledgeNotFound
+		}
+		if doc.ParseStatus == domain_knowledge.ParseStatusProcessing || doc.ParseStatus == domain_knowledge.ParseStatusPending {
+			return domain_knowledge.ErrIngestionConflict
+		}
+		// Remove projections before deleting their source so a failure is retryable
+		// with the original chunk ID. Every error is surfaced to the caller.
+		if s.graphRepo != nil {
+			ns := domain_knowledge.NameSpace{TenantID: strconv.FormatInt(tenantID, 10), KnowledgeBaseID: kbID, Knowledge: current.KnowledgeID}
+			if err = s.graphRepo.DeleteByChunkID(ctx, ns, chunkID); err != nil {
+				return err
+			}
+		}
+		kbNumber := vectorCollectionKey(kbID)
+		exists, err := s.vectorRepo.HasCollection(ctx, kbNumber)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if err = s.vectorRepo.DeleteByChunkID(ctx, kbNumber, chunkID); err != nil {
+				return err
+			}
+		}
+		return apply(current, mutations)
+	})
 }
 
 // ========================================

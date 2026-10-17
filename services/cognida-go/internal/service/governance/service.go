@@ -2,8 +2,8 @@ package governance
 
 import (
 	"bytes"
-	"cognida/internal/infrastructure/job"
 	d "cognida/internal/model/governance"
+	"cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	lifecycle "cognida/internal/service/lifecycle"
 	"context"

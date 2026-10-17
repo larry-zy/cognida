@@ -21,7 +21,7 @@ func (r *fakeRepo) Create(ctx context.Context, log *auditmodel.AuditLog) error {
 	r.created = append(r.created, log)
 	return nil
 }
-func (r *fakeRepo) FindByID(ctx context.Context, id int64) (*auditmodel.AuditLog, error) {
+func (r *fakeRepo) FindByID(ctx context.Context, tenantID, id int64) (*auditmodel.AuditLog, error) {
 	return nil, nil
 }
 func (r *fakeRepo) Query(ctx context.Context, q *auditmodel.Query) ([]*auditmodel.AuditLog, int64, error) {

@@ -150,22 +150,3 @@ func (o *opTools) loadETLResult(ownerCtx context.Context, resultID string) (*res
 	}
 	return stored, nil
 }
-
-// inferColumnType 根据首个非空取值推断列类型（number→DOUBLE，bool→TINYINT(1)，其余 TEXT）。
-func inferColumnType(col string, rows []map[string]interface{}) string {
-	for _, row := range rows {
-		v, ok := row[col]
-		if !ok || v == nil {
-			continue
-		}
-		switch v.(type) {
-		case float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-			return "DOUBLE"
-		case bool:
-			return "TINYINT(1)"
-		default:
-			return "TEXT"
-		}
-	}
-	return "TEXT"
-}

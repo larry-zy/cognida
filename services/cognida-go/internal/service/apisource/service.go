@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"cognida/internal/infrastructure/job"
 	d "cognida/internal/model/apisource"
+	"cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	"cognida/internal/model/objectstore"
 	"cognida/internal/service/collection/fetcher"
@@ -259,14 +259,14 @@ func (s *Service) Cancel(ctx context.Context, p l.Principal, id string) (*d.Run,
 	return run, nil
 }
 func (s *Service) Resume(ctx context.Context, p l.Principal, id string) (*d.Run, error) {
-	run, e := s.Read(ctx, p, id)
+	_, e := s.Read(ctx, p, id)
 	if e != nil {
 		return nil, e
 	}
 	if e = s.auth(ctx, p, "admin"); e != nil {
 		return nil, e
 	}
-	run, e = s.repo.Resume(ctx, p, id)
+	run, e := s.repo.Resume(ctx, p, id)
 	if e != nil {
 		return nil, e
 	}

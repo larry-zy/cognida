@@ -122,8 +122,8 @@ func TestNewMCPClient(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:   "配置为空",
-			config: nil,
+			name:    "配置为空",
+			config:  nil,
 			wantErr: true,
 		},
 		{
@@ -171,19 +171,19 @@ func TestMCPClient_parseSkillInfo(t *testing.T) {
 		{
 			name: "完整 Skill 信息",
 			data: map[string]interface{}{
-				"name":         "test_skill",
-				"description":  "Test description",
-				"content":      "# Test",
-				"version":      "1.0.0",
-				"category":     "test",
-				"source":       "bundled",
-				"context_mode": "inline",
-				"deprecated":   false,
-				"experimental": true,
-				"timeout":      300,
+				"name":          "test_skill",
+				"description":   "Test description",
+				"content":       "# Test",
+				"version":       "1.0.0",
+				"category":      "test",
+				"source":        "bundled",
+				"context_mode":  "inline",
+				"deprecated":    false,
+				"experimental":  true,
+				"timeout":       300,
 				"allowed_tools": []interface{}{"tool1", "tool2"},
-				"tags":         []interface{}{"tag1", "tag2"},
-				"arg_names":    []interface{}{"arg1"},
+				"tags":          []interface{}{"tag1", "tag2"},
+				"arg_names":     []interface{}{"arg1"},
 				"input_schema": map[string]interface{}{
 					"type": "object",
 				},
@@ -233,12 +233,12 @@ func TestMCPClient_parseSkillInfo(t *testing.T) {
 				"model":        "gpt-4",
 			},
 			want: tools.SkillInfo{
-				Name:         "fork_skill",
-				Description:  "Fork mode skill",
-				ContextMode:  tools.ContextModeFork,
-				Agent:        "sub_agent",
-				Model:        "gpt-4",
-				Source:       tools.SkillSourceUnknown,
+				Name:        "fork_skill",
+				Description: "Fork mode skill",
+				ContextMode: tools.ContextModeFork,
+				Agent:       "sub_agent",
+				Model:       "gpt-4",
+				Source:      tools.SkillSourceUnknown,
 			},
 		},
 	}
@@ -281,10 +281,10 @@ func TestMCPClient_calculateBackoff(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		attempt  int
-		wantMin  time.Duration
-		wantMax  time.Duration
+		name    string
+		attempt int
+		wantMin time.Duration
+		wantMax time.Duration
 	}{
 		{
 			name:    "第一次重试",
@@ -417,20 +417,20 @@ func TestReconnectConfig_Defaults(t *testing.T) {
 // 测试 JSON 序列化
 func TestSkillInfo_JSONRoundTrip(t *testing.T) {
 	original := tools.SkillInfo{
-		Name:         "json_test_skill",
-		Description:  "JSON serialization test",
-		Version:      "1.5.0",
-		Category:     "test",
-		Source:       tools.SkillSourceBundled,
-		ContextMode:  tools.ContextModeInline,
-		AllowedTools: []string{"tool1", "tool2", "tool3"},
+		Name:            "json_test_skill",
+		Description:     "JSON serialization test",
+		Version:         "1.5.0",
+		Category:        "test",
+		Source:          tools.SkillSourceBundled,
+		ContextMode:     tools.ContextModeInline,
+		AllowedTools:    []string{"tool1", "tool2", "tool3"},
 		DisallowedTools: []string{"tool4"},
-		Tags:          []string{"json", "test", "serialization"},
-		ArgNames:      []string{"input", "output"},
-		ArgumentHint:  "Provide input and output parameters",
-		Deprecated:    false,
-		Experimental:  true,
-		Timeout:       600,
+		Tags:            []string{"json", "test", "serialization"},
+		ArgNames:        []string{"input", "output"},
+		ArgumentHint:    "Provide input and output parameters",
+		Deprecated:      false,
+		Experimental:    true,
+		Timeout:         600,
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -443,8 +443,8 @@ func TestSkillInfo_JSONRoundTrip(t *testing.T) {
 		OutputSchema: map[string]interface{}{
 			"type": "object",
 		},
-		Model:  "gpt-4",
-		Agent:  "sub_agent",
+		Model: "gpt-4",
+		Agent: "sub_agent",
 	}
 
 	// 序列化

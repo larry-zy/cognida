@@ -7,12 +7,15 @@ import (
 	l "cognida/internal/model/lifecycle"
 	d "cognida/internal/model/queryjob"
 	mysqlrepo "cognida/internal/repository/mysql"
+	"cognida/internal/service/agent/resultstore"
 	source "cognida/internal/service/datasource"
 	jobs "cognida/internal/service/queryjob"
 	"context"
 	"encoding/json"
 	"errors"
 	driver "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"os"
 	"sync"
@@ -20,6 +23,119 @@ import (
 	"testing"
 	"time"
 )
+
+// Query execution uses the explicitly synthetic remote adapter below. The job
+// receipt, source configuration and guarded result persistence use real MySQL
+// and Redis, including the production exact-number decoding path.
+func TestQueryJobMySQLRedisGuardedResultIdentity(t *testing.T) {
+	f, jobsService, _, a, _ := queryFixture(t)
+	ctx := context.Background()
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		t.Skip("REDIS_ADDR required")
+	}
+	client := redis.NewClient(&redis.Options{Addr: addr, Password: os.Getenv("REDIS_PASSWORD")})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	require.NoError(t, client.Ping(ctx).Err())
+	sourceRepo := mysqlrepo.NewDataSourceRepository(f.db)
+	a.source.ID, a.source.Name = uuid.NewString(), "guarded-result-fixture"
+	a.source.PasswordEncrypted = "synthetic-credential-binding"
+	require.NoError(t, sourceRepo.Create(ctx, a.source))
+	t.Cleanup(func() { require.NoError(t, sourceRepo.Delete(ctx, a.source.ID, f.p.TenantID)) })
+	var err error
+	a.source, err = sourceRepo.Get(ctx, a.source.ID, f.p.TenantID)
+	require.NoError(t, err)
+	in := queryInput()
+	result, err := jobsService.Execute(ctx, f.p.TenantID, f.p.UserID, a.source.ID, ds.QueryRequest{SQL: in.SQL, MaxRows: in.MaxRows, MaxBytes: in.MaxBytes, Timeout: 30 * time.Second, MaxScanBytes: in.MaxScanBytes}, "guarded-result")
+	require.NoError(t, err)
+	require.Equal(t, ds.QueryConnectionVersion(a.source), result.SourceVersion)
+	sources := source.NewService(sourceRepo, nil, nil, nil)
+	store := sources.GuardResults(resultstore.NewRedisStore(client))
+	owner := resultstore.OwnerKey(f.p.TenantID, uuid.NewString())
+	id, err := store.Put(ctx, &resultstore.Result{Owner: owner, DatasourceID: a.source.ID, SourceVersion: result.SourceVersion, Columns: result.Columns, ColumnTypes: result.ColumnTypes, Rows: result.Rows}, time.Minute)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Del(ctx, "agent:resultstore:"+id).Err()) })
+	exact := store.(interface {
+		GetExact(context.Context, string, string) (*resultstore.Result, error)
+	})
+	for _, renamed := range []bool{false, true} {
+		if renamed {
+			a.source.Name, a.source.Description = "renamed-result", "display only"
+			require.NoError(t, sourceRepo.Update(ctx, a.source))
+		}
+		_, err = store.Get(ctx, owner, id)
+		require.NoError(t, err)
+		value, err := exact.GetExact(ctx, owner, id)
+		require.NoError(t, err)
+		require.Equal(t, json.Number("9223372036854775807"), value.Rows[0]["large"])
+		require.Equal(t, "9007199254740993.123456789012345678", value.Rows[0]["amount"])
+	}
+	_, err = exact.GetExact(ctx, resultstore.OwnerKey(f.p.TenantID+1, "other"), id)
+	require.ErrorIs(t, err, resultstore.ErrUnauthorized)
+	a.source.PasswordEncrypted = "rotated-synthetic-credential"
+	require.NoError(t, sourceRepo.Update(ctx, a.source))
+	_, err = store.Get(ctx, owner, id)
+	require.ErrorIs(t, err, resultstore.ErrUnauthorized)
+	_, err = exact.GetExact(ctx, owner, id)
+	require.ErrorIs(t, err, resultstore.ErrUnauthorized)
+	require.Equal(t, int64(1), a.submits.Load())
+}
+
+func TestQueryJobMySQLHTTPDisplayEditPreservesCancellation(t *testing.T) {
+	for _, reason := range []string{"cancel", "deadline"} {
+		t.Run(reason, func(t *testing.T) {
+			f, s, repo, a, _ := queryFixture(t)
+			ctx := context.Background()
+			sourceRepo := mysqlrepo.NewDataSourceRepository(f.db)
+			a.source.ID = uuid.NewString()
+			a.source.Host = "bigquery.googleapis.com"
+			a.source.Port = 443
+			a.source.DatabaseName = "fixture"
+			a.source.Username = "fixture-ref"
+			a.source.Extra = []byte(`{"project":"fixture","location":"US","credential_ref":"fixture-ref","max_scan_bytes":1000}`)
+			require.NoError(t, sourceRepo.Create(ctx, a.source))
+			t.Cleanup(func() { require.NoError(t, sourceRepo.Delete(ctx, a.source.ID, f.p.TenantID)) })
+			var err error
+			a.source, err = sourceRepo.Get(ctx, a.source.ID, f.p.TenantID)
+			require.NoError(t, err)
+			in := queryInput()
+			in.DataSourceID = a.source.ID
+			code, raw := f.request(t, "POST", "/query-jobs", "display-edit", in)
+			require.Equal(t, 200, code)
+			var job d.Job
+			require.NoError(t, json.Unmarshal(raw, &job))
+			require.NoError(t, s.Tick(ctx, f.p, job.ID))
+			require.Equal(t, int64(1), a.submits.Load())
+			// Actual SQL update advances updated_at without changing the connection.
+			a.source.Name = "renamed"
+			a.source.Description = "only metadata changed"
+			require.NoError(t, sourceRepo.Update(ctx, a.source))
+			a.source, err = sourceRepo.Get(ctx, a.source.ID, f.p.TenantID)
+			require.NoError(t, err)
+			code, _ = f.request(t, "GET", "/query-jobs/"+job.ID, "", nil)
+			require.Equal(t, 200, code)
+			if reason == "cancel" {
+				code, _ = f.request(t, "POST", "/query-jobs/"+job.ID+"/cancel", "", map[string]any{})
+				require.Equal(t, 200, code)
+			} else {
+				_, err = repo.Change(ctx, f.p, job.ID, 0, func(r *d.Record, now time.Time) error { r.Job.Deadline = now.Add(-time.Second); return nil })
+				require.NoError(t, err)
+			}
+			restarted := *s
+			require.NoError(t, restarted.Tick(ctx, f.p, job.ID))
+			actual, err := repo.Get(ctx, f.p, job.ID)
+			require.NoError(t, err)
+			require.True(t, actual.Job.Terminal())
+			require.Equal(t, int64(1), a.submits.Load())
+			require.Equal(t, int64(1), a.cancels.Load())
+			if reason == "cancel" {
+				require.Equal(t, "cancelled", actual.Job.Status)
+			} else {
+				require.Equal(t, "timed_out", actual.Job.Status)
+			}
+		})
+	}
+}
 
 // This adapter is an explicit deterministic remote protocol fixture. MySQL,
 // HTTP, row locks and restart checkpoints are real; this is not live BigQuery.
@@ -58,7 +174,7 @@ func (a *queryRemoteFixture) Page(_ context.Context, _, cursor string, _ int) (*
 	if cursor == "" {
 		next = "secret-page-token"
 	}
-	return &ds.QueryResult{Columns: []string{"code", "amount", "large"}, ColumnTypes: map[string]string{"code": "STRING", "amount": "NUMERIC", "large": "INT64"}, Rows: []map[string]any{{"code": "00123", "amount": "9007199254740993.123456789012345678", "large": json.Number("9223372036854775807")}}}, next, nil
+	return &ds.QueryResult{SourceVersion: ds.QueryConnectionVersion(a.source), Columns: []string{"code", "amount", "large"}, ColumnTypes: map[string]string{"code": "STRING", "amount": "NUMERIC", "large": "INT64"}, Rows: []map[string]any{{"code": "00123", "amount": "9007199254740993.123456789012345678", "large": json.Number("9223372036854775807")}}}, next, nil
 }
 func queryFixture(t *testing.T) (*reviewedFixture, *jobs.Service, d.Repository, *queryRemoteFixture, *atomic.Bool) {
 	f := newReviewedFixture(t)

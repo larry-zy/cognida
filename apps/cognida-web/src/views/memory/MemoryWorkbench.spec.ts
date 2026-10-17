@@ -20,6 +20,16 @@ describe('personal memory workbench', () => {
     api.update.mockResolvedValue({ data: row('memory-1', '英语回答', 2) })
     api.remove.mockResolvedValue({ data: { deleted: true } })
   })
+  it('preserves unsaved memory on same-identity refresh and clears it for another tenant', async () => {
+    const wrapper = mount(MemoryWorkbench); await flushPromises()
+    await wrapper.get('textarea[aria-label="记忆内容"]').setValue('unsaved private preference')
+    auth.user = { id: 1 }; auth.currentTenant = { id: 1 }; await flushPromises()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('unsaved private preference')
+    expect(api.list).toHaveBeenCalledTimes(1)
+    auth.currentTenant = { id: 2 }; await flushPromises()
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    wrapper.unmount()
+  })
   it('creates explicit memory and edits it with the server version', async () => {
     const wrapper = mount(MemoryWorkbench); await flushPromises()
     await wrapper.get('textarea[aria-label="记忆内容"]').setValue('中文回答')

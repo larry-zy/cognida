@@ -12,18 +12,21 @@
       @after-leave="clearTransitioning"
       @leave-cancelled="clearTransitioning"
     >
-      <component :is="Component" :key="route.path" />
+      <component :is="Component" :key="transitionKey" />
     </transition>
   </router-view>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
 const transitionName = ref('fade')
+// Session URL synchronization is an in-page update, not a new conversation page.
+// The nested platform view still keys by verified identity and workspace.
+const transitionKey = computed(() => route.name === 'DataAgent' ? 'DataAgent' : route.path)
 
 // 根据路由深度决定过渡方向
 function getRouteDepth(path: string): number {

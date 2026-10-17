@@ -30,7 +30,7 @@ COPY --from=builder /out/migrate-db /app/migrate-db
 
 # 非 root 运行；/data/uploads 为与 Python 服务共享的上传目录挂载点
 RUN useradd -m -u 1000 appuser \
- && mkdir -p /data/uploads \
+ && mkdir -p /data/uploads /data/objects \
  && chown -R appuser:appuser /data /app
 USER appuser
 

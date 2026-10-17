@@ -189,7 +189,7 @@ function retry(key: SectionKey) {
   }
 }
 async function refresh() { await Promise.all((Object.keys(state) as SectionKey[]).map(retry)) }
-watch(() => [auth.authEpoch, auth.user?.id, auth.currentTenant?.id], () => {
+watch([() => auth.authEpoch, () => auth.user?.id, () => auth.currentTenant?.id], () => {
   generation++; controllers.forEach(controller => controller.abort()); controllers.clear(); updatedAt.value = ''
   recentKind.value = 'all'
   Object.values(state).forEach(section => Object.assign(section, makeSection()))

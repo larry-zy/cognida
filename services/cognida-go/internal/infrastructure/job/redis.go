@@ -74,7 +74,7 @@ func (q *RedisQueue) TryClaim(ctx context.Context) (*Job, error) {
 	if err = json.Unmarshal([]byte(raw), &j); err == nil {
 		err = valid(j)
 	}
-	j.receipt, j.raw = receipt, raw
+	j.Delivery = &deliveryReceipt{receipt: receipt, raw: raw}
 	if err != nil {
 		_ = q.Ack(ctx, j)
 		return nil, fmt.Errorf("decode job: %w", err)
@@ -119,7 +119,11 @@ const ackScript = `if redis.call('HGET',KEYS[2],ARGV[1])~=ARGV[2] then return 0 
 redis.call('LREM',KEYS[1],1,ARGV[1]);redis.call('HDEL',KEYS[2],ARGV[1]);redis.call('ZREM',KEYS[3],ARGV[1]);redis.call('DEL',KEYS[4]);return 1`
 
 func (q *RedisQueue) Ack(ctx context.Context, j Job) error {
-	n, err := q.client.Eval(ctx, ackScript, []string{q.processing(), q.owners(), q.leases(), q.marker(j.ID)}, j.raw, j.receipt).Int()
+	delivery, ok := j.Delivery.(*deliveryReceipt)
+	if !ok || delivery == nil {
+		return fmt.Errorf("job delivery lease is missing: %s", j.ID)
+	}
+	n, err := q.client.Eval(ctx, ackScript, []string{q.processing(), q.owners(), q.leases(), q.marker(j.ID)}, delivery.raw, delivery.receipt).Int()
 	if err != nil {
 		return err
 	}
@@ -133,6 +137,10 @@ const retryScript = `if redis.call('HGET',KEYS[2],ARGV[1])~=ARGV[2] then return 
 redis.call('ZADD',KEYS[4],ARGV[4],ARGV[3]);redis.call('LREM',KEYS[1],1,ARGV[1]);redis.call('HDEL',KEYS[2],ARGV[1]);redis.call('ZREM',KEYS[3],ARGV[1]);return 1`
 
 func (q *RedisQueue) Retry(ctx context.Context, j Job, delay time.Duration) error {
+	delivery, ok := j.Delivery.(*deliveryReceipt)
+	if !ok || delivery == nil {
+		return fmt.Errorf("job delivery lease is missing: %s", j.ID)
+	}
 	if delay < 0 {
 		delay = 0
 	}
@@ -141,7 +149,7 @@ func (q *RedisQueue) Retry(ctx context.Context, j Job, delay time.Duration) erro
 	if err != nil {
 		return err
 	}
-	n, err := q.client.Eval(ctx, retryScript, []string{q.processing(), q.owners(), q.leases(), q.delayed()}, j.raw, j.receipt, string(body), time.Now().Add(delay).UnixMilli()).Int()
+	n, err := q.client.Eval(ctx, retryScript, []string{q.processing(), q.owners(), q.leases(), q.delayed()}, delivery.raw, delivery.receipt, string(body), time.Now().Add(delay).UnixMilli()).Int()
 	if err != nil {
 		return err
 	}
@@ -154,7 +162,11 @@ func (q *RedisQueue) Retry(ctx context.Context, j Job, delay time.Duration) erro
 const heartbeatScript = `if redis.call('HGET',KEYS[1],ARGV[1])~=ARGV[2] then return 0 end;redis.call('ZADD',KEYS[2],ARGV[3],ARGV[1]);return 1`
 
 func (q *RedisQueue) Heartbeat(ctx context.Context, j Job) error {
-	n, err := q.client.Eval(ctx, heartbeatScript, []string{q.owners(), q.leases()}, j.raw, j.receipt, time.Now().Add(jobLeaseDuration).UnixMilli()).Int()
+	delivery, ok := j.Delivery.(*deliveryReceipt)
+	if !ok || delivery == nil {
+		return fmt.Errorf("job delivery lease is missing: %s", j.ID)
+	}
+	n, err := q.client.Eval(ctx, heartbeatScript, []string{q.owners(), q.leases()}, delivery.raw, delivery.receipt, time.Now().Add(jobLeaseDuration).UnixMilli()).Int()
 	if err != nil {
 		return err
 	}
@@ -188,3 +200,6 @@ func valid(j Job) error {
 	}
 	return nil
 }
+
+// deliveryReceipt cannot be constructed by domain services.
+type deliveryReceipt struct{ receipt, raw string }

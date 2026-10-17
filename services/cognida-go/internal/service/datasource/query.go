@@ -92,6 +92,7 @@ func (a *sqlQueryAdapter) Query(ctx context.Context, in model.QueryRequest) (*mo
 	ctx, cancel := context.WithTimeout(ctx, in.Timeout)
 	defer cancel()
 	// The wrapper bounds the whole result, including UNION/CTEs and inner LIMITs.
+	// #nosec G201 -- in.SQL is the intentionally supplied read query validated above; MaxRows is range checked and values stay bound parameters. Database read-only privileges remain required.
 	query := fmt.Sprintf("SELECT * FROM (%s) AS cognida_bounded LIMIT %d", strings.TrimSuffix(strings.TrimSpace(in.SQL), ";"), in.MaxRows+1)
 	var rows *sql.Rows
 	var err error
@@ -100,7 +101,7 @@ func (a *sqlQueryAdapter) Query(ctx context.Context, in model.QueryRequest) (*mo
 		if e != nil {
 			return nil, e
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }() // Read-only cleanup; query/scan errors remain authoritative.
 		if a.source.Type == model.TypePostgres {
 			if _, e = tx.ExecContext(ctx, "SET LOCAL statement_timeout = '30000ms'"); e != nil {
 				return nil, e
@@ -113,7 +114,7 @@ func (a *sqlQueryAdapter) Query(ctx context.Context, in model.QueryRequest) (*mo
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows.Err below reports read failures; always release the cursor.
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err

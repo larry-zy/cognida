@@ -365,14 +365,14 @@ func (s *Service) Withdraw(ctx context.Context, p l.Principal, id string, expect
 	if e := s.auth(ctx, p, "admin"); e != nil {
 		return nil, e
 	}
-	c, e := s.Repo.GetCase(ctx, p, id)
+	_, e := s.Repo.GetCase(ctx, p, id)
 	if e != nil {
 		return nil, e
 	}
 	if e = s.Repo.Commit(ctx, p, id, "", expected, 0, "", "withdraw"); e != nil {
 		return nil, e
 	}
-	c, e = s.Repo.GetCase(ctx, p, id)
+	c, e := s.Repo.GetCase(ctx, p, id)
 	if e != nil {
 		return nil, e
 	}

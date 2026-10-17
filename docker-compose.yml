@@ -28,6 +28,7 @@ volumes:
   minio_data:
   milvus_data:
   uploads:            # Go 与 Python 共享的上传/文档目录
+  objects:            # Go 生命周期资产/报告；独立于上传原件的持久存储
 
 services:
   # ------------------------------------------------------------------
@@ -212,6 +213,8 @@ services:
       # 上传目录（与 Python 共享卷）
       UPLOAD_DIR: /data/uploads
       PYTHON_ALLOWED_PATHS: /data/uploads
+      OBJECT_STORAGE_BACKEND: local
+      OBJECT_STORAGE_LOCAL_DIR: /data/objects
       # CORS：直连 Go（非经 nginx 同源）时的允许来源
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8888}
       # 密钥
@@ -222,6 +225,7 @@ services:
       DATASOURCE_SECRET_KEY: ${DATASOURCE_SECRET_KEY:-}
     volumes:
       - uploads:/data/uploads
+      - objects:/data/objects
     depends_on:
       mysql:
         condition: service_healthy

@@ -1,4 +1,4 @@
-import { ref, computed, nextTick, type Ref } from 'vue'
+import { ref, computed, nextTick, onUnmounted, type Ref } from 'vue'
 import { sessionApi } from '@/api/session'
 import type { Session, Message } from '@/types'
 import toast from '@/utils/toast'
@@ -40,6 +40,19 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
   const sessions = ref<Session[]>([])
   const searchQuery = ref('')
   const loadingSessions = ref(false)
+  let historyGeneration = 0
+  let listGeneration = 0
+  let disposed = false
+
+  function invalidateHistory() {
+    historyGeneration++
+  }
+
+  onUnmounted(() => {
+    disposed = true
+    invalidateHistory()
+    listGeneration++
+  })
 
   const filteredSessions = computed(() => {
     const list = sessions.value.filter(options.filter)
@@ -49,9 +62,11 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
   })
 
   async function loadSessions() {
+    const generation = ++listGeneration
     loadingSessions.value = true
     try {
       const res = await sessionApi.list({ page: 1, page_size: 50 })
+      if (disposed || generation !== listGeneration) return
       if (res.data) {
         sessions.value = (res.data.sessions || []).map(s => ({
           ...s,
@@ -64,13 +79,14 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
         }))
       }
     } catch (err) {
-      console.error('加载会话列表失败:', err)
+      if (!disposed && generation === listGeneration) console.error('加载会话列表失败:', err)
     } finally {
-      loadingSessions.value = false
+      if (!disposed && generation === listGeneration) loadingSessions.value = false
     }
   }
 
   function createNewSession() {
+    invalidateHistory()
     options.onBeforeSwitch?.()
     currentSessionId.value = ''
     messages.value = []
@@ -81,22 +97,25 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
 
   async function switchSession(sessionId: string) {
     options.onBeforeSwitch?.()
+    const generation = ++historyGeneration
     const targetId = sessionId
+    const isCurrent = () => !disposed && generation === historyGeneration && currentSessionId.value === targetId
     currentSessionId.value = targetId
     messages.value = []
     try {
       const res = await sessionApi.getDetail(targetId)
       // 竞态保护：await 期间用户可能已切到其他会话/新建会话，丢弃过期结果
-      if (currentSessionId.value !== targetId) return
+      if (!isCurrent()) return
       if (res.data) {
         messages.value = (res.data.messages || []).map(options.mapMessage)
       }
     } catch (err) {
-      if (currentSessionId.value !== targetId) return
+      if (!isCurrent()) return
       console.error('加载会话详情失败:', err)
       toast.error(options.loadFailMessage)
     }
     nextTick(() => {
+      if (!isCurrent()) return
       options.onAfterSwitch?.()
       textareaRef.value?.focus()
     })
@@ -142,6 +161,7 @@ export function useChatSessions<M extends Message>(options: UseChatSessionsOptio
     loadingSessions,
     filteredSessions,
     loadSessions,
+    invalidateHistory,
     createNewSession,
     switchSession,
     deleteSession,

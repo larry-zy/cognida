@@ -13,6 +13,15 @@ const setup = () => mount(View, { global: { stubs: { RouterLink: { props: ['to']
 const button = (w: ReturnType<typeof setup>, text: string) => w.findAll('button').find(b => b.text() === text)!
 describe('governed operation confirmation workbench', () => {
   beforeEach(() => { vi.clearAllMocks(); scope.authEpoch++; scope.currentTenant.id = 1; route.query = {}; api.targets.mockResolvedValue({ data: { items: [] } }); api.list.mockResolvedValue({ data: { items: [] } }); api.get.mockResolvedValue({ data: planned }) })
+  it('preserves an operation draft on same-identity refresh and clears it on tenant change', async () => {
+    const w = setup(); await flushPromises()
+    await w.get('input[list]').setValue('agent_etl_draft')
+    scope.user = { id: 1 }; scope.currentTenant = { id: 1 }; await flushPromises()
+    expect((w.get('input[list]').element as HTMLInputElement).value).toBe('agent_etl_draft')
+    scope.currentTenant = { id: 2 }; await flushPromises()
+    expect((w.get('input[list]').element as HTMLInputElement).value).toBe('')
+    w.unmount()
+  })
   it('shows independent errors and an honest empty state', async () => { api.targets.mockRejectedValue(new Error('offline')); const w = setup(); await nextTick(); expect(w.text()).toContain('正在读取'); await flushPromises(); expect(w.text()).toContain('受管目标列表读取失败'); expect(w.text()).toContain('尚无操作计划'); expect(w.text()).not.toContain('尚未提交派生目标'); w.unmount() })
   it('loads an exact immutable plan on refresh without confirming it', async () => { route.query = { job_id: 'plan' }; const w = setup(); await flushPromises(); expect(w.text()).toContain('9007199254740993.123456789012345678'); expect(w.text()).toContain('00123'); expect(button(w, '明确确认并提交').attributes('disabled')).toBeDefined(); expect(api.confirm).not.toHaveBeenCalled(); expect(api.prepare).not.toHaveBeenCalled(); w.unmount() })
   it('requires explicit confirmation and reads the actual receipt', async () => { route.query = { job_id: 'plan' }; const w = setup(); await flushPromises(); api.confirm.mockResolvedValue({ data: { ...planned, status: 'queued' } }); api.get.mockResolvedValue({ data: { ...planned, status: 'completed', committed_version: 1, affected_rows: 1, output_ref: { asset_id: 'result', version: 1 } } }); await w.get('input[type=checkbox]').setValue(true); await button(w, '明确确认并提交').trigger('click'); await flushPromises(); expect(api.confirm).toHaveBeenCalledWith(expect.objectContaining({ id: 'plan', version: 1, plan: expect.objectContaining({ hash: 'immutable-hash' }) }), expect.any(AbortSignal)); expect(w.text()).toContain('已提交版本 v1'); expect(w.text()).toContain('查看真实结果产物'); w.unmount() })

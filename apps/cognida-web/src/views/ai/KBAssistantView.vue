@@ -238,6 +238,7 @@
                   :default-open="false"
                 />
                 <!-- 回答气泡 -->
+                <AgentCompletionNotice :completion="message.completion" />
                 <div class="bubble bubble--ai" v-html="renderMarkdown(message.content)"></div>
                 <KnowledgeSourceCards :steps="message.steps" :legacy="message.ragContext" />
                 <!-- 推荐追问（预制，仅最后一条回答显示） -->
@@ -355,6 +356,7 @@ import toast from '@/utils/toast'
 import KnowledgeSourceCards from './KnowledgeSourceCards.vue'
 import {knowledgeSources} from './knowledgeSources'
 import AgentTimeline from '@/components/agent/AgentTimeline.vue'
+import AgentCompletionNotice from '@/components/agent/AgentCompletionNotice.vue'
 import { useMarkdown } from '@/composables/useMarkdown'
 import { useAgentChat, parseAgentSteps } from '@/composables/useAgentChat'
 import { useChatSessions } from '@/composables/useChatSessions'
@@ -500,6 +502,7 @@ const {
   loadingSessions,
   filteredSessions,
   loadSessions,
+  invalidateHistory,
   createNewSession,
   switchSession,
   deleteSession,
@@ -551,7 +554,10 @@ const {
     graph_enabled: graphEnhanced.value,
     kb_scope_mode: kbScopeMode.value
   }, { signal }),
-  onSendStart: () => { lastRagContext.value = undefined },
+  onSendStart: () => {
+    invalidateHistory()
+    lastRagContext.value = undefined
+  },
   onEvent: event => {
     // RAG context 来自 rag_context 事件（StreamChatEvent 兼容字段）
     const rc = (event as any).rag_context
@@ -573,6 +579,7 @@ const {
 function clearCurrentSession() {
   if (messages.value.length === 0) return
   stopStreaming()
+  invalidateHistory()
   messages.value = []
   toast.success('已清空当前对话')
 }

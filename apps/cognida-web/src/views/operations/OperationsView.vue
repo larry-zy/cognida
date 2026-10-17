@@ -71,9 +71,41 @@ function fields(items: ReturnType<typeof cell>[]) { const result: Record<string,
 async function prepare() { await action(async (signal, generation) => { const input: OperationRequest = { action: draft.action, target: draft.target, expected_version: draft.expected_version }; if (input.action === 'etl') input.input_ref = { asset_id: assetID.value, version: assetVersion.value }; if (['insert', 'update'].includes(input.action)) input.values = fields(values.value); if (['update', 'delete'].includes(input.action)) input.where = fields(where.value); if (input.action === 'rollback') input.rollback_version = rollbackVersion.value; const fingerprint = JSON.stringify(input); if (!pending || pending.fingerprint !== fingerprint) pending = { fingerprint, key: crypto.randomUUID() }; const response = await api.prepare(input, pending.key, signal); if (generation !== epoch) return; if (!response.data) throw new Error('missing plan'); pending = null; await open(response.data.id); if (generation === epoch) { notice.value = '计划已保存，尚未提交数据变更。'; await loadLists() } }) }
 async function confirm() { const item = current.value; if (!item || !acknowledged.value || item.status !== 'planned') return; acknowledged.value = false; await action(async (signal, generation) => { try { await api.confirm(item, signal) } finally { if (generation === epoch) await refresh() } }) }
 async function cancel() { const item = current.value; if (!item || terminal(item.status)) return; await action(async (signal, generation) => { const response = await api.cancel(item.id, signal); if (generation === epoch && item.id === jobID.value && response.data) { current.value = response.data; acknowledged.value = false; schedule(); await loadLists() } }) }
-function reset() { epoch++; readSequence++; listSequence++; controllers.forEach(c => c.abort()); controllers.clear(); clearTimeout(timer); pending = null; current.value = null; jobs.value = []; targets.value = []; cursor.value = ''; jobID.value = ''; acknowledged.value = false; error.value = ''; notice.value = ''; targetsError.value = ''; listError.value = ''; loading.value = false; busy.value = false; reading.value = false; draft.target = ''; draft.expected_version = 0; assetID.value = ''; values.value = [cell()]; where.value = [cell()] }
+function reset() {
+  epoch++
+  readSequence++
+  listSequence++
+  controllers.forEach(c => c.abort())
+  controllers.clear()
+  clearTimeout(timer)
+  pending = null
+  current.value = null
+  jobs.value = []
+  targets.value = []
+  cursor.value = ''
+  jobID.value = ''
+  acknowledged.value = false
+  error.value = ''
+  notice.value = ''
+  targetsError.value = ''
+  listError.value = ''
+  loading.value = false
+  busy.value = false
+  reading.value = false
+  draft.target = ''
+  draft.expected_version = 0
+  assetID.value = ''
+  values.value = [cell()]
+  where.value = [cell()]
+}
 function initialize() { jobID.value = typeof route.query.job_id === 'string' ? route.query.job_id : ''; void loadLists(); if (jobID.value) void refresh() }
-watch(() => [auth.authEpoch, auth.user?.id, auth.currentTenant?.id], () => { reset(); initialize() })
+watch(
+  [() => auth.authEpoch, () => auth.user?.id, () => auth.currentTenant?.id],
+  () => {
+    reset()
+    initialize()
+  },
+)
 watch(() => route.query.job_id, value => { const id = typeof value === 'string' ? value : ''; if (id !== jobID.value) { current.value = null; acknowledged.value = false; jobID.value = id; clearTimeout(timer); if (id) void refresh() } })
 onMounted(initialize); onBeforeUnmount(reset)
 </script>

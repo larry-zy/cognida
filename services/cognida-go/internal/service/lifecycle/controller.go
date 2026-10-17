@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"cognida/internal/infrastructure/job"
+	"cognida/internal/model/job"
 	d "cognida/internal/model/lifecycle"
 	"github.com/google/uuid"
 )
@@ -32,17 +32,15 @@ func (s *Service) enqueue(ctx context.Context, st d.StageRun) error {
 }
 
 type Worker struct {
-	base    *job.Worker
+	base    job.Runner
 	service *Service
 	cancel  context.CancelFunc
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 }
 
-func NewWorker(s *Service) *Worker {
-	dispatcher := job.NewDispatcher(s.queue, job.RetryPolicy{MaxAttempts: 5, BaseDelay: time.Second, MaxDelay: 30 * time.Second})
-	dispatcher.Register(JobType, s, s)
-	return &Worker{base: job.NewWorker(dispatcher, 2, time.Second), service: s}
+func NewWorker(s *Service, runner job.Runner) *Worker {
+	return &Worker{base: runner, service: s}
 }
 func (w *Worker) Run() error {
 	w.mu.Lock()

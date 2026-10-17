@@ -73,9 +73,11 @@ export interface GovernanceAnalysisInput {
 }
 
 export interface GovernanceAnnotation {
+  evaluation_profile?: GovernanceEvaluationProfile | null;
   labels: Array<string> | null;
   entities: Array<GovernanceEntity> | null;
   relations: Array<GovernanceRelation> | null;
+  qa?: GovernanceQAPair | null;
 }
 
 export interface GovernanceAnnotationItem {
@@ -101,10 +103,14 @@ export interface GovernanceAnnotationTask {
   version: number;
   created_at: string;
   updated_at: string;
+  standard_version_id?: string;
+  standard_digest?: string;
+  standard_snapshot?: GovernanceLabelStandardInput | null;
   name: string;
   type: string;
   source_ref_id: string;
   labels: Array<GovernanceLabel> | null;
+  qa_mapping?: GovernanceQAMapping | null;
   status: string;
   item_count: number;
 }
@@ -115,6 +121,25 @@ export interface GovernanceEntity {
   start: number;
   end: number;
   text: string;
+}
+
+export interface GovernanceEvaluationProfile {
+  kind: string;
+  source_refs?: Array<string> | null;
+  relevant_chunk_ids?: Array<string> | null;
+  expected_tools?: Array<string> | null;
+  expected_steps?: Array<string> | null;
+  datasource_id?: string;
+  dialect?: string;
+  gold_sql?: string;
+}
+
+export interface GovernanceEvidenceSpan {
+  label_id?: string;
+  rule: string;
+  match: string;
+  start: number;
+  end: number;
 }
 
 export interface GovernanceFeature {
@@ -128,6 +153,7 @@ export interface GovernanceFeature {
   type: string;
   description: string;
   definition: unknown;
+  definition_exact?: string;
   source_ref_id: string;
 }
 
@@ -136,13 +162,25 @@ export interface GovernanceFeatureValue {
   version: number;
   entity_id: string;
   value: unknown;
+  value_exact?: string;
   timestamp: string;
+  available_at?: string;
   source_ref_id: string;
 }
 
 export interface GovernanceLabel {
   id: string;
   name: string;
+  keywords?: Array<string> | null;
+  terms?: Array<string> | null;
+}
+
+export interface GovernanceLabelStandardInput {
+  name: string;
+  task_type: string;
+  guidelines: string;
+  labels: Array<GovernanceStandardLabel> | null;
+  constraints: GovernanceStandardConstraints;
 }
 
 export interface GovernanceMeta {
@@ -169,11 +207,26 @@ export interface GovernanceNotification {
 }
 
 export interface GovernanceProvenance {
+  model_call_id?: string;
+  scheme_digest?: string;
+  guidelines_digest?: string;
   source: string;
   method: string;
   model?: string;
   confidence: number | null;
   evidence: Array<string> | null;
+  decision_status: string;
+  evidence_spans?: Array<GovernanceEvidenceSpan> | null;
+}
+
+export interface GovernanceQAMapping {
+  question_column: string;
+  reference_answer_column: string;
+}
+
+export interface GovernanceQAPair {
+  question: string;
+  reference_answer: string;
 }
 
 export interface GovernanceRefreshSource {
@@ -191,6 +244,31 @@ export interface GovernanceRelation {
 export interface GovernanceSchedule {
   cron: string;
   timezone: string;
+}
+
+export interface GovernanceStandardConstraints {
+  max_labels: number;
+  max_entities: number;
+  max_relations: number;
+  allow_empty: boolean;
+}
+
+export interface GovernanceStandardExample {
+  text: string;
+  decision: string;
+  explanation: string;
+}
+
+export interface GovernanceStandardLabel {
+  id: string;
+  name: string;
+  keywords?: Array<string> | null;
+  terms?: Array<string> | null;
+  definition: string;
+  include_criteria: Array<string> | null;
+  exclude_criteria: Array<string> | null;
+  exclude_keywords: Array<string> | null;
+  examples: Array<GovernanceStandardExample> | null;
 }
 
 export interface GovernanceSubscription {
@@ -257,6 +335,7 @@ export interface GovernanceTaggingConfig {
   enable_extraction: boolean;
   enable_classification: boolean;
   tag_schema: Array<string> | null;
+  label_schema?: Array<GovernanceLabel> | null;
 }
 
 export interface GovernanceTaggingResult {
@@ -290,6 +369,9 @@ export interface GovernanceTaggingTask {
   version: number;
   created_at: string;
   updated_at: string;
+  standard_version_id?: string;
+  standard_digest?: string;
+  standard_snapshot?: GovernanceLabelStandardInput | null;
   name: string;
   source_ref_id: string;
   config: GovernanceTaggingConfig;
@@ -403,12 +485,41 @@ export interface LifecyclePolicySnapshot {
   version: string;
 }
 
+export interface LifecyclePreparation {
+  version: number;
+  source_ref_id: string;
+  source_digest: string;
+  output_digest: string;
+  schema_digest: string;
+  rows: number;
+  fields: Array<LifecyclePreparationField> | null;
+  normalize_newlines: boolean;
+  text_projection?: LifecyclePreparationTextProjection | null;
+}
+
+export interface LifecyclePreparationField {
+  source: string;
+  name: string;
+  type: string;
+  required: boolean;
+}
+
+export interface LifecyclePreparationTextProjection {
+  column: string;
+  text_field: string;
+  id_column?: string;
+}
+
 export interface LifecycleProvenance {
+  preparation?: LifecyclePreparation | null;
   source_type: string;
   source_id?: string;
   uri?: string;
   digest: string;
   request_id?: string;
+  access_request?: unknown;
+  source_version?: string;
+  source_owner_id?: number;
 }
 
 export interface LifecycleRefID {

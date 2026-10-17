@@ -134,6 +134,7 @@
                   :steps="message.steps"
                   :default-open="false"
                 />
+                <AgentCompletionNotice :completion="message.completion" />
                 <div class="bubble bubble--ai" v-html="renderMarkdown(message.content)"></div>
                 <QueryResultLinks :session-id="currentSessionId" :steps="message.steps" />
                 <div v-if="message.ui_surfaces && message.ui_surfaces.length" class="canvas-ref">
@@ -296,6 +297,7 @@ import type { Message, AgentStep } from '@/types'
 import { formatTime } from '@/utils'
 import toast from '@/utils/toast'
 import AgentTimeline from '@/components/agent/AgentTimeline.vue'
+import AgentCompletionNotice from '@/components/agent/AgentCompletionNotice.vue'
 import QueryResultLinks from './QueryResultLinks.vue'
 import A2UIRenderer from '@/components/agent/A2UIRenderer.vue'
 import type { A2UISpec, A2UIAction } from '@/components/agent/a2ui-context'
@@ -498,6 +500,7 @@ const {
   loadingSessions,
   filteredSessions,
   loadSessions,
+  invalidateHistory,
   createNewSession,
   switchSession,
   deleteSession,
@@ -547,6 +550,7 @@ const {
     datasource_id: selectedDatasourceId.value || undefined
   }, { signal }),
   onSendStart: content => {
+    invalidateHistory()
     streamingUISurfaces.value = []
     streamingUserQuery.value = content
   },

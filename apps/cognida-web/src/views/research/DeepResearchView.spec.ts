@@ -13,6 +13,15 @@ const setup = () => mount(DeepResearchView, { global: { stubs: { RouterLink: tru
 async function fill(wrapper: ReturnType<typeof setup>) { await flushPromises(); await wrapper.get('textarea').setValue('Research this'); await wrapper.get('select').setValue('allowed') }
 describe('durable research page', () => {
   beforeEach(() => { vi.resetAllMocks(); mocks.route = reactive({ query: {} }); mocks.auth = reactive({ authEpoch: 1, user: { id: 9 }, currentTenant: { id: 7 } }); mocks.list.mockResolvedValue({ data: { items: [{ id: 'allowed', name: 'Allowed', status: 1 }], total: 1, page: 1, size: 100 } }); mocks.replace.mockResolvedValue(undefined); mocks.get.mockResolvedValue({ data: run() }); mocks.create.mockResolvedValue({ data: run() }) })
+  it('preserves the question on same-identity refresh but clears it on tenant change', async () => {
+    const w = setup(); await flushPromises()
+    await w.get('#research-question').setValue('Unsaved research question')
+    mocks.auth.user = { id: 9 }; mocks.auth.currentTenant = { id: 7 }; await flushPromises()
+    expect((w.get('#research-question').element as HTMLTextAreaElement).value).toBe('Unsaved research question')
+    mocks.auth.currentTenant = { id: 2 }; await flushPromises()
+    expect((w.get('#research-question').element as HTMLTextAreaElement).value).toBe('')
+    w.unmount()
+  })
   it('creates a durable explicit scope and renders claims with limitations', async () => {
     const wrapper = setup(); await fill(wrapper); await wrapper.get('.start-button').trigger('click'); await flushPromises()
     expect(mocks.create.mock.calls[0][0]).toEqual({ query: 'Research this', kb_ids: ['allowed'], graph_enabled: false, enable_web_search: false }); expect(mocks.replace).toHaveBeenCalledWith({ query: { run_id: 'r1' } })

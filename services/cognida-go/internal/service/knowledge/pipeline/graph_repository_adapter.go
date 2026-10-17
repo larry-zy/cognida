@@ -52,9 +52,6 @@ func (a *graphRepositoryAdapter) SearchNode(ctx context.Context, ns domainrag.Na
 		}
 	}
 	out := &domainrag.GraphData{}
-	if data == nil {
-		return out, nil
-	}
 	for _, n := range data.Node {
 		if n != nil {
 			out.Node = append(out.Node, &domainrag.GraphNode{ID: n.ID, Name: n.Name, EntityType: n.EntityType, Attributes: n.Attributes, Chunks: n.Chunks, Properties: n.Properties})

@@ -1,8 +1,8 @@
 package governance
 
 import (
-	"cognida/internal/infrastructure/job"
 	d "cognida/internal/model/governance"
+	"cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	"context"
 	"encoding/json"

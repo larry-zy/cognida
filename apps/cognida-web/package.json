@@ -15,7 +15,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:list": "playwright test --list",
-    "test:e2e:check": "tsc --project e2e/tsconfig.json"
+    "test:e2e:check": "tsc --project e2e/tsconfig.json",
+    "test:e2e:fixture": "playwright test --config playwright.fixture.config.ts"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

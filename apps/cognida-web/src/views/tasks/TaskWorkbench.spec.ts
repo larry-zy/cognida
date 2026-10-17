@@ -35,6 +35,24 @@ async function fill(wrapper: VueWrapper) { await wrapper.get('[aria-label="任�
 async function begin(wrapper: VueWrapper) { await fill(wrapper); await wrapper.get('form[aria-label="新建规划任务"]').trigger('submit'); await flushPromises() }
 
 describe('Supervisor task planning', () => {
+  it('preserves a draft and unsaved candidate when profile and tenant objects refresh with the same identity', async () => {
+    const wrapper = await setup()
+    await fill(wrapper)
+    auth.user = { id: 1 }; auth.currentTenant = { id: 1 }; await flushPromises()
+    expect((wrapper.get('[aria-label="任务目标"]').element as HTMLTextAreaElement).value).toBe(task().goal)
+    await wrapper.get('form[aria-label="新建规划任务"]').trigger('submit'); await flushPromises()
+    expect(wrapper.text()).toContain('尚未保存')
+    auth.user = { id: 1 }; auth.currentTenant = { id: 1 }; await flushPromises()
+    expect(wrapper.text()).toContain('尚未保存')
+    expect(api.propose).toHaveBeenCalledTimes(1)
+    expect(api.capabilities).toHaveBeenCalledTimes(1)
+    expect(api.appendPlan).not.toHaveBeenCalled()
+    auth.currentTenant = { id: 2 }; await flushPromises()
+    expect(wrapper.text()).not.toContain('尚未保存')
+    expect((wrapper.get('[aria-label="任务目标"]').element as HTMLTextAreaElement).value).toBe('')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks(); route.query = {}; auth.authEpoch++; auth.user.id = 1; auth.currentTenant.id = 1
     vi.spyOn(window, 'confirm').mockReturnValue(true)

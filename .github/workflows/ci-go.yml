@@ -132,3 +132,47 @@ jobs:
       # 脚本以自身位置推导 GO_ROOT, 与 cwd 无关。
       - name: 检查 Clean Architecture 依赖方向
         run: bash scripts/check-architecture.sh
+
+  security-integration:
+    name: MySQL / Redis 安全与一致性回归
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-isolated-password
+          MYSQL_DATABASE: cognida_review_ci
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-isolated-password"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USER: root
+      DB_PASSWORD: ci-isolated-password
+      DB_NAME: cognida_review_ci
+      MYSQL_DSN: 'root:ci-isolated-password@tcp(127.0.0.1:3306)/cognida_review_ci?charset=utf8mb4&parseTime=true&loc=UTC'
+      COGNIDA_IDEMPOTENCY_TEST_REDIS_ADDR: '127.0.0.1:6379'
+      COGNIDA_JOB_TEST_REDIS_ADDR: '127.0.0.1:6379'
+      REDIS_ADDR: '127.0.0.1:6379'
+      REDIS_DB: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/cognida-go/go.mod
+          cache-dependency-path: services/cognida-go/go.sum
+      - name: 应用版本化迁移
+        run: go run ./cmd/migrate-db up
+      - name: 真实仓储与 HTTP / Redis 回归
+        run: >-
+          go test -tags=integration -race -count=1 -v
+          ./internal/handler ./internal/handler/middleware ./internal/infrastructure/job
+          -run 'Test(ReviewSecurityMySQL|DataSourceManagementMySQL|QueryJobMySQL|ChunkMutationMySQL|ReviewedSplitMySQL|IdempotencyRealRedis|RedisQueueRealDeliveryLifecycle)'

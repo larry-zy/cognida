@@ -291,3 +291,67 @@ func TestExecuteRejectsUnpersistedParametersAndCallerRemoteIdentity(t *testing.T
 		require.ErrorIs(t, err, d.ErrInvalid)
 	}
 }
+
+func TestDisplayChangeDoesNotPreventCancellationOrDeadlineCleanup(t *testing.T) {
+	for _, action := range []string{"cancel", "deadline", "unknown_cancel"} {
+		t.Run(action, func(t *testing.T) {
+			s, repo, remote, p := setup(t)
+			remote.state = "running"
+			remote.lost = action == "unknown_cancel"
+			ctx := context.Background()
+			job, err := s.Create(ctx, p, input(), "display-change")
+			require.NoError(t, err)
+			require.NoError(t, s.Tick(ctx, p, job.ID))
+			remote.source.Name, remote.source.Description = "renamed", "new display description"
+			remote.source.UpdatedAt = remote.source.UpdatedAt.Add(time.Hour)
+			_, err = s.Get(ctx, p, job.ID)
+			require.NoError(t, err)
+			if action == "deadline" {
+				repo.r.Job.Deadline = time.Now().Add(-time.Second)
+			} else {
+				_, err = s.Cancel(ctx, p, job.ID)
+				require.NoError(t, err)
+			}
+			remote.state = "cancelled"
+			restarted := *s
+			require.NoError(t, restarted.Tick(ctx, p, job.ID))
+			require.Equal(t, 1, remote.submit)
+			require.Equal(t, 1, remote.cancel)
+			require.True(t, repo.r.Job.Terminal())
+			if action == "deadline" {
+				require.Equal(t, "timed_out", repo.r.Job.Status)
+			} else {
+				require.Equal(t, "cancelled", repo.r.Job.Status)
+			}
+		})
+	}
+}
+
+func TestConnectionChangeStillBlocksQueryConsumption(t *testing.T) {
+	s, repo, remote, p := setup(t)
+	ctx := context.Background()
+	job, err := s.Create(ctx, p, input(), "connection-change")
+	require.NoError(t, err)
+	remote.source.Host = "another-endpoint"
+	_, err = s.Get(ctx, p, job.ID)
+	require.ErrorIs(t, err, d.ErrForbidden)
+	require.NoError(t, s.Tick(ctx, p, job.ID))
+	require.Zero(t, remote.submit)
+	require.Equal(t, "reconcile_required", repo.r.Job.Status)
+}
+
+func TestLegacyQueryReceiptReplayRequiresOriginalBinding(t *testing.T) {
+	s, repo, remote, p := setup(t)
+	ctx := context.Background()
+	legacy, err := repo.Create(ctx, p, input(), remote.source.Type, ds.LegacyQueryConnectionVersion(remote.source), "legacy")
+	require.NoError(t, err)
+	replay, err := s.Create(ctx, p, input(), "legacy")
+	require.NoError(t, err)
+	require.Equal(t, legacy.Job.ID, replay.ID)
+	_, err = s.Get(ctx, p, legacy.Job.ID)
+	require.NoError(t, err)
+	remote.source.UpdatedAt = remote.source.UpdatedAt.Add(time.Hour)
+	_, err = s.Create(ctx, p, input(), "legacy")
+	require.ErrorIs(t, err, d.ErrConflict)
+	require.Zero(t, remote.submit)
+}

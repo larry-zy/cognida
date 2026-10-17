@@ -352,7 +352,7 @@ func numeric(ctx context.Context, v any) (*big.Rat, error) {
 	if !ok {
 		return nil, d.ErrInvalid
 	}
-	r, ok := new(big.Rat).SetString(n.String())
+	r, ok := new(big.Rat).SetString(n.String()) // #nosec G113 -- Only the bounded to_number conversion above supplies this token (<=4096-bit magnitude, <=256 fractional digits); never raw input.
 	if !ok {
 		return nil, d.ErrInvalid
 	}

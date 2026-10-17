@@ -33,6 +33,16 @@ function harness(createStream: (content: string, signal: AbortSignal) => AsyncGe
 }
 
 describe('chat stream lifecycle', () => {
+  it('retains the exact answer and actual partial/persistence terminal metadata', async () => {
+    const h = harness(async function* () {
+      yield { event: 'done', answer: 'partial exact answer', partial: true, persistence_failed: true, terminated_by: 'max_iter', iterations: 8, max_reached: true }
+    })
+    await h.chat.sendMessage()
+    expect(h.messages.value[1]).toMatchObject({ content: 'partial exact answer', completion: { partial: true, persistence_failed: true, terminated_by: 'max_iter', iterations: 8, max_reached: true } })
+    expect(h.chat.isStreaming.value).toBe(false)
+    h.wrapper.unmount()
+  })
+
   it('ignores late old-session events and does not reset a newer stream', async () => {
     const first = deferred<AgentStreamEvent>()
     const second = deferred<AgentStreamEvent>()

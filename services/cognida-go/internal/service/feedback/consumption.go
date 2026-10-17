@@ -95,6 +95,12 @@ func (s *Service) Filter(ctx context.Context, tenant, kb string, docs []*rag.Doc
 				return nil, e
 			}
 		}
+		if allowed {
+			allowed, e = s.Projection.CurrentChunk(ctx, p, doc)
+			if e != nil {
+				return nil, e
+			}
+		}
 		if allowed && len(d.RequestedLabels(ctx)) > 0 {
 			matches, err := s.FilterKnowledgeLabels(ctx, tenantID, []string{doc.KnowledgeID}, d.RequestedLabels(ctx))
 			if err != nil {

@@ -13,6 +13,9 @@ import (
 	"unicode/utf8"
 )
 
+// Legacy TAR archives use NUL for a regular file; retain that accepted wire value.
+const legacyTarRegularFile byte = 0
+
 type CollectedFile struct {
 	Artifact d.Artifact
 	Body     []byte
@@ -44,7 +47,7 @@ func CollectArchive(v ValidatedSubmission, archive []byte) (d.Manifest, []Collec
 			}
 			continue
 		}
-		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA {
+		if h.Typeflag != tar.TypeReg && h.Typeflag != legacyTarRegularFile {
 			return manifest, nil, invalid("output links, archives and special files are forbidden")
 		}
 		if name == ".cognida-result.json" || name == ".cognida-log" {

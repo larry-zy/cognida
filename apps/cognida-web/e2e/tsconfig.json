@@ -4,5 +4,5 @@
     "lib": ["ES2022", "DOM"], "types": ["node"], "strict": true,
     "skipLibCheck": true, "noEmit": true
   },
-  "include": ["./**/*.ts", "../playwright.config.ts"]
+  "include": ["./**/*.ts", "../playwright.config.ts", "../playwright.fixture.config.ts", "../e2e-fixtures/**/*.ts"]
 }

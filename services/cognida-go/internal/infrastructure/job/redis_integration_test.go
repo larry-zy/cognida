@@ -17,9 +17,13 @@ import (
 // This test uses an existing local Redis service and a unique namespace. It
 // never flushes a database or removes keys belonging to another test/process.
 func TestRedisQueueRealDeliveryLifecycle(t *testing.T) {
+	addr := os.Getenv("COGNIDA_JOB_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("COGNIDA_JOB_TEST_REDIS_ADDR must explicitly select a test Redis")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379", Password: os.Getenv("REDIS_PASSWORD"), DB: 0})
+	client := redis.NewClient(&redis.Options{Addr: addr, Password: os.Getenv("REDIS_PASSWORD"), DB: 0})
 	prefix := "cognida:integration:" + uuid.NewString()
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -68,7 +72,7 @@ func TestRedisQueueRealDeliveryLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, recovered, "live lease cannot be stolen by another worker")
 	// Force only our delivery's lease to expire; do not wait for a real minute.
-	require.NoError(t, client.ZAdd(ctx, q.leases(), redis.Z{Score: 0, Member: old.raw}).Err())
+	require.NoError(t, client.ZAdd(ctx, q.leases(), redis.Z{Score: 0, Member: old.Delivery.(*deliveryReceipt).raw}).Err())
 	recovered, err = q.Recover(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, recovered)

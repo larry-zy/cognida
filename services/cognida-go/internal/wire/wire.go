@@ -396,8 +396,8 @@ func ProvideSessionService(
 	return app_chat.NewSessionService(sessionRepo, messageRepo, retrievalSettingRepo)
 }
 
-func ProvideMessageService(messageRepo domain_conversation.MessageRepository) *app_chat.MessageService {
-	return app_chat.NewMessageService(messageRepo)
+func ProvideMessageService(messageRepo domain_conversation.MessageRepository, sessionRepo domain_conversation.SessionRepository) *app_chat.MessageService {
+	return app_chat.NewMessageService(messageRepo, sessionRepo)
 }
 
 // ProvideLLMChatService 提供领域层的 LLMChatService 接口实现
@@ -443,8 +443,10 @@ func ProvideKnowledgeBaseService(
 	statsQuerier domain_knowledge.KnowledgeStatsQuerier,
 	vectorRepo domain_knowledge.VectorRepository,
 	graphRepo domain_knowledge.GraphRepository,
+	processor app_kb.DocumentProcessorService,
 ) app_kb.KnowledgeBaseService {
-	return app_kb.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo, graphRepo)
+	indexer, _ := processor.(domain_knowledge.ChunkIndexer)
+	return app_kb.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo, graphRepo, indexer)
 }
 
 // ProvideVectorRepository provides the vector repository
@@ -1221,8 +1223,8 @@ func ProvideDataSourceService(repo datasourcemodel.Repository, idGen infraid.IDG
 }
 
 // ProvideDataSourceHandler 提供数据源 HTTP 处理器。
-func ProvideDataSourceHandler(service *datasourcesvc.Service) *handler.DataSourceHandler {
-	return handler.NewDataSourceHandler(service)
+func ProvideDataSourceHandler(service *datasourcesvc.Service, accountService *appAccount.AccountService) *handler.DataSourceHandler {
+	return handler.NewDataSourceHandler(service, accountService)
 }
 
 // ProvideSemanticRepository 提供指标语义层模型仓储。

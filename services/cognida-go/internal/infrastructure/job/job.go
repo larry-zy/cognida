@@ -1,57 +1,18 @@
-// Package job provides reusable durable job delivery primitives. Domain
-// packages supply typed payload adapters and handlers; this package owns no
-// business status or persistence semantics.
+// Package job implements durable delivery adapters for the model/job contracts.
 package job
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
+	contract "cognida/internal/model/job"
 	"time"
 )
 
-type Job struct {
-	// receipt/raw identify one leased delivery; they are never serialized.
-	receipt string
-	raw     string
-	ID      string          `json:"id"`
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-	Attempt int             `json:"attempt"`
-}
+type Job = contract.Job
+type Queue = contract.Queue
+type RecoverySource = contract.RecoverySource
+type Handler = contract.Handler
+type ExhaustionHandler = contract.ExhaustionHandler
 
-func New(id, typ string, payload any) (Job, error) {
-	if id == "" || typ == "" {
-		return Job{}, fmt.Errorf("job id and type are required")
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return Job{}, fmt.Errorf("marshal job payload: %w", err)
-	}
-	return Job{ID: id, Type: typ, Payload: body}, nil
-}
-
-type Queue interface {
-	Enqueue(context.Context, Job) error
-	Claim(context.Context, time.Duration) (*Job, error)
-	Ack(context.Context, Job) error
-	Retry(context.Context, Job, time.Duration) error
-	PromoteDue(context.Context, int) (int, error)
-	Recover(context.Context) (int, error)
-}
-
-// RecoverySource makes a domain's durable pending work visible to the generic
-// dispatcher without coupling the dispatcher to any repository model.
-type RecoverySource interface {
-	PendingJobs(context.Context, int) ([]Job, error)
-}
-
-type Handler interface {
-	Handle(context.Context, Job) error
-}
-type ExhaustionHandler interface {
-	Exhausted(context.Context, Job, error) error
-}
+var New = contract.New
 
 type RetryPolicy struct {
 	MaxAttempts         int

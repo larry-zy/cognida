@@ -140,7 +140,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	}
 	evaluationService := ProvideEvaluationService(datasetService, evaluationTaskRepository, evaluationResultRepository, progressCache, taskEnqueuer, evaluationConfig, featureServices)
 	knowledgeStatsQuerier := ProvideKnowledgeStatsQuerier(db)
-	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository)
+	knowledgeBaseService := ProvideKnowledgeBaseService(knowledgeBaseRepository, knowledgeBaseSettingRepository, knowledgeRepository, chunkRepository, knowledgeStatsQuerier, vectorRepository, graphRepository, documentProcessorService)
 	milvusRetriever := ProvideMilvusRetriever(embedder)
 	graphSearcher := ProvideRAGGraphRepository(graphRepository)
 	graphQueryRepository := ProvideGraphQueryRepository(db, chunkRepository)
@@ -163,7 +163,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	modelFactory := ProvideModelFactory()
 	chatService := ProvideChatService(llmClient, modelRepository, modelFactory)
 	sessionHandler := ProvideSessionHandler(sessionService, chatService)
-	messageService := ProvideMessageService(messageRepository)
+	messageService := ProvideMessageService(messageRepository, sessionRepository)
 	messageHandler := ProvideMessageHandler(messageService)
 	tenantHandler := ProvideTenantHandler(accountService)
 	agentExecutor := ProvideAgentOrchestrator(specRegistry)
@@ -193,7 +193,7 @@ func InitializeApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	checkRecordRepository := ProvideQualityCheckRecordRepository(db)
 	qualityService := ProvideQualityService(gateway, checkRecordRepository, idGenerator, pythonGrpcConfig, service)
 	qualityHandler := ProvideQualityHandler(qualityService)
-	dataSourceHandler := ProvideDataSourceHandler(service)
+	dataSourceHandler := ProvideDataSourceHandler(service, accountService)
 	semanticRepository := ProvideSemanticRepository(db)
 	coverageReporter := ProvideSemanticCoverageReporter(db)
 	profileReader := ProvideSemanticProfileReader(db)
@@ -355,8 +355,8 @@ func ProvideSessionService(
 	return chat.NewSessionService(sessionRepo, messageRepo, retrievalSettingRepo)
 }
 
-func ProvideMessageService(messageRepo conversation.MessageRepository) *chat.MessageService {
-	return chat.NewMessageService(messageRepo)
+func ProvideMessageService(messageRepo conversation.MessageRepository, sessionRepo conversation.SessionRepository) *chat.MessageService {
+	return chat.NewMessageService(messageRepo, sessionRepo)
 }
 
 // ProvideLLMChatService 提供领域层的 LLMChatService 接口实现
@@ -399,8 +399,10 @@ func ProvideKnowledgeBaseService(
 	statsQuerier knowledge.KnowledgeStatsQuerier,
 	vectorRepo knowledge.VectorRepository,
 	graphRepo knowledge.GraphRepository,
+	processor knowledge2.DocumentProcessorService,
 ) knowledge2.KnowledgeBaseService {
-	return knowledge2.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo, graphRepo)
+	indexer, _ := processor.(knowledge.ChunkIndexer)
+	return knowledge2.NewKnowledgeBaseService(kbRepo, kbSettingRepo, knowledgeRepo, chunkRepo, statsQuerier, vectorRepo, graphRepo, indexer)
 }
 
 // ProvideVectorRepository provides the vector repository
@@ -1125,8 +1127,8 @@ func ProvideDataSourceService(repo datasource.Repository, idGen id.IDGenerator) 
 }
 
 // ProvideDataSourceHandler 提供数据源 HTTP 处理器。
-func ProvideDataSourceHandler(service *datasource2.Service) *handler.DataSourceHandler {
-	return handler.NewDataSourceHandler(service)
+func ProvideDataSourceHandler(service *datasource2.Service, accountService *account.AccountService) *handler.DataSourceHandler {
+	return handler.NewDataSourceHandler(service, accountService)
 }
 
 // ProvideSemanticRepository 提供指标语义层模型仓储。

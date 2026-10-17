@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"unicode/utf8"
 
-	"cognida/internal/infrastructure/llm/chat"
 	domainllm "cognida/internal/model/llm"
 	"github.com/cloudwego/eino/schema"
 )
@@ -94,7 +93,7 @@ func researchFailure(stage string, err error) *ResearchFailureDTO {
 	failure := &ResearchFailureDTO{Stage: stage, Code: "unknown"}
 	var output *researchOutputError
 	var validation *researchValidationError
-	var httpStatus *chat.HTTPStatusError
+	var httpStatus *domainllm.HTTPStatusError
 	var apiStatus *domainllm.APIError
 	var network net.Error
 	var transport *url.Error

@@ -45,11 +45,9 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      # 棕地存量: ESLint 存量告警/废弃语法较多, 先作非阻断反馈,
-      # 待用 `npm run lint:fix` + 手工清理废弃 slot 语法后再转为门禁。
-      - name: ESLint (非阻断)
+      # Errors block merges; existing warnings remain visible without disabling the gate.
+      - name: ESLint
         run: npm run lint
-        continue-on-error: true
 
       - name: 类型检查
         run: npm run type-check
@@ -59,3 +57,34 @@ jobs:
 
       - name: 构建
         run: npm run build
+
+      - name: E2E 类型检查
+        run: npm run test:e2e:check
+
+      - name: 安装 Chromium
+        run: npx playwright install --with-deps chromium
+
+      # This is a deterministic browser regression gate. API responses are
+      # fixtures; it does not replace the real-service acceptance suite.
+      - name: 页面竞态与完成状态回归（API fixture）
+        env:
+          COGNIDA_FIXTURE_BASE_URL: http://127.0.0.1:62813
+          COGNIDA_FIXTURE_BROWSER: chromium
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 62813 --strictPort > /tmp/cognida-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:62813/ > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --silent --fail http://127.0.0.1:62813/ > /dev/null
+          npm run test:e2e:fixture
+
+      - name: 保存页面回归失败证据
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-fixture-failure
+          path: apps/cognida-web/test-results-fixture
+          if-no-files-found: ignore

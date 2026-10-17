@@ -66,7 +66,7 @@
     <main class="main-content" :inert="mobileOpen ? true : undefined">
       <div class="platform-mobile-bar"><router-link to="/home">Cognida</router-link><button ref="mobileToggle" aria-controls="workspace-navigation" :aria-expanded="mobileOpen" @click="openMobileNavigation">导航菜单</button></div>
       <div class="content-wrapper">
-        <router-view :key="`${authStore.authEpoch}:${authStore.user?.id}:${authStore.currentTenant?.id}:${route.fullPath}`" />
+        <router-view :key="pageKey" />
       </div>
     </main>
   </div>
@@ -84,6 +84,14 @@ import { activeNavigationPath, navigationGroups } from './navigation'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+// A first streamed Data Agent answer synchronizes its conversation URL. Keep
+// that page's explicit source and receipt, while every identity change remounts.
+const pageKey = computed(() => JSON.stringify([
+  authStore.authEpoch,
+  authStore.user?.id,
+  authStore.currentTenant?.id,
+  route.name === 'DataAgent' ? 'DataAgent' : route.fullPath,
+]))
 
 // 菜单收缩状态（持久化到 localStorage）
 const RAIL_COLLAPSE_KEY = 'link:rail-collapsed'

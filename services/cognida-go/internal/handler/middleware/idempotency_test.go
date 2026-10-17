@@ -112,10 +112,10 @@ func TestIdempotency_InFlightBeginSemantics(t *testing.T) {
 	idem := NewIdempotency(nil)
 	const key = "idem:7:42:POST:/orders:live"
 
-	if first, _ := idem.local.begin(key); !first {
+	if first, _ := idem.local.begin(key, idemRecord{State: idemStateNew, Digest: "same", Owner: "claim"}); !first {
 		t.Fatalf("首次 begin 应成为首个（first=true）")
 	}
-	first, ex := idem.local.begin(key)
+	first, ex := idem.local.begin(key, idemRecord{State: idemStateNew, Digest: "same", Owner: "claim"})
 	if first {
 		t.Fatalf("同键第二次 begin 不应再成为首个")
 	}

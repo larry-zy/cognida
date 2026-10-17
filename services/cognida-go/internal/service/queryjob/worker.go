@@ -71,8 +71,13 @@ func (s *Service) Tick(ctx context.Context, p l.Principal, id string) error {
 		})
 	}
 	a, source, e := s.provider.AcquireQuery(ctx, p.TenantID, r.Job.Input.DataSourceID)
-	if e != nil || source == nil || sourceVersion(source) != r.Job.SourceVersion {
+	if e != nil || source == nil || !ds.MatchesQueryConnectionVersion(source, r.Job.SourceVersion) {
 		return note("source_connection_unavailable_or_changed")
+	}
+	if binder, ok := a.(ds.QuerySourceVersionBinder); ok {
+		if e = binder.BindQuerySourceVersion(r.Job.SourceVersion); e != nil {
+			return note("source_connection_unavailable_or_changed")
+		}
 	}
 	adapter, ok := a.(ds.AsyncQueryAdapter)
 	if !ok {

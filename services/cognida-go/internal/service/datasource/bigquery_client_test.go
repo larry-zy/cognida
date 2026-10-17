@@ -65,11 +65,18 @@ func TestBigQueryRESTBudgetIdempotencyRecoveryAndExactPages(t *testing.T) {
 	}))
 	defer server.Close()
 	a := &bigQueryAdapter{source: &m.DataSource{ID: "source", TenantID: 7, DatabaseName: "testdata", Type: m.TypeBigQuery, UpdatedAt: time.Now()}, options: BigQueryOptions{Project: "test-project", Location: "US", MaxScanBytes: 100}, client: server.Client(), endpoint: server.URL, prefix: "cognida_test_"}
+	version := m.QueryConnectionVersion(a.source)
+	require.NoError(t, a.BindQuerySourceVersion(version))
 	in := m.QueryRequest{SQL: "SELECT code, amount, big, missing FROM samples", MaxRows: 3, MaxBytes: 4096, Timeout: time.Second, OperationID: "durable-operation-one"}
 	id, e := a.Submit(context.Background(), in)
 	require.NoError(t, e)
 	require.NotEmpty(t, id)
 	recovered := *a
+	copySource := *a.source
+	copySource.Name, copySource.Description = "renamed", "presentation-only change"
+	copySource.UpdatedAt = copySource.UpdatedAt.Add(time.Hour)
+	recovered.source = &copySource
+	require.NoError(t, recovered.BindQuerySourceVersion(version))
 	again, e := recovered.Submit(context.Background(), in)
 	require.NoError(t, e)
 	require.Equal(t, id, again)

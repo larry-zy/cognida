@@ -183,7 +183,7 @@ func validateExpression(e d.FeatureExpression, depth int, count *int) error {
 	if depth > 8 || *count > 64 {
 		return featureErr("expression_limit", "expression is limited to depth 8 and 64 nodes")
 	}
-	arity := -1
+	var arity int
 	switch e.Op {
 	case "column":
 		arity = 0
@@ -277,7 +277,7 @@ func featureNumber(value any) (*big.Rat, error) {
 			return nil, featureErr("numeric_limit", "decimal exponent exceeds allowed bounds")
 		}
 	}
-	r, ok := new(big.Rat).SetString(text)
+	r, ok := new(big.Rat).SetString(text) // #nosec G113 -- JSON-number grammar, <=256 bytes and decimal exponent within +/-1024 are checked before allocation.
 	if !ok || r.Num().BitLen() > 4096 || r.Denom().BitLen() > 4096 {
 		return nil, featureErr("numeric_limit", "decimal magnitude exceeds the bounded numeric profile")
 	}

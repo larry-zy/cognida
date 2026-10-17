@@ -34,9 +34,12 @@ func (r *auditRepository) Create(ctx context.Context, log *audit.AuditLog) error
 }
 
 // FindByID 根据ID查找
-func (r *auditRepository) FindByID(ctx context.Context, id int64) (*audit.AuditLog, error) {
+func (r *auditRepository) FindByID(ctx context.Context, tenantID, id int64) (*audit.AuditLog, error) {
+	if tenantID <= 0 {
+		return nil, fmt.Errorf("tenant is required")
+	}
 	var model AuditLogModel
-	err := r.WithContext(ctx).Where("id = ?", id).First(&model).Error
+	err := r.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id).First(&model).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("日志不存在")

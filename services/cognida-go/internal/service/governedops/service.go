@@ -1,9 +1,9 @@
 package governedops
 
 import (
-	"cognida/internal/infrastructure/job"
 	ds "cognida/internal/model/datasource"
 	d "cognida/internal/model/governedops"
+	"cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	"cognida/internal/service/lifecycle"
 	"context"

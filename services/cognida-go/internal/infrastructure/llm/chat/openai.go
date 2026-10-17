@@ -3,6 +3,7 @@ package chat
 import (
 	"bufio"
 	"bytes"
+	"cognida/internal/model/llm"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,15 +21,7 @@ import (
 // HTTPStatusError 表示上游返回了非 2xx HTTP 状态。它保留状态码与原始 Retry-After 头，
 // 供上层弹性装饰器（llm/resilience）精确分级——把可重试的 429/5xx 与终止的 4xx 区分开，
 // 避免在只拿到格式化字符串时误判为终态而不重试/降级。Error() 保持原有文案以兼容既有断言。
-type HTTPStatusError struct {
-	StatusCode int
-	RetryAfter string // 原始 Retry-After 头值，可空
-	Body       string
-}
-
-func (e *HTTPStatusError) Error() string {
-	return fmt.Sprintf("api error (status %d): %s", e.StatusCode, e.Body)
-}
+type HTTPStatusError = llm.HTTPStatusError
 
 // ========================================
 // OpenAI Client Implementation
@@ -472,7 +465,7 @@ func (c *openaiClient) buildRequest(messages []*schema.Message, opts []model.Opt
 		// 使用本地默认预算 8192，为 thinking + 正文 + tool_call 留出空间。
 		req.MaxTokens = defaultMaxOutputTokens
 	}
-	if c.boundedJSONSupported && model.GetImplSpecificOptions[structuredOptions](nil, opts...).boundedJSON {
+	if c.boundedJSONSupported && model.GetImplSpecificOptions[llm.StructuredOptions](nil, opts...).BoundedJSON {
 		req.Thinking = &openaiThinking{Type: "disabled"}
 		req.ResponseFormat = &openaiResponseFormat{Type: "json_object"}
 	}

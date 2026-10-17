@@ -1,4 +1,4 @@
-// Package adapters —— 知识块精确拉取适配器：把 Milvus 向量库仓储 *retriever.VectorRetriever
+// Package adapters —— 知识块精确拉取适配器：把领域 ChunkIndexReader
 // 适配为 Agent 工具层声明的 tools.ChunkFetcher。
 //
 // 关键设计（与 RAGRetrieverAdapter 同治理）：租户与 KB 检索范围不由 LLM 决定，而由用户在会话
@@ -8,28 +8,20 @@
 package adapters
 
 import (
-	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
-	"strings"
 
 	agentctx "cognida/internal/model/agent"
 	"cognida/internal/model/knowledge"
 	"cognida/internal/model/rag"
-	"cognida/internal/repository/milvus/retriever"
 	"cognida/internal/service/agent/tools"
 )
 
-// chunkQuerier 是 ChunkFetchAdapter 对底层向量库仓储的最小依赖面：仅需按标量过滤直取分块。
-// *retriever.VectorRetriever 天然满足；抽成接口便于在无 Milvus 环境下以 fake 覆盖治理与映射逻辑。
-type chunkQuerier interface {
-	Query(ctx context.Context, kbID int64, opts *retriever.QueryOptions) ([]*retriever.DocumentData, error)
-}
-
 // ChunkFetchAdapter 将底层向量库仓储适配为 tools.ChunkFetcher。
 type ChunkFetchAdapter struct {
-	retriever chunkQuerier
+	retriever knowledge.ChunkIndexReader
 	kbRepo    knowledge.KnowledgeBaseRepository
 	guard     rag.ConsumptionGuard
 }
@@ -40,13 +32,16 @@ func (a *ChunkFetchAdapter) WithConsumptionGuard(guard rag.ConsumptionGuard) *Ch
 }
 
 // NewChunkFetchAdapter 创建知识块精确拉取适配器。
-func NewChunkFetchAdapter(vr *retriever.VectorRetriever, kbRepo knowledge.KnowledgeBaseRepository) *ChunkFetchAdapter {
-	// 显式判空后再赋值：typed-nil (*VectorRetriever)(nil) 装进接口会变成非 nil 接口值，
-	// 绕过 FetchChunks 里的 a.retriever == nil 判断，故在此保留为真正的 nil 接口。
-	if vr == nil {
-		return &ChunkFetchAdapter{retriever: nil, kbRepo: kbRepo}
+func NewChunkFetchAdapter(reader knowledge.ChunkIndexReader, kbRepo knowledge.KnowledgeBaseRepository) *ChunkFetchAdapter {
+	// An absent pointer implementation must remain unwired, not a non-nil
+	// interface that can panic when its method dereferences the receiver.
+	if reader != nil {
+		value := reflect.ValueOf(reader)
+		if value.Kind() == reflect.Ptr && value.IsNil() {
+			reader = nil
+		}
 	}
-	return &ChunkFetchAdapter{retriever: vr, kbRepo: kbRepo}
+	return &ChunkFetchAdapter{retriever: reader, kbRepo: kbRepo}
 }
 
 // emptyChunks 统一的空结果（非 nil 切片，避免上层 JSON 序列化成 null）。
@@ -84,12 +79,14 @@ func (a *ChunkFetchAdapter) FetchChunks(ctxAny interface{}, req *tools.FetchChun
 		}
 	}
 
-	filter := buildChunkFilter(tenantID, effectiveKBs, req)
-
-	docs, err := a.retriever.Query(ctx, 0, &retriever.QueryOptions{
-		Expr:   []string{filter},
-		Limit:  int64(req.Limit),
-		Offset: int64(req.Offset),
+	docs, err := a.retriever.QueryChunks(ctx, knowledge.ChunkIndexQuery{
+		TenantID:     tenantID,
+		KBIDs:        effectiveKBs,
+		ChunkIDs:     req.ChunkIDs,
+		KnowledgeIDs: req.KnowledgeIDs,
+		EnabledOnly:  req.EnabledOnly,
+		Limit:        int64(req.Limit),
+		Offset:       int64(req.Offset),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("知识块拉取失败: %w", err)
@@ -105,15 +102,18 @@ func (a *ChunkFetchAdapter) FetchChunks(ctxAny interface{}, req *tools.FetchChun
 		if err != nil {
 			return nil, err
 		}
-		ids := map[string]bool{}
+		// A shared chunk ID can have an old and a current index projection.
+		// Only the exact content and ownership tuple approved by the guard is visible.
+		type chunkIdentity struct{ chunkID, knowledgeID, kbID, content string }
+		identities := map[chunkIdentity]bool{}
 		for _, doc := range allowed {
 			if doc != nil {
-				ids[doc.ChunkID] = true
+				identities[chunkIdentity{doc.ChunkID, doc.KnowledgeID, doc.KnowledgeBaseID, doc.Content}] = true
 			}
 		}
 		visible := docs[:0]
 		for _, doc := range docs {
-			if doc != nil && ids[doc.ChunkID] {
+			if doc != nil && identities[chunkIdentity{doc.ChunkID, doc.KnowledgeID, doc.KnowledgeBaseID, doc.Content}] {
 				visible = append(visible, doc)
 			}
 		}
@@ -149,40 +149,4 @@ func (a *ChunkFetchAdapter) FetchChunks(ctxAny interface{}, req *tools.FetchChun
 	})
 
 	return &tools.FetchChunksResult{Chunks: chunks, Count: len(chunks)}, nil
-}
-
-// buildChunkFilter 组装 Milvus 标量过滤表达式：tenant_id 与 kb_id 为强制的安全边界，
-// chunk_id / knowledge_id / is_enabled 为可选收窄条件；各子句以 and 连接。
-func buildChunkFilter(tenantID int64, kbIDs []string, req *tools.FetchChunksRequest) string {
-	clauses := []string{
-		fmt.Sprintf("tenant_id == %d", tenantID), // 强制：租户边界
-		"kb_id in " + milvusStrList(kbIDs),       // 强制：授权范围内的 KB
-	}
-	if len(req.ChunkIDs) > 0 {
-		clauses = append(clauses, "chunk_id in "+milvusStrList(req.ChunkIDs))
-	}
-	if len(req.KnowledgeIDs) > 0 {
-		clauses = append(clauses, "knowledge_id in "+milvusStrList(req.KnowledgeIDs))
-	}
-	if req.EnabledOnly {
-		clauses = append(clauses, "is_enabled == true")
-	}
-	return strings.Join(clauses, " and ")
-}
-
-// milvusStrList 把字符串切片渲染为 Milvus 表达式的字符串数组字面量，如 ["a", "b"]。
-func milvusStrList(vals []string) string {
-	parts := make([]string, 0, len(vals))
-	for _, v := range vals {
-		parts = append(parts, milvusQuote(v))
-	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-// milvusQuote 将字符串安全地包成 Milvus 表达式的双引号字面量（转义反斜杠与双引号），
-// 防止 ID 里的特殊字符破坏表达式或被用于注入。
-func milvusQuote(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return `"` + s + `"`
 }

@@ -1,6 +1,7 @@
 package datasource
 
 import (
+	model "cognida/internal/model/datasource"
 	"context"
 	"strconv"
 	"strings"
@@ -25,8 +26,15 @@ func (s *Service) GuardResults(base resultstore.Store) resultstore.Store {
 		if err != nil || tenant <= 0 {
 			return resultstore.ErrUnauthorized
 		}
-		source, err := s.Get(ctx, tenant, r.DatasourceID)
-		if err != nil || source == nil || source.Status == "disabled" || source.Status == "inactive" || source.Status == "need_credentials" || source.UpdatedAt.UTC().Format(time.RFC3339Nano) != r.SourceVersion {
+		// The connection digest includes the encrypted credential. Never compute it
+		// from the sanitized HTTP view, which intentionally omits that field.
+		source, err := s.repo.Get(ctx, r.DatasourceID, tenant)
+		if err != nil || source == nil || source.TenantID != tenant || source.ID != r.DatasourceID || source.Status == "disabled" || source.Status == "inactive" || source.Status == "need_credentials" {
+			return resultstore.ErrUnauthorized
+		}
+		// Synchronous/older results used a timestamp; retain their original strict
+		// binding while new async results use immutable connection identity.
+		if !model.MatchesQueryConnectionVersion(source, r.SourceVersion) && source.UpdatedAt.UTC().Format(time.RFC3339Nano) != r.SourceVersion {
 			return resultstore.ErrUnauthorized
 		}
 		return nil

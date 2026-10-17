@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"strings"
 
-	"cognida/internal/infrastructure/llm/chat"
+	"cognida/internal/model/llm"
 )
 
 var ErrResearchSupplementIncomplete = errors.New("optional research evidence review incomplete")
@@ -157,7 +157,7 @@ func recoverableSupplementFailure(err error) bool {
 	}
 	var validation *researchValidationError
 	var output *researchOutputError
-	var status *chat.HTTPStatusError
+	var status *llm.HTTPStatusError
 	var network net.Error
 	// Only known failures from the optional model call are recoverable. Generic
 	// errors and authorization failures do not become usable partial reports.

@@ -313,8 +313,22 @@ function warnBeforeUnload(event: BeforeUnloadEvent) { if (hasUnsaved.value || bu
 const allowNavigation = () => !(hasUnsaved.value || busy.value) || window.confirm(busy.value ? '请求尚未结束，离开后请从任务列表核对保存结果。仍要离开吗？' : '未保存的目标或候选计划将丢失，仍要离开吗？')
 onBeforeRouteLeave(allowNavigation)
 onBeforeRouteUpdate(allowNavigation)
-watch(() => [auth.authEpoch, auth.user?.id, auth.currentTenant?.id], () => {
-  epoch++; controllers.forEach(item => item.abort()); controllers.clear(); clearDetail(); resetDraft(); tasks.value = []; nextCursor.value = ''; listSequence++; listLoading.value = false; listError.value = ''; capabilities.value = []; error.value = ''; notice.value = ''; issues.value = []; assets.value = []
+watch([() => auth.authEpoch, () => auth.user?.id, () => auth.currentTenant?.id], () => {
+  epoch++
+  controllers.forEach(item => item.abort())
+  controllers.clear()
+  clearDetail()
+  resetDraft()
+  tasks.value = []
+  nextCursor.value = ''
+  listSequence++
+  listLoading.value = false
+  listError.value = ''
+  capabilities.value = []
+  error.value = ''
+  notice.value = ''
+  issues.value = []
+  assets.value = []
   void assetOptions.reset().catch(() => {})
   if (!hasIdentity.value) return
   const generation = epoch, abort = controller()

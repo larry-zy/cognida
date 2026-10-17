@@ -62,15 +62,24 @@ func TestKnowledgeSearchMySQLFallbackSourcesAPI(t *testing.T) {
 			}
 			Warnings []string
 		}
-	} { req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(fmt.Sprintf(`{"kb_ids":[%q],"query":"provenance proof","retrieval_mode":"vector"}`, kbID))); req.Header.Set("Content-Type", "application/json"); w := httptest.NewRecorder(); router.ServeHTTP(w, req); require.Equal(t, http.StatusOK, w.Code, w.Body.String()); var body struct {
-		Data struct {
-			Items []struct {
-				KnowledgeID string   `json:"knowledge_id"`
-				Sources     []string `json:"sources"`
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(fmt.Sprintf(`{"kb_ids":[%q],"query":"provenance proof","retrieval_mode":"vector"}`, kbID)))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var body struct {
+			Data struct {
+				Items []struct {
+					KnowledgeID string   `json:"knowledge_id"`
+					Sources     []string `json:"sources"`
+				}
+				Warnings []string
 			}
-			Warnings []string
 		}
-	}; require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body)); return body }
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		return body
+	}
 	result := search()
 	require.Len(t, result.Data.Items, 1)
 	require.Equal(t, docID, result.Data.Items[0].KnowledgeID)

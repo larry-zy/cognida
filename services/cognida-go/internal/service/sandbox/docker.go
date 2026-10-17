@@ -78,6 +78,9 @@ func (h *DockerHost) Check(ctx context.Context, image string) error {
 	return e
 }
 func (h *DockerHost) Prepare(ctx context.Context, v ValidatedSubmission, inputs map[string][]byte) error {
+	if e := secureStagingRoot(h.Root); e != nil {
+		return e
+	}
 	name := sandboxContainer(v.Binding.ID)
 	if b, e := boundedCommand(ctx, 64<<10, "inspect", name); e == nil {
 		if e = inspectIsolation(b, v, h.Root); e != nil {
@@ -87,6 +90,7 @@ func (h *DockerHost) Prepare(ctx context.Context, v ValidatedSubmission, inputs 
 		return e
 	}
 	dir := filepath.Join(h.Root, v.Binding.ID)
+	// #nosec G301 -- Only this child is bind-mounted; guest UID 65532 needs traversal, while secureStagingRoot enforces a 0700 host parent.
 	if e := os.MkdirAll(dir, 0755); e != nil {
 		return d.ErrUnavailable
 	}
@@ -94,10 +98,12 @@ func (h *DockerHost) Prepare(ctx context.Context, v ValidatedSubmission, inputs 
 		if !identifier.MatchString(n) {
 			return d.ErrInvalid
 		}
+		// #nosec G306 -- The 0700 host root above prevents other host users from traversing; read-only bind-mounted inputs must be readable by guest UID 65532.
 		if e := os.WriteFile(filepath.Join(dir, n), b, 0444); e != nil {
 			return d.ErrUnavailable
 		}
 	}
+	// #nosec G306 -- Same private host parent and read-only guest mount; the immutable bootstrap must be readable by guest UID 65532.
 	if e := os.WriteFile(filepath.Join(dir, "runner.py"), []byte(runnerBootstrap), 0444); e != nil {
 		return d.ErrUnavailable
 	}
@@ -122,6 +128,25 @@ func (h *DockerHost) Prepare(ctx context.Context, v ValidatedSubmission, inputs 
 	}
 	_, e = boundedCommand(ctx, 4096, "start", name)
 	return e
+}
+
+// The guest mounts one child directory, not this private host parent. Keep the
+// child traversable to its non-root UID while denying other host users access.
+func secureStagingRoot(root string) error {
+	if !filepath.IsAbs(root) || filepath.Clean(root) == string(filepath.Separator) {
+		return d.ErrInvalid
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return d.ErrUnavailable
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return d.ErrUnavailable
+	}
+	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- This is a verified directory: owner-only traversal is required, not a readable file.
+		return d.ErrUnavailable
+	}
+	return nil
 }
 func inspectIsolation(body []byte, v ValidatedSubmission, root string) error {
 	var rows []struct {

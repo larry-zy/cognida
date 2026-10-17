@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	svc "cognida/internal/service/sandbox"
+	"fmt"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -43,4 +44,31 @@ func TestCollectorInspectsActualTarBytes(t *testing.T) {
 			require.Equal(t, []byte(tc.body), files[0].Body)
 		})
 	}
+}
+
+func TestCollectorAcceptsLegacyNULRegularFile(t *testing.T) {
+	body := []byte(`{"kind":"table","columns":["n"],"rows":[[1]]}`)
+	var archive bytes.Buffer
+	writer := tar.NewWriter(&archive)
+	require.NoError(t, writer.WriteHeader(&tar.Header{Name: "result.json", Mode: 0644, Typeflag: tar.TypeReg, Size: int64(len(body))}))
+	_, err := writer.Write(body)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	// Writer normalizes legacy NUL headers, so patch the actual wire header and checksum.
+	raw := archive.Bytes()
+	raw[156] = 0
+	for i := 148; i < 156; i++ {
+		raw[i] = ' '
+	}
+	checksum := 0
+	for _, value := range raw[:512] {
+		checksum += int(value)
+	}
+	copy(raw[148:156], fmt.Sprintf("%06o\x00 ", checksum))
+	manifest, files, err := svc.CollectArchive(validated(t), raw)
+	require.NoError(t, err)
+	require.Len(t, manifest.Artifacts, 1)
+	require.Len(t, files, 1)
+	require.Equal(t, body, files[0].Body)
 }

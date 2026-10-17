@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,4 +124,15 @@ func TestFeatureVectorRejectsTrailingDataAndIdempotencyKeys(t *testing.T) {
 		require.False(t, validFeatureKey(key), key)
 	}
 	require.True(t, validFeatureKey("governed:abc-123"))
+}
+
+func TestFeatureNumberBoundsBeforeRationalParsing(t *testing.T) {
+	for _, text := range []string{"0x1p1000000000", "1p1000000000", "1/3", "1e1025", "1e-1025", "1e99999999999999999999", strings.Repeat("1", 257)} {
+		_, err := featureNumber(json.Number(text))
+		require.Error(t, err, text)
+	}
+	for _, text := range []string{"1e1024", "1e-1024", "9007199254740993.123456789012345678"} {
+		_, err := featureNumber(json.Number(text))
+		require.NoError(t, err, text)
+	}
 }

@@ -212,6 +212,15 @@ export interface SessionListResponse {
 }
 
 // ============ 消息相关 ============
+/** Actual terminal receipt for the current stream; never inferred from answer text. */
+export interface AgentCompletion {
+  partial: boolean
+  persistence_failed: boolean
+  terminated_by?: string
+  max_reached?: boolean
+  iterations?: number
+}
+
 export interface Message {
   id: string
   session_id: string
@@ -219,6 +228,7 @@ export interface Message {
   content: string
   tool_calls?: string
   agent_steps?: string  // Agent 思考步骤（JSON 字符串）
+  completion?: AgentCompletion
   token_count: number
   created_at: string
 }
@@ -443,6 +453,11 @@ export interface AgentStreamEvent {
   reason?: string
   complete?: boolean
   answer?: string
+  partial?: boolean
+  persistence_failed?: boolean
+  terminated_by?: string
+  max_reached?: boolean
+  iterations?: number
 }
 
 // Agent 思考步骤（用于显示）

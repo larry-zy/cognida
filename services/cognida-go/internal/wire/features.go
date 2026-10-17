@@ -196,7 +196,8 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 		}
 		return l.ErrForbidden
 	}
-	life, err := lifecycle.NewService(mysql.NewLifecycleRepository(db), store, job.NewRedisQueueWithPrefix(redisClient, "lifecycle:jobs"), lifecycle.Config{ValidateGovernedOrigin: originValidator, Audit: func(ctx context.Context, p l.Principal, action, resource string, details map[string]any) {
+	lifecycleQueue := job.NewRedisQueueWithPrefix(redisClient, "lifecycle:jobs")
+	life, err := lifecycle.NewService(mysql.NewLifecycleRepository(db), store, lifecycleQueue, lifecycle.Config{ValidateGovernedOrigin: originValidator, Audit: func(ctx context.Context, p l.Principal, action, resource string, details map[string]any) {
 		if auditWriter == nil {
 			return
 		}
@@ -212,7 +213,9 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	}
 	f.Lifecycle = life
 	f.LifecycleHandler = handler.NewLifecycleHandler(life)
-	f.LifecycleWorker = lifecycle.NewWorker(life)
+	lifecycleDispatcher := job.NewDispatcher(lifecycleQueue, job.RetryPolicy{MaxAttempts: 5, BaseDelay: time.Second, MaxDelay: 30 * time.Second})
+	lifecycleDispatcher.Register(lifecycle.JobType, life, life)
+	f.LifecycleWorker = lifecycle.NewWorker(life, job.NewWorker(lifecycleDispatcher, 2, time.Second))
 	apiQueue := job.NewRedisQueueWithPrefix(redisClient, "api-ingestion:jobs")
 	cipher, err := datasource.NewCipherFromEnv()
 	if err != nil {
@@ -288,7 +291,9 @@ func NewFeatureServices(db *gorm.DB, cfg *config.Config, source *datasource.Serv
 	f.GovernanceHandler = handler.NewGovernanceHandler(f.Governance)
 	f.LabelStandardHandler = handler.NewLabelStandardHandler(f.Governance)
 	f.SFTHandler = handler.NewSFTHandler(f.Governance)
-	f.GovernanceWorker = governance.NewWorker(f.Governance)
+	governanceDispatcher := job.NewDispatcher(f.Governance.Queue, job.RetryPolicy{MaxAttempts: 3, BaseDelay: time.Second, MaxDelay: time.Minute})
+	governanceDispatcher.Register("governance", f.Governance, f.Governance)
+	f.GovernanceWorker = governance.NewWorker(f.Governance, job.NewWorker(governanceDispatcher, 2, time.Second), governanceDispatcher)
 	adapters := map[string]tasksvc.ExecutionAdapter{}
 	capabilities := tasksvc.LifecycleCapabilities(lifecycle.Contracts())
 	hfAdapter, err := huggingfaceadapter.New(f.HuggingFace)

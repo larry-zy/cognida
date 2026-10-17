@@ -222,11 +222,15 @@ func (f *Fetcher) safeTransport(tlsConfig *tls.Config, dial func(context.Context
 		dial = (&net.Dialer{}).DialContext
 	}
 	if tlsConfig == nil {
-		tlsConfig = &tls.Config{}
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	secureTLS := tlsConfig.Clone()
+	if secureTLS.MinVersion < tls.VersionTLS12 {
+		secureTLS.MinVersion = tls.VersionTLS12
 	}
 	transport := &http.Transport{
 		Proxy:                 nil, // environment proxies can bypass destination policy
-		TLSClientConfig:       tlsConfig.Clone(),
+		TLSClientConfig:       secureTLS,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          20,
 		IdleConnTimeout:       30 * time.Second,

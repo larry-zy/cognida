@@ -342,16 +342,6 @@ func (s *Service) Process(parent context.Context, p d.Scope, id string) error {
 	}
 	return finish(r.Completion{Status: status, Report: raw, OutputRefs: refs, Error: message})
 }
-func executeSafely(engine Engine, ctx context.Context, req *agent.DeepResearchRequest) (report *agent.DeepResearchResponse, err error) {
-	defer func() {
-		if recover() != nil {
-			report = nil
-			err = fmt.Errorf("research engine failed")
-		}
-	}()
-	return engine.ExecuteGoverned(ctx, req)
-}
-
 func executeSafelyProgress(engine Engine, ctx context.Context, req *agent.DeepResearchRequest, progress func(*agent.ResearchProgressDTO)) (report *agent.DeepResearchResponse, err error) {
 	defer func() {
 		if recover() != nil {

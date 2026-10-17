@@ -4,6 +4,7 @@ import (
 	ev "cognida/internal/model/evaluation"
 	d "cognida/internal/model/feedback"
 	l "cognida/internal/model/lifecycle"
+	"cognida/internal/model/rag"
 	tc "cognida/internal/model/taskcontrol"
 	"cognida/internal/service/evaluation"
 	control "cognida/internal/service/taskcontrol"
@@ -21,6 +22,7 @@ type Assets interface {
 	Resolve(context.Context, int64, int64, l.RefID) (l.DataAssetRef, json.RawMessage, error)
 }
 type Projection interface {
+	CurrentChunk(context.Context, l.Principal, *rag.Document) (bool, error)
 	CurrentLabels(context.Context, l.Principal, string) ([]string, error)
 	Visible(context.Context, l.Principal, string, string, bool) (bool, error)
 	// Baseline must be a real knowledge-backed input, not a caller supplied document ID.

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"cognida/internal/infrastructure/job"
 	obs "cognida/internal/infrastructure/observability"
 	agentctx "cognida/internal/model/agent"
+	"cognida/internal/model/job"
 	d "cognida/internal/model/lifecycle"
 )
 

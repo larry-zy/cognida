@@ -9,6 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSFTNumberRejectsNonDecimalAndUnboundedExponents(t *testing.T) {
+	for _, text := range []string{"0x1p1000000000", "1/3", "1p1000000000", " 1", "1 ", "+1", "01", "NaN", "1e1001", "1e-1001", "1e99999999999999999999", strings.Repeat("1", 257)} {
+		_, ok := sftNumber(json.Number(text))
+		require.False(t, ok, text)
+	}
+	for _, text := range []string{"0", "-0", "1e1000", "1e-1000", "9007199254740993.123456789012345678"} {
+		value, ok := sftNumber(json.Number(text))
+		require.True(t, ok, text)
+		require.NotNil(t, value)
+	}
+}
+
 func TestSFTToolSchemaValidatesExactArguments(t *testing.T) {
 	raw := `{"type":"object","properties":{"amount":{"type":"number","minimum":9007199254740993.123456789012345678,"maximum":9007199254740993.123456789012345679},"code":{"type":"string","minLength":2,"maxLength":5,"enum":["00123","中文"]},"n":{"type":"integer","minimum":1,"maximum":3},"ok":{"type":"boolean"},"empty":{"type":"null"},"items":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}}},"required":["amount","code"],"additionalProperties":false}`
 	schema, err := compileSFTSchema(json.RawMessage(raw))

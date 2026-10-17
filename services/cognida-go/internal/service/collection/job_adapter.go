@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	jobinfra "cognida/internal/infrastructure/job"
 	domain "cognida/internal/model/collection"
+	jobinfra "cognida/internal/model/job"
 )
 
 const CollectionRunJobType = "collection.run"

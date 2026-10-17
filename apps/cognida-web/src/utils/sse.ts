@@ -56,25 +56,43 @@ function buildAuthHeaders(): Record<string, string> {
  * 发起一次流式请求；401 时走统一 refresh 单飞重放一次，仍失败则登出跳登录。
  */
 async function fetchSSE(url: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-  const doFetch = () =>
-    fetch(url, {
+  const auth = useAuthStore()
+  const scope = () => JSON.stringify([auth.authEpoch, auth.user?.id, auth.currentTenant?.id])
+  const initialScope = scope()
+  const assertCurrent = () => {
+    if (signal?.aborted || scope() !== initialScope) {
+      throw new DOMException('请求已取消或登录身份已改变', 'AbortError')
+    }
+  }
+  let sentToken = auth.token
+  const doFetch = () => {
+    assertCurrent()
+    sentToken = auth.token
+    return fetch(url, {
       method: body !== undefined ? 'POST' : 'GET',
       headers: buildAuthHeaders(),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal
     })
+  }
 
   let response = await doFetch()
+  assertCurrent()
 
   // 401：尝试 refresh（stores/auth 内单飞）后重放一次
   if (response.status === 401) {
-    const authStore = useAuthStore()
-    const refreshed = await authStore.refreshAccessToken()
+    // A concurrent refresh/login may already have replaced the rejected token.
+    // Never let its older 401 log out the newer credential.
+    if (sentToken !== auth.token) throw new DOMException('旧凭据响应已忽略', 'AbortError')
+    const refreshed = await auth.refreshAccessToken()
+    assertCurrent()
     if (refreshed) {
       response = await doFetch()
+      assertCurrent()
     }
     if (response.status === 401) {
       // 与 axios 拦截器共用一次性处理：只弹一次过期提示、只跳一次登录页
+      if (sentToken !== auth.token) throw new DOMException('旧凭据响应已忽略', 'AbortError')
       handleAuthFailure()
       throw new SSEHttpError(401, '登录已过期，请重新登录')
     }
@@ -105,6 +123,14 @@ export async function* readSSE(
   body?: unknown,
   signal?: AbortSignal
 ): AsyncGenerator<SSEMessage> {
+  const auth = useAuthStore()
+  const scope = () => JSON.stringify([auth.authEpoch, auth.user?.id, auth.currentTenant?.id])
+  const initialScope = scope()
+  const assertCurrent = () => {
+    if (signal?.aborted || scope() !== initialScope) {
+      throw new DOMException('请求已取消或登录身份已改变', 'AbortError')
+    }
+  }
   const response = await fetchSSE(url, body, signal)
 
   const reader = response.body?.getReader()
@@ -119,6 +145,7 @@ export async function* readSSE(
   try {
     while (true) {
       const { done, value } = await reader.read()
+      assertCurrent()
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
@@ -136,6 +163,7 @@ export async function* readSSE(
             currentEvent = ''
             continue
           }
+          assertCurrent()
           yield { event: currentEvent, data }
           currentEvent = ''
         }

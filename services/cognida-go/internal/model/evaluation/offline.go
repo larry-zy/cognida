@@ -16,15 +16,15 @@ import (
 
 const (
 	OfflineType      EvaluationType = "offline"
-	OfflineProfile                  = "offline-text-v1; exact_match,contains_match; existing answers only; max_rows=100; batch_size=20; no model calls"
-	OfflineMaxRows                  = 100
-	OfflineBatchSize                = 20
-	OfflineQueued                   = "queued"
-	OfflineRunning                  = "running"
-	OfflineSucceeded                = "succeeded"
-	OfflineFailed                   = "failed"
-	OfflineCancelled                = "cancelled"
-	OfflineTimedOut                 = "timed_out"
+	OfflineProfile   string         = "offline-text-v1; exact_match,contains_match; existing answers only; max_rows=100; batch_size=20; no model calls"
+	OfflineMaxRows   int            = 100
+	OfflineBatchSize int            = 20
+	OfflineQueued    string         = "queued"
+	OfflineRunning   string         = "running"
+	OfflineSucceeded string         = "succeeded"
+	OfflineFailed    string         = "failed"
+	OfflineCancelled string         = "cancelled"
+	OfflineTimedOut  string         = "timed_out"
 )
 
 var (

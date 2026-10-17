@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	jobinfra "cognida/internal/infrastructure/job"
 	domeval "cognida/internal/model/evaluation"
+	jobinfra "cognida/internal/model/job"
 )
 
 const EvaluationRunJobType = "evaluation.run"

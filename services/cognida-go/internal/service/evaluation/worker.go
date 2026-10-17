@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -622,25 +621,6 @@ func configString(m map[string]interface{}, key string) string {
 		return strings.TrimSpace(v)
 	}
 	return ""
-}
-
-// configTenantID 从任务 config 读取 tenant_id（JSON 数字解析为 float64，也兼容字符串），
-// 缺省返回 def。外部数据源 Acquire 依赖 ctx 中的 tenant，评测默认落 dev 租户 1。
-func configTenantID(m map[string]interface{}, def int64) int64 {
-	if m == nil {
-		return def
-	}
-	switch n := m["tenant_id"].(type) {
-	case float64:
-		if n > 0 {
-			return int64(n)
-		}
-	case string:
-		if parsed, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64); err == nil && parsed > 0 {
-			return parsed
-		}
-	}
-	return def
 }
 
 // computeMetrics 计算评测指标

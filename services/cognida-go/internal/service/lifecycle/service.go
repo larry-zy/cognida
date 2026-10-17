@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"cognida/internal/infrastructure/job"
+	"cognida/internal/model/job"
 	d "cognida/internal/model/lifecycle"
 	"cognida/internal/model/objectstore"
 	"github.com/google/uuid"

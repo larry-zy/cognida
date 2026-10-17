@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	job "cognida/internal/infrastructure/job"
 	agentctx "cognida/internal/model/agent"
 	d "cognida/internal/model/evaluation"
+	job "cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	"cognida/internal/service/lifecycle"
 )

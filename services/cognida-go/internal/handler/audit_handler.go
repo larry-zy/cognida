@@ -28,6 +28,10 @@ func NewAuditHandler(repo audit.Repository, traces trace.Repository) *AuditHandl
 // ListAuditLogs 分页查询审计日志。
 // 支持按 request_id / module / action / status / user_id / 时间范围 / 关键词过滤。
 func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
+	if c.GetInt64("tenant_id") <= 0 {
+		Unauthorized(c, "缺少租户身份")
+		return
+	}
 	page, pageSize := GetPageParams(c)
 
 	q := &audit.Query{
@@ -40,7 +44,7 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 	}
 
 	// 租户隔离：非空时按登录租户过滤（dev 模式默认租户 1）。
-	if tid := GetTenantID(c); tid > 0 {
+	if tid := c.GetInt64("tenant_id"); tid > 0 {
 		q.TenantID = &tid
 	}
 
@@ -100,6 +104,10 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 
 // GetAuditStats 获取审计统计（总量、按模块、按日）。
 func (h *AuditHandler) GetAuditStats(c *gin.Context) {
+	if c.GetInt64("tenant_id") <= 0 {
+		Unauthorized(c, "缺少租户身份")
+		return
+	}
 	days := 7
 	if v := c.Query("days"); v != "" {
 		if d, err := strconv.Atoi(v); err == nil && d > 0 {
@@ -108,7 +116,7 @@ func (h *AuditHandler) GetAuditStats(c *gin.Context) {
 	}
 
 	var tenantID *int64
-	if tid := GetTenantID(c); tid > 0 {
+	if tid := c.GetInt64("tenant_id"); tid > 0 {
 		tenantID = &tid
 	}
 
@@ -122,12 +130,16 @@ func (h *AuditHandler) GetAuditStats(c *gin.Context) {
 
 // GetAuditLog 按 ID 查询单条审计详情。
 func (h *AuditHandler) GetAuditLog(c *gin.Context) {
+	if c.GetInt64("tenant_id") <= 0 {
+		Unauthorized(c, "缺少租户身份")
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		BadRequest(c, "无效的日志 ID")
 		return
 	}
-	entry, err := h.repo.FindByID(c.Request.Context(), id)
+	entry, err := h.repo.FindByID(c.Request.Context(), c.GetInt64("tenant_id"), id)
 	if err != nil {
 		NotFound(c, err.Error())
 		return
@@ -146,7 +158,7 @@ func (h *AuditHandler) markHasTrace(c *gin.Context, logs []*audit.AuditLog) {
 			ids = append(ids, *log.RequestID)
 		}
 	}
-	found, err := h.traces.HasRequestIDs(c.Request.Context(), GetTenantID(c), ids)
+	found, err := h.traces.HasRequestIDs(c.Request.Context(), c.GetInt64("tenant_id"), ids)
 	if err != nil || found == nil {
 		return
 	}

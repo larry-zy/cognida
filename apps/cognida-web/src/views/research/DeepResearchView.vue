@@ -177,7 +177,28 @@ async function cancel() {
   catch { if (current === generation && !request.signal.aborted) error.value = '取消结果尚未确认，正在读取实际状态。' }
   finally { if (current === generation) { cancelling.value = false; void read(id, current) } }
 }
-watch(() => [auth.authEpoch, auth.user?.id, auth.currentTenant?.id], () => { stopReading(); kbGeneration++; run.value = undefined; report.value = null; query.value = ''; kbIds.value = []; questions.value = []; error.value = ''; stage.value = ''; detail.value = ''; pendingKey = ''; pendingBody = ''; submitting.value = false; cancelling.value = false; void loadKnowledgeBases(); if (typeof route.query.run_id === 'string') void read(route.query.run_id, generation) }, { immediate: true })
+watch(
+  [() => auth.authEpoch, () => auth.user?.id, () => auth.currentTenant?.id],
+  () => {
+    stopReading()
+    kbGeneration++
+    run.value = undefined
+    report.value = null
+    query.value = ''
+    kbIds.value = []
+    questions.value = []
+    error.value = ''
+    stage.value = ''
+    detail.value = ''
+    pendingKey = ''
+    pendingBody = ''
+    submitting.value = false
+    cancelling.value = false
+    void loadKnowledgeBases()
+    if (typeof route.query.run_id === 'string') void read(route.query.run_id, generation)
+  },
+  { immediate: true },
+)
 watch(() => route.query.run_id, id => { stopReading(); run.value = undefined; report.value = null; questions.value = []; error.value = ''; stage.value = ''; submitting.value = false; cancelling.value = false; if (typeof id === 'string') void read(id, generation) })
 onBeforeUnmount(() => { stopReading(); kbGeneration++ })
 </script>

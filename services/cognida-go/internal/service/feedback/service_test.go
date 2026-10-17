@@ -328,3 +328,7 @@ func TestStoredProjectionDigestDetectsEditedChunkReceipt(t *testing.T) {
 	require.False(t, allowed)
 	require.ErrorIs(t, s.CheckView(context.Background(), p, candidateView(m.c, m.v)), d.ErrForbidden)
 }
+
+func (p *projection) CurrentChunk(context.Context, l.Principal, *rag.Document) (bool, error) {
+	return p.err == nil, p.err
+}

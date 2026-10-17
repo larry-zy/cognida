@@ -1,6 +1,6 @@
 import { ref, nextTick, onUnmounted, type Ref } from 'vue'
 import toast from '@/utils/toast'
-import type { AgentStep, AgentStreamEvent, Message } from '@/types'
+import type { AgentCompletion, AgentStep, AgentStreamEvent, Message } from '@/types'
 
 // ========================================
 // useAgentChat —— 对话发送 / 流式 / 中断 / 流式状态
@@ -72,6 +72,7 @@ export interface SendState {
   assistantContent: string
   /** 流中若下发了新的 session_id */
   newSessionId: string
+  completion?: AgentCompletion
 }
 
 /** 错误/中断分支的上下文：用于把已流式产出的部分落成一条消息 */
@@ -181,7 +182,9 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
 
     const commit = (c: string) => {
       if (!isCurrent()) return
-      messages.value.push(options.buildAssistantMessage(c, { steps: streamingSteps.value }))
+      const message = options.buildAssistantMessage(c, { steps: streamingSteps.value })
+      if (state.completion) message.completion = { ...state.completion }
+      messages.value.push(message)
     }
 
     try {
@@ -202,6 +205,13 @@ export function useAgentChat<M extends Message>(options: UseAgentChatOptions<M>)
             toast.error(event.error || event.content || '执行出错')
           }
         } else if (event.event === 'done') {
+          state.completion = {
+            partial: event.partial === true,
+            persistence_failed: event.persistence_failed === true,
+            terminated_by: event.terminated_by,
+            max_reached: event.max_reached,
+            iterations: event.iterations,
+          }
           if (event.answer) {
             state.assistantContent = event.answer
             streamingContent.value = event.answer

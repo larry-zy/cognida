@@ -49,3 +49,6 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Isolated frontend fixture browser output
+test-results-fixture/

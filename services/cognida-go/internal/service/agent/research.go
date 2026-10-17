@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"cognida/internal/infrastructure/llm/chat"
 	"cognida/internal/model/agent"
 	agenttools "cognida/internal/model/agent/tools"
+	"cognida/internal/model/llm"
 	"cognida/internal/service/agent/tools"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -230,7 +230,7 @@ func (s *ResearchService) generateJSONOnCall(ctx context.Context, system string,
 	if onCall != nil {
 		onCall()
 	}
-	response, err := s.model.Generate(ctx, []*schema.Message{schema.SystemMessage(system), schema.UserMessage(string(payload))}, model.WithMaxTokens(maxTokens), chat.WithBoundedJSONOutput())
+	response, err := s.model.Generate(ctx, []*schema.Message{schema.SystemMessage(system), schema.UserMessage(string(payload))}, model.WithMaxTokens(maxTokens), llm.WithBoundedJSONOutput())
 	if err != nil {
 		return err
 	}

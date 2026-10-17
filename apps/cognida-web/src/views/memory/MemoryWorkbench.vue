@@ -125,7 +125,7 @@ async function recall() {
   if (epoch !== scopeEpoch || request !== recallEpoch) return
   recallResult.value = res.data || null
 }
-watch(() => [auth.authEpoch, auth.user?.id, auth.currentTenant?.id], () => {
+watch([() => auth.authEpoch, () => auth.user?.id, () => auth.currentTenant?.id], () => {
   scopeEpoch++; listEpoch++; recallEpoch++; pending.value = 0; newMemory()
   memories.value = []; nextCursor.value = ''; recallResult.value = null; recallQuery.value = ''; query.value = ''; category.value = ''; error.value = ''; notice.value = ''
   void run(() => load())

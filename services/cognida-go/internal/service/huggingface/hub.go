@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 )
 
+var hubFileSHA256 = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
 type hubInfo struct {
 	ID       string `json:"id"`
 	SHA      string `json:"sha"`
@@ -70,7 +72,7 @@ func (s *Service) Dataset(ctx context.Context, p l.Principal, repo, revision, cr
 		f.Supported = f.Format != ""
 		if file.LFS != nil {
 			f.Size = &file.LFS.Size
-			if matched, _ := regexp.MatchString(`^[a-f0-9]{64}$`, file.LFS.SHA); !matched {
+			if !hubFileSHA256.MatchString(file.LFS.SHA) {
 				return out, d.ErrDecode
 			}
 			f.SHA256 = file.LFS.SHA

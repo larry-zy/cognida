@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"cognida/internal/infrastructure/job"
 	d "cognida/internal/model/apisource"
+	"cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	"cognida/internal/model/objectstore"
 	"cognida/internal/service/collection/fetcher"

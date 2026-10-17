@@ -1,8 +1,8 @@
 package governance
 
 import (
-	"cognida/internal/infrastructure/job"
 	d "cognida/internal/model/governance"
+	"cognida/internal/model/job"
 	l "cognida/internal/model/lifecycle"
 	"context"
 	"encoding/json"
@@ -140,17 +140,15 @@ func (s *Service) Exhausted(ctx context.Context, j job.Job, cause error) error {
 
 type Worker struct {
 	service    *Service
-	worker     *job.Worker
-	dispatcher *job.Dispatcher
+	worker     job.Runner
+	dispatcher job.Recoverer
 	mu         sync.Mutex
 	cancel     context.CancelFunc
 	done       chan struct{}
 }
 
-func NewWorker(service *Service) *Worker {
-	d := job.NewDispatcher(service.Queue, job.RetryPolicy{MaxAttempts: 3, BaseDelay: time.Second, MaxDelay: time.Minute})
-	d.Register("governance", service, service)
-	return &Worker{service: service, dispatcher: d, worker: job.NewWorker(d, 2, time.Second)}
+func NewWorker(service *Service, runner job.Runner, recovery job.Recoverer) *Worker {
+	return &Worker{service: service, dispatcher: recovery, worker: runner}
 }
 func (w *Worker) Run() error {
 	w.mu.Lock()

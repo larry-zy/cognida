@@ -93,8 +93,24 @@ func newBigQueryAdapter(ctx context.Context, ds *m.DataSource) (*bigQueryAdapter
 	client := cfg.Client(ctx)
 	client.Timeout = 35 * time.Second
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d:%s:%s", ds.TenantID, ds.ID, ds.UpdatedAt.UTC().Format(time.RFC3339Nano))))
-	return &bigQueryAdapter{source: ds, options: options, client: client, endpoint: "https://bigquery.googleapis.com/bigquery/v2", prefix: "cognida_" + hex.EncodeToString(sum[:12]) + "_"}, nil
+	return &bigQueryAdapter{source: ds, options: options, client: client, endpoint: "https://bigquery.googleapis.com/bigquery/v2", prefix: bigQueryPrefix(ds, false)}, nil
+}
+
+func bigQueryPrefix(source *m.DataSource, legacy bool) string {
+	identity := m.QueryConnectionVersion(source)
+	if legacy {
+		identity = fmt.Sprintf("%d:%s:%s", source.TenantID, source.ID, source.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	}
+	sum := sha256.Sum256([]byte(identity))
+	return "cognida_" + hex.EncodeToString(sum[:12]) + "_"
+}
+
+func (a *bigQueryAdapter) BindQuerySourceVersion(version string) error {
+	if !m.MatchesQueryConnectionVersion(a.source, version) {
+		return fmt.Errorf("BigQuery source binding invalid")
+	}
+	a.prefix = bigQueryPrefix(a.source, version == m.LegacyQueryConnectionVersion(a.source))
+	return nil
 }
 func (a *bigQueryAdapter) Capabilities() m.QueryCapabilities {
 	return m.QueryCapabilities{Engine: m.TypeBigQuery, Client: "BigQuery REST v2 / oauth2", Dialect: "bigquery", Parameters: false, Cancellation: "jobs.cancel", Pagination: "page_token", ScanBudget: true, Async: true}
@@ -359,7 +375,7 @@ func (a *bigQueryAdapter) Page(ctx context.Context, id, token string, limit int)
 	if !page.JobComplete || len(page.Errors) > 0 || len(page.Rows) > limit || len(page.Schema.Fields) < 1 || len(page.Schema.Fields) > 512 {
 		return nil, "", fmt.Errorf("BigQuery result unavailable or invalid")
 	}
-	out := &m.QueryResult{Columns: []string{}, ColumnTypes: map[string]string{}, Rows: []map[string]any{}, RemoteID: id, ExecutedSQL: j.Configuration.Query.Query, SourceVersion: a.source.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	out := &m.QueryResult{Columns: []string{}, ColumnTypes: map[string]string{}, Rows: []map[string]any{}, RemoteID: id, ExecutedSQL: j.Configuration.Query.Query, SourceVersion: m.QueryConnectionVersion(a.source)}
 	for _, f := range page.Schema.Fields {
 		if f.Mode == "REPEATED" || f.Type == "RECORD" || f.Type == "STRUCT" || f.Type == "BYTES" || f.Name == "" {
 			return nil, "", fmt.Errorf("BigQuery nested or binary results unsupported")

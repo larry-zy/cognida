@@ -576,10 +576,7 @@ func (s *documentProcessorService) purgeExistingDocument(ctx context.Context, te
 
 	// 2. 删旧向量（按 knowledge_id，向量行带该字段）
 	if s.vectorRepo != nil {
-		var kbIDInt int64
-		if kbID != "" {
-			_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt) // 解析失败保持零值
-		}
+		kbIDInt := vectorCollectionKey(kbID)
 		if err := deleteVectorProjectionByKnowledgeID(ctx, s.vectorRepo, kbIDInt, knowledgeID); err != nil {
 			return fmt.Errorf("清除旧向量失败: %w", err)
 		}
@@ -729,10 +726,7 @@ func (s *documentProcessorService) vectorizeChunks(
 	// kbID 转换为 int64，如果为空则使用 0（统一 collection）。首次写入时根据真实
 	// embedding 维度初始化 collection；已初始化的 collection 走内存缓存，只有真正的
 	// 首次建表串行在全局锁内，避免并发上传重复建表/建索引，同时不让后续上传排队。
-	var kbIDInt64 int64
-	if kbID != "" {
-		_, _ = fmt.Sscanf(kbID, "%d", &kbIDInt64) // 解析失败保持零值
-	}
+	kbIDInt64 := vectorCollectionKey(kbID)
 	if err := s.ensureVectorCollectionCached(ctx, s.vectorRepo, kbIDInt64, len(embeddings[0])); err != nil {
 		return fmt.Errorf("failed to initialize vector collection: %w", err)
 	}

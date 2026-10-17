@@ -90,7 +90,7 @@ func fields(t reflect.Type) string {
 		}
 		optional := ""
 		for _, option := range tag[1:] {
-			if option == "omitempty" {
+			if option == "omitempty" || option == "omitzero" {
 				optional = "?"
 			}
 		}

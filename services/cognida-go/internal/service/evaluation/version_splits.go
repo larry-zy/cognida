@@ -62,9 +62,26 @@ func assignDatasetSplits(v *d.DatasetVersion) error {
 	}
 	grams := make([]map[string]bool, len(v.Samples))
 	normalized := make([]string, len(v.Samples))
+	// QA-derived profiles consume the final reviewed Question, not the immutable
+	// source text. Answers/labels are targets and must not distinguish identical
+	// evaluation inputs (even when reviewers provide different target answers).
+	inputs := make([]string, len(v.Samples))
+	inputGrams := make([]map[string]bool, len(v.Samples))
+	qaProfile := v.Profile == "qa" || v.Profile == "rag" || v.Profile == "agent" || v.Profile == "sql"
+	if qaProfile && len(v.QAPairs) != len(v.Samples) {
+		return versionError("reviewed evaluation inputs do not match samples")
+	}
 	for i, sample := range v.Samples {
 		normalized[i] = normalizeLeakText(sample.Content)
 		grams[i] = leakGrams(normalized[i])
+		inputs[i] = normalized[i]
+		if qaProfile {
+			inputs[i] = normalizeLeakText(v.QAPairs[i].Question)
+			if inputs[i] == "" {
+				return versionError("empty reviewed evaluation input")
+			}
+		}
+		inputGrams[i] = leakGrams(inputs[i])
 	}
 	for i := range v.Samples {
 		for j := 0; j < i; j++ {
@@ -73,6 +90,9 @@ func assignDatasetSplits(v *d.DatasetVersion) error {
 			}
 			if normalized[i] == normalized[j] || gramSimilarity(grams[i], grams[j]) >= s.NearDuplicateThreshold {
 				return versionError("exact or near duplicate samples cross dataset splits")
+			}
+			if inputs[i] == inputs[j] || gramSimilarity(inputGrams[i], inputGrams[j]) >= s.NearDuplicateThreshold {
+				return versionError("exact or near duplicate reviewed inputs cross dataset splits")
 			}
 		}
 	}

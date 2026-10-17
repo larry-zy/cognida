@@ -1,18 +1,17 @@
 package chat
 
 import (
+	"cognida/internal/model/llm"
 	"strings"
 
 	"github.com/cloudwego/eino/components/model"
 )
 
-type structuredOptions struct{ boundedJSON bool }
-
 // WithBoundedJSONOutput requests a concise structured response without an
 // additional reasoning stream on explicitly supported providers. Other adapters
 // ignore this option. It does not disable the caller's separate evidence review.
 func WithBoundedJSONOutput() model.Option {
-	return model.WrapImplSpecificOptFn(func(o *structuredOptions) { o.boundedJSON = true })
+	return llm.WithBoundedJSONOutput()
 }
 
 func supportsBoundedJSON(provider, modelName string) bool {

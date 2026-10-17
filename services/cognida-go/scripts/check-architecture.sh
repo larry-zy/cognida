@@ -47,10 +47,10 @@ hits=$(grep -rn --include='*.go' 'cognida/internal/repository\|cognida/internal/
     "$GO_INTERNAL/handler/" 2>/dev/null | import_lines | allow_crosscutting | head -5)
 report "$hits" "❌ Handler 不应直接依赖 Repository/Infrastructure"
 
-# 2. service 不应直接依赖 infrastructure
-hits=$(grep -rn --include='*.go' 'cognida/internal/infrastructure' \
+# 2. service 不应直接依赖 infrastructure / repository
+hits=$(grep -rn --include='*.go' 'cognida/internal/infrastructure\|cognida/internal/repository' \
     "$GO_INTERNAL/service/" 2>/dev/null | import_lines | allow_crosscutting | head -5)
-report "$hits" "❌ Service 不应直接依赖 Infrastructure"
+report "$hits" "❌ Service 不应直接依赖 Infrastructure/Repository"
 
 # 3. model 不应依赖其他层(同层 model 互相引用允许)
 hits=$(grep -rn --include='*.go' 'cognida/internal/' \

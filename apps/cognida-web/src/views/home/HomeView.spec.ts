@@ -22,6 +22,17 @@ describe('real workspace overview states', () => {
     vi.clearAllMocks(); auth.authEpoch++; auth.user.id = 1; auth.currentTenant.id = 1
     for (const read of Object.values(api)) read.mockResolvedValue(empty())
   })
+  it('does not reload in-flight overview data when membership objects refresh with unchanged IDs', async () => {
+    let finish!: (value: unknown) => void
+    api.runs.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { wrapper } = await setup(); await flushPromises()
+    const signal = api.runs.mock.calls[0][0] as AbortSignal
+    auth.user = { id: 1 }; auth.currentTenant = { id: 1 }; await flushPromises()
+    expect(signal.aborted).toBe(false); expect(api.runs).toHaveBeenCalledTimes(1)
+    finish({ items: [run('preserved-run')], hasMore: false }); await flushPromises()
+    expect(wrapper.get('[data-section="runs"] .source-status__count').text()).toContain('1')
+    wrapper.unmount()
+  })
   it('has useful empty-state entry points and scoped counts without invented history totals', async () => {
     const { wrapper } = await setup(); await flushPromises()
     expect(wrapper.text()).toContain('当前读取范围内没有待处理事项')

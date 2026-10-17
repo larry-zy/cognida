@@ -2,6 +2,9 @@
 package handler
 
 import (
+	agentctx "cognida/internal/model/agent"
+	"context"
+	"errors"
 	"github.com/gin-gonic/gin"
 
 	app_chat "cognida/internal/service/chat"
@@ -30,9 +33,9 @@ func (h *MessageHandler) CreateMessage(c *gin.Context) {
 		return
 	}
 
-	result, err := h.messageService.CreateMessage(c.Request.Context(), &req)
+	result, err := h.messageService.CreateMessage(messageIdentityContext(c), &req)
 	if err != nil {
-		InternalError(c, err.Error())
+		messageError(c, err)
 		return
 	}
 
@@ -46,9 +49,9 @@ func (h *MessageHandler) GetMessage(c *gin.Context) {
 		return
 	}
 
-	result, err := h.messageService.GetMessageByID(c.Request.Context(), id)
+	result, err := h.messageService.GetMessageByID(messageIdentityContext(c), id)
 	if err != nil {
-		NotFound(c, err.Error())
+		messageError(c, err)
 		return
 	}
 
@@ -72,9 +75,9 @@ func (h *MessageHandler) ListMessages(c *gin.Context) {
 		Role:      role,
 	}
 
-	result, err := h.messageService.ListMessages(c.Request.Context(), req)
+	result, err := h.messageService.ListMessages(messageIdentityContext(c), req)
 	if err != nil {
-		InternalError(c, err.Error())
+		messageError(c, err)
 		return
 	}
 
@@ -93,9 +96,9 @@ func (h *MessageHandler) UpdateMessage(c *gin.Context) {
 		return
 	}
 
-	result, err := h.messageService.UpdateMessage(c.Request.Context(), id, &req)
+	result, err := h.messageService.UpdateMessage(messageIdentityContext(c), id, &req)
 	if err != nil {
-		InternalError(c, err.Error())
+		messageError(c, err)
 		return
 	}
 
@@ -109,10 +112,23 @@ func (h *MessageHandler) DeleteMessage(c *gin.Context) {
 		return
 	}
 
-	if err := h.messageService.DeleteMessage(c.Request.Context(), id); err != nil {
-		InternalError(c, err.Error())
+	if err := h.messageService.DeleteMessage(messageIdentityContext(c), id); err != nil {
+		messageError(c, err)
 		return
 	}
 
 	OK(c, gin.H{"message": "删除成功"})
+}
+
+func messageError(c *gin.Context, err error) {
+	if errors.Is(err, app_chat.ErrMessageForbidden) {
+		Forbidden(c, "无权访问该会话消息")
+		return
+	}
+	InternalError(c, "消息操作失败")
+}
+
+// Message endpoints require authenticated scope, without development defaults.
+func messageIdentityContext(c *gin.Context) context.Context {
+	return agentctx.WithTenantID(agentctx.WithUserID(c.Request.Context(), c.GetInt64("user_id")), c.GetInt64("tenant_id"))
 }

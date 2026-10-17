@@ -5,6 +5,7 @@ import (
 	g "cognida/internal/model/governance"
 	k "cognida/internal/model/knowledge"
 	l "cognida/internal/model/lifecycle"
+	"cognida/internal/model/rag"
 	"cognida/internal/service/governance"
 	"context"
 	"encoding/json"
@@ -304,4 +305,20 @@ func (p *FeedbackProjection) CurrentLabels(ctx context.Context, who l.Principal,
 	}
 	sort.Strings(labels)
 	return labels, e
+}
+
+// CurrentChunk refuses stale vector rows after an edit or deletion, including
+// during partial projection failures and eventual index visibility.
+func (p *FeedbackProjection) CurrentChunk(ctx context.Context, who l.Principal, hit *rag.Document) (bool, error) {
+	if who.Validate() != nil || hit == nil || hit.ChunkID == "" || p.Chunks == nil {
+		return false, nil
+	}
+	chunk, err := p.Chunks.FindByID(ctx, hit.ChunkID)
+	if errors.Is(err, k.ErrChunkNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return chunk != nil && chunk.DeletedAt == nil && chunk.IsEnabled && chunk.TenantID == who.TenantID && chunk.KnowledgeBaseID == hit.KnowledgeBaseID && chunk.KnowledgeID == hit.KnowledgeID && chunk.Content == hit.Content, nil
 }

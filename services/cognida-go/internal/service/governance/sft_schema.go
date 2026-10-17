@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -183,9 +184,11 @@ func compileSFTSchemaNode(value any, depth int, nodes *int) (*sftSchema, error) 
 	return s, nil
 }
 
+var sftDecimalToken = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+
 func sftNumber(n json.Number) (*big.Rat, bool) {
 	text := string(n)
-	if len(text) == 0 || len(text) > 256 {
+	if len(text) == 0 || len(text) > 256 || !sftDecimalToken.MatchString(text) {
 		return nil, false
 	}
 	if i := strings.IndexAny(text, "eE"); i >= 0 {
@@ -194,7 +197,7 @@ func sftNumber(n json.Number) (*big.Rat, bool) {
 			return nil, false
 		}
 	}
-	return new(big.Rat).SetString(text)
+	return new(big.Rat).SetString(text) // #nosec G113 -- Strict JSON decimal token <=256 bytes and exponent within +/-1000; binary/hex/rational forms are rejected before allocation.
 }
 func (s *sftSchema) scalarType(value any) bool {
 	switch s.kind {

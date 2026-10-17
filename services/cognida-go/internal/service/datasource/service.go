@@ -25,6 +25,9 @@ var ErrNameConflict = errors.New("datasource: 数据源名称已存在")
 // ErrNotFound 数据源不存在
 var ErrNotFound = errors.New("datasource: 数据源不存在")
 
+// A stored secret is never implicitly transferred to another connection identity.
+var ErrCredentialTargetChanged = errors.New("datasource: 连接身份已改变，请显式提供新凭据")
+
 // Service 数据源应用服务
 type Service struct {
 	durableQuery  model.DurableQueryExecutor
@@ -191,6 +194,9 @@ func (s *Service) Update(ctx context.Context, tenantID int64, id string, in *Sav
 	if ds == nil {
 		return nil, ErrNotFound
 	}
+	if in.Password == "" && ds.Type != model.TypeBigQuery && !sameCredentialTarget(ds, inputSource(in)) {
+		return nil, ErrCredentialTargetChanged
+	}
 	if in.Name != ds.Name {
 		if existing, err := s.repo.GetByName(ctx, in.Name, tenantID); err != nil {
 			return nil, err
@@ -295,12 +301,19 @@ func (s *Service) TestConnection(ctx context.Context, tenantID int64, in *TestIn
 		if stored == nil {
 			return ErrNotFound
 		}
+		if cfg.Host == "" {
+			// The id-only request has no caller-selected connection fields.
+			if cfg.Type != "" || cfg.Port != 0 || cfg.DatabaseName != "" || cfg.Username != "" || len(cfg.Extra) != 0 {
+				return ErrCredentialTargetChanged
+			}
+			copy := *stored
+			cfg = &copy
+		} else if !sameCredentialTarget(stored, cfg) {
+			return ErrCredentialTargetChanged
+		}
 		password, err = s.cipher.Decrypt(stored.PasswordEncrypted)
 		if err != nil {
 			return err
-		}
-		if cfg.Host == "" { // 无表单时整体回退已存配置
-			cfg = stored
 		}
 	}
 	if cfg.Type == model.TypeBigQuery {

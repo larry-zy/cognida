@@ -74,7 +74,7 @@ func TestAgentPreferencesValidationAndPatch(t *testing.T) {
 func TestAgentPreferencesRAGSnapshotAndSessionPriority(t *testing.T) {
 	f := &preferenceFixture{}
 	s := NewConfigService(f)
-	_, err := s.Update(context.Background(), d.ConfigScope{7, 9}, preferenceUpdate(t, `{"expected_version":0,"agentic_rag":{"max_iterations":2,"default_top_k":12,"min_score":0.4,"rerank_enabled":false,"alpha":0.8}}`), "set")
+	_, err := s.Update(context.Background(), d.ConfigScope{TenantID: 7, UserID: 9}, preferenceUpdate(t, `{"expected_version":0,"agentic_rag":{"max_iterations":2,"default_top_k":12,"min_score":0.4,"rerank_enabled":false,"alpha":0.8}}`), "set")
 	require.NoError(t, err)
 	top := 3
 	ctx := d.WithRetrievalParams(researchTestContext(), &d.RetrievalParams{TopK: &top})
@@ -91,7 +91,7 @@ func TestAgentPreferencesRAGSnapshotAndSessionPriority(t *testing.T) {
 	*f.value.AgenticRAG.MaxIterations = 5
 	require.Equal(t, 0.4, *params.MinScore)
 	require.Equal(t, 2, d.EffectiveIterationLimit(snapshot, 8))
-	require.Equal(t, d.ConfigScope{7, 9}, f.scope)
+	require.Equal(t, d.ConfigScope{TenantID: 7, UserID: 9}, f.scope)
 	f.err = errors.New("database offline")
 	_, err = s.ApplyRAG(ctx)
 	require.Error(t, err)
@@ -99,7 +99,7 @@ func TestAgentPreferencesRAGSnapshotAndSessionPriority(t *testing.T) {
 func TestAgentPreferencesResearchDefaultsAndGovernedIsolation(t *testing.T) {
 	f := &preferenceFixture{}
 	prefs := NewConfigService(f)
-	_, err := prefs.Update(context.Background(), d.ConfigScope{7, 9}, preferenceUpdate(t, `{"expected_version":0,"deep_research":{"max_sub_questions":1,"max_concurrency":1,"max_sources":8,"timeout_seconds":30}}`), "set")
+	_, err := prefs.Update(context.Background(), d.ConfigScope{TenantID: 7, UserID: 9}, preferenceUpdate(t, `{"expected_version":0,"deep_research":{"max_sub_questions":1,"max_concurrency":1,"max_sources":8,"timeout_seconds":30}}`), "set")
 	require.NoError(t, err)
 	s := newResearchTestService(t, false, researchGoodDraft()).WithConfig(prefs)
 	req := &DeepResearchRequest{Query: "question"}
