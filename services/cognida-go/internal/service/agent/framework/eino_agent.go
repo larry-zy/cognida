@@ -38,14 +38,13 @@ type agentImpl struct {
 	maxIter       int // 最大迭代次数（用于工具调用循环）
 	tokenBudget   int // token 预算（0 表示不限），与 maxIter 共同约束 ReAct 循环
 
-	// wallClock ReAct 循环的挂钟预算（0 表示不限）：一次运行累计耗时达到该值即终止并 wind-down。
-	// 与 maxIter/tokenBudget 互补——推理模型某几步可能极慢（长思考/工具阻塞），步数/计费 token 都未到
-	// 上限却已让用户干等数分钟；挂钟护栏为「感知到的卡住」兜底，到点即交付基于现有观察的部分结论。
+	// wallClock ReAct 执行的挂钟预算（0 表示不限），覆盖循环中的模型、工具和收尾生成。
+	// 到点取消执行并交付明确的部分结果终态，不再额外请求模型；已完成的工具轨迹仍保留。
+	// 不覆盖无工具聊天、执行前后 hooks 或客户端读取响应所花的时间。
 	wallClock time.Duration
 
-	// toolTimeout 单次工具调用的挂钟上限（0 表示不限）：wallClock 的两处检查都在工具执行「之后」，
-	// 若某工具自身无内部超时且永久阻塞，循环会卡死在那一步、wallClock 永远轮不到——本字段为所有
-	// 工具统一兜底。到点即以超时观察回灌 LLM（非致命，供其换路径），把工具级 hang 收敛为一次可恢复的失败。
+	// toolTimeout 单次工具调用的挂钟上限（0 表示不设独立上限），同时受 wallClock 剩余预算约束。
+	// 单工具超时以错误观察回灌 LLM（供其换路径）；整体预算耗尽则结束本次运行。
 	// 各工具自带的更短超时（sql 30s、MCP 30s、委派 30/60s）会先于本兜底触发，本兜底只兜「没自带超时」的缺口。
 	toolTimeout time.Duration
 

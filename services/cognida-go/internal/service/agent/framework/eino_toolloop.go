@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -94,6 +93,82 @@ type execResult struct {
 	aborted      bool // 流式下游断开
 }
 
+// deadlineResult does not ask the model to summarize after the budget expires.
+// Completed tool calls remain in Response.ToolCalls; the caller can still persist
+// and deliver this terminal response using the original request context.
+func deadlineResult(res execResult) execResult {
+	res.terminatedBy = TerminatedByDeadline
+	res.partial = true
+	res.content = fmt.Sprintf("本次运行已达到时间上限（已执行 %d 轮），已停止后续模型和工具调用。已完成的工具结果保留在执行记录中，本次未能生成完整答复，请缩小问题范围后重试。", res.iterations)
+	return res
+}
+
+// generateForLoop also bounds adapters that do not honor their context. A late
+// result is discarded via the buffered channel; it cannot update the response.
+// Such adapters must still release their own resources when the context ends.
+func (a *agentImpl) generateForLoop(ctx context.Context, sink execSink, m model.BaseChatModel, messages []*schema.Message, iteration int) (*schema.Message, bool, error) {
+	if a.wallClock <= 0 {
+		return sink.generate(ctx, m, messages, iteration)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	type outcome struct {
+		message *schema.Message
+		aborted bool
+		err     error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				done <- outcome{err: fmt.Errorf("model generation panicked: %v", recovered)}
+			}
+		}()
+		msg, aborted, err := sink.generate(ctx, m, messages, iteration)
+		done <- outcome{message: msg, aborted: aborted, err: err}
+	}()
+	select {
+	case result := <-done:
+		return result.message, result.aborted, result.err
+	case <-ctx.Done():
+		return nil, false, ctx.Err()
+	}
+}
+
+// Context folding can invoke an LLM summarizer, so it shares the same bounded
+// execution as generation. normalizeContext replaces slice entries but copies
+// message objects before editing them; a private slice isolates late completion
+// from the caller's history and persistence path after a timeout.
+func (a *agentImpl) normalizeForLoop(ctx context.Context, messages []*schema.Message) ([]*schema.Message, error) {
+	if a.wallClock <= 0 {
+		return a.normalizeContext(ctx, messages), nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ownedMessages := append([]*schema.Message(nil), messages...)
+	type outcome struct {
+		messages []*schema.Message
+		err      error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				done <- outcome{err: fmt.Errorf("context normalization panicked: %v", recovered)}
+			}
+		}()
+		done <- outcome{messages: a.normalizeContext(ctx, ownedMessages)}
+	}()
+	select {
+	case result := <-done:
+		return result.messages, result.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // execLoop 是 ToolLoop 的核心：无工具时单轮生成；有工具时跑 ReAct 循环。
 // 愈合：ReAct 循环的 token 预算前/后置检查与 wind-down 收尾对所有组合（含 memory+tools、streaming）统一生效。
 func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, hasTools bool, sink execSink, response *Response) (execResult, error) {
@@ -121,6 +196,15 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 		return res, nil
 	}
 
+	// Keep the request context alive for tool events and the terminal SSE response.
+	// Only execution uses the budget context, including any wind-down generation.
+	runCtx := ctx
+	if a.wallClock > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, a.wallClock)
+		defer cancel()
+	}
+
 	// 提取所有工具的 ToolInfo 并绑定到模型。
 	// 按工具名去重：LLM 供应商（OpenAI/DeepSeek 兼容接口）硬性要求 tools 数组内工具名唯一，
 	// 上游任一装配路径若混入同名工具都会导致 400 "Tool names must be unique"。此处收口去重
@@ -128,7 +212,7 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	toolInfos := make([]*schema.ToolInfo, 0, len(a.tools))
 	seenTools := make(map[string]struct{}, len(a.tools))
 	for _, t := range a.tools {
-		info, infoErr := t.Info(ctx)
+		info, infoErr := t.Info(runCtx)
 		if infoErr != nil {
 			continue // 跳过无法获取信息的工具
 		}
@@ -155,14 +239,32 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	hasObservation := false // 是否已产生工具观察（工具轮真正执行过）；i>0 不是可靠代理——截断重试轮也消耗迭代但无观察
 	truncationRetries := 0  // finish_reason=length 截断且无工具调用时的已重试次数（有界）
 	usageWarned := false    // 配置了 token 预算却拿不到 usage 时只告警一次，避免刷屏（issue #6）
-	// 挂钟护栏起点：仅在配置了 wallClock 时计时；time.Since(loopStart) 到点即终止并 wind-down。
-	loopStart := time.Now()
 	// 自我修复护栏：每次运行私有，按失败签名计数触发再规划/提前收尾（并发安全）。
 	guard := newFailureGuard()
 	for i := 0; i < a.maxIter; i++ {
+		if a.wallClock > 0 {
+			if err := ctx.Err(); err != nil {
+				return execResult{}, err
+			}
+			if runCtx.Err() != nil {
+				return deadlineResult(res), nil
+			}
+		}
 		// 三级压缩之①③：每轮生成前就地治理运行时上下文——单条超限压缩、累计超线折叠，
 		// 不停机（区别于 tokenBudget 的达标即终止）。未配置阈值时为空操作，零回归。
-		messages = a.normalizeContext(ctx, messages)
+		normalized, normalizeErr := a.normalizeForLoop(runCtx, messages)
+		if a.wallClock > 0 {
+			if err := ctx.Err(); err != nil {
+				return execResult{}, err
+			}
+			if runCtx.Err() != nil {
+				return deadlineResult(res), nil
+			}
+		}
+		if normalizeErr != nil {
+			return execResult{}, normalizeErr
+		}
+		messages = normalized
 
 		// token 预算前置检查：预算已耗尽则不再发起新一轮生成。
 		if a.tokenBudget > 0 && res.tokensUsed >= a.tokenBudget {
@@ -171,14 +273,16 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 			break
 		}
 
-		// 挂钟预算前置检查：本轮运行累计耗时已达上限则不再发起新一轮生成，交由下方 wind-down 收尾。
-		if a.wallClock > 0 && time.Since(loopStart) >= a.wallClock {
-			res.terminatedBy = TerminatedByDeadline
-			res.iterations = i
-			break
+		res.iterations = i + 1
+		msg, aborted, err := a.generateForLoop(runCtx, sink, boundModel, messages, i+1)
+		if a.wallClock > 0 {
+			if err := ctx.Err(); err != nil {
+				return execResult{}, err
+			}
+			if runCtx.Err() != nil {
+				return deadlineResult(res), nil
+			}
 		}
-
-		msg, aborted, err := sink.generate(ctx, boundModel, messages, i+1)
 		if err != nil {
 			return execResult{}, err
 		}
@@ -261,11 +365,27 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 
 		// 处理工具调用
 		for _, tc := range msg.ToolCalls {
-			obs, ok := a.handleToolCall(ctx, tc, i+1, sink, response, guard)
+			if a.wallClock > 0 {
+				if err := ctx.Err(); err != nil {
+					return execResult{}, err
+				}
+				if runCtx.Err() != nil {
+					return deadlineResult(res), nil
+				}
+			}
+			obs, ok := a.handleToolCallWithContexts(runCtx, ctx, tc, i+1, sink, response, guard)
 			if !ok {
 				return execResult{aborted: true}, nil
 			}
 			messages = append(messages, obs)
+			if a.wallClock > 0 {
+				if err := ctx.Err(); err != nil {
+					return execResult{}, err
+				}
+				if runCtx.Err() != nil {
+					return deadlineResult(res), nil
+				}
+			}
 		}
 		// 工具轮真正执行过：此后任何异常终止（含 msg==nil）都有观察可供 wind-down 合成。
 		hasObservation = true
@@ -288,13 +408,6 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 			break
 		}
 
-		// 本轮工具执行后再判挂钟：耗时达上限则标记终止，交由下方 wind-down 收尾。
-		// 工具阻塞（长 SQL/子代理委派）常在此处才越线——放在工具执行后判定能及时兜住这类卡顿。
-		if a.wallClock > 0 && time.Since(loopStart) >= a.wallClock {
-			res.terminatedBy = TerminatedByDeadline
-			res.iterations = i + 1
-			break
-		}
 	}
 
 	// 循环耗尽 maxIter 却未自然收尾（最后一步仍是工具调用）→ 标记 max_iter。
@@ -307,9 +420,37 @@ func (a *agentImpl) execLoop(ctx context.Context, messages []*schema.Message, ha
 	// wind-down：因达到 maxIter 或预算耗尽而被动终止（非自然收尾）时，做一次「无工具」收尾生成，
 	// 让模型基于已观察到的结果（Scratchpad/result_id 信封）给出部分结论，而非返回空串。
 	if !naturalFinish && res.terminatedBy != "" {
-		messages = a.normalizeContext(ctx, messages)
+		if a.wallClock > 0 {
+			if err := ctx.Err(); err != nil {
+				return execResult{}, err
+			}
+			if runCtx.Err() != nil {
+				return deadlineResult(res), nil
+			}
+		}
+		normalized, normalizeErr := a.normalizeForLoop(runCtx, messages)
+		if a.wallClock > 0 {
+			if err := ctx.Err(); err != nil {
+				return execResult{}, err
+			}
+			if runCtx.Err() != nil {
+				return deadlineResult(res), nil
+			}
+		}
+		if normalizeErr != nil {
+			return execResult{}, normalizeErr
+		}
+		messages = normalized
 		windMsgs := append(messages, schema.SystemMessage(windDownPrompt))
-		final, aborted, ferr := sink.generate(ctx, a.toolModel, windMsgs, res.iterations+1)
+		final, aborted, ferr := a.generateForLoop(runCtx, sink, a.toolModel, windMsgs, res.iterations+1)
+		if a.wallClock > 0 {
+			if err := ctx.Err(); err != nil {
+				return execResult{}, err
+			}
+			if runCtx.Err() != nil {
+				return deadlineResult(res), nil
+			}
+		}
 		if aborted {
 			return execResult{aborted: true}, nil
 		}

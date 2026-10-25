@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -245,7 +246,7 @@ func TestReAct_MaxIterTermination(t *testing.T) {
 type sleepingTool struct {
 	name  string
 	delay time.Duration
-	calls *[]string
+	calls atomic.Int32
 }
 
 func (t *sleepingTool) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -253,21 +254,19 @@ func (t *sleepingTool) Info(_ context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t *sleepingTool) InvokableRun(_ context.Context, _ string, _ ...tool.Option) (string, error) {
+	t.calls.Add(1)
 	time.Sleep(t.delay)
-	*t.calls = append(*t.calls, t.name)
 	return "ok:" + t.name, nil
 }
 
-// TestReAct_WallClockTermination 验证挂钟预算耗尽时循环提前终止并 wind-down 收尾，
-// terminated_by=deadline、partial=true，且在越线的那一步（工具阻塞后）就地止损。
+// TestReAct_WallClockTermination 验证挂钟预算耗尽时停止等待慢工具，直接交付非空降级答复，
+// terminated_by=deadline、partial=true，不再额外调用模型收尾。
 // 收敛「步数/计费 token 都没到上限、却因单步极慢让用户干等」的「感知到的卡住」。
 func TestReAct_WallClockTermination(t *testing.T) {
-	var order []string
-	// 工具单次执行 40ms > 挂钟预算 20ms：i=0 前置检查（≈0ms）放行 → 生成工具调用 →
-	// 工具阻塞 40ms → 工具执行后挂钟检查（≈40ms≥20ms）越线 → 终止，恰好 1 次工具调用。
-	slow := &sleepingTool{name: "query", delay: 40 * time.Millisecond, calls: &order}
+	// 工具忽略 context 且单次执行 40ms > 挂钟预算 20ms，Agent 应停止等待。
+	slow := &sleepingTool{name: "query", delay: 40 * time.Millisecond}
 
-	// 脚本：首轮返回工具调用触发阻塞越线；脚本随即耗尽，wind-down 生成走默认收尾语（非空）。
+	// 首轮返回工具调用触发超时；整体预算耗尽后不能再请求模型。
 	tm := &scriptedToolModel{script: []*schema.Message{
 		toolCallMsg("1", "query"),
 	}}
@@ -288,14 +287,17 @@ func TestReAct_WallClockTermination(t *testing.T) {
 	if resp.Metadata["terminated_by"] != TerminatedByDeadline {
 		t.Errorf("expected terminated_by=deadline, got %v", resp.Metadata["terminated_by"])
 	}
-	if len(order) >= 10 {
-		t.Errorf("wall clock should terminate well before maxIter, got %d calls", len(order))
+	if calls := slow.calls.Load(); calls != 1 {
+		t.Errorf("expected one slow tool call, got %d", calls)
+	}
+	if tm.calls != 1 {
+		t.Errorf("deadline must not start another model call, got %d calls", tm.calls)
 	}
 	if resp.Metadata["partial"] != true {
 		t.Errorf("expected partial=true on deadline termination")
 	}
 	if resp.Content == "" {
-		t.Errorf("wind-down must fill a non-empty partial conclusion")
+		t.Errorf("deadline must deliver a non-empty partial conclusion")
 	}
 }
 

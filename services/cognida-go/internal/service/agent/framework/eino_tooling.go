@@ -20,6 +20,12 @@ import (
 // 愈合：参数不可解析时合成错误观察、不执行工具（原 buffered 变体会带残缺参数执行）；
 // 无论解析成败都追加一条 tool 消息，保证 assistant.tool_calls 与 tool 消息严格 1:1。
 func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iteration int, sink execSink, response *Response, guard *failureGuard) (*schema.Message, bool) {
+	return a.handleToolCallWithContexts(ctx, ctx, tc, iteration, sink, response, guard)
+}
+
+// Execution may expire while the client is still connected. Use eventCtx to
+// report the interrupted tool and let the caller deliver the deadline result.
+func (a *agentImpl) handleToolCallWithContexts(ctx, eventCtx context.Context, tc schema.ToolCall, iteration int, sink execSink, response *Response, guard *failureGuard) (*schema.Message, bool) {
 	toolCall := &ToolCall{Name: tc.Function.Name}
 
 	// 解析参数
@@ -39,7 +45,7 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 	// 保证 assistant.tool_calls 与 tool 消息严格 1:1，杜绝下一轮生成因悬空
 	// tool_call 触发 "insufficient tool messages following tool_calls" 400。
 	if parseErr {
-		if !sink.onToolCall(ctx, &ToolCallInStream{
+		if !sink.onToolCall(eventCtx, &ToolCallInStream{
 			ID:     tc.ID,
 			Name:   tc.Function.Name,
 			Status: "error",
@@ -57,7 +63,7 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 	}
 
 	// 发送工具调用事件（buffered 空实现）
-	if !sink.onToolCall(ctx, &ToolCallInStream{
+	if !sink.onToolCall(eventCtx, &ToolCallInStream{
 		ID:     tc.ID,
 		Name:   tc.Function.Name,
 		Input:  args,
@@ -107,7 +113,7 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 		guard.recordSuccess(tc.Function.Name)
 	}
 
-	if !sink.onToolResult(ctx, resultEvent, iteration) {
+	if !sink.onToolResult(eventCtx, resultEvent, iteration) {
 		return nil, false
 	}
 	response.ToolCalls = append(response.ToolCalls, toolCall)
@@ -120,6 +126,9 @@ func (a *agentImpl) handleToolCall(ctx context.Context, tc schema.ToolCall, iter
 // （tool_blocked / pending_confirm，未触达底层工具），调用方据此跳过逐工具输出护栏，
 // 避免脱敏破坏 confirm_token 等控制字段。
 func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (output string, synthetic bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
 	// 工具级 span：挂在外层 agent.chat 之下，还原调用链瀑布（含被门拒/待确认的合成结果，
 	// 便于排查为何某工具未真正执行）。otel 未注册真实 provider 时为 no-op、零开销。
 	ctx, span := frameworkTracer.StartToolSpan(ctx, a.name, toolCall.Function.Name, toolCall.Function.Arguments)
@@ -160,7 +169,11 @@ func (a *agentImpl) invokeTool(ctx context.Context, toolCall schema.ToolCall) (o
 	// （delegationTimeout=180s），需给更宽的单工具挂钟上限——否则通用 toolTimeout（90s）会
 	// 先于其内部超时把三路并行委派掐断，退化回主循环内联，白费子代理隔离（历史 bug）。
 	timeout := a.effectiveToolTimeout(toolCall.Function.Name)
-	if timeout <= 0 {
+	// A disabled toolTimeout cannot disable the run deadline. Preserve the
+	// parent's deadline itself rather than rebuilding its remaining duration as
+	// another timer, which could race and misclassify a run timeout as a tool error.
+	_, hasDeadline := ctx.Deadline()
+	if timeout <= 0 && !hasDeadline {
 		out, err := a.runSelectedTool(ctx, selectedTool, toolCall)
 		return out, false, err
 	}
@@ -198,7 +211,13 @@ func (a *agentImpl) effectiveToolTimeout(toolName string) time.Duration {
 // 纯阻塞，invokeTool 也能在到点后返回一次可恢复的超时观察，不把 ReAct 循环拖死（这正是「单步 hang 使
 // wallClock 失效」的堵口）。到点后被遗弃的 goroutine 会在其自身返回时自然结束，不影响主循环推进。
 func (a *agentImpl) runToolWithTimeout(ctx context.Context, selectedTool tool.BaseTool, toolCall schema.ToolCall, timeout time.Duration) (string, error) {
-	toolCtx, cancel := context.WithTimeout(ctx, timeout)
+	var toolCtx context.Context
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		toolCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		toolCtx, cancel = context.WithCancel(ctx)
+	}
 	defer cancel()
 
 	type toolOutcome struct {

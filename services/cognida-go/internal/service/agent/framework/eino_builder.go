@@ -199,18 +199,19 @@ func (b *Builder) WithTokenBudget(tokenBudget int) *Builder {
 	return b
 }
 
-// WithWallClock 设置 ReAct 循环的挂钟预算（一次运行累计耗时达到该值即终止并 wind-down 收尾）。
-// 与 maxIter/tokenBudget 互补：为「步数/计费 token 都没到上限、却因某几步极慢而让用户长时间干等」
-// 的卡顿兜底，到点即交付基于现有观察的部分结论。传入 <=0 表示不限挂钟。
+// WithWallClock 设置 ReAct 执行的挂钟预算，覆盖循环中的模型请求、工具调用及收尾生成。
+// 预算耗尽时取消执行，返回非空降级答复及 terminated_by=deadline、partial=true，
+// 不再发起额外模型请求；流式调用仍通过未取消的请求 context 交付结束事件。
+// 不覆盖无工具聊天、执行前后 hooks 或响应交付；传入 <=0 表示不限挂钟。
+// 忽略 context 的第三方调用无法被强制终止，但 Agent 会停止等待其结果。
 func (b *Builder) WithWallClock(d time.Duration) *Builder {
 	b.wallClock = d
 	return b
 }
 
-// WithToolTimeout 设置单次工具调用的挂钟上限：wallClock 的检查都在工具执行「之后」，若某工具自身
-// 无内部超时且永久阻塞，循环会卡死在那一步、wallClock 永远轮不到——本兜底为所有工具统一封顶，到点即
-// 以可恢复的超时观察回灌 LLM（换路径或收尾），把工具级 hang 收敛掉。各工具自带的更短超时会先触发；
-// 本兜底只兜「没自带超时」的缺口（如 get_schema/graph_query）。传入 <=0 表示不套统一超时。
+// WithToolTimeout 设置单次工具调用的挂钟上限，同时受 WithWallClock 的剩余预算约束。
+// 单工具超时以可恢复的错误观察回灌 LLM；整体预算耗尽则结束运行。
+// 各工具自带的更短超时仍会先触发。传入 <=0 表示不设独立的单工具上限。
 func (b *Builder) WithToolTimeout(d time.Duration) *Builder {
 	b.toolTimeout = d
 	return b

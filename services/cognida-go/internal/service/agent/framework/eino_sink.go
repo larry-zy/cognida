@@ -99,11 +99,21 @@ func (s *streamSink) generate(ctx context.Context, m model.BaseChatModel, msgs [
 	if err != nil {
 		return nil, false, err
 	}
+	// Keep Recv and Close on the same goroutine: Eino copied/merged readers are
+	// not safe to close concurrently with a read. The caller bounds its wait;
+	// a provider that ignores cancellation must eventually release its read.
+	bounded := s.a != nil && s.a.wallClock > 0 && !s.liveContent
 	defer reader.Close()
 
 	var chunks []*schema.Message
 	for {
+		if bounded && ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
 		chunk, recvErr := reader.Recv()
+		if bounded && ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
 		if recvErr != nil {
 			// io.EOF 是正常结束；其余是真实错误（网络中断等），必须上报而非静默截断。
 			if errors.Is(recvErr, io.EOF) {
