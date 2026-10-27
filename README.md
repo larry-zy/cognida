@@ -1,294 +1,384 @@
 # Cognida
 
-**以 Agent 为执行内核的数据与知识平台。** 从数据接入、质量检查、清洗与标注，到审批发布、检索分析、固定评测和反馈返工，所有阶段使用可追溯的任务、版本资产和权限边界。
+**以 Agent 为执行内核的数据与知识平台。** 把分散的数据、文档和业务问题，转化为可追溯的数据资产、知识库、特征、训练与评测数据集，以及可复核的分析报告。
 
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev/) [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](https://www.python.org/) [![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs)](https://vuejs.org/)
+[![Go](https://img.shields.io/badge/Go-1.25.13+-00ADD8?logo=go)](services/cognida-go/go.mod) [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)](services/cognida-python/pyproject.toml) [![Vue](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs)](apps/cognida-web/package.json) [![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-![DaDa 数据智能体结果画布](assets/images/data-agent-canvas.png)
+Cognida 支持两种工作习惯：从一项能力开始，直接清洗、标注、构建监督微调（SFT）数据集或分析已有数据；也可以提交业务目标，由 Supervisor 提出计划，经确认后交给持久任务控制器分发执行。数据处理、人工审核、发布与反馈使用共同的资产版本和权限体系。
 
-## 能力与验收范围
+[整体架构](#整体架构) · [核心能力](#核心能力) · [完整场景](#完整场景技术支持与故障排查) · [快速开始](#快速开始) · [开发与验证](#开发与验证) · [验收与生产边界](#验收与生产边界)
 
-更新日期：**2026-10-16**。本轮覆盖业务闭环与能力补全；RL、模型训练/部署及独立生产基础设施另行规划。实现、真实环境验收和业务质量分别记录，流程成功不代表标签、答案或研究结论已经达到业务准确率目标。
+> 文档整理：**2026-10-27**；实现核对基线：`df6d497`。下文区分当前代码能力、历史测试证据与业务落地条件；历史验收日期不随文档更新改变。
 
-| 能力 | 当前行为与入口 |
-| --- | --- |
-| 统一任务控制 | `/tasks`：Supervisor 澄清目标、生成候选、人工保存和启动；类型化能力注册、DAG 分发、预算预留、持久租约、取消、SSE、重启核对和运行中重规划。在途子任务保留原计划回执，新计划仅修改未预留节点。 |
-| 数据接入 | 手工文本/表格、Web、知识文档、采集候选、数据库表、SQL 结果和评测结果；认证 GET JSON API 支持受管凭据引用、分页、限额、快照和检查点。新采集及重跑只产生候选。 |
-| Hugging Face 接入 | `/hf-datasets`：独立搜索、数据卡与固定 commit 文件检查、有界预览和静态文件导入；只选择明确列，支持精确数值和显式 JSON 编码的 messages/tools。输出原始版本资产，也可通过 `huggingface.import` 作为 Supervisor DAG 的零输入来源节点；独立导入不自动启动后续任务。 |
-| 文档解析 | TXT、Markdown、HTML、CSV、PDF 文本层、DOCX、XLSX、PPTX；支持 DOCX 表格、XLSX 多工作表与 PPTX 表格。旧二进制 Office 文件须转换；无正文 PDF 明确失败，不将未配置 OCR 算作成功。 |
-| 质量与清洗 | `/quality`、`/pipelines`：诊断、预置算子、方案预览、分页差异、移除原因、内容摘要复查；原始资产保持不可变。 |
-| 数据准备与标注标准 | `/data-preparation`：对已有清洗资产执行字段映射、类型/必填校验和显式换行规范化，形成可核验的 prepared 版本；`/label-standards`：定义标签、适用/排除规则、例子和数量约束，人工发布不可变标准。 |
-| 知识标签与样本标注 | `/labeling`：新建任务绑定 prepared 资产与已发布标准，规则和结构化模型建议保持待审，依据位置以固定文本为准；人工修改受保护，审核后的知识标签应用到真实检索。分类、实体、关系及问答样本可审核、导出并发布。 |
-| SFT 数据集构建 | `/sft-datasets`：从已有 prepared QA 列或 messages/tools 构建候选，检查回合结构、重复提示和 split/group 泄漏；人工审核后发布固定版本并导出 JSONL；`governance.sft` 可消费上游 prepared 资产，持久任务完成只代表草案构建成功。不生成缺失答案、不启动模型训练。 |
-| 固定数据集与评测 | `/datasets`、`/evaluation`：样本、指南、审核修订、来源、划分及内容摘要固定为不可变版本；来源分组/时间划分、精确和近重复检查；QA/RAG/Agent/SQL profile 校验，评测固定数据集和目标配置。 |
-| 特征工程 | `/features`：字段、受限表达式、窗口聚合、版本化 embedding；全量/增量物化、回填、撤回、精确数值和事件时间/可用时间查询。特征 embedding 需要可信的固定模型 revision，本轮未配置该 revision，真实模型物化尚未验收。 |
-| 漂移监控 | `/drift`：真实基线、数值/类别/缺失率/schema 比较、审批、定时监控、通知和治理任务；展示距离与样本量，距离不是 p 值。默认绑定选定快照；真实上游持续刷新需单独配置与验收。 |
-| 数仓查询 | MySQL、PostgreSQL、ClickHouse、Doris、StarRocks、Hive；查询有界、保持精确类型、外部来源只读。Hive 和 BigQuery 使用持久异步作业、恢复、分页与取消。BigQuery 已实现凭据引用/dry-run/扫描预算，尚缺真实 GCP 项目验收。 |
-| 数仓建模 | `/warehouse`：主题域、事实粒度、维度关系与分层 DAG，受限投影/关联/聚合、基数检查、增量/回填、水位及表列血缘；候选审批后切换受管版本，失败保留旧产物。 |
-| 分析与研究 | Data Agent 的语义取数、Text2SQL、自我修复、分析和 A2UI；DeepResearch 支持持久运行、预算内补查、逐主张证据、支持/冲突/不足状态、同源归并和部分失败。 |
-| 反馈返工 | `/feedback`：来源和失败结果定位→修正版本→有预算返工→隔离候选知识→相同样本/配置复测→门槛比较→人工审批激活→回退/撤回。源撤权和候选状态在检索、精确片段及派生资产读取时复查。 |
-| 策略进化 | `/suggestions`：清洗、检索、经验、Skill、Playbook、编排六类策略的基线、候选、固定评测、确切版本审批、激活回执与回退；运行固定策略快照，不让候选直接影响正式执行。 |
-| 受控 SQL / ETL | `/operations`：受管目标、类型化 DML、暂存版本、内容/身份/版本绑定确认、事务幂等回执及回退。旧确认令牌不能绕过计划直接写库；外部数仓保持只读。 |
-| Sandbox | `/sandbox`：固定摘要镜像、非 root、只读根、禁网、CPU/内存/进程/时间/磁盘/输出限额、真实文件校验、取消与资源核对。当前验收的是显式授权的受控开发 profile，不宣称普通 Docker 已满足多租户不可信代码强隔离。 |
+## 整体架构
 
-八类来源、八种文件格式及六种数据库的真实页面链路都有独立证据。数仓验证包含 **语义查询→真实引擎→Redis ResultStore→版本资产→七阶段→人工审批→报告**，并在发布后检查长整数/小数和 `00123` 文本不失真。
+![Cognida 数据与知识平台六层技术架构](assets/images/cognida-target-architecture-v2.png)
 
-此前综合页面 E2E **37/37 通过**（2026-10-16），用时 8.2 分钟，零失败、零跳过、零整例重试。该轮执行清单 **81/83 项完成验收**；余下两项是实际 BigQuery 项目和固定 revision 特征 embedding 的外部验收，相关实现已具备。该轮测试服务与专用数据已清理，原有服务保留。
+架构图表达平台的目标职责与技术布局。当前实现按下表对应；具体能力的执行入口、部署开关和验收范围见后文。图中的全部组件不代表在默认部署中同时启用。
 
-2026-10-16 用户确认暂无上述外部环境或受管配置引用，这两项保留为未实测，不计入通过项；该清单其余验收已完成。Hive 已通过本地真实实例验收。清单完成不代表通用业务准确率、生产容量和长期运行已经合格。
-
-随后新增 [Hugging Face 真实数据效果基准](benchmarks/huggingface/REPORT-2026-10-16.md)：27,571 条中英文清洗保真、43,702 条官方 test 规则标注、335 条冻结模型样本、6,497 行特征与可控漂移。发现并修复混合 JSON 类型误去重，并根据独立训练样本诊断改进模型输出合同；修复前后模型成绩分别保留。该轮使用真实服务/API、存储与模型，**没有重新运行浏览器 E2E**，也未把公开数据成绩当成生产批准。
-
-此前新增 HF 连接器、数据准备、标准和 SFT 的[独立能力与验收矩阵](docs/implementation/standalone-data-capabilities.md)。页面、REST API 和 Agent 工具调用相同授权服务，已有资产可直接进入所需能力，流程仅负责组合。该批验收时 HF/SFT 仅提供独立入口；现在已接入持久任务编排，人工审核/发布仍不向模型开放。`label_suggest` 按固定标准生成单项待审候选，SFT 只构建、审核和导出，不训练。该批 **10 个不同的受影响页面场景分批验收通过**，包括真实公开 HF 固定文件的 3 行有界导入→清洗→准备→标准→待审标注，以及 QA/messages SFT 审核导出；这不代表完整数据集导入或标注质量达标。Go 全 internal race、真实 MySQL/HTTP 回归通过，Python 717 通过/3 跳过。HF 可显式配置专用受信出口，默认仍直连，保留公网地址、TLS 和凭据边界。批次、历史失败和证据见[独立能力历史验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-STANDALONE-DATA.md)，与此前 37/37 分开计数。
-
-HF/SFT 现已接入 Supervisor 持久编排：可组合零输入 HF 导入、清洗、prepared 标准化与 SFT 草案构建，也保留每项独立页面、API 和 Agent 工具。补齐了资料列到知识正文的显式投影，以及审核标签到真实知识发布的来源/摘要关联。部署此版本需执行正式迁移 **38、39**；知识摘要不对旧文档自动回填。技术支持验收使用 NVIDIA TechQA 固定文件的前两条可答记录，已完成真实模型规划到 SFT 审核发布、知识打标入库和 Agent 检索回答，并核对回答及工具回执持久保存。含实际服务重启恢复、独立能力、并发/取消与原始负例，本轮 **14 个不同 E2E 用例分批通过**；历史失败和修复记录保留，这不是全量数据质量或生产准确率批准。详细流程与边界见[Supervisor HF/SFT 场景验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-SUPERVISOR-HF-SFT.md)。
-
-- [综合验收与质量边界](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-COMPLETE-LOOP.md)
-- [独立数据能力、HF 接入与 SFT 边界](docs/implementation/standalone-data-capabilities.md)
-- [公开数据协议、复现与效果报告](benchmarks/huggingface/README.md)
-- [文件与人工质量基线](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-EVIDENCE-MATRIX.md)
-- [数仓支持、认证、限额和实际版本](docs/implementation/query-adapters.md)
-- [逐项任务与未验收项](docs/openspec/changes/complete-governed-data-loop/tasks.md)
-
-## 企业场景与落地条件
-
-Cognida 可以作为以下六类企业场景的实现底座：围绕一个业务目标组合采集、处理、研究和评测，交付可追溯的数据资产，再根据业务结果返工。**下表是场景实施方案，不是六套已经开箱即用、完成企业验收的产品流程。** 现有能力和真实测试范围以上文及对应验收记录为准；每个场景仍需完成专用接入、业务规则和端到端验证。
-
-| 场景与业务需求 | 可复用能力与预期交付 | 场景专项工作与验收重点 |
+| 层次 | 职责 | 当前实现与技术栈 |
 | --- | --- | --- |
-| **产品质量跨系统调查**：某型号投诉增加，关联售后工单、生产批次、供应商质检、固件版本和维修记录，核查原因与影响范围。 | 采集、清洗准备、标准约束打标、数仓关联、特征、DeepResearch 与并行任务；交付影响范围、证据报告、审核后的排障知识、故障特征和 SFT 样本。 | 接入真实业务系统，统一设备/批次/版本标识，制定故障分类和证据标准。原因假设须经业务验证，不能把相关性写成已确认根因；标签和答案与专家金标准比较。 |
-| **持续更新的业务数据产品**：为电商售后建立退货治理数据产品，统一退货原因，分析商品和渠道问题，支持业务问答与持续更新。 | 清洗、打标、数仓建模、窗口特征、知识检索及固定数据集；交付统一口径的业务表、退货标签、商品/渠道特征、售后知识与分析报告。 | 补齐订单/商品实体关联、业务口径、增量来源与更新触发；核对金额、数量、去重和延迟数据。历史特征按当时可获得的数据计算，不能带入后续退货结果；更新失败应保留可用旧版本。 |
-| **上游变化的影响分析与受控修复**：订单系统金额单位、状态枚举或字段变化后，找出受影响的报表、特征、数据集和 Agent，再验证迁移方案。 | 质量与漂移检查、表列血缘、版本资产、返工、固定评测及审批；形成影响清单、映射/重算候选、回归差异与受管版本的切换或回退证据。 | 补齐变更事件、跨系统消费者登记、各类资产的影响传播与修复规则。必须验证业务口径和下游答案，不能仅看任务成功；现有血缘与返工能力不等于自动完成任意系统迁移。 |
-| **面向具体 Agent 的训练与评测数据建设**：针对订单查询、退货和物流异常，准备覆盖正常流程、信息缺失、工具失败及权限不足的数据。 | HF/业务来源接入、清洗准备、标准约束标注、SFT 构建与固定评测；交付有来源与审核记录的 QA/messages/tools 数据、独立评测集和覆盖缺口报告。 | 建立任务覆盖矩阵、脱敏规则、专家金标准及客户/会话/时间划分，补充真实工具轨迹并验证失败分支。SFT 当前整理已有答案和轨迹，不自动补造缺失答案；训练与部署需另外接入。 |
-| **真实失败驱动的 Agent 改进**：分析未解决问题、用户纠正和工具错误，区分知识缺失、过期、检索失败、数据错误或任务分配不当，验证改进后再启用。 | 失败结果定位、反馈返工、隔离候选、固定评测，以及清洗/检索/经验/Skill/Playbook/编排策略的版本治理；交付归因证据、候选差异、评测结果、审批和回退回执。 | 接入真实业务结果，定制失败分类与候选生成规则，保留未参与优化的验收集；同时比较质量、成本、延迟及跨场景退化。改进对象是明确的数据与策略版本，不代表自动训练模型或保证持续提升。 |
-| **企业定制项目从需求到验收**：读取客户需求、系统接口、数据样本和产品能力说明，交付需求覆盖分析、数据准备方案、知识库、评测集及验收报告。 | 文档解析、DeepResearch、任务拆解、多领域执行、数据准备和评测；形成需求到资产、能力、测试与证据的可追溯交付材料。 | 定制需求覆盖模型、接口适配、交付模板和客户验收口径；逐项区分已满足、信息不足和失败项。具备数据准备与研究能力不等于已经实现任意客户业务接口。 |
+| **L1 业务交互与工作台** | 目标输入、任务与审批、数据工程、知识问答、研究分析和评测 | Vue 3、TypeScript、Vite、Pinia、Element Plus；SSE 展示运行进度，A2UI 展示分析结果 |
+| **L2 API 接入与治理** | 认证、工作空间与资源授权、幂等、内部服务认证、请求追踪 | Go / Gin 提供 REST 与 SSE；Go 与 Python 经认证 HTTP、gRPC、MCP 通信 |
+| **L3 智能规划与任务控制** | 目标澄清、候选计划、依赖分发、预算、取消、恢复和重规划 | Supervisor + TaskControl；Lifecycle 管理资产阶段、流水线和审批发布 |
+| **L4 数据与知识领域引擎** | 采集与 HF 接入、清洗准备、标准与打标、SFT、特征与漂移、数仓、检索研究、评测返工 | Go 领域服务维护状态与合同，Python 执行解析和计算；同一服务可从页面、API 或已注册 Agent 工具调用 |
+| **L5 Agent Runtime 与执行计算** | Agent 推理与工具执行、模型调用、分析计算、查询适配和受控代码运行 | Eino、Go 工具与委派；Python / FastAPI / pandas / NumPy / SciPy；多引擎查询适配器；可选 Docker Sandbox |
+| **L6 数据与基础设施** | 元数据、任务与版本、向量、关系、队列和不可变文件 | MySQL、Milvus、Neo4j、Redis、本地对象存储；Docker Compose 编排开发部署 |
 
-上述场景按实际需要组合能力，不要求每次任务都经过全部阶段。已有资产可单独清洗、打标、计算特征、构建 SFT、检索或分析；Supervisor 只编排已注册且当前身份有权使用的能力，新增业务操作须先实现相应工具或执行适配器。模型提案、任务启动、人工审核与发布仍是独立动作。
+存储各司其职：**MySQL** 保存业务状态、审批、数据源配置和记忆；**Milvus** 承载知识向量与混合检索；**Neo4j** 保存图谱与血缘；**Redis** 承载队列、缓存、进度和 ResultStore；**本地对象存储** 保存版本资产、数据集与报告。Compose 中的 MinIO / etcd 服务于 Milvus，业务资产当前没有因此自动切换到 S3。
 
-可选择“产品质量调查 → 上游变更 → 失败反馈”作为综合场景的验收设计，分三次业务事件验证同一批资产的完整生命周期：
+可观测性已有 OpenTelemetry 接线与 MySQL Trace 存储；Grafana / Loki 是 [独立可选部署](deploy/loki/)，不随根 Compose 默认启动。
 
-- **初次调查**：提供授权的工单、批次、质检、版本和维修数据，固定问题范围及专家标签标准；并行分析后，检查影响范围、来源证据、审核后的知识与数据集，保留无法确认的原因。
-- **上游变更**：在隔离验收数据中引入单位/枚举变化、重复记录或迟到数据；检查影响识别、修正候选和复测，审批前不替换已发布版本，失败时核对旧版本仍可使用。
-- **反馈改进**：对错误标签或答案提交有依据的纠正；检查是否定位来源并生成新版本，在固定回归集和独立验收集上比较，批准后激活并验证回退。
+### Supervisor、控制器与领域 Agent 如何协作
 
-场景验收须同时检查业务结果与执行可靠性：统计口径可复算，标签/答案达到预先约定的人工基线，证据能追溯到固定来源；取消、服务重启、重复投递和权限撤销按对应能力合同处理，未知外部执行先核对，不能把重启理解为无条件重放。当前技术支持小样本链路可作为流程参考，见 [Supervisor HF/SFT 场景验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-SUPERVISOR-HF-SFT.md)，不替代上述六类场景的专项验收。
+| 角色 | 负责什么 | 执行边界 |
+| --- | --- | --- |
+| **Supervisor** | 澄清目标，依据当前授权能力提出类型化计划，汇总已持久化的执行事实 | 不直接执行任务，不代替人工审批 |
+| **TaskControl** | 固定计划版本，按 DAG 依赖分发；预留预算、维护租约与子任务句柄，处理取消、恢复和未来节点重规划 | 未知提交先查询核对；服务重启不等于无条件重放 |
+| **领域 Agent / 执行适配器** | 将具体工作交给采集、清洗、标注、特征、数仓、研究等领域服务 | 既有模型推理，也有确定性的规则和计算；以实际注册的可执行适配器为准 |
+| **Lifecycle 与治理服务** | 管理原始/派生资产、阶段结果、审核记录、发布回执与来源关系 | 候选、机器检查通过和人工批准是不同状态 |
 
-## 架构
+当前持久编排接入了 HF 导入、SFT 草案、质检/清洗/准备/增强/评估固定 preset、采集、知识标签与部分样本标注、特征、离线评测、研究、数仓及可选 Sandbox。**能力声明不等于可被编排执行**：例如发布和数据分析仍通过独立 Lifecycle 能力或流水线模板完成；关系标注有独立入口，尚不在 TaskControl 的标注适配器集合中。
 
-![Cognida 数据与知识平台架构](assets/images/cognida-target-architecture-v2.png)
+运行时的 Lifecycle 准备节点使用固定 preset，不能替代独立准备页面里的任意字段映射配置。任务中的评测适配器评分已有答案，完整的 QA/RAG/Agent/SQL 在线评测由评测服务提供。
 
-六层主体分别承载工作台、接入治理、任务控制、领域能力、Agent 运行时和数据基础设施；安全治理、评测与策略进化贯穿各层。图示表达职责关系，实际运行边界以上表和验收记录为准。
+### 数据怎样形成闭环
 
 ```mermaid
-flowchart TB
-  UI[Vue 工作台 / REST / SSE] --> Supervisor[Supervisor：目标澄清、候选计划、事实汇总]
-  Supervisor --> Review[人工审阅与显式启动]
-  Review --> Runtime[持久任务控制器：DAG、预算、租约、恢复、取消、重规划]
-  Runtime --> Domains[HF与其他采集 / 清洗准备 / 标注与SFT / 特征 / 数仓 / 研究 / 评测]
-  Domains --> Candidate[不可变候选与固定评测]
-  Candidate --> Approval[人工审批与发布门禁]
-  Approval --> Consume[知识检索 / 数据集 / 特征 / 分析报告]
-  Consume --> Feedback[反馈归因与有预算返工]
-  Feedback --> Runtime
-  Candidate --> Strategy[策略候选 / 隔离回归 / 审批激活 / 回退]
-  Strategy -.固定版本.-> Runtime
-  Domains --> Sandbox[受控 Sandbox / 类型化外部工具]
+flowchart LR
+  Source[授权来源 / 已有资产] --> Raw[原始版本]
+  Raw --> Clean[质检与清洗]
+  Clean --> Prepared[显式标准化 / prepared 版本]
+  Standard[人工发布的标注标准] --> Label[知识标签 / 样本标注候选]
+  Prepared --> Label
+  Prepared --> SFT[已有 QA 或 messages/tools → SFT 草案]
+  Prepared --> Feature[特征物化 / 漂移比较]
+  Label --> Review[人工审核与审批]
+  SFT --> Review
+  Review --> Assets[知识库 / 固定数据集 / 版本资产]
+  Feature --> Use[检索问答 / 分析 / 固定评测]
+  Assets --> Use
+  Use --> Feedback[反馈定位 / 修正候选 / 对照复测]
+  Feedback --> Review
 ```
 
-Supervisor 负责规划和汇总，不持有审批权限；控制器决定何时向哪项领域服务分发，领域服务执行实际工作。模型建议、机器通过和人工批准分别留痕。共享协议包含 Task、Plan、ChildHandle、Artifact、Approval，子任务以持久操作键重放，未知提交先核对再决定后续动作。
+清洗与标准化先于新标注任务。特征工程、知识标签、样本标注和 SFT 是按目标选择的分支，不必机械地串行经过全部能力。合格的已有资产可以从相应阶段进入。
 
-个人 Agent 默认配置通过 `/api/v1/agent/config` 按用户和工作空间保存，支持版本冲突检查、幂等重试与字段重置，并在新知识问答/交互研究中生效。已启动任务保持原参数；详见[配置字段与生效规则](services/cognida-go/internal/service/agent/preferences.md)。图谱关系统计使用真实完整聚合，Skill 列表支持分类与标签的组合过滤；旧占位拆解/派发入口已移除。语义缓存提供[按租户安全清理](services/cognida-go/internal/infrastructure/cache/cleanup.md)，尚未自动启用生产调度。
+发布目标也不同：文本资料进入知识库并建立索引；表格发布为版本对象，可关联数据目录；受管数据库写入走 Operations / 数仓的独立确认与审批流程。普通资产发布不会自动写入外部业务数据库。
 
-| 层次 | 技术与存储 |
+## 核心能力
+
+### 数据采集、质量与准备
+
+| 能力与页面入口 | 实际产物与行为 |
 | --- | --- |
-| Web | Vue 3、TypeScript、Vite、Pinia、Element Plus、Playwright |
-| 主服务与 Agent | Go、Gin、Eino、GORM、gRPC、MCP、SSE |
-| 计算服务 | Python、FastAPI、Pandas、NumPy、SciPy、文档解析器 |
-| 状态与元数据 | MySQL：任务、版本、审批、审核、策略、数据源和审计 |
-| 知识检索 | Milvus 向量/BM25，授权检索、RRF、重排和精确片段读取 |
-| 关系与血缘 | Neo4j：知识图谱、实体关系和血缘 |
-| 缓存与传递 | Redis：队列、进度和 ResultStore；本地对象存储：不可变文件与候选 |
-| 执行隔离 | Docker CLI / Engine API：固定镜像、受控 profile、资源限额与回收 |
+| 采集 `/collection-tasks`、API 来源 `/api-sources` | 网页采集产生候选；认证 GET JSON API 支持受管凭据、分页、限额、快照、检查点与取消 |
+| 资产接入 `/pipelines` | 手工文本/表格、知识文档、采集结果、数据库表、查询结果和评测结果进入生命周期资产，固定来源与版本 |
+| Hugging Face `/hf-datasets` | 搜索、数据卡、固定 commit 文件检查、有界预览和静态文件导入；页面/API/工具独立使用，也可作为 `huggingface.import` 零输入任务节点 |
+| 文档解析 | TXT、Markdown、HTML、CSV、PDF 文本层、DOCX、XLSX、PPTX；保留 Office 表格和多工作表处理能力 |
+| 质检与清洗 `/quality`、`/pipelines` | 质量诊断、清洗预览、分页差异、移除原因与内容摘要复查；生成新版本，保留原始输入 |
+| 标准化 `/data-preparation` | 从清洗资产显式映射字段，校验类型与必填项，规范化换行；支持资料列到知识正文的投影，输出可核验的 prepared 版本 |
 
-依赖方向：`handler → service → model ← repository`。Go 管理状态、权限、审批和恢复；Python 经认证 HTTP/gRPC 执行计算，MCP 提供分析工具。
+HF 当前处理 **JSON / JSONL / CSV / Parquet** 静态文件；前三类支持 gzip。单次最多 4 个文件、每文件 8 MiB、合计 16 MiB、最多 1,000 行，并由用户明确选择列；不执行数据集脚本，也不是全量 Hub 镜像。独立导入与持久任务的恢复/取消合同不同，不能互相推断。文件、解压和产物限制见 [独立数据能力说明](docs/implementation/standalone-data-capabilities.md)。
 
-## 知识、记忆与自进化
+旧二进制 Office 文件需先转换；没有正文的 PDF 在未配置 OCR 时明确失败。新采集和重跑产生候选，不直接覆盖已发布知识。上游快照不等于通用 CDC，专用企业连接器仍须按业务系统实现。
 
-统一 RetrievalCapability 被 REST 和 Agent 共用，支持授权范围内的向量/BM25、融合重排、查询重写、HyDE 与多跳。知识图谱按知识库配置启用。私人长期记忆以 tenant/user 隔离，支持显式保存、管理与每轮召回；当前向量排序基于最多 500 条近期候选，研究流程不自动读取私人记忆。
+### 打标、SFT 与固定数据集
 
-经验蒸馏、经验召回和 Skill 落地开关相互独立，默认关闭。新策略必须经过固定样本回归与确切版本审批，激活后固定到运行快照，撤回会阻断后续消费。此闭环改进数据与执行策略，不自动训练模型，也不默认共享私有经验。
+| 能力与页面入口 | 实际产物与行为 |
+| --- | --- |
+| 标准库 `/label-standards` | 定义标签集合、适用/排除规则、例子及数量约束；人工发布后形成不可变标准 |
+| 知识标签 `/labeling` | prepared 资产绑定已发布标准；规则与结构化模型输出作为待审建议，审核后的标签可应用于真实知识检索 |
+| 样本标注 `/labeling` | 分类、实体、关系与问答样本；证据位置对应固定文本，人工修改受保护，保留审核与来源记录 |
+| SFT `/sft-datasets` | 从已有 QA 列或 messages/tools 构建草案，检查回合结构、工具调用闭合、受限 JSON Schema、重复提示及 split/group 泄漏；审核发布后导出固定版本 JSONL |
+| 数据集与评测 `/datasets`、`/evaluation` | 固定样本、指南、审核修订、来源、划分和摘要；QA/RAG/Agent/SQL profile 校验与固定配置评测 |
 
-## 权限与运行边界
+`governance.sft` 已接入 Supervisor 持久任务，但任务成功仅表示 **SFT 草案已构建**。人工审核与发布仍是独立动作。当前最多处理 1,000 行，不生成缺失答案、不执行样本里的工具，也不启动训练；业务上的“不可答”标记须在准备阶段明确处理。
 
-- 新采集和重跑始终生成候选，历史发布回执保留。发布和反馈激活需要独立人工审批；自动执行不推导授权。
-- 新接口的幂等键同时绑定身份和载荷；相同键不同载荷返回冲突，租户切换与取消不能复用旧确认。
-- 来源删除、禁用、撤权、内容或连接版本变化会在对应受控消费路径重新核验。公网网页的站外变化不等于实时撤权信号；数据库快照不提供通用 CDC，支持范围见接入矩阵。
-- Sandbox 默认关闭。启用须设置 `SANDBOX_ENABLED=true`、`SANDBOX_PROFILE_ACCEPTED=true`、精确授权主体、固定摘要镜像和暂存目录；未验收的强隔离 profile 拒绝启用。
-- BigQuery 的本地协议/数据库测试不代替真实 GCP IAM、计费、跨请求恢复和报告验收。需要显式测试项目、凭据、位置与扫描预算。
-- 文件解析、结构化标签证据与研究引用检查均有可测门槛；业务准确率仍需在实际业务样本上单独评估。
+划分检查覆盖原始内容与审核后最终消费的问题，包含精确重复和规则近重复检测；这不等于完整的语义泄漏证明。自动标签和答案需要与独立专家金标准比较，标准定义本身不保证质量。
+
+### 特征、漂移与数据仓库
+
+| 能力与页面入口 | 实际产物与行为 |
+| --- | --- |
+| 特征工程 `/features` | 字段、受限表达式、窗口聚合、固定模型 revision 的 embedding；全量/增量物化、回填、撤回、精确数值与事件时间/可用时间查询 |
+| 漂移 `/drift` | 基线审批，数值分布、类别、缺失率与 schema 比较；定时监控、通知和治理任务草稿 |
+| 数据源 `/datasource`、分析 `/analysis` | MySQL、PostgreSQL、ClickHouse、Doris、StarRocks、Hive、BigQuery 查询适配；外部数据源只读，结果有界并保留精确类型 |
+| 数仓 `/warehouse` | 主题域、事实粒度、维度关系、分层 DAG；受限投影、多对一左联、聚合、基数检查、增量/回填、水位及表列血缘；审批后切换受管版本 |
+| 受控写入 `/operations` | 受管目标上的类型化 DML / ETL、暂存版本、身份与内容绑定确认、事务幂等回执及回退 |
+
+Hive / BigQuery 支持持久异步作业、分页、恢复和取消；BigQuery 包含凭据引用、dry-run 与扫描预算，但尚无真实 GCP 项目验收。支持的认证方式与实际引擎版本见 [查询适配矩阵](docs/implementation/query-adapters.md)。
+
+当前特征同步处理上限 1,000 行，持久物化上限 10,000 行 / 100,000 单元格；数仓建模最多 8 个节点 / 10,000 行，不支持任意 SQL、DDL、脚本或删除传播，迟到数据需回填。它们适合有界数据产品和验证任务，生产容量须单独测量。
+
+漂移显示的是距离与样本量，不是 p 值；监控默认绑定选定快照，持续读取新上游批次需要额外配置。特征 embedding 要求可信固定 revision，当前真实模型物化仍未验收。
+
+### 知识、记忆、分析与研究
+
+| 能力与页面入口 | 实际产物与行为 |
+| --- | --- |
+| 知识管理 `/knowledge`、知识问答 `/kb-assistant` | 检索增强生成（RAG）：REST 与 Agent 共用检索能力；授权范围内的向量/BM25、融合重排、查询重写、HyDE、多跳与标签过滤；图谱按知识库配置启用 |
+| Data Agent `/analysis/chat` | 语义取数、Text2SQL、自我修复、Python 分析与 A2UI 结果画布；结果保留来源与工具回执 |
+| DeepResearch `/research` | 持久研究运行、预算内补查、逐主张证据、支持/冲突/不足状态、同源归并和经过检查的部分结果 |
+| 私人长期记忆 | tenant/user 隔离，显式保存、管理与每轮召回；个性化问答不共享答案缓存 |
+
+私人记忆当前在最多 500 条近期候选中做词法与向量排序，不是全库 ANN，也不自动在用户之间共享；研究流程不自动读取私人记忆。详见 [记忆合同](services/cognida-go/internal/service/memory/README.md)。个人 Agent 默认配置按用户与工作空间保存，在每次新运行开始时读取，会话显式参数优先，已启动任务保持原参数，见 [配置生效规则](services/cognida-go/internal/service/agent/preferences.md)。
+
+受控研究路径限制为 3 个子问题、20 个来源、120 秒及最多 4 次模型调用。引用与语义检查有助于追溯和识别不足，仍需根据业务风险核实结论。
+
+![Data Agent 分析结果画布](assets/images/data-agent-canvas.png)
+
+### 反馈返工与策略进化
+
+`/feedback` 将失败或纠正定位到来源与版本，生成有预算的返工和隔离候选，再用相同样本及目标配置复测。通过门槛比较后，由人审批激活，保留回退、撤回与来源撤权检查。
+
+`/suggestions` 管理六类策略的基线、候选、固定评测、确切版本审批和激活回执：清洗/检索调整受限参数，经验/Skill/Playbook 提供指导文本，编排调整并发上限。执行固定策略快照，候选不能直接影响正式运行。
+
+这里的“自进化”是**数据、知识和执行策略的受控改进闭环**。当前不自动改代码、扩大工具权限或训练模型；Agentic RL、模型微调与部署不在现有交付范围。共享经验蒸馏、召回和 Skill 落地默认关闭；当前私人记忆装配还对共享蒸馏/召回施加禁用保护，不能仅靠打开开关获得共享经验闭环。
+
+### 权限、一致性与执行隔离
+
+- **身份与资源**：消息与会话按用户和工作空间隔离，审计按工作空间隔离；数据源管理校验所有者或管理员，修改连接目标时不能把旧密码静默复用到新端点。
+- **写入与重试**：受保护 HTTP 写操作的幂等键绑定身份、实际路径与请求载荷；相同键不同内容返回冲突。人工确认绑定具体内容和版本，不能拿旧确认执行新计划。
+- **资产与索引**：受控消费重新核验来源权限、状态、版本或摘要；知识分块编辑/删除同步投影，陈旧索引不能继续作为有效正文返回。
+- **交互状态**：工作空间切换隔离旧请求与 SSE；同一身份的成员信息刷新保留草稿，迟到历史响应不覆盖新回答；中断与保存失败会显示在结果回执中。
+- **Sandbox `/sandbox`**：固定摘要镜像、非 root、只读根、禁网、资源/时间/输出限额、真实产物校验与取消回收。默认关闭，当前验收 profile 为显式授权的受控开发环境，不是多租户恶意代码的强隔离认证。
+
+## 完整场景：技术支持与故障排查
+
+目标：把授权的故障资料整理成可检索知识，并把已有正确问答整理成可审核的 SFT 数据；后续 Agent 回答排障问题时能引用真实资料。
+
+1. 在 `/hf-datasets` 或采集入口确认来源、固定版本与字段；参考验收使用 `nvidia/TechQA-RAG-Eval` 的固定文件。
+2. 在 `/tasks` 请求生成 **HF 导入 → 清洗 → prepared 准备 → SFT 草案** 的计划，检查预算与列映射后显式保存、启动；每个节点产生独立领域回执。
+3. 在 `/sft-datasets` 核对已有问题、参考答案和划分，人工审核、发布并导出 JSONL。参考答案作为监督输入，不作为模型预测成绩。
+4. 知识分支通过 `/data-preparation` 将资料列投影为正文，避免将问答列混入知识证据；绑定已发布标准，生成并审核知识标签。
+5. 通过流水线审批发布到指定知识库，等待实际索引完成，再将审核标签关联到发布产物。
+6. 在知识问答中检索并回答，核对引用、实际向量检索来源以及保存的回答/工具回执；失败结果可进入反馈返工。
+
+该场景已有真实模型、服务、存储和浏览器验收，正向主链只使用两条可答记录，并保留原始不可答记录的负例；不能据此推断整个数据集的准确率。步骤、固定提交、历史失败与重启核对见 [Supervisor HF/SFT 场景验收](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-SUPERVISOR-HF-SFT.md)。
+
+每一步也可独立使用：已有清洗资产直接标准化，已有 prepared 资产直接打标或构建 SFT，已有知识库直接检索研究。页面、REST API 和已注册 Agent 工具调用相同授权服务，审批与发布不向模型工具开放。
+
+## 企业应用场景
+
+以下是可由现有能力组合的实施方案，仍需专用接入、业务标准和专项验收。
+
+| 需求 | 可交付结果 | 落地重点 |
+| --- | --- | --- |
+| **产品质量跨系统调查**：关联投诉、生产批次、质检、固件与维修记录 | 影响范围、证据报告、故障标签与特征、排障知识、SFT 样本 | 对齐设备/批次/版本标识；根因由业务验证，相关性不能直接当因果 |
+| **持续更新的业务数据产品**：建立电商退货治理数据集 | 统一口径的业务表、退货标签、商品/渠道特征、售后知识和报告 | 订单实体关联、增量触发、金额与数量复算、迟到数据及历史特征防泄漏 |
+| **上游变化的影响分析与修复**：金额单位、状态枚举或字段变化 | 下游影响清单、映射/重算候选、回归差异、版本切换与回退证据 | 接入变更事件与消费者登记；验证业务口径、下游答案和旧版本可用性 |
+| **面向具体 Agent 的训练与评测数据**：订单、退货、物流异常 | 有来源与审核的 QA/messages/tools、独立评测集、覆盖缺口报告 | 任务覆盖矩阵、脱敏、专家金标准、客户/会话/时间划分与真实工具轨迹；训练另行接入 |
+| **真实失败驱动的 Agent 改进**：知识过期、检索失败、数据错误或分配不当 | 归因证据、候选差异、固定评测、审批激活与回退回执 | 接入业务结果，保留未参与优化的验收集，同时比较质量、成本、延迟与退化 |
+| **企业定制项目从需求到验收**：读取需求、接口与样本并组织交付 | 需求覆盖分析、数据准备方案、知识库、评测集和验收报告 | 补齐实际业务接口、覆盖模型与客户验收标准，逐项记录信息不足或失败 |
+
+综合验收可以围绕同一批资产依次模拟“初次调查 → 上游变更 → 反馈改进”，同时检查业务结果与取消、重启、重复投递、撤权等执行边界。新增业务动作须先实现相应服务或适配器，Supervisor 不能凭描述调用尚不存在的接口。
 
 ## 快速开始
 
-### 环境要求
+### 选择部署方式
 
-- **Go** 1.25.13+ · **Python** 3.11+（uv）· **Node** 20.19+（20.x）、22.13+（22.x）或 24+ · **MySQL** 8.0+ · **Milvus** 2.6+ · **Neo4j** 5.0+ · **Redis** 7.0+
-- **本机开发模式**：中间件（MySQL / Redis / Neo4j / Milvus）需**预先常驻**（本机以 Homebrew services 管理 MySQL/Redis/Neo4j，Milvus 跑在 docker 容器），应用层用下方 `dev.sh` 启动。
-- **容器一体化模式**：仓库根目录已提供 [`docker-compose.yml`](docker-compose.yml)，一条命令拉起**全部组件与服务**（前端 + Go + Python + MySQL/Milvus(+etcd+minio)/Neo4j/Redis），无需本机预装任何中间件，见下方「Docker 一键部署」。
+- **Docker Compose**：安装 Docker Engine / Docker Desktop 与 Compose 插件；应用和中间件由仓库编排，适合作为本地部署起点。
+- **本地开发**：Go 1.25.13+、Python 3.11+ 与 uv、Node.js 22.13+（22.x）或 24+；自行准备 MySQL、Redis、Neo4j 和 Milvus。
 
-### 配置参数
+当前 Compose 固定 MySQL 8.0、Redis 7、Neo4j 5、Milvus **2.5.4**；Go 构建镜像使用 1.26。镜像版本与历史验收环境不是同一概念，升级或替换后需复验实际查询与检索路径。默认 Compose 暴露多个中间件端口并使用开发存储配置，不能直接作为生产安全基线。
 
-**配置分两层**：非密部署配置（端口 / 模型名 / base_url / 超时 / 开关…）由仓库配置文件管理，部署密钥通过环境变量或本地 `.env` 注入，不提交到 Git。加载优先级从低到高：**代码内兜底默认 < `config.yaml` < 环境变量 / `.env`**。用户登记的数据源密码和 API 来源 Token 由 `DATASOURCE_SECRET_KEY` 加密后存入 MySQL，读取 API 不回传明文；加密主密钥仍由环境注入。
+### 先配置依赖与密钥
 
-| 服务 | 非密真源（入库） | 密钥来源（复制 `.env.example` → `.env`，已 gitignore） |
-|------|---------|------|
-| Go 后端 | `internal/config/config.yaml`（`//go:embed` 编译期打包进二进制） | `services/cognida-go/.env` |
-| Python | `services/cognida-python/config/config.yaml` | `services/cognida-python/.env` |
-| 前端 | — | `apps/cognida-web/.env.development`（`VITE_API_BASE_URL`） |
+Go 非密配置位于 [config.yaml](services/cognida-go/internal/config/config.yaml)，编译时嵌入，也可用 `CONFIG_FILE` 指向替代文件；Python 配置位于 [config.yaml](services/cognida-python/config/config.yaml)。环境变量覆盖配置，密钥放本机 `.env` 或部署环境，不提交到仓库。
 
-> **Docker 模式更省事**：只需在**仓库根目录一个 `.env`**（`cp .env.docker.example .env`）填全部密钥，compose 会注入到各容器，无需再改服务内的 `.env`。
+| 配置 | 默认拓扑下的要求 |
+| --- | --- |
+| `DB_*`、`NEO4J_URI` / `NEO4J_PASSWORD`、`REDIS_ADDR` | 指向可用中间件；Docker 的地址由 Compose 设置，本地开发须核对数据库名和连接地址 |
+| `JWT_SECRET` | 至少 32 字节随机值；缺失、占位符或过短会拒绝启动，可用 `openssl rand -hex 32` 生成 |
+| `DATASOURCE_SECRET_KEY` | **当前启动必需**，用于 AES-GCM 加密数据源凭据；可用 `openssl rand -base64 32` 生成，变更后已有凭据需重新录入 |
+| `EMBEDDING_API_KEY`、`MILVUS_HOST`、`MILVUS_TOKEN` | 默认 embedder 与检索器的启动依赖；Milvus 地址和 token 需非空且服务可连接，Compose 已设置地址和本地 token 默认值 |
+| `INTERNAL_HTTP_AUTH_TOKEN`、`GRPC_AUTH_TOKEN` | 分别生成随机值，Go/Python 对应值保持一致；生产运行与 Compose 必填 |
+| `CHAT_API_KEY` 与聊天模型配置 | Go 模型能力需要；当前默认 DeepSeek，provider / base URL / model 必须与密钥相匹配 |
+| `LLM_API_KEY` 与 `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` | Python 模型分析与评测需要，独立于 Go 的模型配置 |
+| `METASO_API_KEY` | 联网搜索按需配置；已有知识库检索不因此变成公网搜索 |
+| `EMBEDDING_REVISION` | 特征 embedding 需可信固定 revision；普通 embedding key 不足以完成该项验收 |
 
-**必填 / 常用密钥**（缺失则对应能力不可用；`JWT_SECRET` 缺失或不足 32 字节会**直接启动失败**，fail-closed）：
+部分 `.env.example` 注释仍把数据源加密密钥或 Milvus token 标为按需；**当前默认依赖装配要求以上表为准**。切换模型时还需核对维度、响应格式和工具调用能力，不能仅更换 Key。
 
-| 变量 | 用途 | 获取 / 生成 |
-|------|------|------|
-| `JWT_SECRET` | 登录令牌签名 | `openssl rand -hex 32` |
-| `DB_PASSWORD` · `NEO4J_PASSWORD` | MySQL / Neo4j 密码 | 自定义 |
-| `CHAT_API_KEY` | 聊天大模型（Go 侧，默认 DeepSeek） | 模型厂商控制台 |
-| `EMBEDDING_API_KEY` | 向量化（默认阿里云 DashScope） | 阿里云百炼 |
-| `LLM_API_KEY` | Python 侧 LLM（文档 / 评测 / 质量） | 模型厂商控制台 |
-| `DATASOURCE_SECRET_KEY` | 外部数据源密码 AES-256 加密（多数据源必需） | `openssl rand -base64 32` |
-| `INTERNAL_HTTP_AUTH_TOKEN` | Go/Python 内部 HTTP 共用认证；两侧须相同 | `openssl rand -hex 32` |
-| `GRPC_AUTH_TOKEN` | Go/Python gRPC 共用认证；两侧须相同 | `openssl rand -hex 32` |
-| `METASO_API_KEY` | 联网搜索（DeepResearch，可选） | Metaso |
-| `HUGGINGFACE_SOCKS5_ADDRESS` | 可选 HF 专用受信出口；仅数字 loopback `host:port`，空值直连 | 已配置本机 SOCKS5 服务；不含凭据、不接受页面覆盖 |
-| `MILVUS_TOKEN` · `REDIS_PASSWORD` | 云 Milvus / 带密 Redis（本机可留空） | 按需 |
+### Docker 启动
 
-**切换模型 / Provider**（改非密 `config.yaml`，Key 仍走 `.env`）：默认聊天模型 `deepseek-chat`（`chat.base_url: https://api.deepseek.com/v1`），Embedding `text-embedding-v3`（DashScope）。换成 OpenAI 或其它 OpenAI 兼容服务，只需改 `chat.base_url` / `chat.model_name` / `chat.provider`，Key 填到 `CHAT_API_KEY` 即可——LLM 统一弹性层承接任意 OpenAI 兼容 Provider。
-
-### Docker 一键部署（全组件）
-
-`docker-compose.yml` 编排全部基础设施与三个应用服务，数据库迁移由一次性 `cognida-migrate` 服务在 Go 启动前跑完（golang-migrate 版本化迁移，不自动建表）。
+从仓库根目录执行，已有 `.env` 会保留：
 
 ```bash
-cp .env.docker.example .env      # 填入数据库、JWT、HTTP/gRPC 共用密钥及所需模型 API Key
-docker compose up -d --build     # 首次构建 + 拉起全部服务
-docker compose ps                # 查看健康状态
-docker compose logs -f cognida-go
-docker compose down              # 停止（加 -v 连同数据卷一起清空）
+test -f .env || cp .env.docker.example .env
+# 编辑 .env，替换占位值并填齐上表中的必需配置
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
+docker compose logs -f cognida-go cognida-python
 ```
 
-访问：前端 `http://localhost:8888` ｜ Go API `http://localhost:8080/api/v1` ｜ Neo4j Browser `http://localhost:7474`。
-前端经 nginx 同源反代 `/api → cognida-go:8080`（含 SSE 关缓冲），无需额外配置 CORS。
+`cognida-migrate` 在 Go 启动前应用正式迁移。上传文件与业务对象分别保存在 `uploads`、`objects` 持久卷；Web 经 nginx 同源代理 `/api`，包括 SSE。
 
-### 一键启动（本机开发，推荐）
+根 `.env` 只为 Compose 插值，**不会自动将任意变量传进容器**。当前 Go 模型非密参数、`EMBEDDING_REVISION`、HF 出口、后台开关和 `SANDBOX_*` 等需在 Compose override 中显式设置 `environment`；YAML 配置项也可挂载配置文件。例如更换 Go 聊天模型时，保留根 `.env` 中匹配的 `CHAT_API_KEY`，并添加 `docker-compose.override.yml`：
 
-`dev.sh` 是真实的一键启动脚本，负责启停 Go 后端 + 4 个 Python 服务 + 前端，并对中间件做连通性预检。
-
-```bash
-# 先确保中间件在跑（示例：Homebrew + docker）
-brew services start mysql@8.0 redis neo4j && docker start milvus-standalone
-
-./dev.sh start      # 启动全部服务
-./dev.sh status     # 查看状态
-./dev.sh logs go    # 跟踪某个服务日志
-./dev.sh stop       # 停止全部服务
+```yaml
+services:
+  cognida-go:
+    environment:
+      CHAT_PROVIDER: openai
+      CHAT_BASE_URL: https://api.openai.com/v1
+      CHAT_MODEL_NAME: gpt-4o-mini
 ```
 
-### 手动分服务启动
+这只是 provider 配置示例，不代表该模型已经通过全部业务评测。默认 Go 容器没有 Sandbox 所需的 Docker CLI/socket/staging 环境；打开开关之前需单独准备受控执行环境。
 
-各段在独立终端中，从仓库根目录执行：
+日常停止保留数据卷：
 
 ```bash
-# 1. Go 后端（:8080）
-cd services/cognida-go && go run ./cmd/server
+docker compose down
 ```
 
-```bash
-# 2. Python gRPC（Document/Quality，:50051）
-cd services/cognida-python && uv run python -m grpc_service.server
-```
+### 本地开发启动
+
+先准备中间件、创建配置中指定的 MySQL 数据库，再从仓库根目录复制配置并填入实际值：
 
 ```bash
-# 3. Python 基础 HTTP（:8000）
-cd services/cognida-python && uv run python main.py
+test -f services/cognida-go/.env || cp services/cognida-go/.env.example services/cognida-go/.env
+test -f services/cognida-python/.env || cp services/cognida-python/.env.example services/cognida-python/.env
+```
+
+本地 Go 还需显式核对 `MILVUS_HOST=localhost:19530` 和非空 `MILVUS_TOKEN`。Go/Python 上传目录与允许访问路径应指向同一位置；内部 HTTP/gRPC token 两端一致。
+
+以下三段分别在独立终端中执行，每段都从仓库根目录开始：
+
+```bash
+# Python：统一管理 HTTP、计算 HTTP、gRPC 和 MCP 监听器
+cd services/cognida-python
+uv sync --frozen --extra document --extra collection --extra quality --extra analytics --extra evaluation
+uv run --no-sync playwright install chromium
+uv run --no-sync python -m core.main
 ```
 
 ```bash
-# 4. Python 评测 HTTP（:18888）
-cd services/cognida-python && uv run uvicorn services.evaluation.fastapi_app:app --port 18888
+# Go：先迁移，再启动 API 与后台控制器
+cd services/cognida-go
+set -a
+source .env
+set +a
+go run ./cmd/migrate-db up
+go run ./cmd/migrate-db version
+go run ./cmd/server
 ```
 
 ```bash
-# 5. Python MCP（Analytics，:3000；本机配置 MCP_PORT=3100）
-cd services/cognida-python && MCP_MODE=http uv run python -m mcp_service.server
+# Web：HTTP/SSE 均使用同源 /api/v1，由 Vite 代理到 Go
+cd apps/cognida-web
+npm ci
+VITE_API_PROXY_TARGET=http://127.0.0.1:8080 npm run dev -- --host 127.0.0.1
 ```
 
-```bash
-# 6. 前端（:5173）
-cd apps/cognida-web && npm ci && npm run dev
-```
+使用 `core.main` 时不要同时启动旧的四个 Python 入口。结束开发后在各终端按 `Ctrl-C`。仓库仍保留 `dev.sh` 辅助脚本，但其停止逻辑会按固定端口终止监听进程，不适合与其他服务共用这些端口的机器。
 
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| cognida-go（后端） | 8080 | REST / gRPC / SSE 网关 |
-| cognida-python gRPC | 50051 | Document+Quality |
-| cognida-python 基础 HTTP | 8000 | `main.py` 基础接口 |
-| cognida-python 评测 | 18888 | FastAPI 评测计算 |
-| cognida-python MCP | 3000（本机 3100） | HTTP 模式 MCP |
-| cognida-web（前端） | 5173 | Vite 开发服务器（strictPort，代理 /api→:8080） |
+### 启动后如何确认可用
 
-> **数据库表结构**：业务表由**版本化迁移**（golang-migrate）管理，运行时**不自动建表**。首次启动（或改 schema 后）需先跑一次迁移——Docker 模式由一次性 `cognida-migrate` 服务在 Go 启动前自动完成；本机 / 手动模式执行：
-> ```bash
-> cd services/cognida-go && set -a && source .env && set +a && go run ./cmd/migrate-db up
-> ```
+| 服务 | 默认地址 / 端口 | 检查内容 |
+| --- | --- | --- |
+| Web | Docker `http://localhost:8888`；本地 `http://127.0.0.1:5173` | 正常注册/登录，进入工作空间 |
+| Go | `http://localhost:8080/api/v1`，存活检查 `/health` | `/health` 只证明进程可响应，不证明依赖或业务能力就绪 |
+| Python HTTP | `http://localhost:8000/ready` | 检查已配置监听器和显式依赖 |
+| Python 计算 | `18888` | Lifecycle 与评测 HTTP，由 Go 携内部 token 调用 |
+| Python gRPC / MCP | `50051` / `3100` | 文档与计算通信 / HTTP MCP；Go 的 `8080` 不是 gRPC 端口 |
 
-**调用链路**：浏览器(:5173) → Go 后端(:8080) → gRPC/HTTP/MCP → Python 服务
+首次功能检查可在 `/pipelines` 创建小段文本资产，明确选择 `Clean and standardize before labeling · v1`（`clean-and-prepare`）模板，完成质检、清洗和默认标准化，检查各阶段回执及最终 prepared 产物。若需自定义准备规则，可从 `/experts?agent_id=data-cleaning` 独立清洗，再通过“标准化此清洗产物”进入 `/data-preparation`。需要知识问答时，创建知识库、人工审批发布，确认索引完成并检索到这份文档；需要 SFT 时，再进入标准库与 SFT 工作台。健康检查成功不能替代这些业务检查。
 
----
+常见阻塞按实际依赖排查：初始化失败先检查 JWT、数据源密钥、默认 embedder 和 Milvus；内部 401 检查 Go/Python token 是否一致；文档读取失败检查共享路径；页面有任务但不执行时检查后台开关、租约和领域错误回执。
+
+### 按需执行开关
+
+| 配置 | 行为 |
+| --- | --- |
+| `BACKGROUND_WORKERS_ENABLED=false` | 关闭后台执行，不能期待持久任务继续推进 |
+| `TASK_CONTROL_EXECUTION_ENABLED=false` | 禁止新任务启动；后台仍开启时继续核对已有运行、取消和期限 |
+| `EVALUATION_WORKER_ENABLED` | 默认开启；在线评测还需对应模型、服务和权限 |
+| `DATASOURCE_HEALTHCHECK_ENABLED`、`SKILL_ENABLED` | 默认关闭；MCP 监听正常不代表 Skill 业务开关已开启 |
+| `HUGGINGFACE_SOCKS5_ADDRESS` | 可选 HF 专用出口，仅接受数字 loopback `host:port`；默认安全直连，不继承通用 HTTP 代理；容器 loopback 指容器自身 |
+| `SANDBOX_ENABLED` 等 | 默认关闭；启用还需接受 profile、授权主体、固定摘要镜像、绝对 staging 目录和可用执行环境 |
 
 ## 开发与验证
 
-业务表结构唯一真源为 `services/cognida-go/migrations/`。新增 schema 必须提交成对迁移与对应 model；运行时不自动建表。本轮迁移为 16–35，在隔离 MySQL 完成 up/down/up。
+目录分工如下，Go 依赖方向为 `handler → service → model ← repository`：
 
-下面每一段均从仓库根目录执行：
+```text
+apps/cognida-web/           Vue 工作台、组件测试与两套浏览器测试
+services/cognida-go/        API、Agent、任务控制与领域治理
+  internal/model/          合同、实体与端口
+  internal/service/        业务服务、领域适配和运行时
+  migrations/              成对的版本化业务表迁移
+services/cognida-python/    解析、清洗、分析、特征与评测计算
+benchmarks/huggingface/     公开数据基准协议与效果报告
+docs/implementation/       能力合同、接入矩阵与实现说明
+```
+
+业务表 schema 唯一真源是 [migrations](services/cognida-go/migrations/README.md)，当前最高版本 **39**。新增表结构变更需同时提交 model 和成对 up/down 文件；运行时不自动建表。图谱以 Neo4j 为真源，存量库接入与 dirty 修复按迁移手册操作。
+
+下面是常规回归入口，每段从仓库根目录执行：
 
 ```bash
-# Go 核心回归
 cd services/cognida-go
-go test ./internal/...
-# 真实数据库测试须先配置隔离库，不能指向业务库
-go test -race -tags=integration ./internal/handler ./internal/repository/mysql
+go test -short -race ./...
+go vet ./...
+go run ./cmd/frontend-contracts -check
+bash scripts/check-architecture.sh
 ```
 
 ```bash
-# Python
 cd services/cognida-python
-uv run pytest tests/ -q
+uv sync --frozen --all-extras
+uv run --no-sync pytest -m 'not integration and not grpc and not slow' --cov-fail-under=0
 ```
 
 ```bash
-# Web
 cd apps/cognida-web
-npm test
+npm ci
+npm run lint
 npm run type-check
+npm test
 npm run test:e2e:check
 npm run build
 ```
 
-E2E 使用真实账号、真实 Go/Python 服务及隔离数据库，通过页面登录、操作和检查；不使用 mock 响应代替执行。各 spec 的启用变量、fixture 和范围见 [E2E 目录](apps/cognida-web/e2e/)。验收后停止本轮启动的服务并精确回收测试资源。
+真实数据库/HTTP 回归需先准备隔离 MySQL、Redis 和相应变量，不能指向业务库。[Go CI](.github/workflows/ci-go.yml) 的 `security-integration` 给出正式迁移与测试命令，覆盖消息/审计授权、数据源凭据、查询结果、分块投影、审核后划分和 Redis 幂等/队列等安全一致性路径。
 
-[迁移手册](services/cognida-go/migrations/README.md) · [统一任务协议与恢复](services/cognida-go/internal/service/taskcontrol/README.md) · [Web 功能](apps/cognida-web/FEATURES.md) · [生命周期运行说明](services/cognida-go/internal/service/lifecycle/README.md) · [Go 功能配置](services/cognida-go/FEATURES.md)
+浏览器测试有两套，证据不能混计：
 
-## 后续范围
+| 套件 | 运行范围 | 复现入口 |
+| --- | --- | --- |
+| HTTP/SSE fixture 回归 | 真实 Vue 页面、受控 API 响应；覆盖工作空间/草稿、路由与数据源、历史响应乱序、旧 SSE 401 等交互 | [fixture 说明](apps/cognida-web/e2e-fixtures/README.md)，前端启动后执行 `npm run test:e2e:fixture`；CI 使用 Chromium |
+| 真实业务 E2E | 正常账号、真实 Go/Python、隔离数据库、存储与按需模型/引擎；单 worker，零整例重试 | [真实 E2E 手册](apps/cognida-web/e2e/README.md)，显式设置隔离环境、URL、仓库外账号文件与能力开关后执行 `npm run test:e2e` |
 
-- 业务标注质量门槛、自然脏数据与复杂文档效果、真实上游连续批次、峰值并发和长期恢复验收；公开基准不替代这些生产条件。
-- 真实 GCP 项目上的 BigQuery 外部验收。
-- 配置可信固定模型 revision 后，验收特征 embedding 的真实模型物化。
-- 多租户不可信代码的独立执行节点、微虚拟机等更强隔离环境验收。
-- Agentic RL、奖励与策略训练、模型训练/微调及部署回路。
-- K8s/Helm、镜像发布、自动扩缩容和完整生产运维体系。
+未启用用例的 skip 不算通过；验收后停止本轮开启的服务，并按隔离环境范围回收测试数据。
 
-[实施设计](docs/openspec/changes/complete-governed-data-loop/design.md)和[执行清单](docs/openspec/changes/complete-governed-data-loop/tasks.md)保留实际边界及验收证据，不将跳过的外部能力计为完成。
+当前 CI 的门禁强度也有区别：[Web CI](.github/workflows/ci-web.yml) 阻断 ESLint 错误，warning 尚不阻断；[Python CI](.github/workflows/ci-python.yml) 执行不含 integration/grpc/slow 的单测，覆盖率阈值为 0，ruff/mypy/safety/bandit 仍为非阻断反馈。因此 CI 通过不能等同于全栈生产验收。
+
+## 验收与生产边界
+
+以下保留各批真实历史结果，**不是当前 HEAD 的一次全量重跑**，数量不相加：
+
+| 证据 | 已验证的范围 | 解释边界 |
+| --- | --- | --- |
+| [综合页面验收，2026-10-16](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-COMPLETE-LOOP.md) | 37/37；八类来源、八种文件格式、六种数据库及治理流程；清单 81/83 项 | BigQuery 真实项目和固定 revision 特征 embedding 未实测；Hive 已使用本地真实实例 |
+| [独立能力验收，2026-10-16](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-STANDALONE-DATA.md) | 10 个不同场景分批通过；HF 3 行导入、独立准备、标准、待审打标、QA/messages SFT | 有界功能样本，不是完整数据集或标注质量批准 |
+| [Supervisor HF/SFT 验收，2026-10-16](apps/cognida-web/e2e/ACCEPTANCE-2026-10-16-SUPERVISOR-HF-SFT.md) | 14 个不同用例分批通过；技术支持主链、知识分支、取消/并发与实际服务重启核对 | 正向主链两条样本；保留模型合同失败及复验记录，最终布局调整只补组件与离线视觉检查 |
+| [公开 HF 数据基准，2026-10-16](benchmarks/huggingface/REPORT-2026-10-16.md) | 清洗 27,571 条；规则标注 43,702 条；模型 335 条；真实特征 6,497 行及可控漂移 | 该批没有重跑浏览器 E2E；公开数据与已观察样本不能作为独立生产验收集 |
+
+公开模型回归中，BANKING77 的 154 条样本准确率 **72.08%**，中文 MASSIVE 的 117 条为 **79.49%**，Few-NERD 的 64 条实体样本 exact micro-F1 为 **54.93%**，其中 9 条合同失败计入分母。它们衡量不同任务，不能合成统一“平台准确率”；改进使用同一已观察冻结集，是工程回归结果。协议、复现与原始口径见 [基准说明](benchmarks/huggingface/README.md)。
+
+投入具体生产场景之前，仍需完成：
+
+- **业务效果**：独立专家金标准、自然脏数据与复杂文档、标签/答案门槛、误报漏报及人工审核成本。
+- **外部能力**：真实 GCP BigQuery 项目、IAM/扫描预算/恢复；可信固定 revision 的特征 embedding 物化。用户此前确认暂无这些配置，两项继续保留未实测。
+- **持续运行**：真实上游连续批次、更新触发、峰值并发、长期恢复、备份与灾难恢复；快照监控和小样本流程不替代这些验证。
+- **部署隔离**：生产网络与密钥管理、独立执行节点、多租户不可信代码强隔离；默认 Compose 和开发 Sandbox 不覆盖此项。
+- **扩展交付**：模型训练/微调/部署、Agentic RL、K8s/Helm 与自动扩缩容仍需独立建设。
+
+现有 [完整闭环执行清单](docs/openspec/changes/complete-governed-data-loop/tasks.md) 与 [独立数据能力合同](docs/implementation/standalone-data-capabilities.md) 保留各阶段实现和验收范围。平台可以承载上述场景的开发与验证，是否达到某个业务的上线标准，应以该业务的实际效果、容量与运行证据判断。
 
 ## 许可证
 
