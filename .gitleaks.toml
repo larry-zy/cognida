@@ -37,3 +37,42 @@ paths = [
   '''(?:^|/)\.gitleaks\.toml$''',
   '''(?:^|/)\.gitleaksignore$''',
 ]
+
+# CI 8.21.2 将下面两份固定验收证据里的摘要误判为 generic-api-key；
+# 新版扫描器还会命中集成测试中的两个对象路径。它们均不是鉴权凭据。
+# 仅扩展该规则的例外；路径 AND 完整行必须同时匹配，不豁免整个文件或任意 SHA-256。
+# 每个摘要/对象路径均固定为已核实值，回归检查见 .github/scripts/check-gitleaks-config.py。
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "固定迁移文件的真实 SHA-256，与 SQL 文件字节核对"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(?:^|/)apps/cognida\-web/e2e/evidence/2026\-10\-16\-migrations\-16\-35\.json$''']
+regexes = [
+  '''^\s*"000026_api_ingestion\.up\.sql"\s*:\s*"86f84017c1cd6e97706cf7fed2b9ea7d697f70fb8d0e9d082ada83035b4a1c5e",?\s*$''',
+  '''^\s*"000026_api_ingestion\.down\.sql"\s*:\s*"f897a9aa9b024d717ce12a4868bc8986fc88d347e8b4879082a2f6a5110ba3e0",?\s*$''',
+]
+
+[[rules.allowlists]]
+description = "固定任务重启证据中的幂等摘要，由任务身份 SHA-256 派生"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(?:^|/)apps/cognida\-web/e2e/evidence/2026\-10\-15\-task\-runtime\-restart\.json$''']
+regexes = [
+  '''^\s*"operation_key"\s*:\s*"380463dc47fdcaaa69df9b1fa79ec158dfca6ef4e5e877bf5d9037d5005ed528",?\s*$''',
+  '''^\s*"operation_key"\s*:\s*"77f7548d9b31776e3f8a375e0f37c17cff4555b26f5ca8dabc65abc956a5e2ff",?\s*$''',
+  '''^\s*"operation_key"\s*:\s*"9f98238349465accde24c5d3f3952222656d79f9c81d90e5f3ac368324a2ad5b",?\s*$''',
+  '''^\s*"operation_key"\s*:\s*"a771be20a3e5edaa9ae0e7a293025399d41444efe448ceb0bc5122e0aa1df1c3",?\s*$''',
+]
+
+[[rules.allowlists]]
+description = "集成测试的固定对象存储路径，不是访问凭据"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(?:^|/)services/cognida\-go/internal/repository/mysql/collection_repo_integration_test\.go$''']
+regexes = [
+  '''^\s*item\.RawObjectKey = "collection/7001/fixture/raw"\s*$''',
+  '''^\s*item\.NormalizedObjectKey = "collection/7001/fixture/normalized"\s*$''',
+]

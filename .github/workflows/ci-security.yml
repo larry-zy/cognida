@@ -26,6 +26,9 @@ jobs:
             | sudo tar -xz -C /usr/local/bin gitleaks
           gitleaks version
 
+      - name: 验证密钥扫描例外边界
+        run: python3 .github/scripts/check-gitleaks-config.py
+
       - name: gitleaks detect（提交历史 + 允许清单）
         # --config 显式指定仓库根 .gitleaks.toml 允许清单；发现未列入清单的密钥即以非零退出阻断。
-        run: gitleaks detect --redact --no-banner --config .gitleaks.toml --exit-code 1
+        run: gitleaks detect --redact --verbose --no-banner --config .gitleaks.toml --exit-code 1
